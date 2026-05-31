@@ -13,6 +13,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <!-- PWA manifest + theme -->
 <meta name="theme-color" content="#2d6a4f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%232d6a4f' rx='20'/><text y='.9em' font-size='80' x='10'>🌳</text></svg>">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -332,13 +335,15 @@ let routeLayer = null;
 
 // ─── MAP ──────────────────────────────────────────────────────
 const map = L.map('map', {zoomControl: false}).setView([51.05, 13.73], 14);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '© OpenStreetMap',
+// Use OpenStreetMap via faster CDN with aggressive caching
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© <a href="https://openstreetmap.org">OSM</a>',
   maxZoom: 19,
   maxNativeZoom: 18,
-  keepBuffer: 4,
+  keepBuffer: 8,
   updateWhenZooming: false,
-  updateWhenIdle: true,
+  updateWhenIdle: false,
+  crossOrigin: true,
 }).addTo(map);
 L.control.zoom({position: 'bottomright'}).addTo(map);
 
@@ -484,6 +489,17 @@ async function doLogin() {
   renderMarkers();
   renderList('');
   updateProgress();
+  // Pre-warm map tiles around project center
+  if(trees.length>0){
+    const lats=trees.map(t=>t.lat).filter(Boolean);
+    const lngs=trees.map(t=>t.lng).filter(Boolean);
+    if(lats.length>0){
+      const clat=lats.reduce((a,b)=>a+b)/lats.length;
+      const clng=lngs.reduce((a,b)=>a+b)/lngs.length;
+      map.setView([clat,clng],15);
+      setTimeout(()=>map.invalidateSize(),100);
+    }
+  }
   startGPS();
 
   // Fit map to trees
@@ -995,6 +1011,35 @@ async function tryResumeSession() {
 
 // Init
 tryResumeSession();
+</script>
+<script>
+// Register Service Worker for offline tile caching
+if('serviceWorker' in navigator){
+  const swCode=`
+const CACHE='bwt-tiles-v1';
+const TILE_RE=/tile\.openstreetmap\.org/;
+self.addEventListener('install',e=>self.skipWaiting());
+self.addEventListener('activate',e=>self.clients.claim());
+self.addEventListener('fetch',e=>{
+  if(!TILE_RE.test(e.request.url))return;
+  e.respondWith(
+    caches.open(CACHE).then(async cache=>{
+      const cached=await cache.match(e.request);
+      if(cached)return cached;
+      try{
+        const res=await fetch(e.request);
+        if(res.ok)cache.put(e.request,res.clone());
+        return res;
+      }catch(err){
+        return cached||new Response('',{status:503});
+      }
+    })
+  );
+});`;
+  const blob=new Blob([swCode],{type:'application/javascript'});
+  const url=URL.createObjectURL(blob);
+  navigator.serviceWorker.register(url).catch(()=>{});
+}
 </script>
 </body>
 </html>
