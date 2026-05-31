@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v4.7 -->
+<!-- v4.8 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -556,7 +556,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       <option value="">Alle Status</option>
       <option value="bewaessert">✓ Bewässert</option>
       <option value="nicht">✕ Nicht bewässert</option>
-      <option value="offen">○ Offen</option>
+
     </select>
     <select class="form-control" id="ctrl-filter-fahrer" style="width:auto;padding:4px 8px;font-size:12px;" onchange="renderControlling()">
       <option value="">Alle Fahrer</option>
@@ -2524,7 +2524,6 @@ function renderControlling(){
     {val:filtered.length,lbl:'Gesamt',sub:'Bäume im Filter',color:'var(--text)'},
     {val:bewaessert.length,lbl:'Bewässert',sub:`${pct}% erledigt`,color:'#16a34a'},
     {val:nicht.length,lbl:'Nicht bewässert',sub:'im Zeitraum',color:'var(--red)'},
-    {val:offen.length,lbl:'Offen',sub:'noch nicht gemeldet',color:'var(--amber)'},
     {val:activeFahrer,lbl:'Aktive Fahrer',sub:'im Zeitraum',color:'var(--blue)'},
   ].map(k=>`<div class="kpi-card">
     <div class="kpi-val" style="color:${k.color};">${k.val}</div>
@@ -2536,8 +2535,7 @@ function renderControlling(){
   // Charts use finalReported so status filter applies everywhere
   const finalBew=finalReported.filter(r=>r.lastStatus==='bewaessert').length;
   const finalNicht=finalReported.filter(r=>r.lastStatus==='nicht').length;
-  const finalOffen=statusFilter?0:offen.length; // hide offen when status filter active
-  renderPieChart(finalBew,finalNicht,finalOffen);
+  renderPieChart(finalBew,finalNicht);
   renderBarChart(filtered,finalReported);
   renderTimelineChart(filtered,from,to);
   renderStadtteilChart(filtered,finalReported);
@@ -2549,16 +2547,16 @@ function destroyChart(id){
   if(ctrlCharts[id]){try{ctrlCharts[id].destroy();}catch(e){}delete ctrlCharts[id];}
 }
 
-function renderPieChart(bew,nicht,offen){
+function renderPieChart(bew,nicht){
   destroyChart('pie');
   const canvas=document.getElementById('ctrl-pie');if(!canvas)return;
   if(!window.Chart){setTimeout(()=>renderControlling(),500);return;}
-  const total=bew+nicht+offen;
+  const total=bew+nicht;
   ctrlCharts['pie']=new Chart(canvas,{
     type:'doughnut',
     data:{
-      labels:['Bewässert','Nicht bewässert','Offen'],
-      datasets:[{data:[bew,nicht,offen],backgroundColor:['#16a34a','#991b1b','#d97706'],borderWidth:0,hoverOffset:6}]
+      labels:['Bewässert','Nicht bewässert'],
+      datasets:[{data:[bew,nicht],backgroundColor:['#16a34a','#991b1b'],borderWidth:0,hoverOffset:6}]
     },
     options:{responsive:false,cutout:'65%',plugins:{
       legend:{position:'bottom',labels:{font:{size:11},padding:12}},
@@ -2578,12 +2576,7 @@ function renderBarChart(filtered,allReported){
     if(r.lastStatus==='bewaessert')tm.bew++;
     else if(r.lastStatus==='nicht')tm.nicht++;
   });
-  // Offen = trees with no report in range
-  filtered.forEach(tree=>{
-    const tm=tourMap[tree.tourId];if(!tm)return;
-    const hasReport=allReported.find(r=>r.id===tree.id);
-    if(!hasReport)tm.offen++;
-  });
+  // No 'offen' category — all trees must have a status per app rules
   const labels=Object.values(tourMap).map(t=>t.name);
   ctrlCharts['bar']=new Chart(canvas,{
     type:'bar',
@@ -2592,7 +2585,6 @@ function renderBarChart(filtered,allReported){
       datasets:[
         {label:'Bewässert',data:Object.values(tourMap).map(t=>t.bew),backgroundColor:'#16a34a',borderRadius:4},
         {label:'Nicht bewässert',data:Object.values(tourMap).map(t=>t.nicht),backgroundColor:'#991b1b',borderRadius:4},
-        {label:'Offen',data:Object.values(tourMap).map(t=>t.offen),backgroundColor:'#d97706',borderRadius:4},
       ]
     },
     options:{responsive:false,plugins:{legend:{position:'bottom',labels:{font:{size:11},padding:8}}},
@@ -2649,12 +2641,7 @@ function renderStadtteilChart(filtered,allReported){
     if(r.lastStatus==='bewaessert')map[s].bew++;
     else if(r.lastStatus==='nicht')map[s].nicht++;
   });
-  filtered.forEach(t=>{
-    const s=t.stadtteil||'Unbekannt';
-    if(!map[s])map[s]={bew:0,nicht:0,offen:0};
-    const hasReport=allReported.find(r=>r.id===t.id);
-    if(!hasReport)map[s].offen++;
-  });
+
   const labels=Object.keys(map);
   ctrlCharts['stadtteil']=new Chart(canvas,{
     type:'bar',
@@ -2663,7 +2650,6 @@ function renderStadtteilChart(filtered,allReported){
       datasets:[
         {label:'Bewässert',data:labels.map(l=>map[l].bew),backgroundColor:'#16a34a',borderRadius:3},
         {label:'Nicht bewässert',data:labels.map(l=>map[l].nicht),backgroundColor:'#991b1b',borderRadius:3},
-        {label:'Offen',data:labels.map(l=>map[l].offen),backgroundColor:'#d97706',borderRadius:3},
       ]
     },
     options:{responsive:false,indexAxis:'y',plugins:{legend:{display:false}},
