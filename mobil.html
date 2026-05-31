@@ -279,6 +279,40 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
   </div>
 </div>
 
+<!-- RESUME OR RESTART DIALOG -->
+<div id="resume-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:4000;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:var(--surface);border-radius:20px;width:100%;max-width:420px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.3);">
+    <div style="padding:24px 24px 16px;text-align:center;">
+      <div style="font-size:36px;margin-bottom:12px;" id="resume-icon">📋</div>
+      <div style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:6px;" id="resume-title">Tour fortsetzen?</div>
+      <div style="font-size:13px;color:var(--text3);line-height:1.6;" id="resume-desc">–</div>
+    </div>
+    <!-- Stats -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--border);margin:0 24px 20px;">
+      <div style="background:var(--surface);padding:12px;text-align:center;">
+        <div style="font-size:22px;font-weight:300;color:#16a34a;" id="rd-bew">–</div>
+        <div style="font-size:11px;color:var(--text3);">Bewässert</div>
+      </div>
+      <div style="background:var(--surface);padding:12px;text-align:center;">
+        <div style="font-size:22px;font-weight:300;color:var(--red);" id="rd-nicht">–</div>
+        <div style="font-size:11px;color:var(--text3);">Nicht bew.</div>
+      </div>
+      <div style="background:var(--surface);padding:12px;text-align:center;">
+        <div style="font-size:22px;font-weight:300;color:var(--amber);" id="rd-offen">–</div>
+        <div style="font-size:11px;color:var(--text3);">Offen</div>
+      </div>
+    </div>
+    <div style="padding:0 24px 24px;display:flex;flex-direction:column;gap:10px;">
+      <button id="btn-neu-starten" onclick="dialogNeuStarten()" style="width:100%;padding:14px;background:var(--green);color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;">
+        🔄 Neu starten
+      </button>
+      <button id="btn-fortsetzen" onclick="dialogFortsetzen()" style="width:100%;padding:14px;background:var(--surface2);color:var(--text);border:1.5px solid var(--border);border-radius:12px;font-size:15px;font-weight:500;cursor:pointer;">
+        ▶ Fortsetzen
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- TOUR FINISH SHEET -->
 <div id="finish-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:3000;" onclick="closeFinishSheet()"></div>
 <div id="finish-sheet" style="display:none;position:fixed;left:0;right:0;bottom:0;z-index:3001;background:var(--surface);border-radius:20px 20px 0 0;padding:24px 24px calc(24px + var(--safe-bottom));">
@@ -503,7 +537,12 @@ async function doLogin() {
     }
   }
   startGPS();
-  drawRoute(); // load saved route from Firestore
+  drawRoute();
+
+  // If tour was closed → ask immediately after login
+  if(currentTour?.status === 'abgeschlossen'){
+    setTimeout(()=>showResumeOrRestartDialog(), 600);
+  }
 
   // Fit map to trees
   if (trees.length > 0) {
@@ -568,6 +607,95 @@ function updateNextTreePreview() {
     nextEl.textContent = tree ? `#${idx+1} — ${tree.name||'–'}` : '–';
     nextEl.style.color = '';
   }
+}
+
+function showResumeOrRestartDialog(){
+  const bew = trees.filter(t=>t.lastStatus==='bewaessert').length;
+  const nicht = trees.filter(t=>t.lastStatus==='nicht').length;
+  const offen = trees.filter(t=>!t.lastStatus).length;
+  const total = trees.length;
+  const isClosed = currentTour?.status === 'abgeschlossen';
+
+  document.getElementById('rd-bew').textContent = bew;
+  document.getElementById('rd-nicht').textContent = nicht;
+  document.getElementById('rd-offen').textContent = offen;
+
+  if(isClosed){
+    document.getElementById('resume-icon').textContent = '✅';
+    document.getElementById('resume-title').textContent = 'Tour war abgeschlossen';
+    document.getElementById('resume-desc').textContent =
+      `Die letzte Tour wurde bereits abgeschlossen. Möchtest du eine neue Runde starten oder die Tour fortsetzen?`;
+    document.getElementById('btn-fortsetzen').style.display = 'block';
+  } else {
+    document.getElementById('resume-icon').textContent = '📋';
+    document.getElementById('resume-title').textContent = 'Tour fortsetzen?';
+    document.getElementById('resume-desc').textContent =
+      `Du hast diese Tour bereits begonnen. Weiter machen oder neu starten?`;
+    document.getElementById('btn-fortsetzen').style.display = 'block';
+  }
+
+  const bd = document.getElementById('resume-backdrop');
+  bd.style.display = 'flex';
+}
+
+function closeResumeDialog(){
+  document.getElementById('resume-backdrop').style.display = 'none';
+}
+
+function dialogFortsetzen(){
+  // Just close dialog — keep existing status, continue where left off
+  closeResumeDialog();
+  toast('Tour wird fortgesetzt');
+}
+
+async function dialogNeuStarten(){
+  closeResumeDialog();
+  toast('Status wird zurückgesetzt…');
+
+  const resetFields = {
+    lastStatus: null, lastReason: null, lastNote: null,
+    lastReportAt: null, lastDriver: null,
+  };
+
+  // Step 1: Unsubscribe listener
+  if(unsubTrees){ unsubTrees(); unsubTrees=null; }
+
+  // Step 2: Reset local state immediately
+  trees.forEach(tree => Object.assign(tree, resetFields));
+  renderMarkers();
+  renderList('');
+  updateProgress();
+
+  // Step 3: Write to Firestore
+  await Promise.all(
+    trees.map(tree =>
+      updateDoc(doc(db,'projects',currentProjectId,'trees',tree.id), resetFields)
+    )
+  );
+
+  // Step 4: Set tour to active
+  await updateDoc(doc(db,'projects',currentProjectId,'tours',currentTourId),{
+    status: 'aktiv',
+    reopenedAt: new Date().toISOString(),
+    reopenedBy: currentDriver,
+  });
+  currentTour = {...currentTour, status: 'aktiv'};
+
+  // Step 5: Re-subscribe
+  unsubTrees = onSnapshot(collection(db,'projects',currentProjectId,'trees'), snap => {
+    if(pauseSnapshot) return;
+    trees = snap.docs.map(d=>({id:d.id,...d.data()}))
+      .filter(t=>t.tourId===currentTourId);
+    routeOrder = routeOrder.filter(id=>trees.find(t=>t.id===id));
+    trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
+    renderMarkers();
+    renderList(document.getElementById('list-search-input')?.value||'');
+    updateProgress();
+    if(selectedTreeId) openSheet(selectedTreeId);
+  });
+
+  drawRoute();
+  toast('🔄 Neu gestartet — viel Erfolg!');
 }
 
 function showFinishConfirm() {
@@ -1140,7 +1268,8 @@ function toast(msg){
 Object.assign(window,{
   doLogin,doLogout,switchTab,openSheet,closeSheet,
   selectStatus,saveReport,goToNextTree,recalcFromGPS,
-  renderList,toast,showFinishConfirm,closeFinishSheet,finishTour,reopenTour
+  renderList,toast,showFinishConfirm,closeFinishSheet,finishTour,reopenTour,
+  showResumeOrRestartDialog,closeResumeDialog,dialogFortsetzen,dialogNeuStarten
 });
 
 // ── SESSION RESUME ───────────────────────────────────────────
@@ -1171,14 +1300,7 @@ async function tryResumeSession() {
         if(nameSel) nameSel.value = driver;
       }, 400);
     }, 600);
-    // Show resume banner
-    const card = document.querySelector('.login-card');
-    if(card) {
-      const banner = document.createElement('div');
-      banner.style.cssText = 'background:var(--green-light);border:1px solid var(--green-mid);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:var(--green);display:flex;align-items:center;gap:8px;';
-      banner.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>Letzte Session: ${driver} — Tour wird fortgesetzt`;
-      card.insertBefore(banner, card.firstChild);
-    }
+    // Session restored — dialog will show after login
   } catch(e) { loadProjects(); }
 }
 
