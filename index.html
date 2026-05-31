@@ -1995,6 +1995,24 @@ let reasons=[];
 async function initVerwaltung(){
   if(!currentProjectId)return;
   await loadReasons();
+  // Auto-seed standard reasons if none exist yet
+  if(reasons.length===0){
+    const defaults=[
+      'Zugang gesperrt',
+      'Baum krank / abgestorben',
+      'Gerät defekt',
+      'Kein Wasser verfügbar',
+      'Baum bereits bewässert',
+      'Baum nicht auffindbar',
+      'Witterung (Starkregen)',
+      'Sonstiges',
+    ];
+    for(const text of defaults){
+      await addDoc(collection(db,'projects',currentProjectId,'reasons'),{text,createdAt:serverTimestamp()});
+    }
+    await loadReasons();
+    notify('Standard-Gründe wurden angelegt');
+  }
   renderDriverMgmt();
   renderReasonsMgmt();
 }

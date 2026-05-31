@@ -521,18 +521,8 @@ async function loadReasons() {
   try {
     const snap = await getDocs(collection(db,'projects',currentProjectId,'reasons'));
     reasons = snap.docs.map(d=>({id:d.id,...d.data()}));
-    if(reasons.length===0){
-      // Default reasons
-      reasons=[
-        {id:'r1',text:'Zugang gesperrt'},
-        {id:'r2',text:'Baum krank / abgestorben'},
-        {id:'r3',text:'Gerät defekt'},
-        {id:'r4',text:'Kein Wasser verfügbar'},
-        {id:'r5',text:'Baum bereits bewässert'},
-        {id:'r6',text:'Sonstiges'},
-      ];
-    }
-  }catch(e){}
+    // No defaults here — reasons are managed exclusively in the desktop app
+  }catch(e){ reasons=[]; }
 }
 
 // ─── PROGRESS ─────────────────────────────────────────────────
@@ -797,9 +787,9 @@ function openSheet(id){
   const reasonVal=tree.lastReason||'';
 
   // Build reason chips
-  const reasonChips=reasons.map(r=>
-    `<div class="reason-chip${reasonVal===r.text?' selected':''}" data-reason="${r.text}">${r.text}</div>`
-  ).join('');
+  const reasonChips=reasons.length>0
+    ? reasons.map(r=>`<div class="reason-chip${reasonVal===r.text?' selected':''}" data-reason="${r.text}">${r.text}</div>`).join('')
+    : '<div style="font-size:12px;color:var(--text3);padding:4px 0;">Keine Gründe hinterlegt — bitte in der Desktop-App unter Verwaltung einrichten.</div>';
 
   document.getElementById('sheet-body').innerHTML=`
     <!-- Status -->
