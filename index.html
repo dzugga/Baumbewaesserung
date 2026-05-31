@@ -531,9 +531,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <span style="font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;">Controlling</span>
     <!-- Zeitraum -->
     <div style="display:flex;gap:4px;flex-wrap:wrap;">
-      <button class="ctrl-period-btn active" data-period="today" onclick="setCtrlPeriod('today',this)">Heute</button>
+      <button class="ctrl-period-btn" data-period="today" onclick="setCtrlPeriod('today',this)">Heute</button>
       <button class="ctrl-period-btn" data-period="week" onclick="setCtrlPeriod('week',this)">Diese Woche</button>
-      <button class="ctrl-period-btn" data-period="month" onclick="setCtrlPeriod('month',this)">Dieser Monat</button>
+      <button class="ctrl-period-btn active" data-period="month" onclick="setCtrlPeriod('month',this)">Dieser Monat</button>
       <button class="ctrl-period-btn" data-period="custom" onclick="setCtrlPeriod('custom',this)">Benutzerdefiniert</button>
     </div>
     <div id="ctrl-custom-dates" style="display:none;align-items:center;gap:6px;">
@@ -2230,7 +2230,7 @@ async function importExcel(input){
 }
 
 // ─── CONTROLLING ─────────────────────────────────────────────
-let ctrlPeriod='today';
+let ctrlPeriod='month';
 let ctrlCharts={};
 
 function setCtrlPeriod(p,el){
@@ -2262,9 +2262,11 @@ function getCtrlDateRange(){
 
 function inCtrlRange(dateStr){
   if(!dateStr)return false;
-  const d=new Date(dateStr);
-  const {from,to}=getCtrlDateRange();
-  return d>=from&&d<=to;
+  // Normalize: take only date part (YYYY-MM-DD) for comparison
+  const datePart = typeof dateStr==='string' ? dateStr.slice(0,10) : new Date(dateStr).toISOString().slice(0,10);
+  const d = new Date(datePart + 'T00:00:00');
+  const {from,to} = getCtrlDateRange();
+  return d >= from && d <= to;
 }
 
 function initControlling(){
@@ -2436,13 +2438,15 @@ function renderControlling(){
   const pct=filtered.length>0?Math.round(bewaessert.length/filtered.length*100):0;
 
   // ── KPI Cards ─────────────────────────────────────────────────
+  const pct=filtered.length>0?Math.round(bewaessert.length/filtered.length*100):0;
+  const activeFahrer=[...new Set(allReported.map(r=>r.lastDriver).filter(Boolean))].length;
   const kpiEl=document.getElementById('ctrl-kpis');
   if(kpiEl) kpiEl.innerHTML=[
     {val:filtered.length,lbl:'Gesamt',sub:'Bäume im Filter',color:'var(--text)'},
     {val:bewaessert.length,lbl:'Bewässert',sub:`${pct}% erledigt`,color:'#16a34a'},
     {val:nicht.length,lbl:'Nicht bewässert',sub:'im Zeitraum',color:'var(--red)'},
     {val:offen.length,lbl:'Offen',sub:'noch nicht gemeldet',color:'var(--amber)'},
-    {val:reported.filter(t=>t.lastDriver).map(t=>t.lastDriver).filter((v,i,a)=>a.indexOf(v)===i).length,lbl:'Aktive Fahrer',sub:'im Zeitraum',color:'var(--blue)'},
+    {val:activeFahrer,lbl:'Aktive Fahrer',sub:'im Zeitraum',color:'var(--blue)'},
   ].map(k=>`<div class="kpi-card">
     <div class="kpi-val" style="color:${k.color};">${k.val}</div>
     <div class="kpi-lbl">${k.lbl}</div>
@@ -2465,7 +2469,7 @@ function destroyChart(id){
 function renderPieChart(bew,nicht,offen){
   destroyChart('pie');
   const canvas=document.getElementById('ctrl-pie');if(!canvas)return;
-  if(!window.Chart)return;
+  if(!window.Chart){setTimeout(()=>renderControlling(),500);return;}
   const total=bew+nicht+offen;
   ctrlCharts['pie']=new Chart(canvas,{
     type:'doughnut',
