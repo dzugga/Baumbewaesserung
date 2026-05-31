@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v3.6 -->
+<!-- v3.7 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -189,10 +189,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
 .ctrl-period-btn{padding:4px 10px;border-radius:20px;font-size:12px;font-weight:500;border:1px solid var(--border);background:var(--surface);color:var(--text2);cursor:pointer;transition:all .15s;}
 .ctrl-period-btn.active{background:var(--green-light);color:var(--green);border-color:var(--green-mid);}
-.kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;display:flex;flex-direction:column;gap:4px;}
-.kpi-val{font-size:28px;font-weight:300;font-family:'DM Mono',monospace;}
-.kpi-lbl{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);}
-.kpi-sub{font-size:12px;color:var(--text2);}
+.kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;display:flex;flex-direction:column;gap:2px;}
+.kpi-val{font-size:22px;font-weight:600;font-family:'DM Mono',monospace;}
+.kpi-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);}
+.kpi-sub{font-size:11px;color:var(--text2);}
 
 /* route-sidebar CSS moved to inline */
 
@@ -2441,6 +2441,7 @@ function renderControlling(){
   const bewaessert=allReported.filter(r=>r.lastStatus==='bewaessert');
   const nicht=allReported.filter(r=>r.lastStatus==='nicht');
   const offen=filtered.filter(t=>!reportedTreeIds.has(t.id));
+  const totalReported=bewaessert.length+nicht.length;
   const pct=filtered.length>0?Math.round(bewaessert.length/filtered.length*100):0;
 
   // ── KPI Cards ─────────────────────────────────────────────────
@@ -2460,9 +2461,9 @@ function renderControlling(){
 
   // ── Charts ─────────────────────────────────────────────────────
   renderPieChart(bewaessert.length,nicht.length,offen.length);
-  renderBarChart(filtered);
+  renderBarChart(filtered,allReported);
   renderTimelineChart(filtered,from,to);
-  renderStadtteilChart(filtered);
+  renderStadtteilChart(filtered,allReported);
   renderReasonsBar(nicht);
   renderDetailTable(allReported);
 }
@@ -2489,17 +2490,22 @@ function renderPieChart(bew,nicht,offen){
   });
 }
 
-function renderBarChart(filtered){
+function renderBarChart(filtered,allReported){
   destroyChart('bar');
   const canvas=document.getElementById('ctrl-bar');if(!canvas||!window.Chart)return;
   const tourMap={};
   tours.forEach(t=>{tourMap[t.id]={name:t.name,color:t.color,bew:0,nicht:0,offen:0};});
+  // Count from allReported (includes history)
+  allReported.forEach(r=>{
+    const tm=tourMap[r.tourId];if(!tm)return;
+    if(r.lastStatus==='bewaessert')tm.bew++;
+    else if(r.lastStatus==='nicht')tm.nicht++;
+  });
+  // Offen = trees with no report in range
   filtered.forEach(tree=>{
     const tm=tourMap[tree.tourId];if(!tm)return;
-    const inRange=tree.lastReportAt&&inCtrlRange(tree.lastReportAt.slice?tree.lastReportAt.slice(0,10):tree.lastReportAt);
-    if(inRange&&tree.lastStatus==='bewaessert')tm.bew++;
-    else if(inRange&&tree.lastStatus==='nicht')tm.nicht++;
-    else tm.offen++;
+    const hasReport=allReported.find(r=>r.id===tree.id);
+    if(!hasReport)tm.offen++;
   });
   const labels=Object.values(tourMap).map(t=>t.name);
   ctrlCharts['bar']=new Chart(canvas,{
@@ -2556,17 +2562,21 @@ function renderTimelineChart(filtered,from,to){
   });
 }
 
-function renderStadtteilChart(filtered){
+function renderStadtteilChart(filtered,allReported){
   destroyChart('stadtteil');
   const canvas=document.getElementById('ctrl-stadtteil');if(!canvas||!window.Chart)return;
   const map={};
+  allReported.forEach(r=>{
+    const s=r.stadtteil||'Unbekannt';
+    if(!map[s])map[s]={bew:0,nicht:0,offen:0};
+    if(r.lastStatus==='bewaessert')map[s].bew++;
+    else if(r.lastStatus==='nicht')map[s].nicht++;
+  });
   filtered.forEach(t=>{
     const s=t.stadtteil||'Unbekannt';
     if(!map[s])map[s]={bew:0,nicht:0,offen:0};
-    const inRange=t.lastReportAt&&inCtrlRange(t.lastReportAt.slice?t.lastReportAt.slice(0,10):t.lastReportAt);
-    if(inRange&&t.lastStatus==='bewaessert')map[s].bew++;
-    else if(inRange&&t.lastStatus==='nicht')map[s].nicht++;
-    else map[s].offen++;
+    const hasReport=allReported.find(r=>r.id===t.id);
+    if(!hasReport)map[s].offen++;
   });
   const labels=Object.keys(map);
   ctrlCharts['stadtteil']=new Chart(canvas,{
