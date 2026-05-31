@@ -748,36 +748,47 @@ function closeBulkSheet(){
 
 async function confirmMarkAllDone(){
   closeBulkSheet();
-  const now = new Date().toISOString();
-  // Only open trees — never overwrite existing status (positive OR negative)
-  const open = trees.filter(t => !t.lastStatus);
-  if(open.length === 0){ toast('Keine offenen Bäume'); return; }
+  try {
+    const now = new Date().toISOString();
+    const open = trees.filter(t => !t.lastStatus);
+    if(open.length === 0){ toast('Keine offenen Bäume'); return; }
 
-  toast(`${open.length} Bäume werden aktualisiert…`);
+    toast(`${open.length} Bäume werden aktualisiert…`);
 
-  const updates = {
-    lastStatus: 'bewaessert',
-    lastDriver: currentDriver,
-    lastReportAt: now,
-    lastReason: null,
-    lastNote: null,
-    datum: now.slice(0,10),
-  };
+    const updates = {
+      lastStatus: 'bewaessert',
+      lastDriver: currentDriver,
+      lastReportAt: now,
+      lastReason: null,
+      lastNote: null,
+      datum: now.slice(0,10),
+    };
 
-  // Update local state immediately
-  open.forEach(tree => Object.assign(tree, updates));
-  renderMarkers();
-  renderList('');
-  updateProgress();
+    // Ensure snapshot doesn't overwrite our changes
+    pauseSnapshot = true;
 
-  // Write to Firestore in parallel
-  await Promise.all(
-    open.map(tree =>
-      updateDoc(doc(db,'projects',currentProjectId,'trees',tree.id), updates)
-    )
-  );
+    // Update local state immediately
+    open.forEach(tree => Object.assign(tree, updates));
+    renderMarkers();
+    renderList('');
+    updateProgress();
 
-  toast(`✓ ${open.length} Bäume als bewässert markiert`);
+    // Write to Firestore in parallel
+    await Promise.all(
+      open.map(tree =>
+        updateDoc(doc(db,'projects',currentProjectId,'trees',tree.id), updates)
+      )
+    );
+
+    // Resume snapshot
+    setTimeout(()=>{ pauseSnapshot = false; }, 1500);
+
+    toast(`✓ ${open.length} Bäume als bewässert markiert`);
+  } catch(e) {
+    pauseSnapshot = false;
+    toast('Fehler: ' + e.message);
+    console.error('confirmMarkAllDone error:', e);
+  }
 }
 
 function showFinishConfirm() {
