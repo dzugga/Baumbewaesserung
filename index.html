@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v4.1 -->
+<!-- v4.2 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -929,14 +929,58 @@ function nearestNeighborTSP(pts,startLat,startLng){
 
 async function fetchOrsRoute(coords){
   const key=getOrsKey();if(!key)return null;
+  const CHUNK=48; // ORS max is 50, use 48 to be safe with overlap
+
   try{
-    const res=await fetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson',{
-      method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':key},
-      body:JSON.stringify({coordinates:coords,instructions:false})
-    });
-    if(!res.ok){console.warn('ORS error:',res.status,await res.text());return null;}
-    return await res.json();
+    // If fits in one request, send directly
+    if(coords.length<=CHUNK){
+      const res=await fetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':key},
+        body:JSON.stringify({coordinates:coords,instructions:false})
+      });
+      if(!res.ok){console.warn('ORS error:',res.status,await res.text());return null;}
+      return await res.json();
+    }
+
+    // Split into overlapping chunks and merge GeoJSON
+    const chunks=[];
+    for(let i=0;i<coords.length-1;i+=CHUNK-1){
+      chunks.push(coords.slice(i,i+CHUNK));
+    }
+
+    let mergedCoords=[];
+    let totalDistance=0;
+    let totalDuration=0;
+
+    for(const chunk of chunks){
+      if(chunk.length<2)continue;
+      const res=await fetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':key},
+        body:JSON.stringify({coordinates:chunk,instructions:false})
+      });
+      if(!res.ok){console.warn('ORS chunk error:',res.status);continue;}
+      const geo=await res.json();
+      if(!geo?.features?.[0])continue;
+      const lineCoords=geo.features[0].geometry.coordinates;
+      // Avoid duplicate junction point
+      if(mergedCoords.length>0) mergedCoords.push(...lineCoords.slice(1));
+      else mergedCoords.push(...lineCoords);
+      totalDistance+=geo.features[0].properties.summary.distance||0;
+      totalDuration+=geo.features[0].properties.summary.duration||0;
+    }
+
+    if(mergedCoords.length<2)return null;
+
+    // Return merged GeoJSON
+    return {
+      features:[{
+        type:'Feature',
+        geometry:{type:'LineString',coordinates:mergedCoords},
+        properties:{summary:{distance:totalDistance,duration:totalDuration}}
+      }]
+    };
   }catch(e){console.warn('ORS fetch failed:',e);return null;}
 }
 
