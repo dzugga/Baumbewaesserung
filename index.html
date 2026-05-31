@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v3.7 -->
+<!-- v3.9 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -255,17 +255,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       <div class="sync-dot"></div><span id="app-sync-text">Bereit</span>
     </div>
     <button class="btn btn-warn" onclick="startAssignMode()">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>Zuweisen
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>Planen
     </button>
 
-    <button class="btn btn-secondary" onclick="openTourModal()">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>Tour
-    </button>
+
     <button class="btn btn-secondary" onclick="openSettings()">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>Einstellungen
-    </button>
-    <button class="btn btn-secondary" onclick="document.getElementById('excel-import-input').click()" title="Excel importieren">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Excel
     </button>
     <input type="file" id="excel-import-input" accept=".xlsx,.xls" style="display:none;" onchange="importExcel(this)">
     <button class="btn btn-primary" onclick="startPlacement()">
@@ -358,6 +353,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
           <button class="panel-close" onclick="closeSettings()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
         </div>
         <div class="panel-body">
+          <div class="form-section">Import</div>
+          <button class="btn btn-secondary" style="width:100%;margin-bottom:6px;" onclick="document.getElementById('excel-import-input').click();closeSettings()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Import (Excel)
+          </button>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:8px;">A=Anlage/Str. · B=Stadtteil · C=Baumart · D=Baumnr. · E=Pflanzjahr · F=Pflanzzeitpunkt · G=Bemerkung · H=Lat · I=Lng</div>
           <div class="form-section">ORS API-Key (Straßen-Routing)</div>
           <div class="form-group">
             <label class="form-label">API-Key</label>
