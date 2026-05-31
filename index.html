@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v3.4 -->
+<!-- v3.6 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -2413,7 +2413,11 @@ function renderControlling(){
       if(!h.date||!inCtrlRange(h.date))return;
       if(!h.status||h.status==='offen')return; // skip open entries
       // Use date+status+driver as key to allow same tree same day different drivers
-      const key=`${tree.id}_${h.date}_${h.status}_${h.driver||''}`;
+      // Unique per tree+date+status+driver+tourId combination
+      // This ensures same tree reported in multiple tour runs on same day both appear
+      const driverKey=h.driver||h.closedBy||'';
+      const tourKey=h.tourId||currentTourId||'';
+      const key=`${tree.id}_${h.date}_${h.status}_${driverKey}_${tourKey}`;
       if(seen.has(key))return;
       seen.add(key);
       allReported.push({
@@ -2423,7 +2427,7 @@ function renderControlling(){
         lastReason:h.reason||null,
         lastNote:h.note||null,
         lastDriver:h.driver||h.closedBy||null,
-        lastReportAt:h.date,
+        lastReportAt:h.date, // date only, no time
       });
     });
   });
@@ -2625,15 +2629,21 @@ function renderDetailTable(reported){
       :st==='nicht'
       ?'<span style="color:var(--red);font-weight:600;">✕ Nicht bewässert</span>'
       :'<span style="color:var(--text3);">○ Offen</span>';
-    // Format date + time
+    // Format date + time — use stored string directly to avoid timezone issues
     let dateDisplay='–';
     if(tree.lastReportAt){
-      const dt=new Date(tree.lastReportAt);
-      if(!isNaN(dt)){
-        dateDisplay=dt.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'})+
-          ' '+dt.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
+      const raw=tree.lastReportAt;
+      if(raw.length>=16&&raw.includes('T')){
+        // ISO string e.g. 2026-05-31T10:43:00 — parse parts directly
+        const [datePart,timePart]=raw.split('T');
+        const [y,m,d]=datePart.split('-');
+        const time=timePart.slice(0,5);
+        dateDisplay=`${d}.${m}.${y} ${time}`;
+      } else if(raw.length===10){
+        const [y,m,d]=raw.split('-');
+        dateDisplay=`${d}.${m}.${y}`;
       } else {
-        dateDisplay=tree.lastReportAt.slice(0,16).replace('T',' ');
+        dateDisplay=raw.slice(0,16).replace('T',' ');
       }
     }
     const rowBg=tree._fromHistory?'background:var(--surface2);':'';
