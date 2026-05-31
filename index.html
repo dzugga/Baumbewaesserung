@@ -179,6 +179,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .depot-marker-wrap{position:relative;width:36px;height:36px}
 .depot-pulse{position:absolute;inset:-4px;border-radius:50%;border:2px solid #f59e0b;animation:pulse 2s ease-in-out infinite;opacity:.6}
 @keyframes pulse{0%,100%{transform:scale(1);opacity:.6}50%{transform:scale(1.3);opacity:.2}}
+@keyframes pulse-ring{0%,100%{opacity:.7;transform:scale(1)}50%{opacity:.3;transform:scale(1.2)}}
 .sync-indicator{font-size:11px;color:var(--text3);display:flex;align-items:center;gap:4px}
 .sync-dot{width:7px;height:7px;border-radius:50%;background:var(--green);flex-shrink:0}
 .sync-dot.syncing{background:var(--amber);animation:pulse-dot 1s infinite}
@@ -187,6 +188,24 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 ::-webkit-scrollbar{width:5px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+
+/* ── ROUTE SIDEBAR PANEL ────────────────────── */
+.route-sidebar{background:var(--green-light);border-bottom:1px solid var(--green-mid);padding:10px 14px;flex-shrink:0;display:none;}
+.route-sidebar.visible{display:block}
+.route-sidebar-title{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--green);margin-bottom:6px;display:flex;align-items:center;justify-content:space-between}
+.route-stats{display:flex;gap:12px;}
+.route-stat{display:flex;flex-direction:column;align-items:center;background:#fff;border-radius:8px;padding:6px 12px;flex:1;border:1px solid var(--green-mid);}
+.route-stat-val{font-size:16px;font-weight:700;color:var(--green);font-family:'DM Mono',monospace}
+.route-stat-lbl{font-size:10px;color:var(--text3);margin-top:1px}
+
+/* ── CONTEXT MENU ───────────────────────────── */
+.ctx-menu{position:fixed;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);box-shadow:var(--shadow-md);z-index:9999;min-width:190px;overflow:hidden;display:none;}
+.ctx-menu.open{display:block}
+.ctx-item{padding:9px 14px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px;transition:background .12s}
+.ctx-item:hover{background:var(--surface2)}
+.ctx-item.danger{color:var(--red)}
+.ctx-item.danger:hover{background:var(--red-light)}
+.ctx-sep{height:1px;background:var(--border);margin:3px 0}
 </style>
 </head>
 <body>
@@ -264,6 +283,18 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       </div>
     </div>
     <div class="sidebar-filters" id="tour-filters"></div>
+    <!-- Route info inside sidebar -->
+    <div class="route-sidebar" id="sidebar-route-info">
+      <div class="route-sidebar-title">
+        <span id="sidebar-route-tour-name">Route</span>
+        <span style="font-size:10px;font-weight:400;color:var(--text3);">Rechtsklick auf Karte → neu berechnen</span>
+      </div>
+      <div class="route-stats">
+        <div class="route-stat"><span class="route-stat-val" id="sidebar-route-km">–</span><span class="route-stat-lbl">Kilometer</span></div>
+        <div class="route-stat"><span class="route-stat-val" id="sidebar-route-time">–</span><span class="route-stat-lbl">Fahrzeit</span></div>
+        <div class="route-stat"><span class="route-stat-val" id="sidebar-route-cnt">–</span><span class="route-stat-lbl">Bäume</span></div>
+      </div>
+    </div>
     <div class="tree-list" id="tree-list"></div>
     <div class="sidebar-footer" id="list-count">0 Bäume</div>
   </div>
@@ -448,6 +479,22 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 </div>
 
 <div class="notification" id="notification"></div>
+<!-- Context Menu -->
+<div class="ctx-menu" id="ctx-menu">
+  <div class="ctx-item" id="ctx-calc-active" onclick="ctxCalcActive()" style="display:none;">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+    Route berechnen
+  </div>
+  <div class="ctx-item" onclick="calculateAllRoutes();closeCtxMenu()">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+    Alle Routen berechnen
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" onclick="startPlacement();closeCtxMenu()">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+    Baum hier hinzufügen
+  </div>
+</div>
 
 <!-- Leaflet (must load before module) -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -649,6 +696,14 @@ async function confirmDeleteProject(){
 // Routes are saved to Firestore per tour and only recalculated on demand.
 // savedRoutes: tourId -> {orderIds, geojson|null, km, updatedAt}
 
+function fmtDuration(sec){
+  if(!sec)return '–';
+  const h=Math.floor(sec/3600);
+  const m=Math.round((sec%3600)/60);
+  if(h>0)return `${h}h ${m}min`;
+  return `${m} min`;
+}
+
 function haversine(lat1,lon1,lat2,lon2){
   const R=6371,dLat=(lat2-lat1)*Math.PI/180,dLon=(lon2-lon1)*Math.PI/180;
   const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
@@ -708,7 +763,7 @@ function drawSavedRoute(tourId, routeData){
     if(depot){const dp=[depot.lat,depot.lng];pts=getDepotMode()==='round'?[dp,...pts,dp]:[dp,...pts];}
     layer=L.polyline(pts,{color:tour.color,weight:3,opacity:.7,dashArray:'8 5'}).addTo(map);
   }
-  tourRoutes[tourId]={layer,km:routeData.km||0};
+  tourRoutes[tourId]={layer,km:routeData.km||0,durationSec:routeData.durationSec||0};
 }
 
 // Load and display all saved routes from Firestore (no recalculation)
@@ -769,8 +824,16 @@ async function calculateAndSaveRoute(tourId){
     if(!getOrsKey()) notify('Kein ORS-Key — Luftlinie gespeichert. Key in Einstellungen eintragen für Straßenrouting.');
   }
 
+  // Extract duration from ORS
+  let durationSec=0;
+  if(geo?.features?.[0]?.properties?.summary?.duration){
+    durationSec=geo.features[0].properties.summary.duration;
+  } else {
+    // Estimate: avg 30 km/h in city
+    durationSec=km/30*3600;
+  }
   // Save to Firestore
-  const routeData={orderIds:tourOrder[tourId],geojson:geojsonToSave,km,updatedAt:serverTimestamp()};
+  const routeData={orderIds:tourOrder[tourId],geojson:geojsonToSave,km,durationSec,updatedAt:serverTimestamp()};
   await setDoc(doc(db,'projects',currentProjectId,'routes',tourId),routeData);
 
   // Draw on map
@@ -806,14 +869,25 @@ async function refreshAllRoutes(){
 function updateRouteInfoBar(){
   const bar=document.getElementById('route-info-bar');
   const txt=document.getElementById('route-info-text');
+  const sidePanel=document.getElementById('sidebar-route-info');
   if(activeTourOnMap&&tourRoutes[activeTourOnMap]){
-    const {km}=tourRoutes[activeTourOnMap];
+    const {km,durationSec}=tourRoutes[activeTourOnMap];
     const tour=tours.find(t=>t.id===activeTourOnMap);
     const cnt=trees.filter(t=>t.tourId===activeTourOnMap&&t.lat&&t.lng).length;
     const depot=getDepot();
-    txt.textContent=`${tour?.name||''} — ${cnt} Bäume — ${km.toFixed(1)} km${depot?' (inkl. Betriebshof)':''}`;
+    // Map info bar
+    txt.textContent=`${tour?.name||''} · ${cnt} Bäume · ${km.toFixed(1)} km · ${fmtDuration(durationSec)}${depot?' (inkl. Betriebshof)':''}`;
     bar.classList.add('visible');
-  } else { bar.classList.remove('visible'); }
+    // Sidebar route panel
+    document.getElementById('sidebar-route-tour-name').textContent=tour?.name||'Route';
+    document.getElementById('sidebar-route-km').textContent=km.toFixed(1)+' km';
+    document.getElementById('sidebar-route-time').textContent=fmtDuration(durationSec);
+    document.getElementById('sidebar-route-cnt').textContent=cnt;
+    sidePanel.classList.add('visible');
+  } else {
+    bar.classList.remove('visible');
+    sidePanel.classList.remove('visible');
+  }
 }
 
 // ─── MARKERS ──────────────────────────────────────────────────
@@ -829,16 +903,26 @@ function makeMarker(tree){
   const tour=tours.find(t=>t.id===tree.tourId);
   const color=tour?tour.color:'#6b6760';
   const num=getRouteNum(tree.id);
+  const isHighlighted=selectedTreeId===tree.id;
+
   const badge=num!=null
     ?`<div style="position:absolute;bottom:-5px;right:-5px;min-width:16px;height:16px;border-radius:8px;background:#fff;border:1.5px solid ${color};color:${color};font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:monospace;padding:0 2px;">${num}</div>`:'';
+
+  // Highlight ring when selected
+  const ring=isHighlighted
+    ?`<div style="position:absolute;inset:-5px;border-radius:50%;border:3px solid ${color};animation:pulse-ring .8s ease-in-out infinite;opacity:.7;"></div>`
+    :'';
+
   const icon=L.divIcon({
     className:'',
-    html:`<div style="position:relative;width:28px;height:28px;">
-      <div style="width:28px;height:28px;border-radius:50%;background:${color};border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;">🌳</div>
+    html:`<div style="position:relative;width:${isHighlighted?36:28}px;height:${isHighlighted?36:28}px;transition:all .2s;">
+      ${ring}
+      <div style="width:${isHighlighted?36:28}px;height:${isHighlighted?36:28}px;border-radius:50%;background:${color};border:${isHighlighted?4:3}px solid white;box-shadow:${isHighlighted?'0 0 0 3px '+color+', 0 4px 12px rgba(0,0,0,.4)':'0 2px 6px rgba(0,0,0,.3)'};display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:${isHighlighted?16:13}px;transform:${isHighlighted?'scale(1.15)':'scale(1)'};transition:all .2s;">🌳</div>
       ${badge}</div>`,
-    iconSize:[28,28],iconAnchor:[14,14]
+    iconSize:[isHighlighted?36:28,isHighlighted?36:28],
+    iconAnchor:[isHighlighted?18:14,isHighlighted?18:14]
   });
-  return L.marker([tree.lat,tree.lng],{icon}).addTo(map)
+  return L.marker([tree.lat,tree.lng],{icon,zIndexOffset:isHighlighted?500:0}).addTo(map)
     .on('click',()=>{ if(assignMode) assignTreeToTour(tree.id,assignTourId); else openDetail(tree.id); });
 }
 
@@ -880,16 +964,42 @@ function renderDepotMarker(){
 
 // ─── TOUR FOCUS ───────────────────────────────────────────────
 async function focusTour(tourId){
+  // Toggle off if same tour clicked again
   if(activeTourOnMap===tourId){ activeTourOnMap=null;filterTour='all'; }
   else { activeTourOnMap=tourId;filterTour=tourId; }
-  setMarkerVisibility();
-  Object.values(tourRoutes).forEach(r=>map.removeLayer(r.layer));tourRoutes={};
+
+  // Remove all existing route layers
+  Object.values(tourRoutes).forEach(r=>map.removeLayer(r.layer));
+  tourRoutes={};
+
   if(activeTourOnMap){
-    await buildTourRoute(activeTourOnMap);
+    // Load saved route from Firestore (never auto-recalculate)
+    try{
+      const routeSnap=await getDoc(doc(db,'projects',currentProjectId,'routes',activeTourOnMap));
+      if(routeSnap.exists()){
+        drawSavedRoute(activeTourOnMap,routeSnap.data());
+      } else {
+        // No saved route: compute order for numbering only (no line, no ORS)
+        const trs=trees.filter(t=>t.tourId===activeTourOnMap&&t.lat&&t.lng);
+        const depot=getDepot();
+        const ordered=nearestNeighborTSP(trs,depot?.lat,depot?.lng);
+        tourOrder[activeTourOnMap]=ordered.map(t=>t.id);
+        notify('Noch keine Route berechnet — Rechtsklick auf Karte zum Berechnen');
+      }
+    }catch(e){ console.warn('focusTour load error:',e); }
+    // Fit map to tour trees
     const trs=trees.filter(t=>t.tourId===activeTourOnMap&&t.lat&&t.lng);
-    if(trs.length>0) map.fitBounds(L.latLngBounds(trs.map(t=>[t.lat,t.lng])),{padding:[50,50]});
-  } else { await refreshAllRoutes(); }
-  updateRouteInfoBar();renderLegend();renderFilters();renderList();
+    if(trs.length>0) map.fitBounds(L.latLngBounds(trs.map(t=>[t.lat,t.lng])),{padding:[60,60]});
+  } else {
+    await loadSavedRoutes();
+  }
+
+  setMarkerVisibility();
+  rebuildMarkersWithNumbers();
+  updateRouteInfoBar();
+  renderLegend();
+  renderFilters();
+  renderList();
 }
 
 // ─── LEGEND ───────────────────────────────────────────────────
@@ -932,15 +1042,38 @@ function renderFilters(){
   html+=`<span class="filter-chip ${filterTour==='none'?'active':''}" onclick="setFilter('none',this)">Ohne Tour</span>`;
   el.innerHTML=html;
 }
-function setFilter(f,el){ filterTour=f;document.querySelectorAll('.filter-chip').forEach(c=>c.classList.remove('active'));el?.classList.add('active');renderList(); }
+function setFilter(f,el){
+  document.querySelectorAll('.filter-chip').forEach(c=>c.classList.remove('active'));
+  el?.classList.add('active');
+  // Sync with map tour focus
+  if(f==='all'||f==='none'){
+    if(activeTourOnMap){focusTour(null);}
+    else{filterTour=f;renderList();}
+  } else {
+    // clicking a tour chip focuses that tour on map
+    focusTour(f);
+  }
+}
 
 function renderList(){
   const q=document.getElementById('search-input')?.value.toLowerCase()||'';
-  const filtered=trees.filter(t=>{
+  let filtered=trees.filter(t=>{
     const mq=!q||t.name?.toLowerCase().includes(q)||(t.art||'').toLowerCase().includes(q);
     const mf=filterTour==='all'||t.tourId===filterTour||(filterTour==='none'&&!t.tourId);
     return mq&&mf;
   });
+  // Sort by route number when a tour is active
+  if(activeTourOnMap&&tourOrder[activeTourOnMap]){
+    const order=tourOrder[activeTourOnMap];
+    filtered.sort((a,b)=>{
+      const ia=order.indexOf(a.id);
+      const ib=order.indexOf(b.id);
+      if(ia===-1&&ib===-1)return 0;
+      if(ia===-1)return 1;
+      if(ib===-1)return -1;
+      return ia-ib;
+    });
+  }
   const list=document.getElementById('tree-list');if(!list)return;
   if(filtered.length===0){list.innerHTML=`<div class="empty-state"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22V12"/><path d="M12 12C12 12 7 9 7 5a5 5 0 0 1 10 0c0 4-5 7-5 7z"/></svg><p>Keine Bäume gefunden</p></div>`;
   } else {
@@ -969,9 +1102,29 @@ function renderList(){
 }
 
 function selectTree(id){
-  selectedTreeId=id;renderList();
+  const prev=selectedTreeId;
+  selectedTreeId=id;
+  renderList();
   const tree=trees.find(t=>t.id===id);if(!tree)return;
-  if(currentView==='karte'){ openDetail(id);if(tree.lat&&tree.lng)map.panTo([tree.lat,tree.lng]); }
+
+  // Rebuild markers so highlight appears immediately
+  // Only rebuild the two affected markers (prev + new) for performance
+  if(prev&&prev!==id&&mapMarkers[prev]){
+    map.removeLayer(mapMarkers[prev]);
+    const pt=trees.find(t=>t.id===prev);
+    if(pt&&pt.lat&&pt.lng) mapMarkers[prev]=makeMarker(pt);
+  }
+  if(mapMarkers[id]){ map.removeLayer(mapMarkers[id]); }
+  if(tree.lat&&tree.lng){
+    mapMarkers[id]=makeMarker(tree);
+    // Ensure highlighted marker is on top
+    mapMarkers[id].setZIndexOffset(500);
+  }
+
+  if(currentView==='karte'){
+    if(tree.lat&&tree.lng) map.panTo([tree.lat,tree.lng],{animate:true,duration:0.4});
+    openDetail(id);
+  }
 }
 
 // ─── DETAIL PANEL ─────────────────────────────────────────────
@@ -1014,7 +1167,18 @@ function openDetail(id){
     </button>`;
   document.getElementById('detail-panel').classList.add('open');
 }
-function closePanel(){ document.getElementById('detail-panel').classList.remove('open');selectedTreeId=null;renderList(); }
+function closePanel(){
+  document.getElementById('detail-panel').classList.remove('open');
+  const prev=selectedTreeId;
+  selectedTreeId=null;
+  renderList();
+  // Un-highlight marker
+  if(prev&&mapMarkers[prev]){
+    map.removeLayer(mapMarkers[prev]);
+    const pt=trees.find(t=>t.id===prev);
+    if(pt&&pt.lat&&pt.lng) mapMarkers[prev]=makeMarker(pt);
+  }
+}
 
 async function logWatering(id){
   const tree=trees.find(t=>t.id===id);if(!tree)return;
@@ -1364,8 +1528,42 @@ async function importExcel(input){
 
 // ─── INIT ─────────────────────────────────────────────────────
 // Make functions global for onclick handlers
+// ─── CONTEXT MENU ────────────────────────────────────────────
+let ctxPendingLat=null,ctxPendingLng=null;
+
+function closeCtxMenu(){
+  document.getElementById('ctx-menu').classList.remove('open');
+  document.removeEventListener('click',closeCtxMenu);
+}
+
+function ctxCalcActive(){
+  closeCtxMenu();
+  if(activeTourOnMap)calculateAndSaveRoute(activeTourOnMap);
+}
+
+// Right-click on map
+map.on('contextmenu',e=>{
+  e.originalEvent.preventDefault();
+  ctxPendingLat=e.latlng.lat;ctxPendingLng=e.latlng.lng;
+  const menu=document.getElementById('ctx-menu');
+  const calcItem=document.getElementById('ctx-calc-active');
+  if(activeTourOnMap){
+    const t=tours.find(x=>x.id===activeTourOnMap);
+    calcItem.style.display='flex';
+    calcItem.innerHTML=`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>Route berechnen: ${t?.name||''}`;
+  } else {
+    calcItem.style.display='none';
+  }
+  // Position menu
+  const mx=e.originalEvent.clientX,my=e.originalEvent.clientY;
+  menu.style.left=(mx+menu.offsetWidth>window.innerWidth?mx-menu.offsetWidth:mx)+'px';
+  menu.style.top=(my+menu.offsetHeight>window.innerHeight?my-menu.offsetHeight:my)+'px';
+  menu.classList.add('open');
+  setTimeout(()=>document.addEventListener('click',closeCtxMenu),10);
+});
+
 Object.assign(window,{
-  importExcel,calculateAndSaveRoute,calculateAllRoutes,
+  importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,
   createProject,openProject,showProjectScreen,
   switchView,openDetail,closePanel,logWatering,
   openAddTree,openEditTree,closeTreeModal,saveTree,deleteTree,
