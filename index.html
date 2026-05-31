@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v3.9 -->
+<!-- v4.1 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -667,8 +667,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
           <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Bäume</th>
           <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Strecke</th>
           <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Fahrzeit</th>
-          <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Gut / Mittel / Schlecht</th>
-          <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;width:220px;"></th>
+          <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;width:200px;"></th>
         </tr>
       </thead>
       <tbody id="touren-grid"></tbody>
@@ -851,7 +850,8 @@ function subscribeToProject(){
   const toursRef=collection(db,'projects',currentProjectId,'tours');
   unsubTours=onSnapshot(toursRef,snap=>{
     tours=snap.docs.map(d=>({id:d.id,...d.data()}));
-    renderFilters();renderList();renderLegend();renderTourenGrid();
+    renderFilters();renderList();renderLegend();
+    if(currentView==='touren') renderTourenGrid();
     if(currentView==='verwaltung') renderDriverMgmt();
     setSyncState('ok','Synchronisiert');
   });
@@ -1777,7 +1777,25 @@ async function saveTour(){
 }
 
 async function deleteTour(id){
-  if(!confirm('Tour löschen? Bäume bleiben erhalten.'))return;
+  const tour=tours.find(t=>t.id===id);
+  const modal=document.createElement('div');
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;';
+  modal.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);width:360px;max-width:90vw;overflow:hidden;">
+    <div style="padding:18px 20px 10px;border-bottom:1px solid var(--border);font-size:15px;font-weight:600;">Tour löschen?</div>
+    <div style="padding:14px 20px;font-size:13px;color:var(--text2);"><b>${tour?.name||''}</b> löschen? Bäume bleiben erhalten.</div>
+    <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
+      <button id="del-cancel" style="padding:7px 16px;border:1.5px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;font-size:13px;font-weight:600;">Abbrechen</button>
+      <button id="del-ok" style="padding:7px 16px;border:none;border-radius:6px;background:var(--red);color:#fff;cursor:pointer;font-size:13px;">Löschen</button>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+  setTimeout(()=>modal.querySelector('#del-cancel').focus(),50);
+  const confirmed=await new Promise(resolve=>{
+    modal.querySelector('#del-cancel').onclick=()=>{modal.remove();resolve(false);};
+    modal.querySelector('#del-ok').onclick=()=>{modal.remove();resolve(true);};
+    modal.onclick=e=>{if(e.target===modal){modal.remove();resolve(false);}};
+  });
+  if(!confirmed)return;
   for(const tree of trees.filter(t=>t.tourId===id))
     await updateDoc(doc(db,'projects',currentProjectId,'trees',tree.id),{tourId:''});
   await deleteDoc(doc(db,'projects',currentProjectId,'tours',id));
@@ -1856,7 +1874,10 @@ function switchView(v){
   // Karte: always visible underneath, just hidden by overlays
   if(v==='karte') setTimeout(()=>map.invalidateSize(),10);
   if(v==='baeume') renderBaeumeTable();
-  if(v==='touren') renderTourenGrid();
+  if(v==='touren'){
+    document.getElementById('view-touren').style.display='flex';
+    renderTourenGrid();
+  }
   if(v==='controlling') initControlling();
   if(v==='verwaltung') initVerwaltung();
 }
@@ -1957,7 +1978,7 @@ function renderTourenGrid(){
   if(!grid)return;
 
   if(tours.length===0){
-    grid.innerHTML=`<tr><td colspan="8" style="padding:60px;text-align:center;color:var(--text3);">
+    grid.innerHTML=`<tr><td colspan="7" style="padding:60px;text-align:center;color:var(--text3);">
       <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="display:block;margin:0 auto 12px;opacity:.3"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
       Noch keine Touren angelegt</td></tr>`;
     if(countEl)countEl.textContent='Touren';
@@ -1987,9 +2008,8 @@ function renderTourenGrid(){
       <td style="padding:10px 16px;text-align:right;font-weight:600;">${cnt}</td>
       <td style="padding:10px 16px;text-align:right;color:var(--text2);font-size:12px;">${km}</td>
       <td style="padding:10px 16px;text-align:right;color:var(--text2);font-size:12px;">${zeit}</td>
-      <td style="padding:10px 16px;">${bar}</td>
       <td style="padding:10px 16px;">
-        <div style="display:flex;gap:5px;justify-content:flex-end;">
+        <div style="display:flex;gap:5px;justify-content:flex-end;align-items:center;">
           <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" data-action="karte" data-tid="${tour.id}">Karte</button>
           <button class="btn btn-primary" style="padding:3px 9px;font-size:11px;" data-action="route" data-tid="${tour.id}">Route</button>
           <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" data-action="edit" data-tid="${tour.id}">✎</button>
