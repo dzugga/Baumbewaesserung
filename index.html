@@ -449,13 +449,15 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 
 <div class="notification" id="notification"></div>
 
+<!-- Leaflet (must load before module) -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <!-- Firebase SDKs -->
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
          onSnapshot, query, orderBy, serverTimestamp, getDoc }
   from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
-import Leaflet from 'https://unpkg.com/leaflet@1.9.4/dist/leaflet-src.esm.js';
+// Leaflet loaded via CDN script tag below
 
 // ─── FIREBASE CONFIG ──────────────────────────────────────────
 const firebaseConfig = {
@@ -498,7 +500,7 @@ let tourOrder = {};
 let depotMarker = null;
 
 // ─── MAP ──────────────────────────────────────────────────────
-const L = Leaflet;
+const L = window.L;
 const map = L.map('map',{zoomControl:false}).setView([52.279,8.047],13);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:19}).addTo(map);
 L.control.zoom({position:'bottomleft'}).addTo(map);
