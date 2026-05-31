@@ -2439,7 +2439,6 @@ function renderControlling(){
   const pct=filtered.length>0?Math.round(bewaessert.length/filtered.length*100):0;
 
   // ── KPI Cards ─────────────────────────────────────────────────
-  const pct=filtered.length>0?Math.round(bewaessert.length/filtered.length*100):0;
   const activeFahrer=[...new Set(allReported.map(r=>r.lastDriver).filter(Boolean))].length;
   const kpiEl=document.getElementById('ctrl-kpis');
   if(kpiEl) kpiEl.innerHTML=[
