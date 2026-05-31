@@ -597,7 +597,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     </div>
 
     <!-- Detail table -->
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:20px;">
       <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
         <span style="font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;">Einzelmeldungen</span>
         <span id="ctrl-table-count" style="font-size:12px;color:var(--text3);"></span>
@@ -607,6 +607,17 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
           <thead><tr id="ctrl-table-head" style="background:var(--surface2);"></tr></thead>
           <tbody id="ctrl-table-body"></tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- Tour Historie -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+        <span style="font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;">Abgeschlossene Touren (Historie)</span>
+        <button class="btn btn-secondary" style="padding:3px 10px;font-size:12px;" onclick="loadTourHistory()">Laden</button>
+      </div>
+      <div id="ctrl-history-list" style="padding:8px 0;">
+        <div style="padding:16px 20px;font-size:13px;color:var(--text3);">Auf "Laden" klicken um die Tourhistorie zu laden.</div>
       </div>
     </div>
   </div>
@@ -2476,6 +2487,118 @@ function renderDetailTable(reported){
   }).join('');
 }
 
+async function loadTourHistory(){
+  if(!currentProjectId)return;
+  const el=document.getElementById('ctrl-history-list');
+  el.innerHTML='<div style="padding:16px 20px;font-size:13px;color:var(--text3);">Lädt…</div>';
+  try{
+    const snap=await getDocs(collection(db,'projects',currentProjectId,'tourHistory'));
+    if(snap.empty){
+      el.innerHTML='<div style="padding:16px 20px;font-size:13px;color:var(--text3);">Noch keine abgeschlossenen Touren.</div>';
+      return;
+    }
+    const histories=snap.docs.map(d=>({id:d.id,...d.data()}))
+      .sort((a,b)=>b.date.localeCompare(a.date));
+
+    el.innerHTML=histories.map(h=>{
+      const tour=tours.find(t=>t.id===h.tourId);
+      const color=h.tourColor||tour?.color||'#6b6760';
+      const bew=h.stats?.bewaessert||0;
+      const nicht=h.stats?.nicht||0;
+      const offen=h.stats?.offen||0;
+      const total=h.stats?.total||0;
+      const pct=total>0?Math.round(bew/total*100):0;
+      return `<div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:16px;">
+        <div style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0;"></div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;font-weight:600;">${h.tourName} <span style="font-weight:400;color:var(--text3);font-size:12px;">· ${h.date}</span></div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px;">Fahrer: ${h.closedBy||'–'}</div>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center;flex-shrink:0;">
+          <span style="font-size:12px;color:#16a34a;font-weight:600;">${bew} ✓</span>
+          <span style="font-size:12px;color:var(--red);font-weight:600;">${nicht} ✕</span>
+          <span style="font-size:12px;color:var(--amber);font-weight:600;">${offen} ○</span>
+          <div style="width:60px;height:6px;background:var(--surface2);border-radius:3px;overflow:hidden;">
+            <div style="height:100%;background:#16a34a;width:${pct}%;border-radius:3px;"></div>
+          </div>
+          <span style="font-size:11px;color:var(--text3);min-width:28px;">${pct}%</span>
+          <button class="btn btn-secondary" style="padding:3px 10px;font-size:11px;" onclick="showHistoryDetail('${h.id}')">Detail</button>
+          <button class="btn btn-secondary" style="padding:3px 10px;font-size:11px;" onclick="exportHistoryCSV('${h.id}')">CSV</button>
+        </div>
+      </div>`;
+    }).join('');
+  }catch(e){
+    el.innerHTML=`<div style="padding:16px 20px;font-size:13px;color:var(--red);">Fehler: ${e.message}</div>`;
+  }
+}
+
+// Cache loaded histories
+let historyCache={};
+
+async function showHistoryDetail(histId){
+  if(!historyCache[histId]){
+    const snap=await getDoc(doc(db,'projects',currentProjectId,'tourHistory',histId));
+    historyCache[histId]={id:snap.id,...snap.data()};
+  }
+  const h=historyCache[histId];
+  // Open as modal
+  const existing=document.getElementById('history-modal');
+  if(existing)existing.remove();
+  const modal=document.createElement('div');
+  modal.id='history-modal';
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;';
+  const rows=h.trees.map(t=>{
+    const st=t.lastStatus;
+    const stHtml=st==='bewaessert'?'<span style="color:#16a34a;font-weight:600;">✓ Bewässert</span>':
+      st==='nicht'?'<span style="color:var(--red);font-weight:600;">✕ Nicht bewässert</span>':
+      '<span style="color:var(--text3);">○ Offen</span>';
+    return `<tr style="border-top:1px solid var(--border);">
+      <td style="padding:6px 12px;font-size:12px;">${t.name||'–'}</td>
+      <td style="padding:6px 12px;font-size:12px;color:var(--text2);">${t.stadtteil||'–'}</td>
+      <td style="padding:6px 12px;font-size:12px;">${stHtml}</td>
+      <td style="padding:6px 12px;font-size:12px;color:var(--text2);">${t.lastReason||'–'}</td>
+      <td style="padding:6px 12px;font-size:12px;color:var(--text2);">${t.lastDriver||'–'}</td>
+      <td style="padding:6px 12px;font-size:12px;color:var(--text2);">${t.zustand||'–'}</td>
+    </tr>`;
+  }).join('');
+  modal.innerHTML=`<div style="background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow-md);width:800px;max-width:95vw;max-height:85vh;display:flex;flex-direction:column;overflow:hidden;">
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;">
+      <div style="flex:1;">
+        <div style="font-size:15px;font-weight:600;">${h.tourName} — ${h.date}</div>
+        <div style="font-size:12px;color:var(--text3);">Fahrer: ${h.closedBy||'–'} · ${h.stats?.bewaessert||0} bewässert · ${h.stats?.nicht||0} nicht · ${h.stats?.offen||0} offen</div>
+      </div>
+      <button onclick="document.getElementById('history-modal').remove()" style="border:none;background:none;cursor:pointer;font-size:20px;color:var(--text2);">×</button>
+    </div>
+    <div style="overflow:auto;flex:1;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead style="background:var(--surface2);position:sticky;top:0;">
+          <tr>${['Anlage/Straße','Stadtteil','Status','Grund','Fahrer','Zustand'].map(h=>`<th style="padding:8px 12px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text2);">${h}</th>`).join('')}</tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+  modal.onclick=e=>{if(e.target===modal)modal.remove();};
+}
+
+async function exportHistoryCSV(histId){
+  if(!historyCache[histId]){
+    const snap=await getDoc(doc(db,'projects',currentProjectId,'tourHistory',histId));
+    historyCache[histId]={id:snap.id,...snap.data()};
+  }
+  const h=historyCache[histId];
+  const header='Tour;Datum;Fahrer;Anlage/Straße;Stadtteil;Baumart;Baumnr.;Status;Grund;Notiz;Zustand;Wasserbedarf';
+  const rows=h.trees.map(t=>[
+    h.tourName,h.date,t.lastDriver||'',t.name||'',t.stadtteil||'',t.art||'',t.baumnr||'',
+    t.lastStatus||'offen',t.lastReason||'',t.lastNote||'',t.zustand||'',t.wasser||''
+  ].map(v=>`"${(v||'').replace(/"/g,'""')}"`).join(';')).join('\n');
+  const blob=new Blob(['\uFEFF'+header+'\n'+rows],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`tour_${h.tourName}_${h.date}.csv`;a.click();
+}
+
 function exportCtrlCSV(){
   const filtered=getCtrlFilteredTrees();
   const {from,to}=getCtrlDateRange();
@@ -2718,7 +2841,7 @@ map.on('contextmenu',e=>{
 });
 
 Object.assign(window,{
-  saveInlineFields,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,
+  saveInlineFields,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,loadTourHistory,showHistoryDetail,exportHistoryCSV,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,
   createProject,openProject,showProjectScreen,
   switchView,openDetail,closePanel,logWatering,

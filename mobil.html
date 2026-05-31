@@ -303,7 +303,7 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getFirestore, collection, doc, getDoc, getDocs, updateDoc, addDoc,
+import { getFirestore, collection, doc, getDoc, getDocs, updateDoc, addDoc, setDoc,
          onSnapshot, serverTimestamp, query, orderBy }
   from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
@@ -630,41 +630,112 @@ function closeFinishSheet() {
 
 async function finishTour() {
   try {
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0,10);
+    const tsStr = now.toISOString();
+
+    // ── 1. Save full historical snapshot to Firestore ─────────────
+    const snapshot = {
+      tourId: currentTourId,
+      tourName: currentTour?.name||'',
+      tourColor: currentTour?.color||'',
+      date: dateStr,
+      closedAt: tsStr,
+      closedBy: currentDriver,
+      trees: trees.map(t=>({
+        id: t.id,
+        name: t.name||'',
+        art: t.art||'',
+        baumnr: t.baumnr||'',
+        stadtteil: t.stadtteil||'',
+        pflanzjahr: t.pflanzjahr||'',
+        lat: t.lat||null,
+        lng: t.lng||null,
+        zustand: t.zustand||'',
+        wasser: t.wasser||'',
+        lastStatus: t.lastStatus||null,
+        lastReason: t.lastReason||null,
+        lastNote: t.lastNote||null,
+        lastDriver: t.lastDriver||null,
+        lastReportAt: t.lastReportAt||null,
+      })),
+      stats: {
+        total: trees.length,
+        bewaessert: trees.filter(t=>t.lastStatus==='bewaessert').length,
+        nicht: trees.filter(t=>t.lastStatus==='nicht').length,
+        offen: trees.filter(t=>!t.lastStatus).length,
+      }
+    };
+
+    // Save to tourHistory subcollection with date as ID
+    const histId = `${dateStr}_${currentTourId}`;
+    await setDoc(
+      doc(db,'projects',currentProjectId,'tourHistory',histId),
+      snapshot
+    );
+
+    // Also add entry to each tree's history array
+    for(const tree of trees){
+      if(!tree.lastStatus) continue;
+      const histEntry = {
+        date: dateStr,
+        tourId: currentTourId,
+        tourName: currentTour?.name||'',
+        status: tree.lastStatus,
+        reason: tree.lastReason||null,
+        note: tree.lastNote||null,
+        driver: tree.lastDriver||null,
+        zustand: tree.zustand||null,
+        wasser: tree.wasser||null,
+      };
+      const history = [...(tree.history||[]), histEntry];
+      await updateDoc(
+        doc(db,'projects',currentProjectId,'trees',tree.id),
+        {history}
+      );
+    }
+
+    // ── 2. Mark tour as closed ────────────────────────────────────
     await updateDoc(doc(db,'projects',currentProjectId,'tours',currentTourId),{
       status: 'abgeschlossen',
-      closedAt: new Date().toISOString(),
+      closedAt: tsStr,
       closedBy: currentDriver,
+      lastClosedDate: dateStr,
     });
-    closeFinishSheet();
-    toast('✅ Tour abgeschlossen');
-    // Update local state
+
     currentTour = {...currentTour, status: 'abgeschlossen'};
-  } catch(e) { toast('Fehler: '+e.message); }
+    closeFinishSheet();
+    toast('✅ Tour abgeschlossen & gespeichert');
+
+  } catch(e) { toast('Fehler beim Abschließen: '+e.message); console.error(e); }
 }
 
 async function reopenTour() {
   try {
+    const now = new Date();
+
+    // Reset ONLY status fields — stammdaten stay intact
+    for(const tree of trees) {
+      await updateDoc(doc(db,'projects',currentProjectId,'trees',tree.id),{
+        lastStatus: null,
+        lastReason: null,
+        lastNote: null,
+        lastReportAt: null,
+        lastDriver: null,
+        // Stammdaten (name, art, baumnr, lat, lng, zustand, wasser, etc.) preserved
+      });
+    }
+
     await updateDoc(doc(db,'projects',currentProjectId,'tours',currentTourId),{
       status: 'aktiv',
-      closedAt: null,
-      reopenedAt: new Date().toISOString(),
+      reopenedAt: now.toISOString(),
       reopenedBy: currentDriver,
     });
-    // Reset all tree statuses for fresh run
-    const confirmed = confirm('Sollen die Bewässerungsstatus aller Bäume zurückgesetzt werden?');
-    if(confirmed) {
-      for(const tree of trees) {
-        await updateDoc(doc(db,'projects',currentProjectId,'trees',tree.id),{
-          lastStatus: null, lastReason: null, lastNote: null,
-          lastReportAt: null, lastDriver: null
-        });
-      }
-      toast('Tour zurückgesetzt — viel Erfolg!');
-    } else {
-      toast('Tour wieder geöffnet');
-    }
+
     currentTour = {...currentTour, status: 'aktiv'};
     closeFinishSheet();
+    toast('🔄 Tour neu gestartet — viel Erfolg!');
+
   } catch(e) { toast('Fehler: '+e.message); }
 }
 
