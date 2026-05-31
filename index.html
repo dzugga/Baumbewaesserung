@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v4.9 -->
+<!-- v5.0 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -189,8 +189,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
 .ctrl-period-btn{padding:4px 10px;border-radius:20px;font-size:12px;font-weight:500;border:1px solid var(--border);background:var(--surface);color:var(--text2);cursor:pointer;transition:all .15s;}
 .ctrl-period-btn.active{background:var(--green-light);color:var(--green);border-color:var(--green-mid);}
-.kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;display:flex;flex-direction:column;gap:2px;}
-.kpi-val{font-size:22px;font-weight:600;font-family:'DM Mono',monospace;}
+.kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;display:flex;align-items:center;gap:12px;}
+.kpi-val{font-size:20px;font-weight:700;font-family:'DM Mono',monospace;flex-shrink:0;}
+.kpi-info{display:flex;flex-direction:column;gap:1px;}
 .kpi-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);}
 .kpi-sub{font-size:11px;color:var(--text2);}
 
@@ -576,14 +577,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
   <!-- Content -->
   <div style="flex:1;overflow-y:auto;padding:20px;">
     <!-- Active filter summary -->
-    <div id="ctrl-filter-summary" style="display:none;background:var(--green-light);border:1px solid var(--green-mid);border-radius:var(--radius-sm);padding:8px 14px;margin-bottom:12px;font-size:12px;color:var(--green);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+    <div id="ctrl-filter-summary" style="display:none;background:var(--green-light);border:1px solid var(--green-mid);border-radius:var(--radius-sm);padding:6px 14px;margin-bottom:10px;font-size:12px;color:var(--green);align-items:center;gap:8px;flex-wrap:wrap;position:sticky;top:52px;z-index:9;">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
       <span id="ctrl-filter-summary-text"></span>
       <button onclick="resetCtrlFilters()" style="margin-left:auto;border:none;background:none;color:var(--green);cursor:pointer;font-size:11px;font-weight:600;text-decoration:underline;">Filter zurücksetzen</button>
     </div>
 
     <!-- KPI Cards -->
-    <div id="ctrl-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px;position:sticky;top:0;z-index:10;background:var(--bg);padding:12px 0 8px;margin-top:-8px;"></div>
+    <div id="ctrl-kpis" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;position:sticky;top:0;z-index:10;background:var(--bg);padding:10px 0 6px;margin-top:-8px;"></div>
 
     <!-- Charts: kompakt 2x2 -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
@@ -2527,8 +2528,10 @@ function renderControlling(){
     {val:activeFahrer,lbl:'Aktive Fahrer',sub:'im Zeitraum',color:'var(--blue)'},
   ].map(k=>`<div class="kpi-card">
     <div class="kpi-val" style="color:${k.color};">${k.val}</div>
-    <div class="kpi-lbl">${k.lbl}</div>
-    <div class="kpi-sub">${k.sub}</div>
+    <div class="kpi-info">
+      <div class="kpi-lbl">${k.lbl}</div>
+      <div class="kpi-sub">${k.sub}</div>
+    </div>
   </div>`).join('');
 
   // ── Charts ─────────────────────────────────────────────────────
