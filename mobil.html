@@ -264,6 +264,9 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           <input type="text" placeholder="Baum suchen…" oninput="renderList(this.value)" id="list-search-input">
         </div>
+        <button onclick="markAllDone()" style="background:var(--green);color:#fff;border:none;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">
+          ✓✓ Alle erledigt
+        </button>
         <button onclick="showFinishConfirm()" style="background:#991b1b;color:#fff;border:none;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">
           ✓ Abschließen
         </button>
@@ -318,6 +321,26 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
       </button>
     </div>
   </div>
+</div>
+
+<!-- BULK DONE CONFIRM SHEET -->
+<div id="bulk-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:3500;" onclick="closeBulkSheet()"></div>
+<div id="bulk-sheet" style="display:none;position:fixed;left:0;right:0;bottom:0;z-index:3501;background:var(--surface);border-radius:20px 20px 0 0;padding:24px 24px calc(24px + var(--safe-bottom));">
+  <div style="width:40px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 20px;"></div>
+  <div style="text-align:center;margin-bottom:16px;">
+    <div style="font-size:32px;margin-bottom:8px;">✓✓</div>
+    <div style="font-size:17px;font-weight:700;margin-bottom:6px;">Alle offenen Bäume als bewässert markieren?</div>
+    <div id="bulk-desc" style="font-size:13px;color:var(--text3);line-height:1.6;"></div>
+  </div>
+  <div style="background:var(--green-light);border-radius:10px;padding:12px 14px;margin-bottom:16px;font-size:12px;color:var(--green);line-height:1.6;">
+    💡 Bereits erfasste negative Rückmeldungen (nicht bewässert, Hindernis usw.) bleiben unverändert. Nur Bäume ohne bisherige Rückmeldung werden als bewässert markiert.
+  </div>
+  <button onclick="confirmMarkAllDone()" style="width:100%;padding:14px;background:var(--green);color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;margin-bottom:10px;cursor:pointer;">
+    ✓ Bestätigen
+  </button>
+  <button onclick="closeBulkSheet()" style="width:100%;padding:14px;background:var(--surface2);color:var(--text2);border:none;border-radius:12px;font-size:15px;cursor:pointer;">
+    Abbrechen
+  </button>
 </div>
 
 <!-- TOUR FINISH SHEET -->
@@ -705,6 +728,60 @@ async function dialogNeuStarten(){
 
   drawRoute();
   toast('🔄 Neu gestartet — viel Erfolg!');
+}
+
+function markAllDone(){
+  // Count only truly open trees (no status at all)
+  const open = trees.filter(t => !t.lastStatus);
+  if(open.length === 0){
+    toast('Keine offenen Bäume mehr');
+    return;
+  }
+  // Show confirm sheet
+  document.getElementById('bulk-desc').textContent =
+    `${open.length} Bäume ohne Rückmeldung werden als „Bewässert" markiert. ` +
+    `${trees.filter(t=>t.lastStatus==='nicht').length} negative Rückmeldungen bleiben erhalten.`;
+  document.getElementById('bulk-backdrop').style.display = 'block';
+  document.getElementById('bulk-sheet').style.display = 'block';
+}
+
+function closeBulkSheet(){
+  document.getElementById('bulk-backdrop').style.display = 'none';
+  document.getElementById('bulk-sheet').style.display = 'none';
+}
+
+async function confirmMarkAllDone(){
+  closeBulkSheet();
+  const now = new Date().toISOString();
+  // Only open trees — never overwrite existing status (positive OR negative)
+  const open = trees.filter(t => !t.lastStatus);
+  if(open.length === 0){ toast('Keine offenen Bäume'); return; }
+
+  toast(`${open.length} Bäume werden aktualisiert…`);
+
+  const updates = {
+    lastStatus: 'bewaessert',
+    lastDriver: currentDriver,
+    lastReportAt: now,
+    lastReason: null,
+    lastNote: null,
+    datum: now.slice(0,10),
+  };
+
+  // Update local state immediately
+  open.forEach(tree => Object.assign(tree, updates));
+  renderMarkers();
+  renderList('');
+  updateProgress();
+
+  // Write to Firestore in parallel
+  await Promise.all(
+    open.map(tree =>
+      updateDoc(doc(db,'projects',currentProjectId,'trees',tree.id), updates)
+    )
+  );
+
+  toast(`✓ ${open.length} Bäume als bewässert markiert`);
 }
 
 function showFinishConfirm() {
@@ -1279,7 +1356,8 @@ Object.assign(window,{
   doLogin,doLogout,switchTab,openSheet,closeSheet,
   selectStatus,saveReport,goToNextTree,recalcFromGPS,
   renderList,toast,showFinishConfirm,closeFinishSheet,finishTour,reopenTour,
-  showResumeOrRestartDialog,closeResumeDialog,dialogFortsetzen,dialogNeuStarten
+  showResumeOrRestartDialog,closeResumeDialog,dialogFortsetzen,dialogNeuStarten,
+  markAllDone,closeBulkSheet,confirmMarkAllDone
 });
 
 // ── SESSION RESUME ───────────────────────────────────────────
