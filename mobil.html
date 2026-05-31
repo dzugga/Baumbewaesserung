@@ -328,6 +328,8 @@ let routeOrder = []; // ordered tree ids
 let reasons = [];    // not-watered reasons from Firestore
 let selectedTreeId = null;
 let currentTab = 'map';
+let pauseSnapshot = false;
+let unsubTrees = null;
 let gpsMarker = null;
 let gpsLatLng = null;
 let mapMarkers = {};
@@ -510,7 +512,8 @@ async function doLogin() {
   }
 
   // Live updates
-  onSnapshot(collection(db,'projects',pid,'trees'), snap => {
+  unsubTrees = onSnapshot(collection(db,'projects',pid,'trees'), snap => {
+    if(pauseSnapshot) return;
     trees = snap.docs.map(d=>({id:d.id,...d.data()}))
       .filter(t=>t.tourId===tid);
     routeOrder = routeOrder.filter(id=>trees.find(t=>t.id===id));
@@ -714,8 +717,6 @@ async function reopenTour() {
   try {
     const now = new Date();
 
-    // Automatically reset status fields for all trees — no prompt needed
-    // Stammdaten (name, art, baumnr, lat, lng, zustand, wasser, history) stay intact
     const resetFields = {
       lastStatus: null,
       lastReason: null,
@@ -724,22 +725,45 @@ async function reopenTour() {
       lastDriver: null,
     };
 
-    // Batch reset all trees in tour
-    for(const tree of trees){
-      await updateDoc(
-        doc(db,'projects',currentProjectId,'trees',tree.id),
-        resetFields
-      );
-    }
+    // Step 1: Unsubscribe listener so it doesn't overwrite our reset
+    if(unsubTrees){ unsubTrees(); unsubTrees=null; }
 
-    // Mark tour as active again
+    // Step 2: Reset local state immediately and re-render
+    trees.forEach(tree => Object.assign(tree, resetFields));
+    renderMarkers();
+    renderList('');
+    updateProgress();
+
+    // Step 3: Write all resets to Firestore in parallel
+    await Promise.all(
+      trees.map(tree =>
+        updateDoc(doc(db,'projects',currentProjectId,'trees',tree.id), resetFields)
+      )
+    );
+
+    // Step 4: Mark tour as active
     await updateDoc(doc(db,'projects',currentProjectId,'tours',currentTourId),{
       status: 'aktiv',
       reopenedAt: now.toISOString(),
       reopenedBy: currentDriver,
     });
-
     currentTour = {...currentTour, status: 'aktiv'};
+
+    // Step 5: Re-subscribe listener — now reads fresh (empty) data
+    const treesRef = collection(db,'projects',currentProjectId,'trees');
+    unsubTrees = onSnapshot(treesRef, snap => {
+      if(pauseSnapshot) return;
+      trees = snap.docs.map(d=>({id:d.id,...d.data()}))
+        .filter(t=>t.tourId===currentTourId);
+      routeOrder = routeOrder.filter(id=>trees.find(t=>t.id===id));
+      trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
+      renderMarkers();
+      renderList(document.getElementById('list-search-input')?.value||'');
+      updateProgress();
+      if(selectedTreeId) openSheet(selectedTreeId);
+    });
+
+    drawRoute();
     closeFinishSheet();
     toast('🔄 Tour neu gestartet');
 
