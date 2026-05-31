@@ -340,10 +340,10 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
 </div>
 
 <!-- TOUR FINISH SHEET -->
-<div id="finish-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:3000;" onclick="closeFinishSheet()"></div>
-<div id="finish-sheet" style="display:none;position:fixed;left:0;right:0;bottom:0;z-index:3001;background:var(--surface);border-radius:20px 20px 0 0;padding:24px 24px calc(24px + var(--safe-bottom));">
-  <div style="width:40px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 20px;"></div>
-  <div id="finish-content"></div>
+<div id="finish-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:3000;"></div>
+<div id="finish-sheet" style="display:none;position:fixed;left:0;right:0;bottom:0;z-index:3001;background:var(--surface);border-radius:20px 20px 0 0;padding:0 0 calc(env(safe-area-inset-bottom,0px));">
+  <div style="width:40px;height:4px;background:var(--border);border-radius:2px;margin:16px auto 0;"></div>
+  <div id="finish-content" style="padding:20px 24px 24px;"></div>
 </div>
 
 <!-- DETAIL SHEET -->
@@ -792,59 +792,69 @@ async function confirmMarkAllDone(){
 }
 
 function showFinishConfirm() {
-  const done = trees.filter(t=>t.lastStatus).length;
-  const total = trees.length;
-  const offen = total - done;
+  // Prevent double-open
+  if(document.getElementById('finish-sheet').style.display === 'block') return;
+
   const bewaessert = trees.filter(t=>t.lastStatus==='bewaessert').length;
   const nicht = trees.filter(t=>t.lastStatus==='nicht').length;
+  const offen = trees.filter(t=>!t.lastStatus).length;
+  const total = trees.length;
+  const alreadyClosed = currentTour?.status === 'abgeschlossen';
 
   const content = document.getElementById('finish-content');
-  const tourStatus = currentTour?.status;
 
-  if(tourStatus === 'abgeschlossen') {
-    // Tour already closed — offer to reopen
+  const statsHtml = `
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:20px;">
+      <div style="background:var(--green-light);border-radius:10px;padding:12px;text-align:center;">
+        <div style="font-size:24px;font-weight:700;color:#16a34a;">${bewaessert}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px;">Bewässert</div>
+      </div>
+      <div style="background:var(--red-light);border-radius:10px;padding:12px;text-align:center;">
+        <div style="font-size:24px;font-weight:700;color:#991b1b;">${nicht}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px;">Nicht bew.</div>
+      </div>
+      <div style="background:var(--amber-light);border-radius:10px;padding:12px;text-align:center;">
+        <div style="font-size:24px;font-weight:700;color:var(--amber);">${offen}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px;">Offen</div>
+      </div>
+    </div>`;
+
+  if(alreadyClosed) {
     content.innerHTML = `
-      <div style="text-align:center;margin-bottom:20px;">
-        <div style="font-size:40px;margin-bottom:8px;">✅</div>
-        <div style="font-size:18px;font-weight:700;color:var(--text);">Tour abgeschlossen</div>
-        <div style="font-size:13px;color:var(--text3);margin-top:4px;">Diese Tour wurde bereits abgeschlossen.</div>
+      <div style="text-align:center;margin-bottom:16px;">
+        <div style="width:56px;height:56px;background:#dcfce7;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+        </div>
+        <div style="font-size:18px;font-weight:700;">Tour abgeschlossen</div>
+        <div style="font-size:13px;color:var(--text3);margin-top:4px;">Letzte Abschluss: ${currentTour?.lastClosedDate||'–'}</div>
       </div>
-      <div style="background:var(--surface2);border-radius:12px;padding:14px;margin-bottom:20px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;">
-        <div><div style="font-size:22px;font-weight:300;color:#16a34a;">${bewaessert}</div><div style="font-size:11px;color:var(--text3);">Bewässert</div></div>
-        <div><div style="font-size:22px;font-weight:300;color:#991b1b;">${nicht}</div><div style="font-size:11px;color:var(--text3);">Nicht bew.</div></div>
-        <div><div style="font-size:22px;font-weight:300;color:var(--amber);">${offen}</div><div style="font-size:11px;color:var(--text3);">Offen</div></div>
-      </div>
-      <button onclick="reopenTour()" style="width:100%;padding:14px;background:#16a34a;color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;margin-bottom:8px;">
-        Tour neu starten (Status wird zurückgesetzt)
+      ${statsHtml}
+      <button onclick="reopenTour()" style="width:100%;padding:14px;background:var(--green);color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;margin-bottom:10px;">
+        🔄 Neue Runde starten
       </button>
-      <button onclick="closeFinishSheet()" style="width:100%;padding:14px;background:var(--surface2);color:var(--text2);border:none;border-radius:12px;font-size:15px;">
+      <button onclick="closeFinishSheet()" style="width:100%;padding:14px;background:var(--surface2);color:var(--text2);border:none;border-radius:12px;font-size:15px;cursor:pointer;">
         Schließen
       </button>`;
   } else {
     content.innerHTML = `
-      <div style="text-align:center;margin-bottom:20px;">
-        <div style="font-size:40px;margin-bottom:8px;">${offen===0?'🎉':'⚠️'}</div>
-        <div style="font-size:18px;font-weight:700;color:var(--text);">Tour abschließen?</div>
-        <div style="font-size:13px;color:var(--text3);margin-top:4px;">${offen>0?`Noch ${offen} Bäume offen.`:'Alle Bäume abgearbeitet!'}</div>
+      <div style="text-align:center;margin-bottom:16px;">
+        <div style="font-size:17px;font-weight:700;">${offen===0?'🎉 Alle erledigt!':'Tour abschließen'}</div>
+        <div style="font-size:13px;color:var(--text3);margin-top:4px;">${offen>0?`Noch ${offen} Bäume ohne Rückmeldung`:'Alle Bäume wurden bearbeitet'}</div>
       </div>
-      <div style="background:var(--surface2);border-radius:12px;padding:14px;margin-bottom:20px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;">
-        <div><div style="font-size:22px;font-weight:300;color:#16a34a;">${bewaessert}</div><div style="font-size:11px;color:var(--text3);">Bewässert</div></div>
-        <div><div style="font-size:22px;font-weight:300;color:#991b1b;">${nicht}</div><div style="font-size:11px;color:var(--text3);">Nicht bew.</div></div>
-        <div><div style="font-size:22px;font-weight:300;color:var(--amber);">${offen}</div><div style="font-size:11px;color:var(--text3);">Offen</div></div>
-      </div>
-      <div style="font-size:12px;color:var(--text3);margin-bottom:16px;padding:10px;background:var(--surface2);border-radius:8px;">
-        💡 Der Status aller Bäume bleibt erhalten. Du kannst die Tour jederzeit wieder neu starten.
-      </div>
-      <button onclick="finishTour()" style="width:100%;padding:14px;background:#991b1b;color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;margin-bottom:8px;">
-        Tour abschließen
+      ${statsHtml}
+      <button id="btn-finish-confirm" onclick="finishTour()" style="width:100%;padding:14px;background:#991b1b;color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:8px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        Tour abschließen & speichern
       </button>
-      <button onclick="closeFinishSheet()" style="width:100%;padding:14px;background:var(--surface2);color:var(--text2);border:none;border-radius:12px;font-size:15px;">
+      <button onclick="closeFinishSheet()" style="width:100%;padding:14px;background:var(--surface2);color:var(--text2);border:none;border-radius:12px;font-size:15px;cursor:pointer;">
         Weiter arbeiten
       </button>`;
   }
 
   document.getElementById('finish-backdrop').style.display = 'block';
   document.getElementById('finish-sheet').style.display = 'block';
+  // Close on backdrop tap
+  document.getElementById('finish-backdrop').onclick = closeFinishSheet;
 }
 
 function closeFinishSheet() {
@@ -853,16 +863,22 @@ function closeFinishSheet() {
 }
 
 async function finishTour() {
+  const btn = document.getElementById('btn-finish-confirm');
+
+  // Prevent double-submit
+  if(btn) {
+    if(btn.disabled) return;
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner"></div> Wird gespeichert…';
+    btn.style.opacity = '0.8';
+  }
+
   try {
     const now = new Date();
     const dateStr = now.toISOString().slice(0,10);
     const tsStr = now.toISOString();
 
-    // Close sheet immediately — don't make user wait
-    closeFinishSheet();
-    toast('Wird gespeichert…');
-
-    // ── 1. Build snapshot (in memory, instant) ────────────────────
+    // ── 1. Save snapshot to tourHistory ──────────────────────────
     const snapshot = {
       tourId: currentTourId,
       tourName: currentTour?.name||'',
@@ -871,13 +887,12 @@ async function finishTour() {
       closedAt: tsStr,
       closedBy: currentDriver,
       trees: trees.map(t=>({
-        id: t.id, name: t.name||'', art: t.art||'',
-        baumnr: t.baumnr||'', stadtteil: t.stadtteil||'',
-        pflanzjahr: t.pflanzjahr||'', lat: t.lat||null, lng: t.lng||null,
-        zustand: t.zustand||'', wasser: t.wasser||'',
-        lastStatus: t.lastStatus||null, lastReason: t.lastReason||null,
-        lastNote: t.lastNote||null, lastDriver: t.lastDriver||null,
-        lastReportAt: t.lastReportAt||null,
+        id: t.id, name: t.name||'', art: t.art||'', baumnr: t.baumnr||'',
+        stadtteil: t.stadtteil||'', pflanzjahr: t.pflanzjahr||'',
+        lat: t.lat||null, lng: t.lng||null, zustand: t.zustand||'',
+        wasser: t.wasser||'', lastStatus: t.lastStatus||null,
+        lastReason: t.lastReason||null, lastNote: t.lastNote||null,
+        lastDriver: t.lastDriver||null, lastReportAt: t.lastReportAt||null,
       })),
       stats: {
         total: trees.length,
@@ -888,43 +903,66 @@ async function finishTour() {
     };
 
     const histId = `${dateStr}_${now.getTime()}_${currentTourId}`;
+    await setDoc(doc(db,'projects',currentProjectId,'tourHistory',histId), snapshot);
 
-    // ── 2. Build tree history updates (in memory) ─────────────────
-    const treeHistoryUpdates = trees
+    // ── 2. Add history entry to each reported tree ────────────────
+    const histWrites = trees
       .filter(t=>t.lastStatus)
-      .map(t=>{
-        const histEntry = {
-          date: dateStr, tourId: currentTourId,
-          tourName: currentTour?.name||'',
-          status: t.lastStatus, reason: t.lastReason||null,
-          note: t.lastNote||null, driver: t.lastDriver||null,
-          zustand: t.zustand||null, wasser: t.wasser||null,
+      .map(tree=>{
+        const entry = {
+          date: dateStr, tourId: currentTourId, tourName: currentTour?.name||'',
+          status: tree.lastStatus, reason: tree.lastReason||null,
+          note: tree.lastNote||null, driver: tree.lastDriver||null,
+          zustand: tree.zustand||null, wasser: tree.wasser||null,
         };
-        return {
-          ref: doc(db,'projects',currentProjectId,'trees',t.id),
-          data: {history: [...(t.history||[]), histEntry]}
-        };
+        return updateDoc(
+          doc(db,'projects',currentProjectId,'trees',tree.id),
+          {history: [...(tree.history||[]), entry]}
+        );
       });
+    await Promise.all(histWrites);
 
-    // ── 3. Fire ALL writes in parallel ────────────────────────────
-    await Promise.all([
-      // Save snapshot
-      setDoc(doc(db,'projects',currentProjectId,'tourHistory',histId), snapshot),
-      // Update all tree histories at once
-      ...treeHistoryUpdates.map(u => updateDoc(u.ref, u.data)),
-      // Mark tour closed
-      updateDoc(doc(db,'projects',currentProjectId,'tours',currentTourId),{
-        status: 'abgeschlossen',
-        closedAt: tsStr,
-        closedBy: currentDriver,
-        lastClosedDate: dateStr,
-      }),
-    ]);
+    // ── 3. Mark tour closed ───────────────────────────────────────
+    await updateDoc(doc(db,'projects',currentProjectId,'tours',currentTourId),{
+      status: 'abgeschlossen',
+      closedAt: tsStr,
+      closedBy: currentDriver,
+      lastClosedDate: dateStr,
+    });
+    currentTour = {...currentTour, status: 'abgeschlossen', lastClosedDate: dateStr};
 
-    currentTour = {...currentTour, status: 'abgeschlossen'};
-    toast('✅ Tour abgeschlossen & gespeichert');
+    // ── 4. Show success state ─────────────────────────────────────
+    closeFinishSheet();
 
-  } catch(e) { toast('Fehler: '+e.message); console.error(e); }
+    // Show full-screen success banner
+    const banner = document.createElement('div');
+    banner.style.cssText = 'position:fixed;inset:0;background:var(--green);z-index:9000;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;';
+    banner.innerHTML = `
+      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5" style="margin-bottom:16px;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+      <div style="font-size:24px;font-weight:700;margin-bottom:8px;">Tour abgeschlossen!</div>
+      <div style="font-size:14px;opacity:.85;">${snapshot.stats.bewaessert} bewässert · ${snapshot.stats.nicht} nicht · ${snapshot.stats.offen} offen</div>
+      <div style="font-size:13px;opacity:.7;margin-top:6px;">Daten wurden gespeichert</div>`;
+    document.body.appendChild(banner);
+    setTimeout(()=>banner.remove(), 2500);
+
+    // Update list button state
+    const finishBtn = document.querySelector('[onclick="showFinishConfirm()"]');
+    if(finishBtn){
+      finishBtn.textContent = '✅ Abgeschlossen';
+      finishBtn.style.background = '#16a34a';
+      finishBtn.disabled = true;
+    }
+
+  } catch(e) {
+    console.error('finishTour error:', e);
+    if(btn) {
+      btn.disabled = false;
+      btn.innerHTML = '⚠ Fehler — erneut versuchen';
+      btn.style.background = '#b45309';
+      btn.style.opacity = '1';
+    }
+    toast('Fehler: ' + e.message);
+  }
 }
 
 async function reopenTour() {
