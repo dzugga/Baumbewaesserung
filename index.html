@@ -2381,19 +2381,28 @@ function renderControlling(){
     }
   }
 
-  // ALL trees with any activity in range — each tree = one row (no grouping)
-  const reported=filtered.filter(t=>t.lastReportAt&&inCtrlRange(
-    t.lastReportAt.slice?t.lastReportAt.slice(0,10):t.lastReportAt
-  ));
+  // Step 1: Current status — trees with lastStatus set (regardless of date)
+  // If date filter active: also check lastReportAt in range
+  // If no date filter active: show all with any status
+  const {from,to}=getCtrlDateRange();
+  const isDefaultPeriod = ctrlPeriod==='today'; // be inclusive
+  
+  const reported=filtered.filter(t=>{
+    if(!t.lastStatus) return false; // no status = not reported
+    if(!t.lastReportAt) return true; // has status but no date = always show
+    const d=t.lastReportAt.slice?t.lastReportAt.slice(0,10):t.lastReportAt;
+    return inCtrlRange(d);
+  });
 
-  // Also collect individual history entries within range for complete picture
+  // Step 2: History entries in range (previous tour runs)
   const historyRows=[];
   filtered.forEach(tree=>{
     (tree.history||[]).forEach(h=>{
       if(!h.date||!inCtrlRange(h.date))return;
-      // Only add if NOT already covered by current lastReportAt entry
-      const alreadyCovered=reported.find(r=>r.id===tree.id&&r.lastReportAt?.slice(0,10)===h.date);
-      if(!alreadyCovered){
+      // Don't duplicate if current lastReportAt is same date
+      const sameAsCurrentDate=tree.lastReportAt&&
+        (tree.lastReportAt.slice?tree.lastReportAt.slice(0,10):tree.lastReportAt)===h.date;
+      if(!sameAsCurrentDate){
         historyRows.push({
           ...tree,
           _fromHistory:true,
@@ -2406,6 +2415,7 @@ function renderControlling(){
       }
     });
   });
+
   const allReported=[...reported,...historyRows]
     .sort((a,b)=>(b.lastReportAt||'').localeCompare(a.lastReportAt||''));
   const bewaessert=filtered.filter(t=>t.lastStatus==='bewaessert'&&t.lastReportAt&&inCtrlRange(t.lastReportAt.slice?t.lastReportAt.slice(0,10):t.lastReportAt));
