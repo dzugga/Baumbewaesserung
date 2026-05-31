@@ -4,8 +4,21 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Baumbewässerung — Fahrer</title>
+<!-- Preconnect to external servers for faster loading -->
+<link rel="preconnect" href="https://unpkg.com">
+<link rel="preconnect" href="https://www.gstatic.com">
+<link rel="preconnect" href="https://firestore.googleapis.com">
+<link rel="preconnect" href="https://tile.openstreetmap.org">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- PWA manifest + theme -->
+<meta name="theme-color" content="#2d6a4f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<!-- Leaflet CSS -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<!-- System font stack instead of Google Fonts (no external request) -->
 <style>
 :root{
   --bg:#f5f3ee;--surface:#fff;--surface2:#f0ede6;--border:#ddd9d0;
@@ -20,7 +33,7 @@
   --safe-bottom:env(safe-area-inset-bottom,0px);
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
-html,body{height:100%;overflow:hidden;font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);}
+html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);}
 
 /* ── SCREENS ─────────────────────────────── */
 .screen{position:fixed;inset:0;display:none;flex-direction:column;background:var(--bg);}
@@ -33,9 +46,9 @@ html,body{height:100%;overflow:hidden;font-family:'DM Sans',sans-serif;backgroun
 .login-sub{font-size:13px;color:var(--text3);margin-bottom:24px;}
 .form-group{margin-bottom:16px;}
 .form-label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);margin-bottom:6px;}
-.form-control{width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:15px;background:var(--bg);color:var(--text);outline:none;transition:border-color .15s;}
+.form-control{width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;background:var(--bg);color:var(--text);outline:none;transition:border-color .15s;}
 .form-control:focus{border-color:var(--green-mid);}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:13px 20px;border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:15px;font-weight:600;cursor:pointer;border:none;transition:all .15s;width:100%;}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:13px 20px;border-radius:var(--radius-sm);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;cursor:pointer;border:none;transition:all .15s;width:100%;}
 .btn-primary{background:var(--green);color:#fff;}
 .btn-primary:active{background:#235a42;}
 .btn-secondary{background:var(--surface);color:var(--text);border:1.5px solid var(--border);}
@@ -77,13 +90,13 @@ html,body{height:100%;overflow:hidden;font-family:'DM Sans',sans-serif;backgroun
 /* ── LIST TAB ─────────────────────────────── */
 .list-header{padding:10px 16px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;}
 .list-search{position:relative;}
-.list-search input{width:100%;padding:9px 12px 9px 36px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:14px;font-family:'DM Sans',sans-serif;background:var(--bg);outline:none;}
+.list-search input{width:100%;padding:9px 12px 9px 36px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:var(--bg);outline:none;}
 .list-search svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text3);}
 .tree-list{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;}
 .tree-row{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;cursor:pointer;background:var(--surface);transition:background .1s;}
 .tree-row:active{background:var(--surface2);}
 .tree-row.done{opacity:.6;}
-.tree-row-num{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;font-family:'DM Mono',monospace;}
+.tree-row-num{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;font-family:'SF Mono','Fira Code',Consolas,monospace;}
 .tree-row-info{flex:1;min-width:0;}
 .tree-row-name{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .tree-row-meta{font-size:12px;color:var(--text3);margin-top:2px;}
@@ -128,7 +141,7 @@ html,body{height:100%;overflow:hidden;font-family:'DM Sans',sans-serif;backgroun
 .prop-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;}
 .prop-group{display:flex;flex-direction:column;gap:4px;}
 .prop-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text2);}
-.prop-input{padding:9px 10px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:14px;font-family:'DM Sans',sans-serif;background:var(--bg);outline:none;width:100%;}
+.prop-input{padding:9px 10px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:var(--bg);outline:none;width:100%;}
 .prop-input:focus{border-color:var(--green-mid);}
 .prop-full{grid-column:1/-1;}
 
@@ -150,6 +163,14 @@ html,body{height:100%;overflow:hidden;font-family:'DM Sans',sans-serif;backgroun
 <body>
 
 <!-- LOGIN -->
+<!-- INSTANT LOADING SCREEN (shows immediately, replaced by login) -->
+<div id="screen-loading" style="position:fixed;inset:0;background:#f5f3ee;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99999;">
+  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#2d6a4f" stroke-width="1.5" style="margin-bottom:16px;"><path d="M12 22V12"/><path d="M12 12C12 12 7 9 7 5a5 5 0 0 1 10 0c0 4-5 7-5 7z"/></svg>
+  <div style="font-size:18px;font-weight:600;color:#2d6a4f;margin-bottom:8px;">Baumbewässerung</div>
+  <div style="font-size:13px;color:#9c9890;margin-bottom:24px;">Fahrer-App</div>
+  <div style="width:40px;height:40px;border:3px solid #e8f5ee;border-top-color:#2d6a4f;border-radius:50%;animation:spin .8s linear infinite;"></div>
+  <div style="font-size:12px;color:#9c9890;margin-top:16px;" id="loading-status">Verbinde…</div>
+</div>
 <div class="screen active" id="screen-login">
   <div class="login-card">
     <div class="login-brand">
@@ -273,7 +294,7 @@ html,body{height:100%;overflow:hidden;font-family:'DM Sans',sans-serif;backgroun
 
 <div class="toast" id="toast"></div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { getFirestore, collection, doc, getDoc, getDocs, updateDoc, addDoc,
@@ -309,7 +330,12 @@ let routeLayer = null;
 // ─── MAP ──────────────────────────────────────────────────────
 const map = L.map('map', {zoomControl: false}).setView([51.05, 13.73], 14);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '© OpenStreetMap', maxZoom: 19
+  attribution: '© OpenStreetMap',
+  maxZoom: 19,
+  maxNativeZoom: 18,
+  keepBuffer: 4,
+  updateWhenZooming: false,
+  updateWhenIdle: true,
 }).addTo(map);
 L.control.zoom({position: 'bottomright'}).addTo(map);
 
@@ -336,7 +362,20 @@ function startGPS() {
 }
 
 // ─── LOGIN ────────────────────────────────────────────────────
+// Hide loading screen once app is ready
+function hideLoading() {
+  const el = document.getElementById('screen-loading');
+  if(el) { el.style.opacity='0'; el.style.transition='opacity .3s'; setTimeout(()=>el.remove(),300); }
+}
+
+// Update loading status text
+function setLoadingStatus(msg) {
+  const el = document.getElementById('loading-status');
+  if(el) el.textContent = msg;
+}
+
 async function loadProjects() {
+  setLoadingStatus('Lade Projekte…');
   const snap = await getDocs(collection(db, 'projects'));
   const sel = document.getElementById('login-project');
   sel.innerHTML = '<option value="">– Projekt wählen –</option>';
@@ -345,6 +384,7 @@ async function loadProjects() {
     opt.value = d.id; opt.textContent = d.data().name;
     sel.appendChild(opt);
   });
+  hideLoading();
 }
 
 document.getElementById('login-project').onchange = async function() {
@@ -399,6 +439,11 @@ async function doLogin() {
     }
   } catch(e) { routeOrder = trees.map(t => t.id); }
 
+  // Save session for auto-resume
+  localStorage.setItem('bwt_mobile_session', JSON.stringify({
+    driver: name, projectId: pid, tourId: tid, savedAt: Date.now()
+  }));
+
   // Show app
   document.getElementById('screen-login').classList.remove('active');
   document.getElementById('screen-app').classList.add('active');
@@ -431,7 +476,8 @@ async function doLogin() {
 }
 
 function doLogout() {
-  if (!confirm('Tour beenden?')) return;
+  if (!confirm('Abmelden?')) return;
+  localStorage.removeItem('bwt_mobile_session');
   location.reload();
 }
 
@@ -598,7 +644,7 @@ function makeTreeIcon(tree, idx) {
   return L.divIcon({
     className:'',
     html:`<div style="position:relative;width:${size}px;height:${size}px;">
-      <div style="width:${size}px;height:${size}px;border-radius:50%;background:${bg};border:${border};box-shadow:${shadow};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;font-family:'DM Mono',monospace;">${status?status==='bewaessert'?'✓':'✕':num}</div>
+      <div style="width:${size}px;height:${size}px;border-radius:50%;background:${bg};border:${border};box-shadow:${shadow};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;font-family:'SF Mono','Fira Code',Consolas,monospace;">${status?status==='bewaessert'?'✓':'✕':num}</div>
     </div>`,
     iconSize:[size,size],iconAnchor:[size/2,size/2]
   });
@@ -888,8 +934,42 @@ Object.assign(window,{
   renderList,toast,showFinishConfirm,closeFinishSheet,finishTour,reopenTour
 });
 
+// ── SESSION RESUME ───────────────────────────────────────────
+// Try to restore last session so driver doesn't have to log in every time
+async function tryResumeSession() {
+  const saved = localStorage.getItem('bwt_mobile_session');
+  if(!saved) { loadProjects(); return; }
+  try {
+    const session = JSON.parse(saved);
+    const {driver, projectId, tourId, savedAt} = session;
+    // Session valid for 12 hours
+    if(Date.now() - savedAt > 12*3600*1000) { localStorage.removeItem('bwt_mobile_session'); loadProjects(); return; }
+    setLoadingStatus(`Willkommen zurück, ${driver}!`);
+    // Pre-fill login form
+    document.getElementById('login-name').value = driver;
+    // Load project list
+    await loadProjects();
+    // Auto-select project and tour
+    const projSel = document.getElementById('login-project');
+    projSel.value = projectId;
+    await projSel.dispatchEvent(new Event('change'));
+    setTimeout(()=>{
+      const tourSel = document.getElementById('login-tour');
+      tourSel.value = tourId;
+    }, 500);
+    // Show resume banner
+    const card = document.querySelector('.login-card');
+    if(card) {
+      const banner = document.createElement('div');
+      banner.style.cssText = 'background:var(--green-light);border:1px solid var(--green-mid);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:var(--green);display:flex;align-items:center;gap:8px;';
+      banner.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>Letzte Session: ${driver} — Tour wird fortgesetzt`;
+      card.insertBefore(banner, card.firstChild);
+    }
+  } catch(e) { loadProjects(); }
+}
+
 // Init
-loadProjects();
+tryResumeSession();
 </script>
 </body>
 </html>
