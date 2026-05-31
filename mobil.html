@@ -501,6 +501,7 @@ async function doLogin() {
     }
   }
   startGPS();
+  drawRoute(); // load saved route from Firestore
 
   // Fit map to trees
   if (trees.length > 0) {
@@ -696,19 +697,88 @@ function renderMarkers() {
       .addTo(map).on('click',()=>openSheet(id));
     mapMarkers[id]=m;
   });
-  drawRoute();
+  // Route drawn separately via drawRoute() to load from Firestore
 }
 
-function drawRoute(){
-  if(routeLayer){map.removeLayer(routeLayer);routeLayer=null;}
+async function drawRoute(){
+  if(routeLayer){
+    if(Array.isArray(routeLayer))routeLayer.forEach(l=>map.removeLayer(l));
+    else map.removeLayer(routeLayer);
+    routeLayer=null;
+  }
+  if(depotMarker){map.removeLayer(depotMarker);depotMarker=null;}
+
+  const color=currentTour?.color||'#2d6a4f';
+
+  // Load saved route from Firestore (same as desktop)
+  try{
+    const routeSnap=await getDoc(doc(db,'projects',currentProjectId,'routes',currentTourId));
+    if(routeSnap.exists()){
+      const data=routeSnap.data();
+      // Restore route order from saved data
+      if(data.orderIds){
+        const savedOrder=data.orderIds.filter(id=>trees.find(t=>t.id===id));
+        // Merge: keep done trees in order, append remaining
+        const done=routeOrder.filter(id=>trees.find(t=>t.id===id)&&trees.find(t=>t.id===id).lastStatus);
+        const remaining=savedOrder.filter(id=>!trees.find(t=>t.id===id)?.lastStatus);
+        routeOrder=[...done,...remaining];
+        trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
+      }
+      // Draw real street route from saved GeoJSON
+      if(data.geojsonStr){
+        try{
+          const geo=JSON.parse(data.geojsonStr);
+          routeLayer=L.geoJSON(geo,{style:{color,weight:4,opacity:.85}}).addTo(map);
+          drawDepotMarker(data);
+          return;
+        }catch(e){}
+      }
+    }
+  }catch(e){}
+
+  // Fallback: dashed polyline with depot if set
   const pts=routeOrder.map(id=>{
     const t=trees.find(x=>x.id===id);
     return t&&t.lat&&t.lng?[t.lat,t.lng]:null;
   }).filter(Boolean);
   if(pts.length<2)return;
-  routeLayer=L.polyline(pts,{
-    color:currentTour?.color||'#2d6a4f',weight:3,opacity:.6,dashArray:'6 4'
-  }).addTo(map);
+
+  // Add depot to route if configured
+  const allPts=await getRouteWithDepot(pts);
+  routeLayer=L.polyline(allPts,{color,weight:3,opacity:.7,dashArray:'8 5'}).addTo(map);
+  drawDepotMarker(null);
+}
+
+let depotMarker=null;
+
+async function getRouteWithDepot(pts){
+  try{
+    const projSnap=await getDoc(doc(db,'projects',currentProjectId));
+    const depot=projSnap.data()?.depot;
+    const depotMode=projSnap.data()?.depotMode||'round';
+    if(depot?.lat&&depot?.lng){
+      const dp=[depot.lat,depot.lng];
+      return depotMode==='round'?[dp,...pts,dp]:[dp,...pts];
+    }
+  }catch(e){}
+  return pts;
+}
+
+async function drawDepotMarker(routeData){
+  if(depotMarker){map.removeLayer(depotMarker);depotMarker=null;}
+  try{
+    const projSnap=await getDoc(doc(db,'projects',currentProjectId));
+    const depot=projSnap.data()?.depot;
+    if(!depot?.lat)return;
+    const icon=L.divIcon({
+      className:'',
+      html:`<div style="width:32px;height:32px;border-radius:8px;background:#f59e0b;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;font-size:16px;">🏭</div>`,
+      iconSize:[32,32],iconAnchor:[16,16]
+    });
+    depotMarker=L.marker([depot.lat,depot.lng],{icon,zIndexOffset:1000})
+      .addTo(map)
+      .bindTooltip(`<b>Betriebshof</b>`,{direction:'top',offset:[0,-18]});
+  }catch(e){}
 }
 
 // ─── NEXT TREE ─────────────────────────────────────────────────
@@ -739,6 +809,7 @@ function recalcFromGPS(){
   renderMarkers();
   renderList('');
   toast('Route neu berechnet');
+  drawRoute();
 }
 
 function nearestNeighbor(pts,startLat,startLng){
