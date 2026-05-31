@@ -2381,8 +2381,33 @@ function renderControlling(){
     }
   }
 
-  // Trees with activity in range
-  const reported=filtered.filter(t=>t.lastReportAt&&inCtrlRange(t.lastReportAt.slice?t.lastReportAt.slice(0,10):t.lastReportAt));
+  // ALL trees with any activity in range — each tree = one row (no grouping)
+  const reported=filtered.filter(t=>t.lastReportAt&&inCtrlRange(
+    t.lastReportAt.slice?t.lastReportAt.slice(0,10):t.lastReportAt
+  ));
+
+  // Also collect individual history entries within range for complete picture
+  const historyRows=[];
+  filtered.forEach(tree=>{
+    (tree.history||[]).forEach(h=>{
+      if(!h.date||!inCtrlRange(h.date))return;
+      // Only add if NOT already covered by current lastReportAt entry
+      const alreadyCovered=reported.find(r=>r.id===tree.id&&r.lastReportAt?.slice(0,10)===h.date);
+      if(!alreadyCovered){
+        historyRows.push({
+          ...tree,
+          _fromHistory:true,
+          lastStatus:h.status||null,
+          lastReason:h.reason||null,
+          lastNote:h.note||null,
+          lastDriver:h.driver||null,
+          lastReportAt:h.date,
+        });
+      }
+    });
+  });
+  const allReported=[...reported,...historyRows]
+    .sort((a,b)=>(b.lastReportAt||'').localeCompare(a.lastReportAt||''));
   const bewaessert=filtered.filter(t=>t.lastStatus==='bewaessert'&&t.lastReportAt&&inCtrlRange(t.lastReportAt.slice?t.lastReportAt.slice(0,10):t.lastReportAt));
   const nicht=filtered.filter(t=>t.lastStatus==='nicht'&&t.lastReportAt&&inCtrlRange(t.lastReportAt.slice?t.lastReportAt.slice(0,10):t.lastReportAt));
   const offen=filtered.filter(t=>!t.lastStatus||!t.lastReportAt||!inCtrlRange(t.lastReportAt.slice?t.lastReportAt.slice(0,10):t.lastReportAt));
@@ -2408,7 +2433,7 @@ function renderControlling(){
   renderTimelineChart(filtered,from,to);
   renderStadtteilChart(filtered);
   renderReasonsBar(nicht);
-  renderDetailTable(reported);
+  renderDetailTable(allReported);
 }
 
 function destroyChart(id){
@@ -2555,25 +2580,36 @@ function renderDetailTable(reported){
   const body=document.getElementById('ctrl-table-body');
   const count=document.getElementById('ctrl-table-count');
   if(!head||!body)return;
-  const cols=['Anlage/Straße','Stadtteil','Tour','Status','Grund','Fahrer','Datum',''];
-  head.innerHTML=cols.map(h=>`<th style="padding:8px 14px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);white-space:nowrap;">${h}</th>`).join('');
+
+  const cols=['#','Anlage/Straße','Baumnr.','Stadtteil','Tour','Status','Grund','Fahrer','Datum',''];
+  head.innerHTML=cols.map(h=>`<th style="padding:8px 12px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);white-space:nowrap;">${h}</th>`).join('');
   if(count) count.textContent=`${reported.length} Meldungen`;
-  const sorted=[...reported].sort((a,b)=>(b.lastReportAt||'').localeCompare(a.lastReportAt||''));
-  body.innerHTML=sorted.map(tree=>{
+
+  if(reported.length===0){
+    body.innerHTML=`<tr><td colspan="${cols.length}" style="padding:24px;text-align:center;color:var(--text3);font-size:13px;">Keine Meldungen im gewählten Zeitraum</td></tr>`;
+    return;
+  }
+
+  body.innerHTML=reported.map((tree,idx)=>{
     const tour=tours.find(t=>t.id===tree.tourId);
     const st=tree.lastStatus;
-    const stHtml=st==='bewaessert'?'<span style="color:#16a34a;font-weight:600;">✓ Bewässert</span>':
-      st==='nicht'?'<span style="color:var(--red);font-weight:600;">✕ Nicht bewässert</span>':
-      '<span style="color:var(--text3);">○ Offen</span>';
+    const stHtml=st==='bewaessert'
+      ?'<span style="color:#16a34a;font-weight:600;">✓ Bewässert</span>'
+      :st==='nicht'
+      ?'<span style="color:var(--red);font-weight:600;">✕ Nicht bewässert</span>'
+      :'<span style="color:var(--text3);">○ Offen</span>';
     const date=tree.lastReportAt?tree.lastReportAt.slice(0,10):'–';
-    return `<tr style="border-top:1px solid var(--border);" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''">
-      <td style="padding:8px 14px;font-size:12px;font-weight:500;">${tree.name||'–'}</td>
-      <td style="padding:8px 14px;font-size:12px;color:var(--text2);">${tree.stadtteil||'–'}</td>
-      <td style="padding:8px 14px;font-size:12px;">${tour?`<span style="font-weight:600;color:${tour.color};">${tour.name}</span>`:'–'}</td>
-      <td style="padding:8px 14px;font-size:12px;">${stHtml}</td>
-      <td style="padding:8px 14px;font-size:12px;color:var(--text2);">${tree.lastReason||'–'}</td>
-      <td style="padding:8px 14px;font-size:12px;color:var(--text2);">${tree.lastDriver||'–'}</td>
-      <td style="padding:8px 14px;font-size:12px;font-family:monospace;color:var(--text2);">${date}</td>
+    const rowBg=tree._fromHistory?'background:var(--surface2);':'';
+    return `<tr style="border-top:1px solid var(--border);${rowBg}" onmouseenter="this.style.background='#f0ede6'" onmouseleave="this.style.background='${tree._fromHistory?'var(--surface2)':''}'"  >
+      <td style="padding:8px 12px;font-size:11px;color:var(--text3);font-family:monospace;">${idx+1}</td>
+      <td style="padding:8px 12px;font-size:12px;font-weight:500;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${tree.name||''}">${tree.name||'–'}</td>
+      <td style="padding:8px 12px;font-size:11px;color:var(--text2);font-family:monospace;white-space:nowrap;">${tree.baumnr||'–'}</td>
+      <td style="padding:8px 12px;font-size:12px;color:var(--text2);white-space:nowrap;">${tree.stadtteil||'–'}</td>
+      <td style="padding:8px 12px;font-size:12px;">${tour?`<span style="font-weight:600;color:${tour.color};">${tour.name}</span>`:'–'}</td>
+      <td style="padding:8px 12px;font-size:12px;white-space:nowrap;">${stHtml}</td>
+      <td style="padding:8px 12px;font-size:12px;color:var(--text2);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${tree.lastReason||''}">${tree.lastReason||'–'}</td>
+      <td style="padding:8px 12px;font-size:12px;color:var(--text2);white-space:nowrap;">${tree.lastDriver||'–'}</td>
+      <td style="padding:8px 12px;font-size:11px;font-family:monospace;color:var(--text2);white-space:nowrap;">${date}</td>
       <td style="padding:6px 10px;">
         <button onclick="ctrlShowOnMap('${tree.id}')" style="padding:3px 9px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;display:flex;align-items:center;gap:4px;white-space:nowrap;">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>Karte
