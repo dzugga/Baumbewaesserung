@@ -808,7 +808,8 @@ async function finishTour() {
     };
 
     // Save to tourHistory subcollection with date as ID
-    const histId = `${dateStr}_${currentTourId}`;
+    // Use timestamp to ensure each tour run gets unique ID
+    const histId = `${dateStr}_${now.getTime()}_${currentTourId}`;
     await setDoc(
       doc(db,'projects',currentProjectId,'tourHistory',histId),
       snapshot
