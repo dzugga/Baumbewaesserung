@@ -851,7 +851,11 @@ async function finishTour() {
     const dateStr = now.toISOString().slice(0,10);
     const tsStr = now.toISOString();
 
-    // ── 1. Save full historical snapshot to Firestore ─────────────
+    // Close sheet immediately — don't make user wait
+    closeFinishSheet();
+    toast('Wird gespeichert…');
+
+    // ── 1. Build snapshot (in memory, instant) ────────────────────
     const snapshot = {
       tourId: currentTourId,
       tourName: currentTour?.name||'',
@@ -860,20 +864,12 @@ async function finishTour() {
       closedAt: tsStr,
       closedBy: currentDriver,
       trees: trees.map(t=>({
-        id: t.id,
-        name: t.name||'',
-        art: t.art||'',
-        baumnr: t.baumnr||'',
-        stadtteil: t.stadtteil||'',
-        pflanzjahr: t.pflanzjahr||'',
-        lat: t.lat||null,
-        lng: t.lng||null,
-        zustand: t.zustand||'',
-        wasser: t.wasser||'',
-        lastStatus: t.lastStatus||null,
-        lastReason: t.lastReason||null,
-        lastNote: t.lastNote||null,
-        lastDriver: t.lastDriver||null,
+        id: t.id, name: t.name||'', art: t.art||'',
+        baumnr: t.baumnr||'', stadtteil: t.stadtteil||'',
+        pflanzjahr: t.pflanzjahr||'', lat: t.lat||null, lng: t.lng||null,
+        zustand: t.zustand||'', wasser: t.wasser||'',
+        lastStatus: t.lastStatus||null, lastReason: t.lastReason||null,
+        lastNote: t.lastNote||null, lastDriver: t.lastDriver||null,
         lastReportAt: t.lastReportAt||null,
       })),
       stats: {
@@ -884,48 +880,44 @@ async function finishTour() {
       }
     };
 
-    // Save to tourHistory subcollection with date as ID
-    // Use timestamp to ensure each tour run gets unique ID
     const histId = `${dateStr}_${now.getTime()}_${currentTourId}`;
-    await setDoc(
-      doc(db,'projects',currentProjectId,'tourHistory',histId),
-      snapshot
-    );
 
-    // Also add entry to each tree's history array
-    for(const tree of trees){
-      if(!tree.lastStatus) continue;
-      const histEntry = {
-        date: dateStr,
-        tourId: currentTourId,
-        tourName: currentTour?.name||'',
-        status: tree.lastStatus,
-        reason: tree.lastReason||null,
-        note: tree.lastNote||null,
-        driver: tree.lastDriver||null,
-        zustand: tree.zustand||null,
-        wasser: tree.wasser||null,
-      };
-      const history = [...(tree.history||[]), histEntry];
-      await updateDoc(
-        doc(db,'projects',currentProjectId,'trees',tree.id),
-        {history}
-      );
-    }
+    // ── 2. Build tree history updates (in memory) ─────────────────
+    const treeHistoryUpdates = trees
+      .filter(t=>t.lastStatus)
+      .map(t=>{
+        const histEntry = {
+          date: dateStr, tourId: currentTourId,
+          tourName: currentTour?.name||'',
+          status: t.lastStatus, reason: t.lastReason||null,
+          note: t.lastNote||null, driver: t.lastDriver||null,
+          zustand: t.zustand||null, wasser: t.wasser||null,
+        };
+        return {
+          ref: doc(db,'projects',currentProjectId,'trees',t.id),
+          data: {history: [...(t.history||[]), histEntry]}
+        };
+      });
 
-    // ── 2. Mark tour as closed ────────────────────────────────────
-    await updateDoc(doc(db,'projects',currentProjectId,'tours',currentTourId),{
-      status: 'abgeschlossen',
-      closedAt: tsStr,
-      closedBy: currentDriver,
-      lastClosedDate: dateStr,
-    });
+    // ── 3. Fire ALL writes in parallel ────────────────────────────
+    await Promise.all([
+      // Save snapshot
+      setDoc(doc(db,'projects',currentProjectId,'tourHistory',histId), snapshot),
+      // Update all tree histories at once
+      ...treeHistoryUpdates.map(u => updateDoc(u.ref, u.data)),
+      // Mark tour closed
+      updateDoc(doc(db,'projects',currentProjectId,'tours',currentTourId),{
+        status: 'abgeschlossen',
+        closedAt: tsStr,
+        closedBy: currentDriver,
+        lastClosedDate: dateStr,
+      }),
+    ]);
 
     currentTour = {...currentTour, status: 'abgeschlossen'};
-    closeFinishSheet();
     toast('✅ Tour abgeschlossen & gespeichert');
 
-  } catch(e) { toast('Fehler beim Abschließen: '+e.message); console.error(e); }
+  } catch(e) { toast('Fehler: '+e.message); console.error(e); }
 }
 
 async function reopenTour() {
