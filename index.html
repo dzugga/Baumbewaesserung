@@ -585,37 +585,31 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <!-- KPI Cards -->
     <div id="ctrl-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px;"></div>
 
-    <!-- Charts row -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
-      <!-- Pie chart -->
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;">
-        <div style="font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px;">Status-Verteilung</div>
-        <canvas id="ctrl-pie" width="300" height="220"></canvas>
+    <!-- Charts: kompakt 2x2 -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px;">
+        <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Status-Verteilung</div>
+        <canvas id="ctrl-pie" height="180"></canvas>
       </div>
-      <!-- Bar chart per tour -->
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;">
-        <div style="font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px;">Status pro Tour</div>
-        <canvas id="ctrl-bar" width="300" height="220"></canvas>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px;">
+        <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Status pro Tour</div>
+        <canvas id="ctrl-bar" height="180"></canvas>
       </div>
     </div>
-
-    <!-- Timeline -->
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:20px;">
-      <div style="font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px;">Bewässerungen im Zeitverlauf</div>
-      <canvas id="ctrl-timeline" width="800" height="180"></canvas>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px;">
+        <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Zeitverlauf</div>
+        <canvas id="ctrl-timeline" height="160"></canvas>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px;">
+        <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Status pro Stadtteil</div>
+        <canvas id="ctrl-stadtteil" height="160"></canvas>
+      </div>
     </div>
-
-    <!-- Nicht-Bewässerungs-Gründe -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;">
-        <div style="font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px;">Gründe: Nicht bewässert</div>
-        <div id="ctrl-reasons"></div>
-      </div>
-      <!-- Per Stadtteil -->
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;">
-        <div style="font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px;">Status pro Stadtteil</div>
-        <canvas id="ctrl-stadtteil" width="300" height="220"></canvas>
-      </div>
+    <!-- Gründe kompakt -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:12px;">
+      <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Gründe: Nicht bewässert</div>
+      <div id="ctrl-reasons"></div>
     </div>
 
     <!-- Detail table -->
@@ -2561,23 +2555,30 @@ function renderDetailTable(reported){
   const body=document.getElementById('ctrl-table-body');
   const count=document.getElementById('ctrl-table-count');
   if(!head||!body)return;
-  const cols=['Anlage/Straße','Stadtteil','Tour','Status','Grund','Fahrer','Datum'];
+  const cols=['Anlage/Straße','Stadtteil','Tour','Status','Grund','Fahrer','Datum',''];
   head.innerHTML=cols.map(h=>`<th style="padding:8px 14px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);white-space:nowrap;">${h}</th>`).join('');
   if(count) count.textContent=`${reported.length} Meldungen`;
   const sorted=[...reported].sort((a,b)=>(b.lastReportAt||'').localeCompare(a.lastReportAt||''));
   body.innerHTML=sorted.map(tree=>{
     const tour=tours.find(t=>t.id===tree.tourId);
     const st=tree.lastStatus;
-    const stLabel=st==='bewaessert'?'<span style="color:#16a34a;font-weight:600;">✓ Bewässert</span>':'<span style="color:var(--red);font-weight:600;">✕ Nicht bewässert</span>';
+    const stHtml=st==='bewaessert'?'<span style="color:#16a34a;font-weight:600;">✓ Bewässert</span>':
+      st==='nicht'?'<span style="color:var(--red);font-weight:600;">✕ Nicht bewässert</span>':
+      '<span style="color:var(--text3);">○ Offen</span>';
     const date=tree.lastReportAt?tree.lastReportAt.slice(0,10):'–';
     return `<tr style="border-top:1px solid var(--border);" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''">
       <td style="padding:8px 14px;font-size:12px;font-weight:500;">${tree.name||'–'}</td>
       <td style="padding:8px 14px;font-size:12px;color:var(--text2);">${tree.stadtteil||'–'}</td>
-      <td style="padding:8px 14px;font-size:12px;">${tour?`<span style="color:${tour.color};font-weight:600;">${tour.name}</span>`:'–'}</td>
-      <td style="padding:8px 14px;font-size:12px;">${stLabel}</td>
+      <td style="padding:8px 14px;font-size:12px;">${tour?`<span style="font-weight:600;color:${tour.color};">${tour.name}</span>`:'–'}</td>
+      <td style="padding:8px 14px;font-size:12px;">${stHtml}</td>
       <td style="padding:8px 14px;font-size:12px;color:var(--text2);">${tree.lastReason||'–'}</td>
       <td style="padding:8px 14px;font-size:12px;color:var(--text2);">${tree.lastDriver||'–'}</td>
       <td style="padding:8px 14px;font-size:12px;font-family:monospace;color:var(--text2);">${date}</td>
+      <td style="padding:6px 10px;">
+        <button onclick="ctrlShowOnMap('${tree.id}')" style="padding:3px 9px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;display:flex;align-items:center;gap:4px;white-space:nowrap;">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>Karte
+        </button>
+      </td>
     </tr>`;
   }).join('');
 }
@@ -2692,6 +2693,16 @@ async function exportHistoryCSV(histId){
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
   a.download=`tour_${h.tourName}_${h.date}.csv`;a.click();
+}
+
+function ctrlShowOnMap(treeId){
+  // Switch to map view, select tree, and pan to it
+  switchView('karte');
+  setTimeout(()=>{
+    selectTree(treeId);
+    const tree=trees.find(t=>t.id===treeId);
+    if(tree?.lat&&tree?.lng) map.panTo([tree.lat,tree.lng],{animate:true,duration:0.5});
+  },100);
 }
 
 function exportCtrlCSV(){
@@ -2936,7 +2947,7 @@ map.on('contextmenu',e=>{
 });
 
 Object.assign(window,{
-  saveInlineFields,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,
+  saveInlineFields,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,
   createProject,openProject,showProjectScreen,
   switchView,openDetail,closePanel,logWatering,
