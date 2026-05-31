@@ -2381,41 +2381,58 @@ function renderControlling(){
     }
   }
 
-  // All trees with a status set, filtered by date range if lastReportAt present
-  const reported=filtered.filter(t=>{
-    if(!t.lastStatus) return false; // no status = not reported
-    if(!t.lastReportAt) return true; // has status but no date = always show
-    const d=t.lastReportAt.slice?t.lastReportAt.slice(0,10):t.lastReportAt;
-    return inCtrlRange(d);
-  });
+  // Build complete list of individual reports from BOTH current status AND history
+  // This ensures data survives tour resets
+  const allReported=[];
+  const seen=new Set(); // prevent exact duplicates
 
-  // Step 2: History entries in range (previous tour runs)
-  const historyRows=[];
   filtered.forEach(tree=>{
+    // Current status (if set and in range)
+    if(tree.lastStatus&&tree.lastReportAt){
+      const d=tree.lastReportAt.slice?tree.lastReportAt.slice(0,10):tree.lastReportAt;
+      if(inCtrlRange(d)){
+        const key=`${tree.id}_${d}_${tree.lastStatus}`;
+        if(!seen.has(key)){
+          seen.add(key);
+          allReported.push({...tree,_fromHistory:false});
+        }
+      }
+    } else if(tree.lastStatus&&!tree.lastReportAt){
+      // Has status but no date — include anyway
+      const key=`${tree.id}_nodate_${tree.lastStatus}`;
+      if(!seen.has(key)){
+        seen.add(key);
+        allReported.push({...tree,_fromHistory:false});
+      }
+    }
+
+    // History entries (previous tour runs) — most important source
     (tree.history||[]).forEach(h=>{
       if(!h.date||!inCtrlRange(h.date))return;
-      // Don't duplicate if current lastReportAt is same date
-      const sameAsCurrentDate=tree.lastReportAt&&
-        (tree.lastReportAt.slice?tree.lastReportAt.slice(0,10):tree.lastReportAt)===h.date;
-      if(!sameAsCurrentDate){
-        historyRows.push({
-          ...tree,
-          _fromHistory:true,
-          lastStatus:h.status||null,
-          lastReason:h.reason||null,
-          lastNote:h.note||null,
-          lastDriver:h.driver||null,
-          lastReportAt:h.date,
-        });
-      }
+      const key=`${tree.id}_${h.date}_${h.status}`;
+      if(seen.has(key))return;
+      seen.add(key);
+      allReported.push({
+        ...tree,
+        _fromHistory:true,
+        lastStatus:h.status||null,
+        lastReason:h.reason||null,
+        lastNote:h.note||null,
+        lastDriver:h.driver||h.closedBy||null,
+        lastReportAt:h.date,
+      });
     });
   });
 
-  const allReported=[...reported,...historyRows]
-    .sort((a,b)=>(b.lastReportAt||'').localeCompare(a.lastReportAt||''));
-  const bewaessert=filtered.filter(t=>t.lastStatus==='bewaessert'&&t.lastReportAt&&inCtrlRange(t.lastReportAt.slice?t.lastReportAt.slice(0,10):t.lastReportAt));
-  const nicht=filtered.filter(t=>t.lastStatus==='nicht'&&t.lastReportAt&&inCtrlRange(t.lastReportAt.slice?t.lastReportAt.slice(0,10):t.lastReportAt));
-  const offen=filtered.filter(t=>!t.lastStatus||!t.lastReportAt||!inCtrlRange(t.lastReportAt.slice?t.lastReportAt.slice(0,10):t.lastReportAt));
+  allReported.sort((a,b)=>(b.lastReportAt||'').localeCompare(a.lastReportAt||''));
+
+  // For KPI counters: use current status if set, else look at today's history
+  const today=new Date().toISOString().slice(0,10);
+  // KPIs: count unique trees reported in range (from current status + history)
+  const reportedTreeIds=new Set(allReported.map(r=>r.id));
+  const bewaessert=allReported.filter(r=>r.lastStatus==='bewaessert');
+  const nicht=allReported.filter(r=>r.lastStatus==='nicht');
+  const offen=filtered.filter(t=>!reportedTreeIds.has(t.id));
   const pct=filtered.length>0?Math.round(bewaessert.length/filtered.length*100):0;
 
   // ── KPI Cards ─────────────────────────────────────────────────
