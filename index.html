@@ -247,6 +247,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <button class="nav-btn" onclick="switchView('baeume')">Bäume</button>
     <button class="nav-btn" onclick="switchView('touren')">Touren</button>
     <button class="nav-btn" onclick="switchView('controlling')">Controlling</button>
+    <button class="nav-btn" onclick="switchView('verwaltung')">Verwaltung</button>
   </nav>
   <div class="topbar-right">
     <div class="sync-indicator" id="app-sync" style="margin-right:4px;">
@@ -402,20 +403,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
             <label class="form-label">Projektname</label>
             <input class="form-control" id="s-project-name">
           </div>
-          <div class="form-section" style="margin-top:18px;">Fahrer & Mobile App</div>
-          <div class="form-group">
-            <label class="form-label">Fahrer den Touren zuweisen</label>
-            <div id="driver-assignment" style="display:flex;flex-direction:column;gap:8px;"></div>
-          </div>
-          <div class="form-section" style="margin-top:4px;">Gründe: Nicht bewässert</div>
-          <div id="reasons-list" style="margin-bottom:8px;"></div>
-          <div style="display:flex;gap:6px;">
-            <input class="form-control" id="new-reason-input" placeholder="Neuen Grund eingeben…" style="flex:1;" onkeydown="if(event.key==='Enter')addReason()">
-            <button class="btn btn-primary" style="padding:6px 12px;white-space:nowrap;" onclick="addReason()">+ Hinzufügen</button>
-          </div>
           <div style="margin-top:12px;padding:10px;background:var(--green-light);border-radius:var(--radius-sm);font-size:12px;color:var(--green);">
             📱 Mobile App URL:<br>
-            <a id="mobile-app-link" href="baumbewässerung-mobil.html" target="_blank" style="color:var(--green);font-weight:600;word-break:break-all;">baumbewässerung-mobil.html</a>
+            <a href="mobil.html" target="_blank" style="color:var(--green);font-weight:600;">mobil.html</a>
+            &nbsp;·&nbsp;
+            <span style="cursor:pointer;text-decoration:underline;" onclick="switchView('verwaltung');closeSettings();">Fahrer &amp; Gründe verwalten →</span>
           </div>
           <button class="btn btn-danger" style="width:100%;margin-top:12px;" onclick="confirmDeleteProject()">Projekt löschen</button>
         </div>
@@ -498,6 +490,39 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 </div>
 
 <div class="notification" id="notification"></div>
+
+<!-- VERWALTUNG fullscreen overlay -->
+<div id="view-verwaltung" style="display:none;position:fixed;top:54px;left:0;right:0;bottom:0;z-index:1500;background:var(--bg);overflow-y:auto;">
+  <div style="max-width:900px;margin:0 auto;padding:20px;">
+
+    <!-- Fahrer pro Tour -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:20px;">
+      <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <div style="font-size:14px;font-weight:600;">Fahrer</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:2px;">Pro Tour mehrere Fahrer hinterlegen — nur diese erscheinen in der mobilen App</div>
+        </div>
+      </div>
+      <div id="driver-mgmt-list" style="padding:16px 20px;display:flex;flex-direction:column;gap:16px;"></div>
+    </div>
+
+    <!-- Gründe Nicht-Bewässerung -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+      <div style="padding:14px 20px;border-bottom:1px solid var(--border);">
+        <div style="font-size:14px;font-weight:600;">Gründe: Nicht bewässert</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:2px;">Diese Gründe stehen dem Fahrer in der mobilen App zur Auswahl</div>
+      </div>
+      <div style="padding:16px 20px;">
+        <div id="reasons-mgmt-list" style="margin-bottom:12px;"></div>
+        <div style="display:flex;gap:8px;">
+          <input class="form-control" id="new-reason-mgmt" placeholder="Neuen Grund eingeben…" style="flex:1;" onkeydown="if(event.key==='Enter')addReasonMgmt()">
+          <button class="btn btn-primary" style="white-space:nowrap;" onclick="addReasonMgmt()">+ Hinzufügen</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
 
 <!-- CONTROLLING fullscreen overlay -->
 <div id="view-controlling" style="display:none;position:fixed;top:54px;left:0;right:0;bottom:0;z-index:1500;background:var(--bg);flex-direction:column;overflow:hidden;">
@@ -798,6 +823,7 @@ function subscribeToProject(){
   unsubTours=onSnapshot(toursRef,snap=>{
     tours=snap.docs.map(d=>({id:d.id,...d.data()}));
     renderFilters();renderList();renderLegend();renderTourenGrid();
+    if(currentView==='verwaltung') renderDriverMgmt();
     setSyncState('ok','Synchronisiert');
   });
 
@@ -1793,14 +1819,17 @@ function switchView(v){
   const baeume=document.getElementById('view-baeume');
   const touren=document.getElementById('view-touren');
   const controlling=document.getElementById('view-controlling');
+  const verwaltung=document.getElementById('view-verwaltung');
   if(baeume) baeume.style.display=v==='baeume'?'flex':'none';
   if(touren) touren.style.display=v==='touren'?'block':'none';
   if(controlling) controlling.style.display=v==='controlling'?'flex':'none';
+  if(verwaltung) verwaltung.style.display=v==='verwaltung'?'block':'none';
   // Karte: always visible underneath, just hidden by overlays
   if(v==='karte') setTimeout(()=>map.invalidateSize(),10);
   if(v==='baeume') renderBaeumeTable();
   if(v==='touren') renderTourenGrid();
   if(v==='controlling') initControlling();
+  if(v==='verwaltung') initVerwaltung();
 }
 
 function renderBaeumeTable(){
@@ -1960,8 +1989,102 @@ function notify(msg){
   setTimeout(()=>el.classList.remove('show'),2400);
 }
 
-// ─── REASONS (Gründe Nicht-Bewässerung) ─────────────────────
+// ─── VERWALTUNG (Fahrer + Gründe) ───────────────────────────
 let reasons=[];
+
+async function initVerwaltung(){
+  if(!currentProjectId)return;
+  await loadReasons();
+  renderDriverMgmt();
+  renderReasonsMgmt();
+}
+
+// ── FAHRER MANAGEMENT ─────────────────────────────────────────
+async function renderDriverMgmt(){
+  const el=document.getElementById('driver-mgmt-list');if(!el)return;
+  if(tours.length===0){
+    el.innerHTML='<div style="font-size:13px;color:var(--text3);">Noch keine Touren angelegt.</div>';return;
+  }
+  // Load current drivers per tour from Firestore
+  el.innerHTML=tours.map(t=>{
+    const drivers=(t.drivers||[t.assignedDriver].filter(Boolean));
+    const driverTags=drivers.map((d,i)=>
+      `<span style="display:inline-flex;align-items:center;gap:5px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:4px 10px;font-size:12px;">
+        ${d}
+        <button onclick="removeDriver('${t.id}',${i})" style="border:none;background:none;color:var(--text3);cursor:pointer;font-size:14px;line-height:1;padding:0;">×</button>
+      </span>`
+    ).join('');
+    return `<div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 16px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+        <div style="width:12px;height:12px;border-radius:50%;background:${t.color};flex-shrink:0;"></div>
+        <span style="font-size:13px;font-weight:600;">${t.name}</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;min-height:28px;" id="driver-tags-${t.id}">
+        ${driverTags||'<span style="font-size:12px;color:var(--text3);">Noch kein Fahrer</span>'}
+      </div>
+      <div style="display:flex;gap:6px;">
+        <input class="form-control" id="new-driver-${t.id}" placeholder="Fahrername hinzufügen…" style="flex:1;padding:6px 10px;font-size:13px;" onkeydown="if(event.key==='Enter')addDriver('${t.id}')">
+        <button class="btn btn-primary" style="padding:6px 12px;font-size:12px;" onclick="addDriver('${t.id}')">+ Hinzufügen</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function addDriver(tourId){
+  const inp=document.getElementById('new-driver-'+tourId);
+  const name=inp?.value.trim();if(!name)return;
+  const tour=tours.find(t=>t.id===tourId);if(!tour)return;
+  const drivers=[...(tour.drivers||[tour.assignedDriver].filter(Boolean))];
+  if(drivers.includes(name)){notify('Fahrer bereits vorhanden');return;}
+  drivers.push(name);
+  await updateDoc(doc(db,'projects',currentProjectId,'tours',tourId),{drivers,assignedDriver:drivers[0]});
+  inp.value='';
+  notify('Fahrer hinzugefügt');
+}
+
+async function removeDriver(tourId,idx){
+  const tour=tours.find(t=>t.id===tourId);if(!tour)return;
+  const drivers=[...(tour.drivers||[tour.assignedDriver].filter(Boolean))];
+  drivers.splice(idx,1);
+  await updateDoc(doc(db,'projects',currentProjectId,'tours',tourId),{drivers,assignedDriver:drivers[0]||''});
+  notify('Fahrer entfernt');
+}
+
+// ── GRÜNDE MANAGEMENT ─────────────────────────────────────────
+function renderReasonsMgmt(){
+  const el=document.getElementById('reasons-mgmt-list');if(!el)return;
+  if(reasons.length===0){
+    el.innerHTML='<div style="font-size:12px;color:var(--text3);padding:4px 0 8px;">Noch keine Gründe. Standard-Gründe werden in der App verwendet.</div>';return;
+  }
+  el.innerHTML=`<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:4px;">`+
+    reasons.map((r,i)=>`
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surface2);border-radius:var(--radius-sm);">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+        <span style="flex:1;font-size:13px;">${r.text}</span>
+        <button onclick="deleteReasonMgmt('${r.id}')" style="border:none;background:none;color:var(--text3);cursor:pointer;padding:2px 6px;font-size:18px;line-height:1;">×</button>
+      </div>`).join('')+`</div>`;
+}
+
+async function addReasonMgmt(){
+  const inp=document.getElementById('new-reason-mgmt');
+  const text=inp?.value.trim();
+  if(!text||!currentProjectId)return;
+  await addDoc(collection(db,'projects',currentProjectId,'reasons'),{text,createdAt:serverTimestamp()});
+  inp.value='';
+  await loadReasons();
+  renderReasonsMgmt();
+  notify('Grund hinzugefügt');
+}
+
+async function deleteReasonMgmt(id){
+  if(!currentProjectId)return;
+  await deleteDoc(doc(db,'projects',currentProjectId,'reasons',id));
+  await loadReasons();
+  renderReasonsMgmt();
+  notify('Grund entfernt');
+}
+
+// ─── REASONS (Gründe Nicht-Bewässerung) ─────────────────────
 
 async function loadReasons(){
   if(!currentProjectId)return;
@@ -2346,9 +2469,7 @@ function exportCtrlCSV(){
       .map(v=>`"${(v||'').replace(/"/g,'""')}"`)
       .join(';');
   });
-  const blob=new Blob(['﻿'+header+'
-'+rows.join('
-')],{type:'text/csv;charset=utf-8'});
+  const blob=new Blob(['\uFEFF'+header+'\n'+rows.join('\n')],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);
   a.download=`controlling_${new Date().toISOString().slice(0,10)}.csv`;a.click();
 }
@@ -2579,7 +2700,7 @@ map.on('contextmenu',e=>{
 });
 
 Object.assign(window,{
-  saveInlineFields,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
+  saveInlineFields,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,
   createProject,openProject,showProjectScreen,
   switchView,openDetail,closePanel,logWatering,

@@ -179,10 +179,6 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
     </div>
     <div class="login-sub">Fahrer-App</div>
     <div class="form-group">
-      <label class="form-label">Dein Name</label>
-      <input class="form-control" id="login-name" placeholder="Vorname Nachname" autocomplete="name">
-    </div>
-    <div class="form-group">
       <label class="form-label">Projekt</label>
       <select class="form-control" id="login-project">
         <option value="">Wird geladen…</option>
@@ -193,6 +189,13 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
       <select class="form-control" id="login-tour">
         <option value="">– Projekt wählen –</option>
       </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Dein Name</label>
+      <select class="form-control" id="login-name">
+        <option value="">– Tour wählen –</option>
+      </select>
+      <div id="login-name-hint" style="font-size:11px;color:var(--text3);margin-top:4px;display:none;">Kein Fahrer hinterlegt — bitte im Desktop Verwaltung einrichten.</div>
     </div>
     <div id="login-error" style="color:var(--red);font-size:13px;margin-bottom:12px;display:none;"></div>
     <button class="btn btn-primary" onclick="doLogin()">
@@ -387,28 +390,55 @@ async function loadProjects() {
   hideLoading();
 }
 
+// Store loaded tours for driver lookup
+let loadedTours = [];
+
 document.getElementById('login-project').onchange = async function() {
   const pid = this.value;
   const tourSel = document.getElementById('login-tour');
+  const nameSel = document.getElementById('login-name');
   tourSel.innerHTML = '<option value="">Lädt…</option>';
+  nameSel.innerHTML = '<option value="">– Tour wählen –</option>';
   if (!pid) { tourSel.innerHTML = '<option value="">– Projekt wählen –</option>'; return; }
   const snap = await getDocs(collection(db, 'projects', pid, 'tours'));
+  loadedTours = snap.docs.map(d => ({id: d.id, ...d.data()}));
   tourSel.innerHTML = '<option value="">– Tour wählen –</option>';
-  snap.docs.forEach(d => {
+  loadedTours.forEach(t => {
     const opt = document.createElement('option');
-    opt.value = d.id;
-    const data = d.data();
-    opt.textContent = data.assignedDriver ? `${data.name} (${data.assignedDriver})` : data.name;
+    opt.value = t.id;
+    opt.textContent = t.name;
     tourSel.appendChild(opt);
   });
 };
 
+document.getElementById('login-tour').onchange = function() {
+  const tid = this.value;
+  const nameSel = document.getElementById('login-name');
+  const hint = document.getElementById('login-name-hint');
+  nameSel.innerHTML = '<option value="">– Fahrer wählen –</option>';
+  if (!tid) return;
+  const tour = loadedTours.find(t => t.id === tid);
+  if (!tour) return;
+  // Support both old assignedDriver string and new drivers array
+  const drivers = tour.drivers || (tour.assignedDriver ? [tour.assignedDriver] : []);
+  if (drivers.length === 0) {
+    hint.style.display = 'block';
+  } else {
+    hint.style.display = 'none';
+    drivers.forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d; opt.textContent = d;
+      nameSel.appendChild(opt);
+    });
+  }
+};
+
 async function doLogin() {
-  const name = document.getElementById('login-name').value.trim();
+  const name = document.getElementById('login-name').value;
   const pid = document.getElementById('login-project').value;
   const tid = document.getElementById('login-tour').value;
   const errEl = document.getElementById('login-error');
-  if (!name) { errEl.textContent = 'Bitte Namen eingeben.'; errEl.style.display = 'block'; return; }
+  if (!name) { errEl.textContent = 'Bitte Fahrer auswählen.'; errEl.style.display = 'block'; return; }
   if (!pid) { errEl.textContent = 'Bitte Projekt wählen.'; errEl.style.display = 'block'; return; }
   if (!tid) { errEl.textContent = 'Bitte Tour wählen.'; errEl.style.display = 'block'; return; }
   errEl.style.display = 'none';
@@ -949,14 +979,19 @@ async function tryResumeSession() {
     document.getElementById('login-name').value = driver;
     // Load project list
     await loadProjects();
-    // Auto-select project and tour
+    // Auto-select project, tour, and driver
     const projSel = document.getElementById('login-project');
     projSel.value = projectId;
     await projSel.dispatchEvent(new Event('change'));
     setTimeout(()=>{
       const tourSel = document.getElementById('login-tour');
       tourSel.value = tourId;
-    }, 500);
+      tourSel.dispatchEvent(new Event('change'));
+      setTimeout(()=>{
+        const nameSel = document.getElementById('login-name');
+        if(nameSel) nameSel.value = driver;
+      }, 400);
+    }, 600);
     // Show resume banner
     const card = document.querySelector('.login-card');
     if(card) {
