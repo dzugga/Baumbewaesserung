@@ -244,6 +244,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <button class="btn btn-secondary" onclick="openSettings()">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>Einstellungen
     </button>
+    <button class="btn btn-secondary" onclick="document.getElementById('excel-import-input').click()" title="Excel importieren">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Excel
+    </button>
+    <input type="file" id="excel-import-input" accept=".xlsx,.xls" style="display:none;" onchange="importExcel(this)">
     <button class="btn btn-primary" onclick="startPlacement()">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>Baum
     </button>
@@ -387,28 +391,24 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <div class="modal-body">
       <div id="modal-coord-info" style="background:var(--green-light);border-radius:var(--radius-sm);padding:8px 12px;font-size:12px;color:var(--green);margin-bottom:12px;display:none;"></div>
       <div class="form-section">Stammdaten</div>
-      <div class="form-group"><label class="form-label">Name *</label><input class="form-control" id="f-name" placeholder="z.B. Linde Marktplatz 3"></div>
+      <div class="form-group"><label class="form-label">Anlage / Straße *</label><input class="form-control" id="f-name" placeholder="z.B. Berliner Platz 23"></div>
       <div class="form-row">
-        <div class="form-group"><label class="form-label">Baumart</label>
-          <select class="form-control" id="f-art">
-            <option value="">– Wählen –</option>
-            <option>Linde</option><option>Eiche</option><option>Ahorn</option><option>Kastanie</option>
-            <option>Birke</option><option>Platane</option><option>Robinie</option><option>Ulme</option><option>Esche</option><option>Sonstige</option>
-          </select>
-        </div>
-        <div class="form-group"><label class="form-label">Alter (Jahre)</label><input class="form-control" id="f-alter" type="number" min="1" placeholder="25"></div>
+        <div class="form-group"><label class="form-label">Stadtteil</label><input class="form-control" id="f-stadtteil" placeholder="z.B. Innenstadt"></div>
+        <div class="form-group"><label class="form-label">Baumnummer</label><input class="form-control" id="f-baumnr" placeholder="z.B. 118-0044-6028"></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label class="form-label">Stammumfang (cm)</label><input class="form-control" id="f-stamm" type="number" min="0" placeholder="80"></div>
-        <div class="form-group"><label class="form-label">Kronendurchmesser (m)</label><input class="form-control" id="f-krone" type="number" min="0" step="0.5" placeholder="6"></div>
+        <div class="form-group"><label class="form-label">Baumart</label><input class="form-control" id="f-art" placeholder="z.B. Quercus robur"></div>
+        <div class="form-group"><label class="form-label">Pflanzjahr</label><input class="form-control" id="f-pflanzjahr" placeholder="z.B. 2025/2026"></div>
       </div>
-      <div class="form-section">Standort & Pflege</div>
+      <div class="form-group"><label class="form-label">Pflanzzeitpunkt</label><input class="form-control" id="f-pflanzzeitpunkt" placeholder="z.B. 17.03.2026 13:29"></div>
+      <div class="form-section">Standort</div>
       <div class="form-row">
-        <div class="form-group"><label class="form-label">Breitengrad</label><input class="form-control" id="f-lat" type="number" step="0.000001" placeholder="51.050407"></div>
-        <div class="form-group"><label class="form-label">Längengrad</label><input class="form-control" id="f-lng" type="number" step="0.000001" placeholder="13.737262"></div>
+        <div class="form-group"><label class="form-label">Breitengrad (Lat)</label><input class="form-control" id="f-lat" type="number" step="0.000001" placeholder="51.050407"></div>
+        <div class="form-group"><label class="form-label">Längengrad (Lng)</label><input class="form-control" id="f-lng" type="number" step="0.000001" placeholder="13.737262"></div>
       </div>
       <div class="coord-hint">Tipp: Fenster schließen → auf Karte klicken für genaue Platzierung</div>
-      <div class="form-row" style="margin-top:10px;">
+      <div class="form-section" style="margin-top:10px;">Pflege</div>
+      <div class="form-row">
         <div class="form-group"><label class="form-label">Wasserbedarf</label>
           <select class="form-control" id="f-wasser"><option value="gering">Gering</option><option value="mittel" selected>Mittel</option><option value="hoch">Hoch</option></select>
         </div>
@@ -451,6 +451,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 
 <!-- Leaflet (must load before module) -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- SheetJS for Excel import -->
+<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 <!-- Firebase SDKs -->
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
@@ -644,6 +646,9 @@ async function confirmDeleteProject(){
 }
 
 // ─── ROUTING ──────────────────────────────────────────────────
+// Routes are saved to Firestore per tour and only recalculated on demand.
+// savedRoutes: tourId -> {orderIds, geojson|null, km, updatedAt}
+
 function haversine(lat1,lon1,lat2,lon2){
   const R=6371,dLat=(lat2-lat1)*Math.PI/180,dLon=(lon2-lon1)*Math.PI/180;
   const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
@@ -668,30 +673,77 @@ function nearestNeighborTSP(pts,startLat,startLng){
   return result;
 }
 
-async function fetchRoute(coords){
+async function fetchOrsRoute(coords){
   const key=getOrsKey();if(!key)return null;
-  const cacheKey=coords.map(c=>c[0].toFixed(4)+','+c[1].toFixed(4)).join('|');
-  if(routeCache[cacheKey])return routeCache[cacheKey];
   try{
     const res=await fetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson',{
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':key},
       body:JSON.stringify({coordinates:coords,instructions:false})
     });
-    if(!res.ok)return null;
-    const data=await res.json();
-    routeCache[cacheKey]=data;return data;
-  }catch(e){return null;}
+    if(!res.ok){console.warn('ORS error:',res.status,await res.text());return null;}
+    return await res.json();
+  }catch(e){console.warn('ORS fetch failed:',e);return null;}
 }
 
-async function buildTourRoute(tourId){
+// Draw a saved route on the map (from Firestore data, no ORS call)
+function drawSavedRoute(tourId, routeData){
+  const tour=tours.find(t=>t.id===tourId);if(!tour)return;
+  if(tourRoutes[tourId]){map.removeLayer(tourRoutes[tourId].layer);delete tourRoutes[tourId];}
+
+  // Restore order
+  if(routeData.orderIds) tourOrder[tourId]=routeData.orderIds;
+
+  let layer;
+  if(routeData.geojson){
+    // Draw real street route from saved geojson
+    layer=L.geoJSON(routeData.geojson,{style:{color:tour.color,weight:4,opacity:.85}}).addTo(map);
+  } else {
+    // Draw straight-line fallback from saved order
+    const orderedTrees=routeData.orderIds
+      .map(id=>trees.find(t=>t.id===id))
+      .filter(Boolean);
+    const depot=getDepot();
+    let pts=orderedTrees.map(t=>[t.lat,t.lng]);
+    if(depot){const dp=[depot.lat,depot.lng];pts=getDepotMode()==='round'?[dp,...pts,dp]:[dp,...pts];}
+    layer=L.polyline(pts,{color:tour.color,weight:3,opacity:.7,dashArray:'8 5'}).addTo(map);
+  }
+  tourRoutes[tourId]={layer,km:routeData.km||0};
+}
+
+// Load and display all saved routes from Firestore (no recalculation)
+async function loadSavedRoutes(){
+  Object.values(tourRoutes).forEach(r=>map.removeLayer(r.layer));tourRoutes={};
+  for(const tour of tours){
+    const routeSnap=await getDoc(doc(db,'projects',currentProjectId,'routes',tour.id));
+    if(routeSnap.exists()){
+      drawSavedRoute(tour.id, routeSnap.data());
+    } else {
+      // No saved route yet — just compute order for numbering, no line drawn
+      const trs=trees.filter(t=>t.tourId===tour.id&&t.lat&&t.lng);
+      if(trs.length>0){
+        const depot=getDepot();
+        const ordered=nearestNeighborTSP(trs,depot?.lat,depot?.lng);
+        tourOrder[tour.id]=ordered.map(t=>t.id);
+      }
+    }
+  }
+  rebuildMarkersWithNumbers();renderList();renderLegend();
+  document.getElementById('route-info-bar').classList.remove('visible');
+}
+
+// Manually triggered: recalculate + save route for one tour via ORS
+async function calculateAndSaveRoute(tourId){
   const tour=tours.find(t=>t.id===tourId);if(!tour)return;
   const trs=trees.filter(t=>t.tourId===tourId&&t.lat&&t.lng);
-  if(tourRoutes[tourId]){map.removeLayer(tourRoutes[tourId].layer);delete tourRoutes[tourId];}
-  if(trs.length===0)return;
-  if(trs.length===1){tourOrder[tourId]=[trs[0].id];return;}
+  if(trs.length<1){notify('Keine Bäume in dieser Tour');return;}
 
-  const depot=getDepot();const depotMode=getDepotMode();
+  setSyncState('syncing','Route wird berechnet…');
+  document.getElementById('route-spinner').classList.add('visible');
+  document.getElementById('route-info-text').textContent='Route wird berechnet…';
+  document.getElementById('route-info-bar').classList.add('visible');
+
+  const depot=getDepot();
   const ordered=nearestNeighborTSP(trs,depot?.lat,depot?.lng);
   tourOrder[tourId]=ordered.map(t=>t.id);
 
@@ -699,53 +751,55 @@ async function buildTourRoute(tourId){
   let coords=treePart;
   if(depot){
     const dp=[depot.lng,depot.lat];
-    coords=depotMode==='round'?[dp,...treePart,dp]:[dp,...treePart];
+    coords=getDepotMode()==='round'?[dp,...treePart,dp]:[dp,...treePart];
   }
 
-  const key=getOrsKey();let km=0,layer;
-  if(key){
-    document.getElementById('route-spinner').classList.add('visible');
-    document.getElementById('route-info-text').textContent='Route wird berechnet…';
-    document.getElementById('route-info-bar').classList.add('visible');
-    const geo=await fetchRoute(coords);
-    document.getElementById('route-spinner').classList.remove('visible');
-    if(geo?.features?.[0]){
-      km=geo.features[0].properties.summary.distance/1000;
-      layer=L.geoJSON(geo,{style:{color:tour.color,weight:4,opacity:.85}}).addTo(map);
-    }
-  }
-  if(!layer){
+  const geo=await fetchOrsRoute(coords);
+  document.getElementById('route-spinner').classList.remove('visible');
+
+  let km=0,geojsonToSave=null;
+  if(geo?.features?.[0]){
+    km=geo.features[0].properties.summary.distance/1000;
+    geojsonToSave=geo;
+  } else {
+    // Haversine fallback km
     let pts=ordered.map(t=>[t.lat,t.lng]);
-    if(depot){const dp=[depot.lat,depot.lng];pts=depotMode==='round'?[dp,...pts,dp]:[dp,...pts];}
-    layer=L.polyline(pts,{color:tour.color,weight:3,opacity:.7,dashArray:'8 5'}).addTo(map);
+    if(depot){const dp=[depot.lat,depot.lng];pts=getDepotMode()==='round'?[dp,...pts,dp]:[dp,...pts];}
     for(let i=0;i<pts.length-1;i++)km+=haversine(pts[i][0],pts[i][1],pts[i+1][0],pts[i+1][1]);
+    if(!getOrsKey()) notify('Kein ORS-Key — Luftlinie gespeichert. Key in Einstellungen eintragen für Straßenrouting.');
   }
-  tourRoutes[tourId]={layer,km};
-  rebuildMarkersWithNumbers();updateRouteInfoBar();renderList();renderLegend();
+
+  // Save to Firestore
+  const routeData={orderIds:tourOrder[tourId],geojson:geojsonToSave,km,updatedAt:serverTimestamp()};
+  await setDoc(doc(db,'projects',currentProjectId,'routes',tourId),routeData);
+
+  // Draw on map
+  drawSavedRoute(tourId, routeData);
+  rebuildMarkersWithNumbers();renderList();renderLegend();
+  updateRouteInfoBar();
+  setSyncState('ok','Route gespeichert');
+  notify(`✓ Route gespeichert — ${km.toFixed(1)} km`);
+}
+
+// Calculate all tours at once
+async function calculateAllRoutes(){
+  for(const tour of tours){
+    await calculateAndSaveRoute(tour.id);
+  }
 }
 
 async function rebuildActiveRoute(){
-  Object.values(tourRoutes).forEach(r=>map.removeLayer(r.layer));tourRoutes={};
-  if(activeTourOnMap) await buildTourRoute(activeTourOnMap);
-  else await refreshAllRoutes();
+  // Just reload saved routes — no auto-recalculation
+  await loadSavedRoutes();
+  if(activeTourOnMap){
+    const routeSnap=await getDoc(doc(db,'projects',currentProjectId,'routes',activeTourOnMap));
+    if(routeSnap.exists()) drawSavedRoute(activeTourOnMap,routeSnap.data());
+    updateRouteInfoBar();
+  }
 }
 
 async function refreshAllRoutes(){
-  Object.values(tourRoutes).forEach(r=>map.removeLayer(r.layer));tourRoutes={};
-  for(const tour of tours){
-    const trs=trees.filter(t=>t.tourId===tour.id&&t.lat&&t.lng);
-    if(trs.length<2){if(trs.length===1)tourOrder[tour.id]=[trs[0].id];continue;}
-    const depot=getDepot();
-    const ordered=nearestNeighborTSP(trs,depot?.lat,depot?.lng);
-    tourOrder[tour.id]=ordered.map(t=>t.id);
-    const latlngs=ordered.map(t=>[t.lat,t.lng]);
-    let km=0;
-    const pts=depot&&getDepotMode()==='round'?[[depot.lat,depot.lng],...latlngs,[depot.lat,depot.lng]]:latlngs;
-    for(let i=0;i<pts.length-1;i++)km+=haversine(pts[i][0],pts[i][1],pts[i+1][0],pts[i+1][1]);
-    const layer=L.polyline(pts,{color:tour.color,weight:2.5,opacity:.5,dashArray:'6 4'}).addTo(map);
-    tourRoutes[tour.id]={layer,km};
-  }
-  rebuildMarkersWithNumbers();renderList();renderLegend();
+  await loadSavedRoutes();
   document.getElementById('route-info-bar').classList.remove('visible');
 }
 
@@ -800,7 +854,7 @@ function refreshMarkers(){
   Object.values(mapMarkers).forEach(m=>map.removeLayer(m));mapMarkers={};
   trees.forEach(tree=>{ if(tree.lat&&tree.lng) mapMarkers[tree.id]=makeMarker(tree); });
   setMarkerVisibility();
-  refreshAllRoutes();
+  loadSavedRoutes();  // load from Firestore, never auto-recalculate
   renderDepotMarker();
   renderLegend();
 }
@@ -844,12 +898,29 @@ function renderLegend(){
   let html=`<div class="legend-title">Touren <span style="font-weight:400;font-size:10px;">(klicken zum Filtern)</span></div>`;
   tours.forEach(t=>{
     const km=tourRoutes[t.id]?tourRoutes[t.id].km.toFixed(1):'–';
-    html+=`<div class="legend-item ${activeTourOnMap===t.id?'active-tour':''}" onclick="focusTour('${t.id}')">
-      <div class="legend-line" style="background:${t.color};"></div><span>${t.name}</span>
-      <span class="legend-km">${km} km</span></div>`;
+    const isActive=activeTourOnMap===t.id;
+    html+=`<div class="legend-item ${isActive?'active-tour':''}" onclick="focusTour('${t.id}')">
+      <div class="legend-line" style="background:${t.color};"></div>
+      <span>${t.name}</span>
+      <span class="legend-km">${km} km</span>
+    </div>`;
+    if(isActive){
+      html+=`<div style="padding:4px 4px 6px;display:flex;gap:4px;">
+        <button onclick="event.stopPropagation();calculateAndSaveRoute('${t.id}')" style="flex:1;padding:4px 8px;font-size:11px;font-weight:600;background:var(--green);color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px;">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>Route berechnen
+        </button>
+      </div>`;
+    }
   });
   html+=`<div class="legend-item ${!activeTourOnMap?'active-tour':''}" onclick="focusTour(null)" style="margin-top:4px;">
     <div class="legend-line" style="background:#ccc;"></div><span style="color:var(--text3);">Alle anzeigen</span></div>`;
+  if(!activeTourOnMap&&tours.length>0){
+    html+=`<div style="padding:4px 4px 2px;">
+      <button onclick="calculateAllRoutes()" style="width:100%;padding:4px 8px;font-size:11px;font-weight:600;background:var(--green);color:#fff;border:none;border-radius:4px;cursor:pointer;">
+        Alle Routen berechnen
+      </button>
+    </div>`;
+  }
   el.innerHTML=html;
 }
 
@@ -915,8 +986,11 @@ function openDetail(id){
   document.getElementById('panel-title').textContent=tree.name;
   const fields=[
     ['Reihenfolge',rNum!=null?`#${rNum} · ${tour?.name||'–'}`:'–'],
-    ['Baumart',tree.art||'–'],['Alter',tree.alter?tree.alter+' Jahre':'–'],
-    ['Stammumfang',tree.stamm?tree.stamm+' cm':'–'],['Kronendurchmesser',tree.krone?tree.krone+' m':'–'],
+    ['Baumnummer',tree.baumnr||'–'],
+    ['Stadtteil',tree.stadtteil||'–'],
+    ['Baumart',tree.art||'–'],
+    ['Pflanzjahr',tree.pflanzjahr||'–'],
+    ['Pflanzzeitpunkt',tree.pflanzzeitpunkt||'–'],
     ['Wasserbedarf',{gering:'Gering',mittel:'Mittel',hoch:'Hoch'}[tree.wasser]||'–'],
     ['Koordinaten',tree.lat?`${tree.lat.toFixed(5)}, ${tree.lng.toFixed(5)}`:'–'],
     ['Tour',tour?`<span style="color:${tour.color};font-weight:600;">${tour.name}</span>`:'–'],
@@ -959,8 +1033,7 @@ function fillTourSelect(sel){
 function openAddTree(lat,lng){
   editingTreeId=null;
   document.getElementById('modal-tree-title').textContent='Baum hinzufügen';
-  ['f-name','f-alter','f-stamm','f-krone','f-notiz'].forEach(id=>document.getElementById(id).value='');
-  document.getElementById('f-art').value='';
+  ['f-name','f-stadtteil','f-baumnr','f-art','f-pflanzjahr','f-pflanzzeitpunkt','f-notiz'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('f-wasser').value='mittel';
   document.getElementById('f-zustand').value='mittel';
   document.getElementById('f-datum').value='';
@@ -978,10 +1051,11 @@ function openEditTree(id){
   editingTreeId=id;
   document.getElementById('modal-tree-title').textContent='Baum bearbeiten';
   document.getElementById('f-name').value=tree.name||'';
+  document.getElementById('f-stadtteil').value=tree.stadtteil||'';
+  document.getElementById('f-baumnr').value=tree.baumnr||'';
   document.getElementById('f-art').value=tree.art||'';
-  document.getElementById('f-alter').value=tree.alter||'';
-  document.getElementById('f-stamm').value=tree.stamm||'';
-  document.getElementById('f-krone').value=tree.krone||'';
+  document.getElementById('f-pflanzjahr').value=tree.pflanzjahr||'';
+  document.getElementById('f-pflanzzeitpunkt').value=tree.pflanzzeitpunkt||'';
   document.getElementById('f-lat').value=tree.lat||'';
   document.getElementById('f-lng').value=tree.lng||'';
   document.getElementById('f-wasser').value=tree.wasser||'mittel';
@@ -999,10 +1073,12 @@ async function saveTree(){
   if(!name){alert('Bitte einen Namen eingeben.');return;}
   setSyncState('syncing','Speichert…');
   const data={
-    name,art:document.getElementById('f-art').value,
-    alter:parseInt(document.getElementById('f-alter').value)||null,
-    stamm:parseInt(document.getElementById('f-stamm').value)||null,
-    krone:parseFloat(document.getElementById('f-krone').value)||null,
+    name,
+    stadtteil:document.getElementById('f-stadtteil').value,
+    baumnr:document.getElementById('f-baumnr').value,
+    art:document.getElementById('f-art').value,
+    pflanzjahr:document.getElementById('f-pflanzjahr').value,
+    pflanzzeitpunkt:document.getElementById('f-pflanzzeitpunkt').value,
     lat:parseFloat(document.getElementById('f-lat').value)||null,
     lng:parseFloat(document.getElementById('f-lng').value)||null,
     wasser:document.getElementById('f-wasser').value,
@@ -1172,9 +1248,9 @@ async function applySettings(){
   await saveProjectSettings(updates);
   localStorage.setItem('bwt_ors_key',updates.orsKey);
   document.getElementById('active-project-name').textContent=updates.name;
-  closeSettings();routeCache={};renderDepotMarker();
-  await rebuildActiveRoute();
-  notify('Einstellungen gespeichert');
+  closeSettings();renderDepotMarker();
+  await loadSavedRoutes();
+  notify('Einstellungen gespeichert — Route neu berechnen wenn gewünscht');
 }
 
 // ─── VIEWS ────────────────────────────────────────────────────
@@ -1193,19 +1269,21 @@ function renderBaeumeTable(){
   const wrap=document.getElementById('baeume-table-wrap');
   if(trees.length===0){wrap.innerHTML=`<div class="empty-state" style="margin-top:60px;"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22V12"/><path d="M12 12C12 12 7 9 7 5a5 5 0 0 1 10 0c0 4-5 7-5 7z"/></svg><p>Noch keine Bäume</p></div>`;return;}
   let html=`<table style="width:100%;border-collapse:collapse;background:var(--surface);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);font-size:13px;">
-    <thead style="background:var(--surface2);"><tr>${['#','Name','Art','Alter','Zustand','Tour','Letzte Bew.',''].map(h=>`<th style="padding:10px 12px;text-align:left;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text2);">${h}</th>`).join('')}</tr></thead><tbody>`;
+    <thead style="background:var(--surface2);"><tr>${['#','Anlage/Straße','Stadtteil','Baumnr.','Baumart','Pflanzjahr','Zustand','Tour','Letzte Bew.',''].map(h=>`<th style="padding:10px 12px;text-align:left;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text2);">${h}</th>`).join('')}</tr></thead><tbody>`;
   trees.forEach(tree=>{
     const tour=tours.find(t=>t.id===tree.tourId);
     const zCl={gut:'badge-ok',mittel:'badge-warn',schlecht:'badge-crit'}[tree.zustand]||'badge-gray';
     const rNum=getRouteNum(tree.id);
     html+=`<tr style="border-top:1px solid var(--border);">
       <td style="padding:10px 12px;font-family:monospace;color:var(--text3);font-size:12px;">${rNum!=null?'#'+rNum:'–'}</td>
-      <td style="padding:10px 12px;font-weight:500;">${tree.name}</td>
+      <td style="padding:10px 12px;font-weight:500;">${tree.name||'–'}</td>
+      <td style="padding:10px 12px;color:var(--text2);">${tree.stadtteil||'–'}</td>
+      <td style="padding:10px 12px;color:var(--text2);font-family:monospace;font-size:11px;">${tree.baumnr||'–'}</td>
       <td style="padding:10px 12px;color:var(--text2);">${tree.art||'–'}</td>
-      <td style="padding:10px 12px;color:var(--text2);">${tree.alter?tree.alter+'J':'–'}</td>
+      <td style="padding:10px 12px;color:var(--text2);">${tree.pflanzjahr||'–'}</td>
       <td style="padding:10px 12px;"><span class="badge ${zCl}">${tree.zustand||'–'}</span></td>
       <td style="padding:10px 12px;">${tour?`<span style="font-weight:600;color:${tour.color};">${tour.name}</span>`:'<span style="color:var(--text3);">–</span>'}</td>
-      <td style="padding:10px 12px;color:var(--text2);font-family:monospace;font-size:12px;">${tree.datum||'–'}</td>
+      <td style="padding:10px 12px;color:var(--text2);font-family:monospace;font-size:11px;">${tree.datum||'–'}</td>
       <td style="padding:10px 12px;"><button class="btn btn-secondary" style="padding:3px 10px;font-size:12px;" onclick="openEditTree('${tree.id}')">Bearbeiten</button></td>
     </tr>`;
   });
@@ -1226,6 +1304,7 @@ function renderTourenGrid(){
       <div style="font-size:12px;color:var(--text3);">${gutCnt} gut · <b style="color:var(--text2);">${km} km</b></div>
       <div style="display:flex;gap:6px;margin-top:10px;">
         <button class="btn btn-secondary" style="flex:1;padding:4px;font-size:12px;" onclick="event.stopPropagation();focusTourAndSwitch('${tour.id}')">Auf Karte</button>
+        <button class="btn btn-primary" style="flex:1;padding:4px;font-size:12px;" onclick="event.stopPropagation();calculateAndSaveRoute('${tour.id}')">Route berechnen</button>
         <button class="btn btn-danger" style="padding:4px 10px;font-size:12px;" onclick="event.stopPropagation();deleteTour('${tour.id}')">Löschen</button>
       </div>
     </div>`;
@@ -1241,9 +1320,52 @@ function notify(msg){
   setTimeout(()=>el.classList.remove('show'),2400);
 }
 
+// ─── EXCEL IMPORT ────────────────────────────────────────────
+async function importExcel(input){
+  if(!currentProjectId){notify('Bitte zuerst ein Projekt öffnen');return;}
+  const file=input.files[0];if(!file)return;
+  notify('Excel wird eingelesen…');
+  // Use SheetJS via CDN
+  const XLSX=window.XLSX;
+  if(!XLSX){notify('SheetJS nicht geladen');return;}
+  const data=await file.arrayBuffer();
+  const wb=XLSX.read(data,{type:'array'});
+  const ws=wb.Sheets[wb.SheetNames[0]];
+  const rows=XLSX.utils.sheet_to_json(ws,{header:1});
+  // Skip header row (row 0)
+  let imported=0,skipped=0;
+  for(let i=1;i<rows.length;i++){
+    const row=rows[i];
+    if(!row||row.length<2)continue;
+    const lat=parseFloat(row[7]);
+    const lng=parseFloat(row[8]);
+    if(isNaN(lat)||isNaN(lng)){skipped++;continue;}
+    const treeData={
+      name:row[0]||'Unbekannt',
+      stadtteil:row[1]||'',
+      art:row[2]||'',
+      baumnr:row[3]?.toString()||'',
+      pflanzjahr:row[4]?.toString()||'',
+      pflanzzeitpunkt:row[5]?.toString()||'',
+      notiz:row[6]||'',
+      lat,lng,
+      wasser:'mittel',zustand:'mittel',
+      datum:'',tourId:'',history:[],
+    };
+    try{
+      await addDoc(collection(db,'projects',currentProjectId,'trees'),{...treeData,createdAt:serverTimestamp()});
+      imported++;
+    }catch(e){skipped++;}
+  }
+  await updateDoc(doc(db,'projects',currentProjectId),{treeCount:trees.length+imported});
+  input.value='';
+  notify(`✓ ${imported} Bäume importiert${skipped>0?' ('+skipped+' übersprungen)':''}`);
+}
+
 // ─── INIT ─────────────────────────────────────────────────────
 // Make functions global for onclick handlers
 Object.assign(window,{
+  importExcel,calculateAndSaveRoute,calculateAllRoutes,
   createProject,openProject,showProjectScreen,
   switchView,openDetail,closePanel,logWatering,
   openAddTree,openEditTree,closeTreeModal,saveTree,deleteTree,
