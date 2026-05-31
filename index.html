@@ -552,6 +552,21 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <select class="form-control" id="ctrl-filter-pflanzjahr" style="width:auto;padding:4px 8px;font-size:12px;" onchange="renderControlling()">
       <option value="">Alle Pflanzjahre</option>
     </select>
+    <select class="form-control" id="ctrl-filter-status" style="width:auto;padding:4px 8px;font-size:12px;" onchange="renderControlling()">
+      <option value="">Alle Status</option>
+      <option value="bewaessert">✓ Bewässert</option>
+      <option value="nicht">✕ Nicht bewässert</option>
+      <option value="offen">○ Offen</option>
+    </select>
+    <select class="form-control" id="ctrl-filter-fahrer" style="width:auto;padding:4px 8px;font-size:12px;" onchange="renderControlling()">
+      <option value="">Alle Fahrer</option>
+    </select>
+    <select class="form-control" id="ctrl-filter-baumart" style="width:auto;padding:4px 8px;font-size:12px;" onchange="renderControlling()">
+      <option value="">Alle Baumarten</option>
+    </select>
+    <button class="btn btn-secondary" style="padding:4px 10px;font-size:12px;" onclick="resetCtrlFilters()" title="Filter zurücksetzen">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+    </button>
     <button class="btn btn-secondary" style="padding:4px 12px;font-size:12px;margin-left:auto;" onclick="exportCtrlCSV()">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       CSV Export
@@ -560,6 +575,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 
   <!-- Content -->
   <div style="flex:1;overflow-y:auto;padding:20px;">
+    <!-- Active filter summary -->
+    <div id="ctrl-filter-summary" style="display:none;background:var(--green-light);border:1px solid var(--green-mid);border-radius:var(--radius-sm);padding:8px 14px;margin-bottom:12px;font-size:12px;color:var(--green);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+      <span id="ctrl-filter-summary-text"></span>
+      <button onclick="resetCtrlFilters()" style="margin-left:auto;border:none;background:none;color:var(--green);cursor:pointer;font-size:11px;font-weight:600;text-decoration:underline;">Filter zurücksetzen</button>
+    </div>
+
     <!-- KPI Cards -->
     <div id="ctrl-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px;"></div>
 
@@ -2252,27 +2274,60 @@ function inCtrlRange(dateStr){
 }
 
 function initControlling(){
-  // Fill filter dropdowns
+  const prev=(id)=>document.getElementById(id)?.value||'';
+
+  // Tours
   const tourSel=document.getElementById('ctrl-filter-tour');
+  if(tourSel) tourSel.innerHTML='<option value="">Alle Touren</option>'+
+    tours.map(t=>`<option value="${t.id}"${t.id===prev('ctrl-filter-tour')?' selected':''}>${t.name}</option>`).join('');
+
+  // Stadtteile
   const stadtSel=document.getElementById('ctrl-filter-stadtteil');
-  const jahrSel=document.getElementById('ctrl-filter-pflanzjahr');
-  if(tourSel){
-    const prev=tourSel.value;
-    tourSel.innerHTML='<option value="">Alle Touren</option>'+
-      tours.map(t=>`<option value="${t.id}"${t.id===prev?' selected':''}>${t.name}</option>`).join('');
-  }
   if(stadtSel){
-    const prev=stadtSel.value;
-    const stadtteile=[...new Set(trees.map(t=>t.stadtteil).filter(Boolean))].sort();
+    const vals=[...new Set(trees.map(t=>t.stadtteil).filter(Boolean))].sort();
     stadtSel.innerHTML='<option value="">Alle Stadtteile</option>'+
-      stadtteile.map(s=>`<option value="${s}"${s===prev?' selected':''}>${s}</option>`).join('');
+      vals.map(v=>`<option value="${v}"${v===prev('ctrl-filter-stadtteil')?' selected':''}>${v}</option>`).join('');
   }
+
+  // Pflanzjahr
+  const jahrSel=document.getElementById('ctrl-filter-pflanzjahr');
   if(jahrSel){
-    const prev=jahrSel.value;
-    const jahre=[...new Set(trees.map(t=>t.pflanzjahr).filter(Boolean))].sort();
+    const vals=[...new Set(trees.map(t=>t.pflanzjahr).filter(Boolean))].sort();
     jahrSel.innerHTML='<option value="">Alle Pflanzjahre</option>'+
-      jahre.map(j=>`<option value="${j}"${j===prev?' selected':''}>${j}</option>`).join('');
+      vals.map(v=>`<option value="${v}"${v===prev('ctrl-filter-pflanzjahr')?' selected':''}>${v}</option>`).join('');
   }
+
+  // Fahrer
+  const fahrerSel=document.getElementById('ctrl-filter-fahrer');
+  if(fahrerSel){
+    const vals=[...new Set(trees.map(t=>t.lastDriver).filter(Boolean))].sort();
+    fahrerSel.innerHTML='<option value="">Alle Fahrer</option>'+
+      vals.map(v=>`<option value="${v}"${v===prev('ctrl-filter-fahrer')?' selected':''}>${v}</option>`).join('');
+  }
+
+  // Baumart
+  const baumartSel=document.getElementById('ctrl-filter-baumart');
+  if(baumartSel){
+    const vals=[...new Set(trees.map(t=>t.art).filter(Boolean))].sort();
+    baumartSel.innerHTML='<option value="">Alle Baumarten</option>'+
+      vals.map(v=>`<option value="${v}"${v===prev('ctrl-filter-baumart')?' selected':''}>${v}</option>`).join('');
+  }
+
+  renderControlling();
+}
+
+function resetCtrlFilters(){
+  ['ctrl-filter-tour','ctrl-filter-stadtteil','ctrl-filter-pflanzjahr',
+   'ctrl-filter-status','ctrl-filter-fahrer','ctrl-filter-baumart',
+   'ctrl-date-from','ctrl-date-to'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el)el.value='';
+  });
+  // Reset period to month
+  ctrlPeriod='month';
+  document.querySelectorAll('.ctrl-period-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelector('.ctrl-period-btn[data-period="month"]')?.classList.add('active');
+  document.getElementById('ctrl-custom-dates').style.display='none';
   renderControlling();
 }
 
@@ -2280,10 +2335,25 @@ function getCtrlFilteredTrees(){
   const tourId=document.getElementById('ctrl-filter-tour')?.value||'';
   const stadtteil=document.getElementById('ctrl-filter-stadtteil')?.value||'';
   const pflanzjahr=document.getElementById('ctrl-filter-pflanzjahr')?.value||'';
+  const status=document.getElementById('ctrl-filter-status')?.value||'';
+  const fahrer=document.getElementById('ctrl-filter-fahrer')?.value||'';
+  const baumart=document.getElementById('ctrl-filter-baumart')?.value||'';
+
   return trees.filter(t=>{
     if(tourId&&t.tourId!==tourId)return false;
     if(stadtteil&&t.stadtteil!==stadtteil)return false;
     if(pflanzjahr&&t.pflanzjahr!==pflanzjahr)return false;
+    if(baumart&&t.art!==baumart)return false;
+    if(fahrer&&t.lastDriver!==fahrer)return false;
+    // Status filter considers time range
+    if(status){
+      const inRange=t.lastReportAt&&inCtrlRange(
+        t.lastReportAt.slice?t.lastReportAt.slice(0,10):t.lastReportAt
+      );
+      if(status==='bewaessert'&&!(inRange&&t.lastStatus==='bewaessert'))return false;
+      if(status==='nicht'&&!(inRange&&t.lastStatus==='nicht'))return false;
+      if(status==='offen'&&inRange&&t.lastStatus)return false;
+    }
     return true;
   });
 }
@@ -2291,6 +2361,31 @@ function getCtrlFilteredTrees(){
 function renderControlling(){
   const filtered=getCtrlFilteredTrees();
   const {from,to}=getCtrlDateRange();
+
+  // Show active filter summary
+  const activeFilters=[];
+  const fTour=document.getElementById('ctrl-filter-tour')?.value;
+  const fStadt=document.getElementById('ctrl-filter-stadtteil')?.value;
+  const fJahr=document.getElementById('ctrl-filter-pflanzjahr')?.value;
+  const fStatus=document.getElementById('ctrl-filter-status')?.value;
+  const fFahrer=document.getElementById('ctrl-filter-fahrer')?.value;
+  const fBaumart=document.getElementById('ctrl-filter-baumart')?.value;
+  if(fTour) activeFilters.push(`Tour: ${tours.find(t=>t.id===fTour)?.name||fTour}`);
+  if(fStadt) activeFilters.push(`Stadtteil: ${fStadt}`);
+  if(fJahr) activeFilters.push(`Pflanzjahr: ${fJahr}`);
+  if(fStatus) activeFilters.push(`Status: ${{bewaessert:'✓ Bewässert',nicht:'✕ Nicht bewässert',offen:'○ Offen'}[fStatus]}`);
+  if(fFahrer) activeFilters.push(`Fahrer: ${fFahrer}`);
+  if(fBaumart) activeFilters.push(`Baumart: ${fBaumart}`);
+  const summaryEl=document.getElementById('ctrl-filter-summary');
+  const summaryTxt=document.getElementById('ctrl-filter-summary-text');
+  if(summaryEl&&summaryTxt){
+    if(activeFilters.length>0){
+      summaryEl.style.display='flex';
+      summaryTxt.textContent=`Aktive Filter: ${activeFilters.join(' · ')} — ${filtered.length} Bäume`;
+    } else {
+      summaryEl.style.display='none';
+    }
+  }
 
   // Trees with activity in range
   const reported=filtered.filter(t=>t.lastReportAt&&inCtrlRange(t.lastReportAt.slice?t.lastReportAt.slice(0,10):t.lastReportAt));
@@ -2841,7 +2936,7 @@ map.on('contextmenu',e=>{
 });
 
 Object.assign(window,{
-  saveInlineFields,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,loadTourHistory,showHistoryDetail,exportHistoryCSV,
+  saveInlineFields,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,
   createProject,openProject,showProjectScreen,
   switchView,openDetail,closePanel,logWatering,
