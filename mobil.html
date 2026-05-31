@@ -591,7 +591,7 @@ function showFinishConfirm() {
         <div><div style="font-size:22px;font-weight:300;color:var(--amber);">${offen}</div><div style="font-size:11px;color:var(--text3);">Offen</div></div>
       </div>
       <button onclick="reopenTour()" style="width:100%;padding:14px;background:#16a34a;color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;margin-bottom:8px;">
-        Tour neu starten
+        Tour neu starten (Status wird zurückgesetzt)
       </button>
       <button onclick="closeFinishSheet()" style="width:100%;padding:14px;background:var(--surface2);color:var(--text2);border:none;border-radius:12px;font-size:15px;">
         Schließen
@@ -714,18 +714,25 @@ async function reopenTour() {
   try {
     const now = new Date();
 
-    // Reset ONLY status fields — stammdaten stay intact
-    for(const tree of trees) {
-      await updateDoc(doc(db,'projects',currentProjectId,'trees',tree.id),{
-        lastStatus: null,
-        lastReason: null,
-        lastNote: null,
-        lastReportAt: null,
-        lastDriver: null,
-        // Stammdaten (name, art, baumnr, lat, lng, zustand, wasser, etc.) preserved
-      });
+    // Automatically reset status fields for all trees — no prompt needed
+    // Stammdaten (name, art, baumnr, lat, lng, zustand, wasser, history) stay intact
+    const resetFields = {
+      lastStatus: null,
+      lastReason: null,
+      lastNote: null,
+      lastReportAt: null,
+      lastDriver: null,
+    };
+
+    // Batch reset all trees in tour
+    for(const tree of trees){
+      await updateDoc(
+        doc(db,'projects',currentProjectId,'trees',tree.id),
+        resetFields
+      );
     }
 
+    // Mark tour as active again
     await updateDoc(doc(db,'projects',currentProjectId,'tours',currentTourId),{
       status: 'aktiv',
       reopenedAt: now.toISOString(),
@@ -734,9 +741,9 @@ async function reopenTour() {
 
     currentTour = {...currentTour, status: 'aktiv'};
     closeFinishSheet();
-    toast('🔄 Tour neu gestartet — viel Erfolg!');
+    toast('🔄 Tour neu gestartet');
 
-  } catch(e) { toast('Fehler: '+e.message); }
+  } catch(e) { toast('Fehler: '+e.message); console.error(e); }
 }
 
 // ─── MARKERS ──────────────────────────────────────────────────
