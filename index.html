@@ -69,7 +69,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .btn-warn:hover{background:#fde68a}
 
 /* ── LAYOUT ─────────────────────────────────── */
-.main{display:flex;flex:1;overflow:hidden}
+.main{display:flex;flex:1;overflow:hidden;min-width:0;width:100%;}
 .sidebar{width:300px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
 .sidebar-header{padding:14px 16px 10px;border-bottom:1px solid var(--border);flex-shrink:0}
 .sidebar-title{font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text3);margin-bottom:8px}
@@ -77,9 +77,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .search-box input{width:100%;padding:6px 10px 6px 30px;border:1px solid var(--border);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:13px;background:var(--bg);color:var(--text);outline:none}
 .search-box input:focus{border-color:var(--green-mid)}
 .search-icon{position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--text3);pointer-events:none}
-.sidebar-filters{padding:8px 16px;border-bottom:1px solid var(--border);display:flex;gap:6px;flex-wrap:wrap;flex-shrink:0}
-.filter-chip{padding:3px 10px;border-radius:20px;font-size:12px;font-weight:500;cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--text2);transition:all .15s}
-.filter-chip.active{background:var(--green-light);color:var(--green);border-color:var(--green-mid)}
+
+
 .tree-list{flex:1;overflow-y:auto;padding:8px 0}
 .tree-item{padding:10px 16px;cursor:pointer;border-left:3px solid transparent;transition:background .12s;display:flex;align-items:flex-start;gap:10px}
 .tree-item:hover{background:var(--surface2)}
@@ -103,21 +102,17 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .map-info-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:7px 14px;font-size:12px;color:var(--text2);box-shadow:var(--shadow);margin-left:auto}
 .mode-banner{background:var(--blue);color:#fff;border-radius:var(--radius-sm);padding:7px 13px;font-size:13px;font-weight:500;box-shadow:var(--shadow-md);display:none;align-items:center;gap:8px}
 .mode-banner.visible{display:flex}
-.assign-banner{background:#7c3aed;color:#fff;border-radius:var(--radius-sm);padding:7px 13px;font-size:13px;font-weight:500;box-shadow:var(--shadow-md);display:none;align-items:center;gap:8px}
-.assign-banner.visible{display:flex}
-.assign-pill{padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;border:2px solid transparent;transition:all .15s;color:#fff}
-.assign-pill.selected{border-color:#fff;box-shadow:0 0 0 2px rgba(255,255,255,.4)}
+
 .route-info-bar{position:absolute;bottom:60px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:8px 18px;font-size:13px;font-weight:500;box-shadow:var(--shadow-md);z-index:1000;display:none;align-items:center;gap:12px;white-space:nowrap}
 .route-info-bar.visible{display:flex}
 .route-spinner{width:14px;height:14px;border:2px solid rgba(0,0,0,.15);border-top-color:var(--green);border-radius:50%;animation:spin .7s linear infinite;display:none}
 .route-spinner.visible{display:block}
-.tour-legend{position:absolute;bottom:24px;right:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;z-index:1000;box-shadow:var(--shadow);min-width:170px;max-width:210px}
-.legend-title{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text3);margin-bottom:8px}
-.legend-item{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin-bottom:5px;cursor:pointer;border-radius:4px;padding:2px 4px;transition:background .12s}
+.legend-title{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);margin-bottom:6px}
+.legend-item{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin-bottom:3px;cursor:pointer;border-radius:6px;padding:4px 6px;transition:background .12s}
 .legend-item:hover{background:var(--surface2)}
-.legend-item.active-tour{background:var(--green-light)}
-.legend-line{width:22px;height:4px;border-radius:2px;flex-shrink:0}
-.legend-km{font-size:11px;color:var(--text3);margin-left:auto;font-family:'DM Mono',monospace}
+.legend-item.active-tour{background:var(--green-light);font-weight:600}
+.legend-line{width:20px;height:4px;border-radius:2px;flex-shrink:0}
+.legend-km{font-size:11px;color:var(--text3);margin-left:auto;font-family:'DM Mono',monospace;white-space:nowrap}
 
 /* ── PANELS ─────────────────────────────────── */
 .panel-overlay{position:absolute;top:0;right:0;bottom:0;width:360px;background:var(--surface);border-left:1px solid var(--border);box-shadow:var(--shadow-md);z-index:500;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .22s cubic-bezier(.4,0,.2,1);overflow:hidden}
@@ -149,12 +144,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .geocode-error{background:var(--red-light);border:1px solid #fca5a5;border-radius:var(--radius-sm);padding:8px 12px;font-size:12px;color:var(--red);margin-top:8px;display:none}
 
 /* ── TOUREN VIEW ────────────────────────────── */
-.touren-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px}
-.tour-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;cursor:pointer;transition:box-shadow .15s;border-top:3px solid transparent}
-.tour-card:hover{box-shadow:var(--shadow-md)}
-.tour-card-name{font-size:14px;font-weight:600;margin-bottom:4px}
-.tour-card-meta{font-size:12px;color:var(--text2)}
-.tour-card-count{font-size:22px;font-weight:300;color:var(--text3);margin:8px 0 2px;font-family:'DM Mono',monospace}
+/* tour-card CSS replaced by table layout */
 
 /* ── MODALS ─────────────────────────────────── */
 .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:2000;display:none;align-items:center;justify-content:center}
@@ -165,7 +155,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .modal-footer{padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end}
 
 /* ── MISC ───────────────────────────────────── */
-.view{display:none;flex:1;overflow:hidden;flex-direction:column}
+.view{display:none;flex:1;overflow:hidden;flex-direction:column;}
 .view.active{display:flex}
 .empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 20px;text-align:center;color:var(--text3);gap:8px}
 .empty-state p{font-size:13px}
@@ -185,18 +175,19 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .sync-dot.syncing{background:var(--amber);animation:pulse-dot 1s infinite}
 .sync-dot.error{background:var(--red)}
 @keyframes pulse-dot{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* ── LASSO ──────────────────────────────────── */
+.lasso-canvas{position:absolute;left:0;right:0;bottom:0;top:55px;z-index:999;cursor:crosshair;display:none;}
+.lasso-canvas.active{display:block;}
+.lasso-banner{background:#7c3aed;color:#fff;border-radius:var(--radius-sm);padding:7px 13px;font-size:13px;font-weight:500;box-shadow:var(--shadow-md);display:none;align-items:center;gap:8px;pointer-events:all;flex-wrap:wrap;}
+.lasso-banner.visible{display:flex;}
+.lasso-tour-pill{padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;border:2px solid transparent;color:#fff;transition:all .15s;pointer-events:all;user-select:none;}
+.lasso-tour-pill.selected{border-color:#fff;box-shadow:0 0 0 2px rgba(255,255,255,.4);}
 ::-webkit-scrollbar{width:5px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
 
-/* ── ROUTE SIDEBAR PANEL ────────────────────── */
-.route-sidebar{background:var(--green-light);border-bottom:1px solid var(--green-mid);padding:10px 14px;flex-shrink:0;display:none;}
-.route-sidebar.visible{display:block}
-.route-sidebar-title{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--green);margin-bottom:6px;display:flex;align-items:center;justify-content:space-between}
-.route-stats{display:flex;gap:12px;}
-.route-stat{display:flex;flex-direction:column;align-items:center;background:#fff;border-radius:8px;padding:6px 12px;flex:1;border:1px solid var(--green-mid);}
-.route-stat-val{font-size:16px;font-weight:700;color:var(--green);font-family:'DM Mono',monospace}
-.route-stat-lbl{font-size:10px;color:var(--text3);margin-top:1px}
+/* route-sidebar CSS moved to inline */
 
 /* ── CONTEXT MENU ───────────────────────────── */
 .ctx-menu{position:fixed;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);box-shadow:var(--shadow-md);z-index:9999;min-width:190px;overflow:hidden;display:none;}
@@ -257,6 +248,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <button class="btn btn-warn" onclick="startAssignMode()">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>Zuweisen
     </button>
+
     <button class="btn btn-secondary" onclick="openTourModal()">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>Tour
     </button>
@@ -282,38 +274,56 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <input type="text" id="search-input" placeholder="Suchen…" oninput="renderList()">
       </div>
     </div>
-    <div class="sidebar-filters" id="tour-filters"></div>
-    <!-- Route info inside sidebar -->
-    <div class="route-sidebar" id="sidebar-route-info">
-      <div class="route-sidebar-title">
-        <span id="sidebar-route-tour-name">Route</span>
-        <span style="font-size:10px;font-weight:400;color:var(--text3);">Rechtsklick auf Karte → neu berechnen</span>
-      </div>
-      <div class="route-stats">
-        <div class="route-stat"><span class="route-stat-val" id="sidebar-route-km">–</span><span class="route-stat-lbl">Kilometer</span></div>
-        <div class="route-stat"><span class="route-stat-val" id="sidebar-route-time">–</span><span class="route-stat-lbl">Fahrzeit</span></div>
-        <div class="route-stat"><span class="route-stat-val" id="sidebar-route-cnt">–</span><span class="route-stat-lbl">Bäume</span></div>
+
+    <!-- Tour legend inside sidebar -->
+    <div id="tour-legend" style="border-bottom:1px solid var(--border);flex-shrink:0;display:none;"></div>
+    <!-- Route info inside sidebar — compact single line -->
+    <div id="sidebar-route-info" style="display:none;padding:6px 14px;border-bottom:1px solid var(--border);background:var(--green-light);flex-shrink:0;">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span id="sidebar-route-tour-name" style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.04em;flex-shrink:0;"></span>
+        <div style="display:flex;align-items:center;gap:12px;flex:1;">
+          <span style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:600;color:var(--green);">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+            <span id="sidebar-route-km">–</span>
+          </span>
+          <span style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:600;color:var(--green);">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+            <span id="sidebar-route-time">–</span>
+          </span>
+          <span style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:600;color:var(--green);">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22V12"/><path d="M12 12C12 12 7 9 7 5a5 5 0 0 1 10 0c0 4-5 7-5 7z"/></svg>
+            <span id="sidebar-route-cnt">–</span>
+          </span>
+        </div>
       </div>
     </div>
     <div class="tree-list" id="tree-list"></div>
     <div class="sidebar-footer" id="list-count">0 Bäume</div>
   </div>
 
-  <div style="flex:1;position:relative;overflow:hidden;display:flex;flex-direction:column;">
+  <div id="view-container" style="flex:1;position:relative;overflow:hidden;display:flex;flex-direction:column;">
 
     <!-- KARTE -->
-    <div class="view active" id="view-karte" style="position:relative;">
+    <div class="view active" id="view-karte" style="position:relative;min-height:0;">
       <div id="map"></div>
+      <!-- Lasso canvas overlay -->
+      <canvas id="lasso-canvas" class="lasso-canvas"></canvas>
+
+      <!-- Unified assign banner — outside toolbar so pointer-events work -->
+      <div class="lasso-banner" id="assign-lasso-banner" style="position:absolute;top:12px;left:12px;z-index:1002;pointer-events:all;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+        Tour zuweisen — Klick oder Lasso:
+        <div style="display:flex;gap:5px;flex-wrap:wrap;" id="assign-tour-pills"></div>
+        <button class="btn btn-secondary" style="padding:3px 10px;font-size:12px;color:#fff;border-color:rgba(255,255,255,.4);background:rgba(255,255,255,.15);" onclick="cancelAssign()">Fertig</button>
+      </div>
+
       <div class="map-toolbar">
         <div class="mode-banner" id="mode-banner">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/></svg>
           <span id="mode-text">Auf Karte klicken zum Platzieren</span>
           <button class="btn btn-secondary" style="padding:3px 10px;font-size:12px;" onclick="cancelMode()">Abbrechen</button>
         </div>
-        <div class="assign-banner" id="assign-banner">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-          Tour zuweisen:
-          <div style="display:flex;gap:6px;flex-wrap:wrap;" id="assign-tour-pills"></div>
+        
           <button class="btn btn-secondary" style="padding:3px 10px;font-size:12px;color:#fff;border-color:rgba(255,255,255,.4);background:rgba(255,255,255,.15);" onclick="cancelAssign()">Fertig</button>
         </div>
         <div class="map-info-box" id="map-coords">Maus über Karte bewegen</div>
@@ -323,7 +333,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
         <span id="route-info-text">–</span>
       </div>
-      <div class="tour-legend" id="tour-legend"></div>
       <!-- Detail Panel -->
       <div class="panel-overlay" id="detail-panel">
         <div class="panel-header">
@@ -386,7 +395,22 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
             <label class="form-label">Projektname</label>
             <input class="form-control" id="s-project-name">
           </div>
-          <button class="btn btn-danger" style="width:100%;margin-top:4px;" onclick="confirmDeleteProject()">Projekt löschen</button>
+          <div class="form-section" style="margin-top:18px;">Fahrer & Mobile App</div>
+          <div class="form-group">
+            <label class="form-label">Fahrer den Touren zuweisen</label>
+            <div id="driver-assignment" style="display:flex;flex-direction:column;gap:8px;"></div>
+          </div>
+          <div class="form-section" style="margin-top:4px;">Gründe: Nicht bewässert</div>
+          <div id="reasons-list" style="margin-bottom:8px;"></div>
+          <div style="display:flex;gap:6px;">
+            <input class="form-control" id="new-reason-input" placeholder="Neuen Grund eingeben…" style="flex:1;" onkeydown="if(event.key==='Enter')addReason()">
+            <button class="btn btn-primary" style="padding:6px 12px;white-space:nowrap;" onclick="addReason()">+ Hinzufügen</button>
+          </div>
+          <div style="margin-top:12px;padding:10px;background:var(--green-light);border-radius:var(--radius-sm);font-size:12px;color:var(--green);">
+            📱 Mobile App URL:<br>
+            <a id="mobile-app-link" href="baumbewässerung-mobil.html" target="_blank" style="color:var(--green);font-weight:600;word-break:break-all;">baumbewässerung-mobil.html</a>
+          </div>
+          <button class="btn btn-danger" style="width:100%;margin-top:12px;" onclick="confirmDeleteProject()">Projekt löschen</button>
         </div>
         <div class="panel-actions">
           <button class="btn btn-secondary" onclick="closeSettings()">Abbrechen</button>
@@ -395,19 +419,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       </div>
     </div>
 
-    <!-- BÄUME -->
-    <div class="view" id="view-baeume" style="overflow-y:auto;padding:16px;background:var(--bg);">
-      <div id="baeume-table-wrap"></div>
-    </div>
-
-    <!-- TOUREN -->
-    <div class="view" id="view-touren" style="overflow-y:auto;background:var(--bg);">
-      <div style="padding:16px 16px 8px;display:flex;align-items:center;justify-content:space-between;">
-        <span style="font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text3);">Touren</span>
-        <button class="btn btn-secondary" onclick="openTourModal()">Neue Tour</button>
-      </div>
-      <div class="touren-grid" id="touren-grid"></div>
-    </div>
+    <!-- baeume + touren moved to fullscreen overlays -->
   </div>
 </div>
 
@@ -479,6 +491,41 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 </div>
 
 <div class="notification" id="notification"></div>
+
+<!-- BÄUME fullscreen overlay -->
+<div id="view-baeume" style="display:none;position:fixed;top:54px;left:0;right:0;bottom:0;z-index:1500;background:var(--bg);flex-direction:column;">
+  <div id="baeume-table-wrap" style="flex:1;overflow:auto;display:flex;flex-direction:column;"></div>
+</div>
+
+<!-- TOUREN fullscreen overlay -->
+<div id="view-touren" style="display:none;position:fixed;top:54px;left:0;right:0;bottom:0;z-index:1500;background:var(--bg);flex-direction:column;overflow:hidden;">
+  <div style="padding:12px 20px;border-bottom:1px solid var(--border);background:var(--surface);display:flex;align-items:center;gap:16px;flex-shrink:0;">
+    <span style="font-size:13px;font-weight:600;color:var(--text);" id="touren-count">Touren</span>
+    <button class="btn btn-primary" onclick="openTourModal()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>Neue Tour
+    </button>
+    <button class="btn btn-secondary" onclick="calculateAllRoutes()" style="margin-left:auto;">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>Alle Routen berechnen
+    </button>
+  </div>
+  <div style="overflow:auto;flex:1;">
+    <table style="width:100%;border-collapse:collapse;font-size:13px;background:var(--surface);">
+      <thead>
+        <tr>
+          <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);width:20px;"></th>
+          <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Tourname</th>
+          <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Beschreibung</th>
+          <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Bäume</th>
+          <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Strecke</th>
+          <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Fahrzeit</th>
+          <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Gut / Mittel / Schlecht</th>
+          <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;width:220px;"></th>
+        </tr>
+      </thead>
+      <tbody id="touren-grid"></tbody>
+    </table>
+  </div>
+</div>
 <!-- Context Menu -->
 <div class="ctx-menu" id="ctx-menu">
   <div class="ctx-item" id="ctx-calc-active" onclick="ctxCalcActive()" style="display:none;">
@@ -749,10 +796,13 @@ function drawSavedRoute(tourId, routeData){
   // Restore order
   if(routeData.orderIds) tourOrder[tourId]=routeData.orderIds;
 
+  // Parse geojson from string (stored as string to avoid Firestore nested array limit)
+  const geojson=routeData.geojsonStr?JSON.parse(routeData.geojsonStr):routeData.geojson||null;
+
   let layer;
-  if(routeData.geojson){
+  if(geojson){
     // Draw real street route from saved geojson
-    layer=L.geoJSON(routeData.geojson,{style:{color:tour.color,weight:4,opacity:.85}}).addTo(map);
+    layer=L.geoJSON(geojson,{style:{color:tour.color,weight:4,opacity:.85}}).addTo(map);
   } else {
     // Draw straight-line fallback from saved order
     const orderedTrees=routeData.orderIds
@@ -832,8 +882,12 @@ async function calculateAndSaveRoute(tourId){
     // Estimate: avg 30 km/h in city
     durationSec=km/30*3600;
   }
-  // Save to Firestore
-  const routeData={orderIds:tourOrder[tourId],geojson:geojsonToSave,km,durationSec,updatedAt:serverTimestamp()};
+  // Save to Firestore — geojson serialized as string (Firestore doesn't support nested arrays)
+  const routeData={
+    orderIds:tourOrder[tourId],
+    geojsonStr:geojsonToSave?JSON.stringify(geojsonToSave):null,
+    km,durationSec,updatedAt:serverTimestamp()
+  };
   await setDoc(doc(db,'projects',currentProjectId,'routes',tourId),routeData);
 
   // Draw on map
@@ -875,18 +929,16 @@ function updateRouteInfoBar(){
     const tour=tours.find(t=>t.id===activeTourOnMap);
     const cnt=trees.filter(t=>t.tourId===activeTourOnMap&&t.lat&&t.lng).length;
     const depot=getDepot();
-    // Map info bar
     txt.textContent=`${tour?.name||''} · ${cnt} Bäume · ${km.toFixed(1)} km · ${fmtDuration(durationSec)}${depot?' (inkl. Betriebshof)':''}`;
     bar.classList.add('visible');
-    // Sidebar route panel
-    document.getElementById('sidebar-route-tour-name').textContent=tour?.name||'Route';
+    document.getElementById('sidebar-route-tour-name').textContent=tour?.name||'';
     document.getElementById('sidebar-route-km').textContent=km.toFixed(1)+' km';
     document.getElementById('sidebar-route-time').textContent=fmtDuration(durationSec);
-    document.getElementById('sidebar-route-cnt').textContent=cnt;
-    sidePanel.classList.add('visible');
+    document.getElementById('sidebar-route-cnt').textContent=cnt+' Bäume';
+    sidePanel.style.display='block';
   } else {
     bar.classList.remove('visible');
-    sidePanel.classList.remove('visible');
+    if(sidePanel) sidePanel.style.display='none';
   }
 }
 
@@ -923,14 +975,20 @@ function makeMarker(tree){
     iconAnchor:[isHighlighted?18:14,isHighlighted?18:14]
   });
   return L.marker([tree.lat,tree.lng],{icon,zIndexOffset:isHighlighted?500:0}).addTo(map)
-    .on('click',()=>{ if(assignMode) assignTreeToTour(tree.id,assignTourId); else openDetail(tree.id); });
+    .on('click',()=>{ if(assignMode&&!lassoDrawing) assignTreeToTour(tree.id,assignTourId); else if(!assignMode) openDetail(tree.id); });
 }
 
 function setMarkerVisibility(){
   trees.forEach(tree=>{
     const m=mapMarkers[tree.id];if(!m)return;
-    if(!activeTourOnMap) map.addLayer(m);
-    else { if(tree.tourId===activeTourOnMap)map.addLayer(m); else map.removeLayer(m); }
+    // filterTour='none' → only show trees without a tour
+    if(filterTour==='none'){
+      if(!tree.tourId||tree.tourId==='') map.addLayer(m); else map.removeLayer(m);
+    } else if(activeTourOnMap){
+      if(tree.tourId===activeTourOnMap) map.addLayer(m); else map.removeLayer(m);
+    } else {
+      map.addLayer(m);
+    }
   });
 }
 
@@ -945,6 +1003,7 @@ function refreshMarkers(){
 
 function rebuildMarkersWithNumbers(){
   Object.values(mapMarkers).forEach(m=>map.removeLayer(m));mapMarkers={};
+  // makeMarker uses selectedTreeId for highlight — always passes current state
   trees.forEach(tree=>{ if(tree.lat&&tree.lng) mapMarkers[tree.id]=makeMarker(tree); });
   setMarkerVisibility();
 }
@@ -1005,52 +1064,114 @@ async function focusTour(tourId){
 // ─── LEGEND ───────────────────────────────────────────────────
 function renderLegend(){
   const el=document.getElementById('tour-legend');if(!el)return;
-  let html=`<div class="legend-title">Touren <span style="font-weight:400;font-size:10px;">(klicken zum Filtern)</span></div>`;
+  if(tours.length===0){el.style.display='none';return;}
+  el.style.display='block';
+
+  const activeTour=tours.find(t=>t.id===activeTourOnMap);
+
+  // ── Header row: always visible ──────────────────────────────
+  let html=`<div style="display:flex;align-items:center;gap:6px;padding:6px 14px;cursor:pointer;" data-action="toggle-legend">
+    <span style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);flex:1;">Touren</span>`;
+
+  // Show active tour pill in header when collapsed
+  if(activeTour){
+    html+=`<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:${activeTour.color};">
+      <span style="width:14px;height:3px;border-radius:2px;background:${activeTour.color};display:inline-block;"></span>
+      ${activeTour.name}
+      ${tourRoutes[activeTour.id]?'· '+tourRoutes[activeTour.id].km.toFixed(1)+' km':''}
+    </span>`;
+  } else {
+    html+=`<span style="font-size:11px;color:var(--text3);">${tours.length} Touren</span>`;
+  }
+  const isOpen=el.dataset.open!=='false';
+  html+=`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="color:var(--text3);transition:transform .2s;transform:rotate(${isOpen?'180':'0'}deg);flex-shrink:0;"><path d="M6 9l6 6 6-6"/></svg>
+  </div>`;
+
+  // ── Collapsible body ─────────────────────────────────────────
+  html+=`<div id="legend-body" style="display:${isOpen?'block':'none'};">`;
+
+  // Tour rows — compact
+  html+=`<div style="padding:0 8px 4px;">`;
   tours.forEach(t=>{
     const km=tourRoutes[t.id]?tourRoutes[t.id].km.toFixed(1):'–';
     const isActive=activeTourOnMap===t.id;
-    html+=`<div class="legend-item ${isActive?'active-tour':''}" onclick="focusTour('${t.id}')">
-      <div class="legend-line" style="background:${t.color};"></div>
-      <span>${t.name}</span>
-      <span class="legend-km">${km} km</span>
+    html+=`<div class="legend-item${isActive?' active-tour':''}" data-tourid="${t.id}" style="padding:3px 6px;margin-bottom:1px;">
+      <div class="legend-line" style="background:${t.color};width:16px;height:3px;"></div>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">${t.name}</span>
+      <span class="legend-km" style="font-size:10px;">${km} km</span>
+      ${isActive?`<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" style="color:var(--green);flex-shrink:0;margin-left:2px;"><path d="M20 6L9 17l-5-5"/></svg>`:''}
     </div>`;
-    if(isActive){
-      html+=`<div style="padding:4px 4px 6px;display:flex;gap:4px;">
-        <button onclick="event.stopPropagation();calculateAndSaveRoute('${t.id}')" style="flex:1;padding:4px 8px;font-size:11px;font-weight:600;background:var(--green);color:#fff;border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px;">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>Route berechnen
-        </button>
-      </div>`;
-    }
   });
-  html+=`<div class="legend-item ${!activeTourOnMap?'active-tour':''}" onclick="focusTour(null)" style="margin-top:4px;">
-    <div class="legend-line" style="background:#ccc;"></div><span style="color:var(--text3);">Alle anzeigen</span></div>`;
-  if(!activeTourOnMap&&tours.length>0){
-    html+=`<div style="padding:4px 4px 2px;">
-      <button onclick="calculateAllRoutes()" style="width:100%;padding:4px 8px;font-size:11px;font-weight:600;background:var(--green);color:#fff;border:none;border-radius:4px;cursor:pointer;">
+  // All tours row
+  html+=`<div class="legend-item${!activeTourOnMap?' active-tour':''}" data-tourid="__all__" style="padding:3px 6px;margin-top:2px;border-top:1px solid var(--border);">
+    <div style="width:16px;height:3px;border-radius:2px;background:#ccc;flex-shrink:0;"></div>
+    <span style="color:var(--text3);flex:1;font-size:12px;">Alle anzeigen</span>
+  </div>`;
+  html+=`</div>`;
+
+  // Route berechnen button — compact
+  if(activeTourOnMap){
+    html+=`<div style="padding:4px 8px 8px;">
+      <button data-action="calc-active" style="width:100%;padding:5px 10px;font-size:11px;font-weight:600;background:var(--green);color:#fff;border:none;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+        Route berechnen
+      </button>
+    </div>`;
+  } else {
+    html+=`<div style="padding:4px 8px 8px;">
+      <button data-action="calc-all" style="width:100%;padding:5px 10px;font-size:11px;font-weight:600;background:var(--surface2);color:var(--text2);border:1px solid var(--border);border-radius:6px;cursor:pointer;">
         Alle Routen berechnen
       </button>
     </div>`;
   }
+  html+=`</div>`; // end legend-body
+
   el.innerHTML=html;
+
+  // Event delegation
+  el.onclick=e=>{
+    if(e.target.closest('[data-action="toggle-legend"]')){
+      const body=document.getElementById('legend-body');
+      const svg=el.querySelector('[data-action="toggle-legend"] svg');
+      const open=body.style.display==='none';
+      body.style.display=open?'block':'none';
+      el.dataset.open=open?'true':'false';
+      if(svg)svg.style.transform=`rotate(${open?180:0}deg)`;
+      return;
+    }
+    const item=e.target.closest('[data-tourid]');
+    if(item){const tid=item.dataset.tourid;if(tid==='__all__')focusTour(null);else focusTour(tid);return;}
+    const btn=e.target.closest('[data-action]');
+    if(btn){
+      if(btn.dataset.action==='calc-active'&&activeTourOnMap)calculateAndSaveRoute(activeTourOnMap);
+      else if(btn.dataset.action==='calc-all')calculateAllRoutes();
+    }
+  };
 }
 
 // ─── LIST ─────────────────────────────────────────────────────
-function renderFilters(){
-  const el=document.getElementById('tour-filters');if(!el)return;
-  let html=`<span class="filter-chip ${filterTour==='all'?'active':''}" onclick="setFilter('all',this)">Alle</span>`;
-  tours.forEach(t=>{html+=`<span class="filter-chip ${filterTour===t.id?'active':''}" onclick="setFilter('${t.id}',this)">${t.name}</span>`;});
-  html+=`<span class="filter-chip ${filterTour==='none'?'active':''}" onclick="setFilter('none',this)">Ohne Tour</span>`;
-  el.innerHTML=html;
-}
+function renderFilters(){} // removed — legend handles filtering
 function setFilter(f,el){
   document.querySelectorAll('.filter-chip').forEach(c=>c.classList.remove('active'));
   el?.classList.add('active');
-  // Sync with map tour focus
-  if(f==='all'||f==='none'){
-    if(activeTourOnMap){focusTour(null);}
-    else{filterTour=f;renderList();}
+  if(f==='none'){
+    // Show only trees without tour — deactivate tour focus, apply none filter
+    activeTourOnMap=null;
+    filterTour='none';
+    Object.values(tourRoutes).forEach(r=>map.removeLayer(r.layer));tourRoutes={};
+    setMarkerVisibility();
+    renderList();
+    renderLegend();
+    document.getElementById('sidebar-route-info').classList.remove('visible');
+    document.getElementById('route-info-bar').classList.remove('visible');
+  } else if(f==='all'){
+    activeTourOnMap=null;
+    filterTour='all';
+    setMarkerVisibility();
+    loadSavedRoutes();
+    renderList();
+    renderLegend();
   } else {
-    // clicking a tour chip focuses that tour on map
     focusTour(f);
   }
 }
@@ -1084,11 +1205,12 @@ function renderList(){
       const bg=color?color+'22':'#f0ede6';
       const rNum=getRouteNum(tree.id);
       const numBadge=rNum!=null?`<span class="badge" style="background:${color||'#6b6760'}22;color:${color||'#6b6760'};font-family:monospace;">#${rNum}</span>`:'';
-      return `<div class="tree-item${selectedTreeId===tree.id?' selected':''}" onclick="selectTree('${tree.id}')">
+      const sel=selectedTreeId===tree.id?' selected':'';
+      return `<div class="tree-item${sel}" data-treeid="${tree.id}">
         <div class="tree-icon" style="background:${bg};">🌳</div>
         <div class="tree-info">
           <div class="tree-name">${tree.name||'–'}</div>
-          <div class="tree-meta">${tree.art||'Unbekannt'} · ${tree.alter?tree.alter+'J':'?'}</div>
+          <div class="tree-meta">${tree.art||'Unbekannt'} · ${tree.stadtteil||''}</div>
           <div class="tree-badges">
             ${numBadge}
             ${tour?`<span class="badge" style="background:${color}22;color:${color};">${tour.name}</span>`:''}
@@ -1097,6 +1219,11 @@ function renderList(){
         </div>
       </div>`;
     }).join('');
+    // Event delegation — reliable, no escaping issues
+    list.onclick=e=>{
+      const item=e.target.closest('[data-treeid]');
+      if(item) selectTree(item.dataset.treeid);
+    };
   }
   document.getElementById('list-count').textContent=`${filtered.length} Bäume`;
 }
@@ -1104,27 +1231,32 @@ function renderList(){
 function selectTree(id){
   const prev=selectedTreeId;
   selectedTreeId=id;
-  renderList();
-  const tree=trees.find(t=>t.id===id);if(!tree)return;
 
-  // Rebuild markers so highlight appears immediately
-  // Only rebuild the two affected markers (prev + new) for performance
+  // Rebuild only the two affected markers
   if(prev&&prev!==id&&mapMarkers[prev]){
     map.removeLayer(mapMarkers[prev]);
     const pt=trees.find(t=>t.id===prev);
     if(pt&&pt.lat&&pt.lng) mapMarkers[prev]=makeMarker(pt);
   }
-  if(mapMarkers[id]){ map.removeLayer(mapMarkers[id]); }
+  const tree=trees.find(t=>t.id===id);if(!tree)return;
+  if(mapMarkers[id]) map.removeLayer(mapMarkers[id]);
+  if(tree.lat&&tree.lng) mapMarkers[id]=makeMarker(tree);
+
+  renderList();
+
+  const wasOnMap = currentView==='karte';
+  if(!wasOnMap) switchView('karte');
+
   if(tree.lat&&tree.lng){
-    mapMarkers[id]=makeMarker(tree);
-    // Ensure highlighted marker is on top
-    mapMarkers[id].setZIndexOffset(500);
+    // Always pan — delay only if we just switched views (map needs to render first)
+    setTimeout(()=>{
+      map.invalidateSize();
+      map.panTo([tree.lat,tree.lng],{animate:true,duration:0.5});
+    }, wasOnMap ? 0 : 200);
   }
 
-  if(currentView==='karte'){
-    if(tree.lat&&tree.lng) map.panTo([tree.lat,tree.lng],{animate:true,duration:0.4});
-    openDetail(id);
-  }
+  // Open detail panel after potential view switch
+  setTimeout(()=>openDetail(id), wasOnMap ? 0 : 50);
 }
 
 // ─── DETAIL PANEL ─────────────────────────────────────────────
@@ -1137,22 +1269,51 @@ function openDetail(id){
   const zLabel={gut:'Gut ✓',mittel:'Mittel ⚠',schlecht:'Schlecht ✕'}[tree.zustand]||'';
   const rNum=getRouteNum(tree.id);
   document.getElementById('panel-title').textContent=tree.name;
-  const fields=[
-    ['Reihenfolge',rNum!=null?`#${rNum} · ${tour?.name||'–'}`:'–'],
-    ['Baumnummer',tree.baumnr||'–'],
-    ['Stadtteil',tree.stadtteil||'–'],
-    ['Baumart',tree.art||'–'],
-    ['Pflanzjahr',tree.pflanzjahr||'–'],
-    ['Pflanzzeitpunkt',tree.pflanzzeitpunkt||'–'],
-    ['Wasserbedarf',{gering:'Gering',mittel:'Mittel',hoch:'Hoch'}[tree.wasser]||'–'],
-    ['Koordinaten',tree.lat?`${tree.lat.toFixed(5)}, ${tree.lng.toFixed(5)}`:'–'],
-    ['Tour',tour?`<span style="color:${tour.color};font-weight:600;">${tour.name}</span>`:'–'],
-    ['Letzte Bewässerung',tree.datum||'–'],
-  ];
-  let body=`<div class="status-bar" style="background:${statusBg};color:${statusColor};">${zLabel} — Zustand</div>
-    ${fields.map(([k,v])=>`<div class="detail-field"><span class="detail-key">${k}</span><span class="detail-val">${v}</span></div>`).join('')}
-    ${tree.notiz?`<div style="margin-top:12px;padding:10px;background:var(--surface2);border-radius:var(--radius-sm);font-size:13px;color:var(--text2);">${tree.notiz}</div>`:''}
-    <div class="form-section" style="margin-top:16px;">Bewässerung erfassen</div>
+  // Build tour options for inline select
+  const tourOptions=tours.map(t=>`<option value="${t.id}"${t.id===tree.tourId?' selected':''}>${t.name}</option>`).join('');
+
+  let body=`
+    <div class="status-bar" style="background:${statusBg};color:${statusColor};">${zLabel} — Zustand</div>
+
+    <div class="form-section">Identifikation</div>
+    <div class="detail-field"><span class="detail-key">Reihenfolge</span><span class="detail-val">${rNum!=null?`#${rNum} · ${tour?.name||'–'}`:'–'}</span></div>
+    <div class="detail-field"><span class="detail-key">Baumnummer</span><span class="detail-val">${tree.baumnr||'–'}</span></div>
+    <div class="detail-field"><span class="detail-key">Stadtteil</span><span class="detail-val">${tree.stadtteil||'–'}</span></div>
+    <div class="detail-field"><span class="detail-key">Baumart</span><span class="detail-val" style="font-style:italic;">${tree.art||'–'}</span></div>
+    <div class="detail-field"><span class="detail-key">Pflanzjahr</span><span class="detail-val">${tree.pflanzjahr||'–'}</span></div>
+    <div class="detail-field"><span class="detail-key">Pflanzzeitpunkt</span><span class="detail-val">${tree.pflanzzeitpunkt||'–'}</span></div>
+    <div class="detail-field"><span class="detail-key">Koordinaten</span><span class="detail-val" style="font-size:11px;font-family:monospace;">${tree.lat?`${tree.lat.toFixed(5)}, ${tree.lng.toFixed(5)}`:'–'}</span></div>
+
+    <div class="form-section">Pflege</div>
+    <div class="detail-field">
+      <span class="detail-key">Wasserbedarf</span>
+      <select class="form-control" id="inline-wasser" style="width:auto;padding:3px 8px;font-size:12px;">
+        <option value="gering"${tree.wasser==='gering'?' selected':''}>Gering</option>
+        <option value="mittel"${tree.wasser==='mittel'?' selected':''}>Mittel</option>
+        <option value="hoch"${tree.wasser==='hoch'?' selected':''}>Hoch</option>
+      </select>
+    </div>
+    <div class="detail-field">
+      <span class="detail-key">Zustand</span>
+      <select class="form-control" id="inline-zustand" style="width:auto;padding:3px 8px;font-size:12px;">
+        <option value="gut"${tree.zustand==='gut'?' selected':''}>Gut</option>
+        <option value="mittel"${tree.zustand==='mittel'?' selected':''}>Mittel</option>
+        <option value="schlecht"${tree.zustand==='schlecht'?' selected':''}>Schlecht</option>
+      </select>
+    </div>
+
+    <div class="form-section">Tour</div>
+    <div style="display:flex;gap:8px;align-items:center;padding:6px 0;">
+      <select class="form-control" id="inline-tour" style="flex:1;font-size:12px;">
+        <option value="">– Keine Tour –</option>
+        ${tourOptions}
+      </select>
+      <button class="btn btn-primary" style="padding:5px 12px;font-size:12px;white-space:nowrap;" onclick="saveInlineFields('${id}')">Speichern</button>
+    </div>
+
+    ${tree.notiz?`<div style="margin:8px 0;padding:10px;background:var(--surface2);border-radius:var(--radius-sm);font-size:12px;color:var(--text2);">${tree.notiz}</div>`:''}
+
+    <div class="form-section" style="margin-top:8px;">Bewässerung erfassen</div>
     <div style="display:flex;gap:8px;align-items:center;">
       <input class="form-control" type="date" id="water-date" value="${new Date().toISOString().slice(0,10)}" style="flex:1;">
       <button class="btn btn-primary" onclick="logWatering('${id}')">Erfassen</button>
@@ -1178,6 +1339,23 @@ function closePanel(){
     const pt=trees.find(t=>t.id===prev);
     if(pt&&pt.lat&&pt.lng) mapMarkers[prev]=makeMarker(pt);
   }
+}
+
+async function saveInlineFields(id){
+  const wasser=document.getElementById('inline-wasser')?.value;
+  const zustand=document.getElementById('inline-zustand')?.value;
+  const tourId=document.getElementById('inline-tour')?.value||'';
+  if(!wasser&&!zustand)return;
+  const updates={};
+  if(wasser)updates.wasser=wasser;
+  if(zustand)updates.zustand=zustand;
+  updates.tourId=tourId;
+  try{
+    await updateDoc(doc(db,'projects',currentProjectId,'trees',id),updates);
+    routeCache={};
+    notify('Gespeichert');
+    openDetail(id); // refresh panel
+  }catch(e){notify('Fehler: '+e.message);}
 }
 
 async function logWatering(id){
@@ -1292,26 +1470,115 @@ function cancelMode(){
 }
 
 function startAssignMode(){
+  if(!currentProjectId){notify('Bitte zuerst ein Projekt öffnen');return;}
   if(tours.length===0){notify('Bitte zuerst eine Tour anlegen');return;}
-  assignMode=true;assignTourId=tours[0].id;
-  const pills=document.getElementById('assign-tour-pills');
-  pills.innerHTML=tours.map(t=>`<span class="assign-pill${t.id===assignTourId?' selected':''}" style="background:${t.color};" onclick="setAssignTour('${t.id}',this)">${t.name}</span>`).join('');
-  document.getElementById('assign-banner').classList.add('visible');
-  map.getContainer().style.cursor='crosshair';closePanel();
-}
-function setAssignTour(id,el){ assignTourId=id;document.querySelectorAll('.assign-pill').forEach(p=>p.classList.remove('selected'));el.classList.add('selected'); }
-function cancelAssign(){ assignMode=false;assignTourId=null;map.getContainer().style.cursor='';document.getElementById('assign-banner').classList.remove('visible'); }
+  assignMode=true;lassoMode=true;assignTourId=tours[0].id;lassoTourId=tours[0].id;
+  lassoPoints=[];lassoDrawing=false;
 
-async function assignTreeToTour(treeId,tourId){
+  // Setup lasso canvas
+  const canvas=document.getElementById('lasso-canvas');
+  const mapEl=document.getElementById('map');
+  canvas.width=mapEl.offsetWidth;canvas.height=mapEl.offsetHeight;
+  lassoCtx=canvas.getContext('2d');
+  canvas.classList.add('active');
+
+  // Build unified pills
+  rebuildAssignPills();
+  document.getElementById('assign-lasso-banner').classList.add('visible');
+  map.getContainer().style.cursor='crosshair';
+  closePanel();
+
+  // Lasso canvas events
+  canvas.onmousedown=e=>{
+    // Only start lasso if not clicking a marker (check target)
+    lassoDrawing=true;lassoPoints=[];
+    const r=canvas.getBoundingClientRect();
+    lassoPoints.push({x:e.clientX-r.left,y:e.clientY-r.top});
+  };
+  canvas.onmousemove=e=>{
+    if(!lassoDrawing)return;
+    const r=canvas.getBoundingClientRect();
+    lassoPoints.push({x:e.clientX-r.left,y:e.clientY-r.top});
+    drawLasso();
+  };
+  canvas.onmouseup=e=>{
+    if(!lassoDrawing)return;
+    lassoDrawing=false;
+    // If barely moved → treat as click, not lasso
+    const dist=lassoPoints.length>1?Math.hypot(
+      lassoPoints[lassoPoints.length-1].x-lassoPoints[0].x,
+      lassoPoints[lassoPoints.length-1].y-lassoPoints[0].y):0;
+    if(dist<8){
+      // Single click: find nearest marker
+      const r=canvas.getBoundingClientRect();
+      const clickPt=map.containerPointToLatLng(L.point(e.clientX-r.left,e.clientY-r.top));
+      let nearestTree=null,nearestDist=Infinity;
+      trees.forEach(tree=>{
+        if(!tree.lat||!tree.lng)return;
+        const d=map.distance(clickPt,[tree.lat,tree.lng]);
+        if(d<nearestDist&&d<40){nearestDist=d;nearestTree=tree;}
+      });
+      lassoCtx.clearRect(0,0,canvas.width,canvas.height);
+      lassoPoints=[];
+      if(nearestTree) assignTreeToTour(nearestTree.id,assignTourId);
+    } else {
+      applyLasso();
+    }
+  };
+  canvas.ontouchstart=e=>{e.preventDefault();lassoDrawing=true;lassoPoints=[];const r=canvas.getBoundingClientRect(),t=e.touches[0];lassoPoints.push({x:t.clientX-r.left,y:t.clientY-r.top});};
+  canvas.ontouchmove=e=>{e.preventDefault();if(!lassoDrawing)return;const r=canvas.getBoundingClientRect(),t=e.touches[0];lassoPoints.push({x:t.clientX-r.left,y:t.clientY-r.top});drawLasso();};
+  canvas.ontouchend=e=>{e.preventDefault();if(!lassoDrawing)return;lassoDrawing=false;applyLasso();};
+}
+
+function rebuildAssignPills(){
+  const pills=document.getElementById('assign-tour-pills');
+  pills.innerHTML=tours.map(t=>
+    `<span class="lasso-tour-pill${t.id===assignTourId?' selected':''}" style="background:${t.color};" data-tourid="${t.id}">${t.name}</span>`
+  ).join('');
+  // Use event delegation — works reliably with innerHTML
+  pills.onclick=e=>{
+    const pill=e.target.closest('[data-tourid]');
+    if(!pill)return;
+    setAssignTour(pill.dataset.tourid);
+  };
+}
+
+function setAssignTour(id){
+  assignTourId=id;lassoTourId=id;
+  document.querySelectorAll('#assign-tour-pills [data-tourid]').forEach(p=>{
+    p.classList.toggle('selected', p.dataset.tourid===id);
+  });
+}
+
+function cancelAssign(){
+  assignMode=false;lassoMode=false;lassoDrawing=false;lassoPoints=[];
+  assignTourId=null;lassoTourId=null;
+  const canvas=document.getElementById('lasso-canvas');
+  if(lassoCtx)lassoCtx.clearRect(0,0,canvas.width,canvas.height);
+  canvas.classList.remove('active');
+  canvas.onmousedown=null;canvas.onmousemove=null;canvas.onmouseup=null;
+  canvas.ontouchstart=null;canvas.ontouchmove=null;canvas.ontouchend=null;
+  document.getElementById('assign-lasso-banner').classList.remove('visible');
+  map.getContainer().style.cursor='';
+  map.dragging.enable();map.scrollWheelZoom.enable();
+}
+
+async function assignTreeToTour(treeId,tourId,skipConflictCheck=false){
   const tree=trees.find(t=>t.id===treeId);
   const tour=tours.find(t=>t.id===tourId);
   if(!tree)return;
+
+  // Conflict check: already in a different tour?
+  if(!skipConflictCheck && tree.tourId && tree.tourId!==tourId){
+    const oldTour=tours.find(t=>t.id===tree.tourId);
+    const confirmed=await showConflictDialog(tree.name, oldTour?.name||'einer anderen Tour', tour?.name||'');
+    if(!confirmed)return;
+  }
+
   await updateDoc(doc(db,'projects',currentProjectId,'trees',treeId),{tourId});
   notify(`${tree.name} → ${tour?.name||'Tour'}`);
   routeCache={};
-  // rebuild assign pills
-  const pills=document.getElementById('assign-tour-pills');
-  pills.innerHTML=tours.map(t=>`<span class="assign-pill${t.id===assignTourId?' selected':''}" style="background:${t.color};" onclick="setAssignTour('${t.id}',this)">${t.name}</span>`).join('');
+  rebuildAssignPills();
 }
 
 // ─── TOUR CRUD ────────────────────────────────────────────────
@@ -1375,6 +1642,8 @@ function openSettings(){
   document.getElementById('s-depot-lng').value=depot?.lng||'';
   document.getElementById('s-depot-mode').value=getDepotMode();
   document.getElementById('s-project-name').value=currentProjectData?.name||'';
+  loadReasons();
+  renderDriverAssignment();
   const el=document.getElementById('depot-status');
   el.textContent=depot?.lat?`✓ ${depot.address||depot.lat.toFixed(5)+', '+depot.lng.toFixed(5)}`:'Noch kein Betriebshof gesetzt';
   el.style.color=depot?.lat?'var(--green)':'var(--text3)';
@@ -1420,59 +1689,166 @@ async function applySettings(){
 // ─── VIEWS ────────────────────────────────────────────────────
 function switchView(v){
   currentView=v;
-  document.querySelectorAll('.view').forEach(el=>el.classList.remove('active'));
-  document.getElementById('view-'+v).classList.add('active');
+  // Nav buttons
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
   document.querySelector(`.nav-btn[onclick="switchView('${v}')"]`).classList.add('active');
-  if(v==='karte')setTimeout(()=>map.invalidateSize(),10);
-  if(v==='baeume')renderBaeumeTable();
-  if(v==='touren')renderTourenGrid();
+  // Show/hide fullscreen overlays
+  const baeume=document.getElementById('view-baeume');
+  const touren=document.getElementById('view-touren');
+  if(baeume) baeume.style.display=v==='baeume'?'flex':'none';
+  if(touren) touren.style.display=v==='touren'?'block':'none';
+  // Karte: always visible underneath, just hidden by overlays
+  if(v==='karte') setTimeout(()=>map.invalidateSize(),10);
+  if(v==='baeume') renderBaeumeTable();
+  if(v==='touren') renderTourenGrid();
 }
 
 function renderBaeumeTable(){
   const wrap=document.getElementById('baeume-table-wrap');
-  if(trees.length===0){wrap.innerHTML=`<div class="empty-state" style="margin-top:60px;"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22V12"/><path d="M12 12C12 12 7 9 7 5a5 5 0 0 1 10 0c0 4-5 7-5 7z"/></svg><p>Noch keine Bäume</p></div>`;return;}
-  let html=`<table style="width:100%;border-collapse:collapse;background:var(--surface);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);font-size:13px;">
-    <thead style="background:var(--surface2);"><tr>${['#','Anlage/Straße','Stadtteil','Baumnr.','Baumart','Pflanzjahr','Zustand','Tour','Letzte Bew.',''].map(h=>`<th style="padding:10px 12px;text-align:left;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text2);">${h}</th>`).join('')}</tr></thead><tbody>`;
-  trees.forEach(tree=>{
+  if(trees.length===0){
+    wrap.innerHTML=`<div class="empty-state" style="margin-top:60px;">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22V12"/><path d="M12 12C12 12 7 9 7 5a5 5 0 0 1 10 0c0 4-5 7-5 7z"/></svg>
+      <p>Noch keine Bäume</p></div>`;
+    return;
+  }
+
+  // Sort: if a tour active, sort by route number; else alphabetical
+  let sorted=[...trees];
+  if(activeTourOnMap&&tourOrder[activeTourOnMap]){
+    const order=tourOrder[activeTourOnMap];
+    sorted.sort((a,b)=>{
+      const ia=order.indexOf(a.id),ib=order.indexOf(b.id);
+      if(ia===-1&&ib===-1)return 0;
+      if(ia===-1)return 1;if(ib===-1)return -1;
+      return ia-ib;
+    });
+  } else {
+    sorted.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  }
+
+  const cols=[
+    {label:'#',        w:'40px'},
+    {label:'Anlage / Straße', w:'200px'},
+    {label:'Stadtteil',w:'110px'},
+    {label:'Baumnr.',  w:'130px'},
+    {label:'Baumart',  w:'180px'},
+    {label:'Pflanzjahr',w:'100px'},
+    {label:'Pflanzzeitpunkt',w:'140px'},
+    {label:'Zustand',  w:'80px'},
+    {label:'Tour',     w:'110px'},
+    {label:'Wasserbedarf',w:'100px'},
+    {label:'Letzte Bew.',w:'110px'},
+    {label:'',         w:'100px'},
+  ];
+
+  const th=cols.map(col=>
+    `<th style="position:sticky;top:0;z-index:2;padding:9px 12px;text-align:left;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);background:var(--surface2);white-space:nowrap;min-width:${col.w};">${col.label}</th>`
+  ).join('');
+
+  let rows='';
+  sorted.forEach(tree=>{
     const tour=tours.find(t=>t.id===tree.tourId);
     const zCl={gut:'badge-ok',mittel:'badge-warn',schlecht:'badge-crit'}[tree.zustand]||'badge-gray';
+    const zLbl={gut:'Gut',mittel:'Mittel',schlecht:'Schlecht'}[tree.zustand]||tree.zustand||'–';
+    const wLbl={gering:'Gering',mittel:'Mittel',hoch:'Hoch'}[tree.wasser]||'–';
     const rNum=getRouteNum(tree.id);
-    html+=`<tr style="border-top:1px solid var(--border);">
-      <td style="padding:10px 12px;font-family:monospace;color:var(--text3);font-size:12px;">${rNum!=null?'#'+rNum:'–'}</td>
-      <td style="padding:10px 12px;font-weight:500;">${tree.name||'–'}</td>
-      <td style="padding:10px 12px;color:var(--text2);">${tree.stadtteil||'–'}</td>
-      <td style="padding:10px 12px;color:var(--text2);font-family:monospace;font-size:11px;">${tree.baumnr||'–'}</td>
-      <td style="padding:10px 12px;color:var(--text2);">${tree.art||'–'}</td>
-      <td style="padding:10px 12px;color:var(--text2);">${tree.pflanzjahr||'–'}</td>
-      <td style="padding:10px 12px;"><span class="badge ${zCl}">${tree.zustand||'–'}</span></td>
-      <td style="padding:10px 12px;">${tour?`<span style="font-weight:600;color:${tour.color};">${tour.name}</span>`:'<span style="color:var(--text3);">–</span>'}</td>
-      <td style="padding:10px 12px;color:var(--text2);font-family:monospace;font-size:11px;">${tree.datum||'–'}</td>
-      <td style="padding:10px 12px;"><button class="btn btn-secondary" style="padding:3px 10px;font-size:12px;" onclick="openEditTree('${tree.id}')">Bearbeiten</button></td>
+    // Format pflanzzeitpunkt nicely
+    const pzt=tree.pflanzzeitpunkt||'–';
+    rows+=`<tr style="border-top:1px solid var(--border);transition:background .1s;cursor:pointer;" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''" data-treeid="${tree.id}">
+      <td style="padding:8px 12px;font-family:'DM Mono',monospace;color:var(--text3);font-size:11px;white-space:nowrap;">${rNum!=null?'<b style=color:var(--green)>#'+rNum+'</b>':'–'}</td>
+      <td style="padding:8px 12px;font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${tree.name||''}">${tree.name||'–'}</td>
+      <td style="padding:8px 12px;color:var(--text2);white-space:nowrap;">${tree.stadtteil||'–'}</td>
+      <td style="padding:8px 12px;color:var(--text2);font-family:'DM Mono',monospace;font-size:11px;white-space:nowrap;">${tree.baumnr||'–'}</td>
+      <td style="padding:8px 12px;color:var(--text2);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${tree.art||''}">${tree.art||'–'}</td>
+      <td style="padding:8px 12px;color:var(--text2);white-space:nowrap;">${tree.pflanzjahr||'–'}</td>
+      <td style="padding:8px 12px;color:var(--text2);white-space:nowrap;font-size:12px;">${pzt}</td>
+      <td style="padding:8px 12px;"><span class="badge ${zCl}">${zLbl}</span></td>
+      <td style="padding:8px 12px;white-space:nowrap;">${tour?`<span style="font-size:12px;font-weight:600;color:${tour.color};">${tour.name}</span>`:'<span style="color:var(--text3);font-size:12px;">–</span>'}</td>
+      <td style="padding:8px 12px;color:var(--text2);white-space:nowrap;">${wLbl}</td>
+      <td style="padding:8px 12px;color:var(--text2);font-family:'DM Mono',monospace;font-size:11px;white-space:nowrap;">${tree.datum||'–'}</td>
+      <td style="padding:8px 12px;">
+        <button class="btn btn-secondary" style="padding:3px 10px;font-size:11px;white-space:nowrap;" data-editid="${tree.id}">Bearbeiten</button>
+      </td>
     </tr>`;
   });
-  html+='</tbody></table>';wrap.innerHTML=html;
+
+  wrap.innerHTML=`
+    <div style="padding:12px 20px 8px;display:flex;align-items:center;gap:16px;flex-shrink:0;border-bottom:1px solid var(--border);background:var(--surface);">
+      <span style="font-size:13px;font-weight:600;color:var(--text);">${sorted.length} Bäume${activeTourOnMap?' — <span style=color:'+tours.find(t=>t.id===activeTourOnMap)?.color+';font-weight:700>'+tours.find(t=>t.id===activeTourOnMap)?.name+'</span>':''}</span>
+      <span style="font-size:12px;color:var(--text3);">Klick auf Zeile → Karte</span>
+    </div>
+    <div style="overflow:auto;flex:1;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;background:var(--surface);">
+        <thead><tr>${th}</tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+
+  // Event delegation: edit button or row click → select tree on map
+  wrap.onclick=e=>{
+    const btn=e.target.closest('[data-editid]');
+    if(btn){ openEditTree(btn.dataset.editid); return; }
+    const row=e.target.closest('[data-treeid]');
+    if(row) selectTree(row.dataset.treeid);
+  };
 }
 
 function renderTourenGrid(){
   const grid=document.getElementById('touren-grid');
-  if(tours.length===0){grid.innerHTML=`<div class="empty-state" style="grid-column:1/-1;margin-top:40px;"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg><p>Noch keine Touren</p></div>`;return;}
+  const countEl=document.getElementById('touren-count');
+  if(!grid)return;
+
+  if(tours.length===0){
+    grid.innerHTML=`<tr><td colspan="8" style="padding:60px;text-align:center;color:var(--text3);">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="display:block;margin:0 auto 12px;opacity:.3"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+      Noch keine Touren angelegt</td></tr>`;
+    if(countEl)countEl.textContent='Touren';
+    return;
+  }
+  if(countEl)countEl.textContent=`${tours.length} Touren`;
+
   grid.innerHTML=tours.map(tour=>{
-    const cnt=trees.filter(t=>t.tourId===tour.id).length;
-    const gutCnt=trees.filter(t=>t.tourId===tour.id&&t.zustand==='gut').length;
-    const km=tourRoutes[tour.id]?tourRoutes[tour.id].km.toFixed(1):'–';
-    return `<div class="tour-card" style="border-top-color:${tour.color};" onclick="openTourModal('${tour.id}')">
-      <div class="tour-card-name">${tour.name}</div>
-      <div class="tour-card-meta">${tour.desc||''}</div>
-      <div class="tour-card-count">${cnt}</div>
-      <div style="font-size:12px;color:var(--text3);">${gutCnt} gut · <b style="color:var(--text2);">${km} km</b></div>
-      <div style="display:flex;gap:6px;margin-top:10px;">
-        <button class="btn btn-secondary" style="flex:1;padding:4px;font-size:12px;" onclick="event.stopPropagation();focusTourAndSwitch('${tour.id}')">Auf Karte</button>
-        <button class="btn btn-primary" style="flex:1;padding:4px;font-size:12px;" onclick="event.stopPropagation();calculateAndSaveRoute('${tour.id}')">Route berechnen</button>
-        <button class="btn btn-danger" style="padding:4px 10px;font-size:12px;" onclick="event.stopPropagation();deleteTour('${tour.id}')">Löschen</button>
-      </div>
-    </div>`;
+    const treesInTour=trees.filter(t=>t.tourId===tour.id);
+    const cnt=treesInTour.length;
+    const gut=treesInTour.filter(t=>t.zustand==='gut').length;
+    const mittel=treesInTour.filter(t=>t.zustand==='mittel').length;
+    const schlecht=treesInTour.filter(t=>t.zustand==='schlecht').length;
+    const rt=tourRoutes[tour.id];
+    const km=rt?rt.km.toFixed(1)+' km':'–';
+    const zeit=rt&&rt.durationSec?fmtDuration(rt.durationSec):'–';
+    const bar=cnt>0?`<div style="display:flex;height:6px;border-radius:3px;overflow:hidden;gap:1px;width:120px;">
+      ${gut>0?`<div style="flex:${gut};background:var(--green);" title="${gut} gut"></div>`:''}
+      ${mittel>0?`<div style="flex:${mittel};background:var(--amber);" title="${mittel} mittel"></div>`:''}
+      ${schlecht>0?`<div style="flex:${schlecht};background:var(--red);" title="${schlecht} schlecht"></div>`:''}
+      </div><div style="font-size:10px;color:var(--text3);margin-top:2px;">${gut}g · ${mittel}m · ${schlecht}s</div>`
+      :'<span style="color:var(--text3);font-size:12px;">–</span>';
+    return `<tr style="border-top:1px solid var(--border);" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''">
+      <td style="padding:10px 16px;"><div style="width:14px;height:14px;border-radius:3px;background:${tour.color};flex-shrink:0;"></div></td>
+      <td style="padding:10px 16px;font-weight:600;white-space:nowrap;">${tour.name}</td>
+      <td style="padding:10px 16px;color:var(--text2);font-size:12px;">${tour.desc||'–'}</td>
+      <td style="padding:10px 16px;text-align:right;font-weight:600;">${cnt}</td>
+      <td style="padding:10px 16px;text-align:right;color:var(--text2);font-size:12px;">${km}</td>
+      <td style="padding:10px 16px;text-align:right;color:var(--text2);font-size:12px;">${zeit}</td>
+      <td style="padding:10px 16px;">${bar}</td>
+      <td style="padding:10px 16px;">
+        <div style="display:flex;gap:5px;justify-content:flex-end;">
+          <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" data-action="karte" data-tid="${tour.id}">Karte</button>
+          <button class="btn btn-primary" style="padding:3px 9px;font-size:11px;" data-action="route" data-tid="${tour.id}">Route</button>
+          <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" data-action="edit" data-tid="${tour.id}">✎</button>
+          <button class="btn btn-danger" style="padding:3px 9px;font-size:11px;" data-action="delete" data-tid="${tour.id}">✕</button>
+        </div>
+      </td>
+    </tr>`;
   }).join('');
+
+  grid.onclick=e=>{
+    const btn=e.target.closest('[data-action]');if(!btn)return;
+    const tid=btn.dataset.tid,action=btn.dataset.action;
+    if(action==='karte')focusTourAndSwitch(tid);
+    else if(action==='route')calculateAndSaveRoute(tid);
+    else if(action==='edit')openTourModal(tid);
+    else if(action==='delete')deleteTour(tid);
+  };
 }
 
 async function focusTourAndSwitch(id){ switchView('karte');setTimeout(()=>focusTour(id),80); }
@@ -1482,6 +1858,65 @@ function notify(msg){
   const el=document.getElementById('notification');
   el.textContent=msg;el.classList.add('show');
   setTimeout(()=>el.classList.remove('show'),2400);
+}
+
+// ─── REASONS (Gründe Nicht-Bewässerung) ─────────────────────
+let reasons=[];
+
+async function loadReasons(){
+  if(!currentProjectId)return;
+  try{
+    const snap=await getDocs(collection(db,'projects',currentProjectId,'reasons'));
+    reasons=snap.docs.map(d=>({id:d.id,...d.data()}));
+  }catch(e){reasons=[];}
+  renderReasonsList();
+}
+
+function renderReasonsList(){
+  const el=document.getElementById('reasons-list');if(!el)return;
+  if(reasons.length===0){
+    el.innerHTML='<div style="font-size:12px;color:var(--text3);padding:4px 0;">Noch keine Gründe. Standard-Gründe werden in der App verwendet.</div>';
+    return;
+  }
+  el.innerHTML=reasons.map(r=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);">
+      <span style="flex:1;font-size:13px;">${r.text}</span>
+      <button class="btn btn-danger" style="padding:2px 8px;font-size:11px;" data-rid="${r.id}" onclick="deleteReason('${r.id}')">✕</button>
+    </div>`).join('');
+}
+
+async function addReason(){
+  const inp=document.getElementById('new-reason-input');
+  const text=inp?.value.trim();
+  if(!text||!currentProjectId)return;
+  await addDoc(collection(db,'projects',currentProjectId,'reasons'),{text,createdAt:serverTimestamp()});
+  inp.value='';
+  await loadReasons();
+  notify('Grund hinzugefügt');
+}
+
+async function deleteReason(id){
+  if(!currentProjectId)return;
+  await deleteDoc(doc(db,'projects',currentProjectId,'reasons',id));
+  await loadReasons();
+}
+
+// ─── DRIVER ASSIGNMENT ────────────────────────────────────────
+async function renderDriverAssignment(){
+  const el=document.getElementById('driver-assignment');if(!el)return;
+  if(tours.length===0){el.innerHTML='<div style="font-size:12px;color:var(--text3);">Noch keine Touren.</div>';return;}
+  el.innerHTML=tours.map(t=>`
+    <div style="display:flex;align-items:center;gap:8px;">
+      <div style="width:10px;height:10px;border-radius:50%;background:${t.color};flex-shrink:0;"></div>
+      <span style="font-size:12px;font-weight:600;min-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${t.name}</span>
+      <input class="form-control" style="flex:1;padding:5px 8px;font-size:12px;" placeholder="Fahrername…" value="${t.assignedDriver||''}" data-tourid="${t.id}" onchange="saveDriverAssignment('${t.id}',this.value)">
+    </div>`).join('');
+}
+
+async function saveDriverAssignment(tourId,driver){
+  if(!currentProjectId)return;
+  await updateDoc(doc(db,'projects',currentProjectId,'tours',tourId),{assignedDriver:driver.trim()});
+  notify('Fahrer zugewiesen');
 }
 
 // ─── EXCEL IMPORT ────────────────────────────────────────────
@@ -1528,6 +1963,195 @@ async function importExcel(input){
 
 // ─── INIT ─────────────────────────────────────────────────────
 // Make functions global for onclick handlers
+// ─── LASSO SELECTION ─────────────────────────────────────────
+let lassoMode=false;
+let lassoTourId=null;
+let lassoPoints=[];
+let lassoCtx=null;
+let lassoDrawing=false;
+
+function startLassoMode(){
+  if(!currentProjectId){notify('Bitte zuerst ein Projekt öffnen');return;}
+  if(tours.length===0){notify('Bitte zuerst eine Tour anlegen');return;}
+  lassoMode=true;
+  lassoTourId=tours[0].id;
+  lassoPoints=[];
+
+  // Setup canvas
+  const canvas=document.getElementById('lasso-canvas');
+  const mapEl=document.getElementById('map');
+  canvas.width=mapEl.offsetWidth;
+  canvas.height=mapEl.offsetHeight;
+  lassoCtx=canvas.getContext('2d');
+  canvas.classList.add('active');
+
+  // Build tour pills
+  const pills=document.getElementById('lasso-tour-pills');
+  pills.innerHTML=tours.map(t=>
+    `<span class="lasso-tour-pill${t.id===lassoTourId?' selected':''}" style="background:${t.color};" onclick="setLassoTour('${t.id}',this)">${t.name}</span>`
+  ).join('');
+  document.getElementById('lasso-banner').classList.add('visible');
+  map.dragging.disable();map.scrollWheelZoom.disable();
+
+  // Canvas mouse events
+  canvas.onmousedown=e=>{
+    lassoDrawing=true;lassoPoints=[];
+    const r=canvas.getBoundingClientRect();
+    lassoPoints.push({x:e.clientX-r.left,y:e.clientY-r.top});
+  };
+  canvas.onmousemove=e=>{
+    if(!lassoDrawing)return;
+    const r=canvas.getBoundingClientRect();
+    lassoPoints.push({x:e.clientX-r.left,y:e.clientY-r.top});
+    drawLasso();
+  };
+  canvas.onmouseup=e=>{
+    if(!lassoDrawing)return;
+    lassoDrawing=false;
+    applyLasso();
+  };
+  // Touch support
+  canvas.ontouchstart=e=>{
+    e.preventDefault();lassoDrawing=true;lassoPoints=[];
+    const r=canvas.getBoundingClientRect(),t=e.touches[0];
+    lassoPoints.push({x:t.clientX-r.left,y:t.clientY-r.top});
+  };
+  canvas.ontouchmove=e=>{
+    e.preventDefault();if(!lassoDrawing)return;
+    const r=canvas.getBoundingClientRect(),t=e.touches[0];
+    lassoPoints.push({x:t.clientX-r.left,y:t.clientY-r.top});
+    drawLasso();
+  };
+  canvas.ontouchend=e=>{e.preventDefault();if(!lassoDrawing)return;lassoDrawing=false;applyLasso();};
+}
+
+function setLassoTour(id,el){
+  lassoTourId=id;
+  document.querySelectorAll('.lasso-tour-pill').forEach(p=>p.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+function drawLasso(){
+  if(!lassoCtx||lassoPoints.length<2)return;
+  const canvas=document.getElementById('lasso-canvas');
+  lassoCtx.clearRect(0,0,canvas.width,canvas.height);
+  lassoCtx.beginPath();
+  lassoCtx.moveTo(lassoPoints[0].x,lassoPoints[0].y);
+  lassoPoints.forEach(p=>lassoCtx.lineTo(p.x,p.y));
+  lassoCtx.closePath();
+  lassoCtx.fillStyle='rgba(124,58,237,0.15)';
+  lassoCtx.fill();
+  lassoCtx.strokeStyle='rgba(124,58,237,0.8)';
+  lassoCtx.lineWidth=2;
+  lassoCtx.setLineDash([5,4]);
+  lassoCtx.stroke();
+}
+
+function pointInPolygon(px,py,poly){
+  let inside=false;
+  for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+    const xi=poly[i].x,yi=poly[i].y,xj=poly[j].x,yj=poly[j].y;
+    if(((yi>py)!==(yj>py))&&(px<(xj-xi)*(py-yi)/(yj-yi)+xi))inside=!inside;
+  }
+  return inside;
+}
+
+async function applyLasso(){
+  const canvas=document.getElementById('lasso-canvas');
+  lassoCtx.clearRect(0,0,canvas.width,canvas.height);
+  if(lassoPoints.length<3){lassoPoints=[];return;}
+
+  const tourId=assignTourId||lassoTourId;
+  const tour=tours.find(t=>t.id===tourId);
+
+  // Find trees inside lasso polygon
+  const selected=[];
+  trees.forEach(tree=>{
+    if(!tree.lat||!tree.lng)return;
+    const pt=map.latLngToContainerPoint(L.latLng(tree.lat,tree.lng));
+    if(pointInPolygon(pt.x,pt.y,lassoPoints)) selected.push(tree);
+  });
+
+  lassoPoints=[];
+  if(selected.length===0){notify('Keine Bäume im Lasso-Bereich');return;}
+
+  // Split into conflict (already in another tour) vs clean
+  const conflicts=selected.filter(t=>t.tourId&&t.tourId!==tourId);
+  const clean=selected.filter(t=>!t.tourId||t.tourId===tourId);
+
+  let toAssign=[...clean];
+
+  if(conflicts.length>0){
+    const confirmed=await showLassoConflictDialog(conflicts,tour?.name||'');
+    if(confirmed) toAssign=[...toAssign,...conflicts];
+  }
+
+  if(toAssign.length===0){notify('Keine Bäume zugewiesen');return;}
+
+  setSyncState('syncing',`${toAssign.length} Bäume werden zugewiesen…`);
+  for(const tree of toAssign){
+    await updateDoc(doc(db,'projects',currentProjectId,'trees',tree.id),{tourId});
+  }
+  setSyncState('ok','Synchronisiert');
+  notify(`✓ ${toAssign.length} Bäume → ${tour?.name||'Tour'}`);
+}
+
+// cancelLasso merged into cancelAssign
+
+// ─── CONFLICT DIALOGS ────────────────────────────────────────
+function showConflictDialog(treeName, fromTour, toTour){
+  return new Promise(resolve=>{
+    // Use custom modal instead of browser confirm for better UX
+    const existing=document.getElementById('conflict-modal');
+    if(existing)existing.remove();
+    const modal=document.createElement('div');
+    modal.id='conflict-modal';
+    modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML=`<div style="background:#fff;border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);width:380px;max-width:90vw;overflow:hidden;">
+      <div style="padding:18px 20px 10px;border-bottom:1px solid #ddd9d0;">
+        <div style="font-size:15px;font-weight:600;color:#1a1917;">Baum bereits verplant</div>
+      </div>
+      <div style="padding:16px 20px;font-size:13px;color:#6b6760;line-height:1.6;">
+        <b style="color:#1a1917;">${treeName}</b> ist bereits der Tour <b style="color:#1a1917;">${fromTour}</b> zugewiesen.<br>
+        Trotzdem zu <b style="color:#1a1917;">${toTour}</b> verschieben?
+      </div>
+      <div style="padding:12px 20px;border-top:1px solid #ddd9d0;display:flex;gap:8px;justify-content:flex-end;">
+        <button onclick="document.getElementById('conflict-modal').remove();window._conflictResolve(false);" style="padding:7px 14px;border:1px solid #c8c3b8;border-radius:6px;background:#fff;cursor:pointer;font-size:13px;">Überspringen</button>
+        <button onclick="document.getElementById('conflict-modal').remove();window._conflictResolve(true);" style="padding:7px 14px;border:none;border-radius:6px;background:#2d6a4f;color:#fff;cursor:pointer;font-size:13px;font-weight:500;">Trotzdem zuweisen</button>
+      </div>
+    </div>`;
+    window._conflictResolve=resolve;
+    document.body.appendChild(modal);
+  });
+}
+
+function showLassoConflictDialog(conflicts, toTour){
+  return new Promise(resolve=>{
+    const existing=document.getElementById('conflict-modal');
+    if(existing)existing.remove();
+    const modal=document.createElement('div');
+    modal.id='conflict-modal';
+    modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;';
+    const names=conflicts.slice(0,3).map(t=>t.name).join(', ')+(conflicts.length>3?` +${conflicts.length-3} weitere`:'');
+    modal.innerHTML=`<div style="background:#fff;border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);width:400px;max-width:90vw;overflow:hidden;">
+      <div style="padding:18px 20px 10px;border-bottom:1px solid #ddd9d0;">
+        <div style="font-size:15px;font-weight:600;color:#1a1917;">${conflicts.length} Bäume bereits verplant</div>
+      </div>
+      <div style="padding:16px 20px;font-size:13px;color:#6b6760;line-height:1.6;">
+        Folgende Bäume sind bereits anderen Touren zugewiesen:<br>
+        <b style="color:#1a1917;">${names}</b><br><br>
+        Sollen diese trotzdem zu <b style="color:#1a1917;">${toTour}</b> verschoben werden?
+      </div>
+      <div style="padding:12px 20px;border-top:1px solid #ddd9d0;display:flex;gap:8px;justify-content:flex-end;">
+        <button onclick="document.getElementById('conflict-modal').remove();window._conflictResolve(false);" style="padding:7px 14px;border:1px solid #c8c3b8;border-radius:6px;background:#fff;cursor:pointer;font-size:13px;">Nur freie zuweisen</button>
+        <button onclick="document.getElementById('conflict-modal').remove();window._conflictResolve(true);" style="padding:7px 14px;border:none;border-radius:6px;background:#2d6a4f;color:#fff;cursor:pointer;font-size:13px;font-weight:500;">Alle zuweisen</button>
+      </div>
+    </div>`;
+    window._conflictResolve=resolve;
+    document.body.appendChild(modal);
+  });
+}
+
 // ─── CONTEXT MENU ────────────────────────────────────────────
 let ctxPendingLat=null,ctxPendingLng=null;
 
@@ -1563,7 +2187,8 @@ map.on('contextmenu',e=>{
 });
 
 Object.assign(window,{
-  importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,
+  saveInlineFields,addReason,deleteReason,saveDriverAssignment,
+  importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,
   createProject,openProject,showProjectScreen,
   switchView,openDetail,closePanel,logWatering,
   openAddTree,openEditTree,closeTreeModal,saveTree,deleteTree,
