@@ -2381,12 +2381,7 @@ function renderControlling(){
     }
   }
 
-  // Step 1: Current status — trees with lastStatus set (regardless of date)
-  // If date filter active: also check lastReportAt in range
-  // If no date filter active: show all with any status
-  const {from,to}=getCtrlDateRange();
-  const isDefaultPeriod = ctrlPeriod==='today'; // be inclusive
-  
+  // All trees with a status set, filtered by date range if lastReportAt present
   const reported=filtered.filter(t=>{
     if(!t.lastStatus) return false; // no status = not reported
     if(!t.lastReportAt) return true; // has status but no date = always show
