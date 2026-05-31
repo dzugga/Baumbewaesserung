@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v4.6 -->
+<!-- v4.7 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -2533,11 +2533,15 @@ function renderControlling(){
   </div>`).join('');
 
   // ── Charts ─────────────────────────────────────────────────────
-  renderPieChart(bewaessert.length,nicht.length,offen.length);
-  renderBarChart(filtered,allReported);
+  // Charts use finalReported so status filter applies everywhere
+  const finalBew=finalReported.filter(r=>r.lastStatus==='bewaessert').length;
+  const finalNicht=finalReported.filter(r=>r.lastStatus==='nicht').length;
+  const finalOffen=statusFilter?0:offen.length; // hide offen when status filter active
+  renderPieChart(finalBew,finalNicht,finalOffen);
+  renderBarChart(filtered,finalReported);
   renderTimelineChart(filtered,from,to);
-  renderStadtteilChart(filtered,allReported);
-  renderReasonsBar(nicht);
+  renderStadtteilChart(filtered,finalReported);
+  renderReasonsBar(finalReported.filter(r=>r.lastStatus==='nicht'));
   renderDetailTable(finalReported);
 }
 
