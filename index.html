@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v4.2 -->
+<!-- v4.3 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -616,13 +616,18 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 
     <!-- Detail table -->
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:20px;">
-      <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
-        <span style="font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;">Einzelmeldungen</span>
-        <span id="ctrl-table-count" style="font-size:12px;color:var(--text3);"></span>
+      <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span style="font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;">Einzelmeldungen</span>
+        <span id="ctrl-table-count" style="font-size:12px;color:var(--text3);white-space:nowrap;"></span>
+        <div style="flex:1;min-width:180px;position:relative;">
+          <svg style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:var(--text3);" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input id="ctrl-table-search" type="text" placeholder="Baum suchen…" oninput="filterDetailTable(this.value)"
+            style="width:100%;padding:5px 8px 5px 28px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;font-family:'DM Sans',sans-serif;background:var(--bg);outline:none;">
+        </div>
       </div>
-      <div style="overflow-x:auto;">
+      <div style="overflow-x:auto;max-height:480px;overflow-y:auto;">
         <table style="width:100%;border-collapse:collapse;font-size:13px;">
-          <thead><tr id="ctrl-table-head" style="background:var(--surface2);"></tr></thead>
+          <thead><tr id="ctrl-table-head" style="background:var(--surface2);position:sticky;top:0;z-index:1;"></tr></thead>
           <tbody id="ctrl-table-body"></tbody>
         </table>
       </div>
@@ -1244,7 +1249,13 @@ async function focusTour(tourId){
     }catch(e){ console.warn('focusTour load error:',e); }
     // Fit map to tour trees
     const trs=trees.filter(t=>t.tourId===activeTourOnMap&&t.lat&&t.lng);
-    if(trs.length>0) map.fitBounds(L.latLngBounds(trs.map(t=>[t.lat,t.lng])),{padding:[60,60]});
+    if(trs.length>0){
+      const pts=trs.map(t=>[t.lat,t.lng]);
+      // Include depot in bounds if set
+      const depot=getDepot();
+      if(depot?.lat&&depot?.lng) pts.push([depot.lat,depot.lng]);
+      map.fitBounds(L.latLngBounds(pts),{padding:[60,60],maxZoom:16});
+    }
   } else {
     await loadSavedRoutes();
   }
@@ -2681,7 +2692,8 @@ function renderReasonsBar(nichtTrees){
     </div>`).join('');
 }
 
-function renderDetailTable(reported){
+function renderDetailTable(reported,skipCache){
+  if(!skipCache) _allReportedCache=[...reported];
   const head=document.getElementById('ctrl-table-head');
   const body=document.getElementById('ctrl-table-body');
   const count=document.getElementById('ctrl-table-count');
@@ -2851,6 +2863,20 @@ async function exportHistoryCSV(histId){
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
   a.download=`tour_${h.tourName}_${h.date}.csv`;a.click();
+}
+
+// Store full reported list for client-side filtering
+let _allReportedCache=[];
+
+function filterDetailTable(q){
+  const filtered=q
+    ?_allReportedCache.filter(t=>
+        (t.name||'').toLowerCase().includes(q.toLowerCase())||
+        (t.baumnr||'').toLowerCase().includes(q.toLowerCase())||
+        (t.stadtteil||'').toLowerCase().includes(q.toLowerCase())
+      )
+    :_allReportedCache;
+  renderDetailTable(filtered,true); // skipCache=true
 }
 
 function ctrlShowOnMap(treeId){
@@ -3105,7 +3131,7 @@ map.on('contextmenu',e=>{
 });
 
 Object.assign(window,{
-  saveInlineFields,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
+  saveInlineFields,filterDetailTable,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,
   createProject,openProject,showProjectScreen,
   switchView,openDetail,closePanel,logWatering,
