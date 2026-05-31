@@ -248,15 +248,25 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
         </div>
       </div>
+      <!-- Tour abschließen button -->
+      <div onclick="showFinishConfirm()" style="background:#991b1b;border-radius:20px;padding:8px 14px;box-shadow:var(--shadow-md);display:flex;align-items:center;gap:6px;cursor:pointer;flex-shrink:0;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        <span style="font-size:12px;font-weight:600;color:#fff;white-space:nowrap;">Abschließen</span>
+      </div>
     </div>
   </div>
 
   <!-- List tab -->
   <div class="tab-content" id="tab-list">
     <div class="list-header">
-      <div class="list-search">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-        <input type="text" placeholder="Baum suchen…" oninput="renderList(this.value)" id="list-search-input">
+      <div style="display:flex;gap:8px;align-items:center;">
+        <div class="list-search" style="flex:1;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input type="text" placeholder="Baum suchen…" oninput="renderList(this.value)" id="list-search-input">
+        </div>
+        <button onclick="showFinishConfirm()" style="background:#991b1b;color:#fff;border:none;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">
+          ✓ Abschließen
+        </button>
       </div>
     </div>
     <div class="tree-list" id="tree-list-mobile"></div>
@@ -272,10 +282,7 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
       Liste
     </button>
-    <button class="tab-btn" id="tab-btn-finish" onclick="showFinishConfirm()" style="color:var(--red-text,#991b1b);">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-      Abschließen
-    </button>
+
   </div>
 </div>
 
@@ -613,7 +620,6 @@ function showResumeOrRestartDialog(){
   const bew = trees.filter(t=>t.lastStatus==='bewaessert').length;
   const nicht = trees.filter(t=>t.lastStatus==='nicht').length;
   const offen = trees.filter(t=>!t.lastStatus).length;
-  const total = trees.length;
   const isClosed = currentTour?.status === 'abgeschlossen';
 
   document.getElementById('rd-bew').textContent = bew;
@@ -621,21 +627,24 @@ function showResumeOrRestartDialog(){
   document.getElementById('rd-offen').textContent = offen;
 
   if(isClosed){
-    document.getElementById('resume-icon').textContent = '✅';
-    document.getElementById('resume-title').textContent = 'Tour war abgeschlossen';
+    // Tour was closed → auto-start fresh, no choice needed
+    document.getElementById('resume-icon').textContent = '🔄';
+    document.getElementById('resume-title').textContent = 'Neue Runde starten';
     document.getElementById('resume-desc').textContent =
-      `Die letzte Tour wurde bereits abgeschlossen. Möchtest du eine neue Runde starten oder die Tour fortsetzen?`;
-    document.getElementById('btn-fortsetzen').style.display = 'block';
+      'Die letzte Tour wurde abgeschlossen und gespeichert. Eine neue Erfassung wird gestartet — alle Status werden zurückgesetzt.';
+    document.getElementById('btn-fortsetzen').style.display = 'none';
+    document.getElementById('btn-neu-starten').textContent = '✓ Neue Runde starten';
   } else {
+    // Tour in progress → offer choice
     document.getElementById('resume-icon').textContent = '📋';
     document.getElementById('resume-title').textContent = 'Tour fortsetzen?';
     document.getElementById('resume-desc').textContent =
-      `Du hast diese Tour bereits begonnen. Weiter machen oder neu starten?`;
+      'Du hast diese Tour bereits begonnen. Weiter machen oder neu starten?';
     document.getElementById('btn-fortsetzen').style.display = 'block';
+    document.getElementById('btn-neu-starten').textContent = '🔄 Neu starten';
   }
 
-  const bd = document.getElementById('resume-backdrop');
-  bd.style.display = 'flex';
+  document.getElementById('resume-backdrop').style.display = 'flex';
 }
 
 function closeResumeDialog(){
