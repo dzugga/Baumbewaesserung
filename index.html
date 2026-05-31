@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v3.2 -->
+<!-- v3.4 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -2390,18 +2390,17 @@ function renderControlling(){
   const seen=new Set(); // prevent exact duplicates
 
   filtered.forEach(tree=>{
-    // Current status (if set and in range)
-    if(tree.lastStatus&&tree.lastReportAt){
+    // Current status (if set, not 'offen', and in range)
+    if(tree.lastStatus&&tree.lastStatus!=='offen'&&tree.lastReportAt){
       const d=tree.lastReportAt.slice?tree.lastReportAt.slice(0,10):tree.lastReportAt;
       if(inCtrlRange(d)){
-        const key=`${tree.id}_${d}_${tree.lastStatus}`;
+        const key=`${tree.id}_${d}_${tree.lastStatus}_${tree.lastDriver||''}`;
         if(!seen.has(key)){
           seen.add(key);
           allReported.push({...tree,_fromHistory:false});
         }
       }
-    } else if(tree.lastStatus&&!tree.lastReportAt){
-      // Has status but no date — include anyway
+    } else if(tree.lastStatus&&tree.lastStatus!=='offen'&&!tree.lastReportAt){
       const key=`${tree.id}_nodate_${tree.lastStatus}`;
       if(!seen.has(key)){
         seen.add(key);
@@ -2412,7 +2411,9 @@ function renderControlling(){
     // History entries (previous tour runs) — most important source
     (tree.history||[]).forEach(h=>{
       if(!h.date||!inCtrlRange(h.date))return;
-      const key=`${tree.id}_${h.date}_${h.status}`;
+      if(!h.status||h.status==='offen')return; // skip open entries
+      // Use date+status+driver as key to allow same tree same day different drivers
+      const key=`${tree.id}_${h.date}_${h.status}_${h.driver||''}`;
       if(seen.has(key))return;
       seen.add(key);
       allReported.push({
@@ -2624,7 +2625,17 @@ function renderDetailTable(reported){
       :st==='nicht'
       ?'<span style="color:var(--red);font-weight:600;">✕ Nicht bewässert</span>'
       :'<span style="color:var(--text3);">○ Offen</span>';
-    const date=tree.lastReportAt?tree.lastReportAt.slice(0,10):'–';
+    // Format date + time
+    let dateDisplay='–';
+    if(tree.lastReportAt){
+      const dt=new Date(tree.lastReportAt);
+      if(!isNaN(dt)){
+        dateDisplay=dt.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'})+
+          ' '+dt.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
+      } else {
+        dateDisplay=tree.lastReportAt.slice(0,16).replace('T',' ');
+      }
+    }
     const rowBg=tree._fromHistory?'background:var(--surface2);':'';
     return `<tr style="border-top:1px solid var(--border);${rowBg}" onmouseenter="this.style.background='#f0ede6'" onmouseleave="this.style.background='${tree._fromHistory?'var(--surface2)':''}'"  >
       <td style="padding:8px 12px;font-size:11px;color:var(--text3);font-family:monospace;">${idx+1}</td>
@@ -2635,7 +2646,7 @@ function renderDetailTable(reported){
       <td style="padding:8px 12px;font-size:12px;white-space:nowrap;">${stHtml}</td>
       <td style="padding:8px 12px;font-size:12px;color:var(--text2);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${tree.lastReason||''}">${tree.lastReason||'–'}</td>
       <td style="padding:8px 12px;font-size:12px;color:var(--text2);white-space:nowrap;">${tree.lastDriver||'–'}</td>
-      <td style="padding:8px 12px;font-size:11px;font-family:monospace;color:var(--text2);white-space:nowrap;">${date}</td>
+      <td style="padding:8px 12px;font-size:11px;color:var(--text2);white-space:nowrap;">${dateDisplay}</td>
       <td style="padding:6px 10px;">
         <button onclick="ctrlShowOnMap('${tree.id}')" style="padding:3px 9px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;display:flex;align-items:center;gap:4px;white-space:nowrap;">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>Karte
