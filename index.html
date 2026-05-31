@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v5.0 -->
+<!-- v5.1 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -2797,38 +2797,47 @@ async function showHistoryDetail(histId){
     historyCache[histId]={id:snap.id,...snap.data()};
   }
   const h=historyCache[histId];
-  // Open as modal
   const existing=document.getElementById('history-modal');
   if(existing)existing.remove();
   const modal=document.createElement('div');
   modal.id='history-modal';
-  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;';
-  const rows=h.trees.map(t=>{
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;';
+
+  const statusOpts=['bewaessert','nicht'].map(s=>
+    `<option value="${s}">${s==='bewaessert'?'✓ Bewässert':'✕ Nicht bewässert'}</option>`
+  ).join('');
+
+  const rows=h.trees.map((t,ti)=>{
     const st=t.lastStatus;
-    const stHtml=st==='bewaessert'?'<span style="color:#16a34a;font-weight:600;">✓ Bewässert</span>':
-      st==='nicht'?'<span style="color:var(--red);font-weight:600;">✕ Nicht bewässert</span>':
-      '<span style="color:var(--text3);">○ Offen</span>';
+    const stSel=`<select data-ti="${ti}" class="hist-status-sel" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);">
+      <option value="">○ Offen</option>
+      <option value="bewaessert"${st==='bewaessert'?' selected':''}>✓ Bewässert</option>
+      <option value="nicht"${st==='nicht'?' selected':''}>✕ Nicht bewässert</option>
+    </select>`;
+    const reasonInp=`<input data-ri="${ti}" class="hist-reason-inp" value="${t.lastReason||''}" placeholder="Grund…" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;width:100%;background:var(--bg);">`;
     return `<tr style="border-top:1px solid var(--border);">
-      <td style="padding:6px 12px;font-size:12px;">${t.name||'–'}</td>
-      <td style="padding:6px 12px;font-size:12px;color:var(--text2);">${t.stadtteil||'–'}</td>
-      <td style="padding:6px 12px;font-size:12px;">${stHtml}</td>
-      <td style="padding:6px 12px;font-size:12px;color:var(--text2);">${t.lastReason||'–'}</td>
-      <td style="padding:6px 12px;font-size:12px;color:var(--text2);">${t.lastDriver||'–'}</td>
-      <td style="padding:6px 12px;font-size:12px;color:var(--text2);">${t.zustand||'–'}</td>
+      <td style="padding:6px 10px;font-size:12px;font-weight:500;">${t.name||'–'}</td>
+      <td style="padding:6px 10px;font-size:11px;color:var(--text2);">${t.baumnr||'–'}</td>
+      <td style="padding:6px 10px;">${stSel}</td>
+      <td style="padding:6px 10px;min-width:120px;">${reasonInp}</td>
+      <td style="padding:6px 10px;font-size:11px;color:var(--text2);">${t.lastDriver||'–'}</td>
     </tr>`;
   }).join('');
-  modal.innerHTML=`<div style="background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow-md);width:800px;max-width:95vw;max-height:85vh;display:flex;flex-direction:column;overflow:hidden;">
-    <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;">
+
+  modal.innerHTML=`<div style="background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow-md);width:860px;max-width:95vw;max-height:88vh;display:flex;flex-direction:column;overflow:hidden;">
+    <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;">
       <div style="flex:1;">
         <div style="font-size:15px;font-weight:600;">${h.tourName} — ${h.date}</div>
-        <div style="font-size:12px;color:var(--text3);">Fahrer: ${h.closedBy||'–'} · ${h.stats?.bewaessert||0} bewässert · ${h.stats?.nicht||0} nicht · ${h.stats?.offen||0} offen</div>
+        <div style="font-size:12px;color:var(--text3);">Fahrer: ${h.closedBy||'–'} · ${h.stats?.bewaessert||0} bewässert · ${h.stats?.nicht||0} nicht</div>
       </div>
-      <button onclick="document.getElementById('history-modal').remove()" style="border:none;background:none;cursor:pointer;font-size:20px;color:var(--text2);">×</button>
+      <button id="hist-save-btn" onclick="saveHistoryEdits('${histId}')" style="padding:6px 14px;background:var(--green);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Speichern</button>
+      <button id="hist-delete-btn" onclick="deleteHistoryEntry('${histId}')" style="padding:6px 14px;background:var(--red-light);color:var(--red);border:1px solid #fca5a5;border-radius:6px;font-size:13px;cursor:pointer;">Löschen</button>
+      <button onclick="document.getElementById('history-modal').remove()" style="border:none;background:none;cursor:pointer;font-size:20px;color:var(--text2);line-height:1;">×</button>
     </div>
     <div style="overflow:auto;flex:1;">
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead style="background:var(--surface2);position:sticky;top:0;">
-          <tr>${['Anlage/Straße','Stadtteil','Status','Grund','Fahrer','Zustand'].map(h=>`<th style="padding:8px 12px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text2);">${h}</th>`).join('')}</tr>
+          <tr>${['Anlage/Straße','Baumnr.','Status','Grund','Fahrer'].map(h=>`<th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text2);">${h}</th>`).join('')}</tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>
@@ -2836,6 +2845,59 @@ async function showHistoryDetail(histId){
   </div>`;
   document.body.appendChild(modal);
   modal.onclick=e=>{if(e.target===modal)modal.remove();};
+}
+
+async function saveHistoryEdits(histId){
+  const btn=document.getElementById('hist-save-btn');
+  if(btn){btn.textContent='Speichert…';btn.disabled=true;}
+  const h=historyCache[histId];
+  // Read edited values from modal
+  document.querySelectorAll('.hist-status-sel').forEach(sel=>{
+    const ti=parseInt(sel.dataset.ti);
+    h.trees[ti].lastStatus=sel.value||null;
+  });
+  document.querySelectorAll('.hist-reason-inp').forEach(inp=>{
+    const ti=parseInt(inp.dataset.ri);
+    h.trees[ti].lastReason=inp.value||null;
+  });
+  // Recalculate stats
+  h.stats={
+    total:h.trees.length,
+    bewaessert:h.trees.filter(t=>t.lastStatus==='bewaessert').length,
+    nicht:h.trees.filter(t=>t.lastStatus==='nicht').length,
+    offen:h.trees.filter(t=>!t.lastStatus).length,
+  };
+  // Save to Firestore
+  await setDoc(doc(db,'projects',currentProjectId,'tourHistory',histId),h);
+  historyCache[histId]=h;
+  notify('✓ Historie gespeichert');
+  document.getElementById('history-modal')?.remove();
+  loadTourHistory(); // refresh list
+}
+
+async function deleteHistoryEntry(histId){
+  const modal=document.createElement('div');
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;';
+  modal.innerHTML=`<div style="background:var(--surface);border-radius:var(--radius);padding:24px;width:340px;box-shadow:var(--shadow-md);">
+    <div style="font-size:15px;font-weight:600;margin-bottom:8px;">Eintrag löschen?</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:20px;">Dieser historische Tour-Eintrag wird dauerhaft gelöscht.</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button id="dc" style="padding:7px 16px;border:1.5px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;font-weight:600;">Abbrechen</button>
+      <button id="dok" style="padding:7px 16px;border:none;border-radius:6px;background:var(--red);color:#fff;cursor:pointer;">Löschen</button>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+  setTimeout(()=>modal.querySelector('#dc').focus(),50);
+  const ok=await new Promise(r=>{
+    modal.querySelector('#dc').onclick=()=>{modal.remove();r(false);};
+    modal.querySelector('#dok').onclick=()=>{modal.remove();r(true);};
+  });
+  if(!ok)return;
+  await deleteDoc(doc(db,'projects',currentProjectId,'tourHistory',histId));
+  delete historyCache[histId];
+  document.getElementById('history-modal')?.remove();
+  notify('Eintrag gelöscht');
+  loadTourHistory();
 }
 
 async function exportHistoryCSV(histId){
@@ -3121,7 +3183,7 @@ map.on('contextmenu',e=>{
 });
 
 Object.assign(window,{
-  saveInlineFields,filterDetailTable,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
+  saveInlineFields,filterDetailTable,saveHistoryEdits,deleteHistoryEntry,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,
   createProject,openProject,showProjectScreen,
   switchView,openDetail,closePanel,logWatering,
