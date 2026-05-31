@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v4.4 -->
+<!-- v4.5 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -2469,12 +2469,7 @@ function renderControlling(){
           allReported.push({...tree,_fromHistory:false});
         }
       }
-    } else if(tree.lastStatus&&tree.lastStatus!=='offen'&&!tree.lastReportAt){
-      const key=`${tree.id}_nodate_${tree.lastStatus}`;
-      if(!seen.has(key)){
-        seen.add(key);
-        allReported.push({...tree,_fromHistory:false});
-      }
+    // Trees with status but no date: skip from Einzelmeldungen (no date = no proof)
     }
 
     // History entries (previous tour runs) — most important source
@@ -2509,7 +2504,7 @@ function renderControlling(){
     ? allReported.filter(r=>{
         if(statusFilter==='bewaessert') return r.lastStatus==='bewaessert';
         if(statusFilter==='nicht') return r.lastStatus==='nicht';
-        if(statusFilter==='offen') return !r.lastStatus;
+        if(statusFilter==='offen') return false; // offen = no report = not in table
         return true;
       })
     : allReported;
