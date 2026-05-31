@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v4.3 -->
+<!-- v4.4 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -2418,15 +2418,8 @@ function getCtrlFilteredTrees(){
     if(pflanzjahr&&t.pflanzjahr!==pflanzjahr)return false;
     if(baumart&&t.art!==baumart)return false;
     if(fahrer&&t.lastDriver!==fahrer)return false;
-    // Status filter considers time range
-    if(status){
-      const inRange=t.lastReportAt&&inCtrlRange(
-        t.lastReportAt.slice?t.lastReportAt.slice(0,10):t.lastReportAt
-      );
-      if(status==='bewaessert'&&!(inRange&&t.lastStatus==='bewaessert'))return false;
-      if(status==='nicht'&&!(inRange&&t.lastStatus==='nicht'))return false;
-      if(status==='offen'&&inRange&&t.lastStatus)return false;
-    }
+    // Status filter: only filter trees, actual report filtering happens on allReported
+    // (status filter applied post-build in renderControlling)
     return true;
   });
 }
@@ -2510,6 +2503,17 @@ function renderControlling(){
 
   allReported.sort((a,b)=>(b.lastReportAt||'').localeCompare(a.lastReportAt||''));
 
+  // Apply status filter to allReported AFTER building (handles history entries too)
+  const statusFilter=document.getElementById('ctrl-filter-status')?.value||'';
+  const finalReported = statusFilter
+    ? allReported.filter(r=>{
+        if(statusFilter==='bewaessert') return r.lastStatus==='bewaessert';
+        if(statusFilter==='nicht') return r.lastStatus==='nicht';
+        if(statusFilter==='offen') return !r.lastStatus;
+        return true;
+      })
+    : allReported;
+
   // For KPI counters: use current status if set, else look at today's history
   const today=new Date().toISOString().slice(0,10);
   // KPIs: count unique trees reported in range (from current status + history)
@@ -2541,7 +2545,7 @@ function renderControlling(){
   renderTimelineChart(filtered,from,to);
   renderStadtteilChart(filtered,allReported);
   renderReasonsBar(nicht);
-  renderDetailTable(allReported);
+  renderDetailTable(finalReported);
 }
 
 function destroyChart(id){
