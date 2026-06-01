@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v5.5 -->
+<!-- v5.7 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -2645,32 +2645,22 @@ function renderControlling(){
   // For KPI counters: use current status if set, else look at today's history
   const today=new Date().toISOString().slice(0,10);
   // KPIs: count unique trees reported in range (from current status + history)
-  // ── Unique tree counts (a tree reported multiple times counts once) ──
-  // For KPIs: count unique trees by their LATEST status in period
-  const treeStatusMap=new Map(); // treeId → latest status
-  // Process allReported sorted oldest→newest so latest wins
-  const sortedForKpi=[...allReported].sort((a,b)=>(a.lastReportAt||'').localeCompare(b.lastReportAt||''));
-  sortedForKpi.forEach(r=>{ if(r.id) treeStatusMap.set(r.id, r.lastStatus); });
-
-  const uniqueBewaessert=[...treeStatusMap.entries()].filter(([,s])=>s==='bewaessert').length;
-  const uniqueNicht=[...treeStatusMap.entries()].filter(([,s])=>s==='nicht').length;
-  const reportedTreeIds=new Set(treeStatusMap.keys());
-  const offen=filtered.filter(t=>!reportedTreeIds.has(t.id));
-
-  // For charts: use allReported (all history entries) for accurate totals
+  // ── Jede Meldung zählt einzeln — keine Gruppierung ──────────────
   const bewaessert=allReported.filter(r=>r.lastStatus==='bewaessert');
   const nicht=allReported.filter(r=>r.lastStatus==='nicht');
-  const totalReported=uniqueBewaessert+uniqueNicht;
-  const pct=filtered.length>0?Math.round(uniqueBewaessert/filtered.length*100):0;
+  const reportedTreeIds=new Set(allReported.map(r=>r.id));
+  const offen=filtered.filter(t=>!reportedTreeIds.has(t.id));
+  const totalReported=bewaessert.length+nicht.length;
+  const pct=totalReported>0?Math.round(bewaessert.length/totalReported*100):0;
 
   // ── KPI Cards ─────────────────────────────────────────────────
   const activeFahrer=[...new Set(allReported.map(r=>r.lastDriver).filter(Boolean))].length;
   const kpiEl=document.getElementById('ctrl-kpis');
   if(kpiEl) kpiEl.innerHTML=[
-    {val:filtered.length,lbl:'Gesamt',sub:'Bäume im Filter',color:'var(--text)'},
-    {val:uniqueBewaessert,lbl:'Bewässert',sub:`${pct}% der Bäume`,color:'#16a34a'},
-    {val:uniqueNicht,lbl:'Nicht bewässert',sub:'eindeutige Bäume',color:'var(--red)'},
-    {val:allReported.length,lbl:'Meldungen gesamt',sub:'inkl. Wiederholungen',color:'var(--text2)'},
+    {val:filtered.length,lbl:'Gesamt',sub:'Bäume im Projekt',color:'var(--text)'},
+    {val:bewaessert.length,lbl:'Bewässert',sub:`${pct}% der Meldungen`,color:'#16a34a'},
+    {val:nicht.length,lbl:'Nicht bewässert',sub:'Einzelmeldungen',color:'var(--red)'},
+    {val:totalReported,lbl:'Meldungen gesamt',sub:'im Zeitraum',color:'var(--text2)'},
     {val:activeFahrer,lbl:'Aktive Fahrer',sub:'im Zeitraum',color:'var(--blue)'},
   ].map(k=>`<div class="kpi-card">
     <div class="kpi-val" style="color:${k.color};">${k.val}</div>
@@ -2685,9 +2675,9 @@ function renderControlling(){
   const finalBew=finalReported.filter(r=>r.lastStatus==='bewaessert').length;
   const finalNicht=finalReported.filter(r=>r.lastStatus==='nicht').length;
   // Charts: use unique tree counts for pie, all reports for bar/timeline
-  const finalUniqBew=statusFilter==='nicht'?0:[...new Set(finalReported.filter(r=>r.lastStatus==='bewaessert').map(r=>r.id))].length;
-  const finalUniqNicht=statusFilter==='bewaessert'?0:[...new Set(finalReported.filter(r=>r.lastStatus==='nicht').map(r=>r.id))].length;
-  renderPieChart(finalUniqBew,finalUniqNicht);
+  const finalBewCount=finalReported.filter(r=>r.lastStatus==='bewaessert').length;
+  const finalNichtCount=finalReported.filter(r=>r.lastStatus==='nicht').length;
+  renderPieChart(finalBewCount,finalNichtCount);
   renderBarChart(filtered,finalReported);
   renderTimelineChart(filtered,from,to);
   renderStadtteilChart(filtered,finalReported);
@@ -2907,7 +2897,29 @@ async function loadTourHistory(){
     const histories=snap.docs.map(d=>({id:d.id,...d.data()}))
       .sort((a,b)=>b.date.localeCompare(a.date));
 
-    el.innerHTML=histories.map(h=>{
+    // ── Summenzeile berechnen ──────────────────────────────────
+    const totalBew=histories.reduce((s,h)=>s+(h.stats?.bewaessert||0),0);
+    const totalNicht=histories.reduce((s,h)=>s+(h.stats?.nicht||0),0);
+    const totalOffen=histories.reduce((s,h)=>s+(h.stats?.offen||0),0);
+    const totalAll=totalBew+totalNicht+totalOffen;
+    const totalPct=totalAll>0?Math.round(totalBew/totalAll*100):0;
+
+    const summaryRow=`<div style="padding:12px 20px;background:var(--green-light);border-bottom:2px solid var(--green-mid);display:flex;align-items:center;gap:16px;">
+      <div style="font-size:12px;font-weight:700;color:var(--green);flex:1;">
+        Gesamt: ${histories.length} Touren
+      </div>
+      <div style="display:flex;gap:16px;align-items:center;">
+        <span style="font-size:13px;font-weight:700;color:#16a34a;">${totalBew} ✓</span>
+        <span style="font-size:13px;font-weight:700;color:var(--red);">${totalNicht} ✕</span>
+        <span style="font-size:13px;font-weight:700;color:var(--amber);">${totalOffen} ○</span>
+        <div style="width:80px;height:8px;background:var(--border);border-radius:4px;overflow:hidden;">
+          <div style="height:100%;background:#16a34a;width:${totalPct}%;border-radius:4px;"></div>
+        </div>
+        <span style="font-size:12px;font-weight:700;color:var(--green);min-width:36px;">${totalPct}%</span>
+      </div>
+    </div>`;
+
+    el.innerHTML=summaryRow+histories.map(h=>{
       const tour=tours.find(t=>t.id===h.tourId);
       const color=h.tourColor||tour?.color||'#6b6760';
       const bew=h.stats?.bewaessert||0;
@@ -2919,7 +2931,7 @@ async function loadTourHistory(){
         <div style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0;"></div>
         <div style="flex:1;min-width:0;">
           <div style="font-size:13px;font-weight:600;">${h.tourName} <span style="font-weight:400;color:var(--text3);font-size:12px;">· ${h.date}</span></div>
-          <div style="font-size:11px;color:var(--text3);margin-top:2px;">Fahrer: ${h.closedBy||'–'}</div>
+          <div style="font-size:11px;color:var(--text3);">Fahrer: ${h.closedBy||'–'}</div>
         </div>
         <div style="display:flex;gap:12px;align-items:center;flex-shrink:0;">
           <span style="font-size:12px;color:#16a34a;font-weight:600;">${bew} ✓</span>
