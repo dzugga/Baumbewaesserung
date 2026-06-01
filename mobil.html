@@ -407,7 +407,7 @@ L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
   updateWhenIdle: false,
   crossOrigin: true,
 }).addTo(map);
-L.control.zoom({position: 'bottomright'}).addTo(map);
+L.control.zoom({position: 'topright'}).addTo(map);
 
 // GPS tracking
 function startGPS() {
