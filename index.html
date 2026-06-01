@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v7.1 -->
+<!-- v7.2 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -1140,6 +1140,7 @@ function drawSavedRoute(tourId, routeData){
     layer=L.polyline(pts,{color:tour.color,weight:3,opacity:.7,dashArray:'8 5'}).addTo(map);
   }
   tourRoutes[tourId]={layer,km:routeData.km||0,durationSec:routeData.durationSec||0};
+  if(currentView==='touren') renderTourenGrid();
 }
 
 // Load and display all saved routes from Firestore (no recalculation)
@@ -2008,6 +2009,8 @@ async function deleteTour(id){
 
 // ─── SETTINGS ─────────────────────────────────────────────────
 function openSettings(){
+  // Hide bottom route bar to avoid overlap
+  document.getElementById('route-info-bar')?.classList.remove('visible');
   const depot=getDepot();
   document.getElementById('s-apikey').value=getOrsKey();
   document.getElementById('s-depot-addr').value=depot?.address||'';
@@ -2025,7 +2028,9 @@ function openSettings(){
   document.getElementById('geocode-error').style.display='none';
   document.getElementById('settings-panel').classList.add('open');
 }
-function closeSettings(){ document.getElementById('settings-panel').classList.remove('open'); }
+function closeSettings(){
+  // Restore route bar
+  updateRouteInfoBar(); document.getElementById('settings-panel').classList.remove('open'); }
 
 async function geocodeDepot(){
   const addr=document.getElementById('s-depot-addr').value.trim();if(!addr)return;
@@ -2080,7 +2085,9 @@ function switchView(v){
   if(v==='baeume') renderBaeumeTable();
   if(v==='touren'){
     document.getElementById('view-touren').style.display='flex';
-    renderTourenGrid();
+    // Load routes if not yet loaded
+    if(Object.keys(tourRoutes).length===0) loadSavedRoutes().then(()=>renderTourenGrid());
+    else renderTourenGrid();
   }
   if(v==='controlling'){
     initControlling();
