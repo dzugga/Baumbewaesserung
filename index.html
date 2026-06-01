@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v6.6 -->
+<!-- v6.7 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -1796,9 +1796,11 @@ function startAssignMode(){
   closePanel();
 
   // Lasso canvas events
+  // Allow map pan when not actively drawing
+  canvas.style.pointerEvents='none';
   canvas.onmousedown=e=>{
-    // Only start lasso if not clicking a marker (check target)
     lassoDrawing=true;lassoPoints=[];
+    canvas.style.pointerEvents='all';
     const r=canvas.getBoundingClientRect();
     lassoPoints.push({x:e.clientX-r.left,y:e.clientY-r.top});
   };
@@ -1811,11 +1813,12 @@ function startAssignMode(){
   canvas.onmouseup=e=>{
     if(!lassoDrawing)return;
     lassoDrawing=false;
+    canvas.style.pointerEvents='none'; // allow map interaction again
     // If barely moved → treat as click, not lasso
     const dist=lassoPoints.length>1?Math.hypot(
       lassoPoints[lassoPoints.length-1].x-lassoPoints[0].x,
       lassoPoints[lassoPoints.length-1].y-lassoPoints[0].y):0;
-    if(dist<8){
+    if(dist<5){
       // Single click: find nearest marker
       const r=canvas.getBoundingClientRect();
       const clickPt=map.containerPointToLatLng(L.point(e.clientX-r.left,e.clientY-r.top));
@@ -1823,7 +1826,7 @@ function startAssignMode(){
       trees.forEach(tree=>{
         if(!tree.lat||!tree.lng)return;
         const d=map.distance(clickPt,[tree.lat,tree.lng]);
-        if(d<nearestDist&&d<40){nearestDist=d;nearestTree=tree;}
+        if(d<nearestDist&&d<80){nearestDist=d;nearestTree=tree;}
       });
       lassoCtx.clearRect(0,0,canvas.width,canvas.height);
       lassoPoints=[];
@@ -1832,9 +1835,20 @@ function startAssignMode(){
       applyLasso();
     }
   };
-  canvas.ontouchstart=e=>{e.preventDefault();lassoDrawing=true;lassoPoints=[];const r=canvas.getBoundingClientRect(),t=e.touches[0];lassoPoints.push({x:t.clientX-r.left,y:t.clientY-r.top});};
+  canvas.ontouchstart=e=>{
+    // Only capture touch if user holds still briefly (intent to lasso)
+    lassoDrawing=true;lassoPoints=[];
+    canvas.style.pointerEvents='all';
+    const r=canvas.getBoundingClientRect(),t=e.touches[0];
+    lassoPoints.push({x:t.clientX-r.left,y:t.clientY-r.top});
+  };
   canvas.ontouchmove=e=>{e.preventDefault();if(!lassoDrawing)return;const r=canvas.getBoundingClientRect(),t=e.touches[0];lassoPoints.push({x:t.clientX-r.left,y:t.clientY-r.top});drawLasso();};
-  canvas.ontouchend=e=>{e.preventDefault();if(!lassoDrawing)return;lassoDrawing=false;applyLasso();};
+  canvas.ontouchend=e=>{
+    if(!lassoDrawing)return;
+    lassoDrawing=false;
+    canvas.style.pointerEvents='none';
+    applyLasso();
+  };
 }
 
 function rebuildAssignPills(){
@@ -1867,7 +1881,6 @@ function cancelAssign(){
   canvas.ontouchstart=null;canvas.ontouchmove=null;canvas.ontouchend=null;
   document.getElementById('assign-lasso-banner').classList.remove('visible');
   map.getContainer().style.cursor='';
-  map.dragging.enable();map.scrollWheelZoom.enable();
 }
 
 async function assignTreeToTour(treeId,tourId,skipConflictCheck=false){
@@ -3251,7 +3264,7 @@ function startLassoMode(){
     `<span class="lasso-tour-pill${t.id===lassoTourId?' selected':''}" style="background:${t.color};" onclick="setLassoTour('${t.id}',this)">${t.name}</span>`
   ).join('');
   document.getElementById('lasso-banner').classList.add('visible');
-  map.dragging.disable();map.scrollWheelZoom.disable();
+  // map dragging stays enabled — canvas pointer-events handles drawing
 
   // Canvas mouse events
   canvas.onmousedown=e=>{
@@ -3268,6 +3281,7 @@ function startLassoMode(){
   canvas.onmouseup=e=>{
     if(!lassoDrawing)return;
     lassoDrawing=false;
+    canvas.style.pointerEvents='none'; // allow map interaction again
     applyLasso();
   };
   // Touch support
@@ -3282,7 +3296,12 @@ function startLassoMode(){
     lassoPoints.push({x:t.clientX-r.left,y:t.clientY-r.top});
     drawLasso();
   };
-  canvas.ontouchend=e=>{e.preventDefault();if(!lassoDrawing)return;lassoDrawing=false;applyLasso();};
+  canvas.ontouchend=e=>{
+    if(!lassoDrawing)return;
+    lassoDrawing=false;
+    canvas.style.pointerEvents='none';
+    applyLasso();
+  };
 }
 
 function setLassoTour(id,el){
@@ -3329,7 +3348,16 @@ async function applyLasso(){
   trees.forEach(tree=>{
     if(!tree.lat||!tree.lng)return;
     const pt=map.latLngToContainerPoint(L.latLng(tree.lat,tree.lng));
-    if(pointInPolygon(pt.x,pt.y,lassoPoints)) selected.push(tree);
+    // Check if marker center OR any point within marker radius is inside lasso
+    const r=18; // marker radius in pixels
+    const inPoly=pointInPolygon(pt.x,pt.y,lassoPoints);
+    // Also check cardinal points around marker (for nearby/touching markers)
+    const touches=inPoly||
+      pointInPolygon(pt.x+r,pt.y,lassoPoints)||
+      pointInPolygon(pt.x-r,pt.y,lassoPoints)||
+      pointInPolygon(pt.x,pt.y+r,lassoPoints)||
+      pointInPolygon(pt.x,pt.y-r,lassoPoints);
+    if(touches) selected.push(tree);
   });
 
   lassoPoints=[];
