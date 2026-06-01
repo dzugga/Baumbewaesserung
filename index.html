@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v6.2 -->
+<!-- v6.4 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -807,15 +807,15 @@ function initProjectScreen(){
       psList.innerHTML='<div class="ps-empty">Noch keine Projekte. Erstelle dein erstes Projekt unten.</div>';
       return;
     }
-    // Load live counts for each project
-    const projectsWithCounts = await Promise.all(snap.docs.map(async d=>{
-      const data=d.data();
-      // Live count from subcollection (always accurate)
-      const treesSnap=await getDocs(collection(db,'projects',d.id,'trees'));
-      const toursSnap=await getDocs(collection(db,'projects',d.id,'tours'));
-      return {id:d.id, data, treeCount:treesSnap.size, tourCount:toursSnap.size};
-    }));
-    psList.innerHTML=projectsWithCounts.map(({id,data,treeCount,tourCount})=>{
+    // Use async IIFE to allow await inside onSnapshot callback
+    (async()=>{
+      const projectsWithCounts = await Promise.all(snap.docs.map(async d=>{
+        const data=d.data();
+        const treesSnap=await getDocs(collection(db,'projects',d.id,'trees'));
+        const toursSnap=await getDocs(collection(db,'projects',d.id,'tours'));
+        return {id:d.id, data, treeCount:treesSnap.size, tourCount:toursSnap.size};
+      }));
+      psList.innerHTML=projectsWithCounts.map(({id,data,treeCount,tourCount})=>{
       return `<div class="ps-item" onclick="openProject('${id}')">
         <div class="ps-item-icon">🌳</div>
         <div class="ps-item-info">
@@ -825,6 +825,7 @@ function initProjectScreen(){
         <svg class="ps-item-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg>
       </div>`;
     }).join('');
+    })();
   },err=>{
     document.getElementById('ps-sync').innerHTML='<div class="sync-dot error"></div> Fehler';
     console.error(err);
