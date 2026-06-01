@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v6.4 -->
+<!-- v6.6 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -659,7 +659,17 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 </div>
 
 <!-- BÄUME fullscreen overlay -->
-<div id="view-baeume" style="display:none;position:fixed;top:54px;left:0;right:0;bottom:0;z-index:1500;background:var(--bg);flex-direction:column;">
+<div id="view-baeume" style="display:none;position:fixed;top:54px;left:0;right:0;bottom:0;z-index:1500;background:var(--bg);flex-direction:column;overflow:hidden;">
+  <div style="background:var(--surface);border-bottom:1px solid var(--border);padding:8px 20px;flex-shrink:0;display:flex;align-items:center;gap:10px;">
+    <div style="position:relative;flex:1;max-width:420px;">
+      <svg style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text3);" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input id="baeume-search" type="text" placeholder="Suche nach Name, Baumart, Stadtteil, Baumnr., Baum-ID…" oninput="filterBaeumeTable(this.value)"
+        style="width:100%;padding:7px 12px 7px 32px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--bg);outline:none;"
+        onfocus="this.style.borderColor='var(--green-mid)'" onblur="this.style.borderColor='var(--border)'">
+    </div>
+    <span id="baeume-search-count" style="font-size:12px;color:var(--text3);white-space:nowrap;"></span>
+    <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px;" onclick="document.getElementById('baeume-search').value='';filterBaeumeTable('')">✕</button>
+  </div>
   <div id="baeume-table-wrap" style="flex:1;overflow:auto;display:flex;flex-direction:column;"></div>
 </div>
 
@@ -2039,7 +2049,36 @@ function switchView(v){
   if(v==='verwaltung') initVerwaltung();
 }
 
+let _baeumeAllTrees = []; // cache for search
+
+function filterBaeumeTable(q){
+  const wrap = document.getElementById('baeume-table-wrap');
+  const countEl = document.getElementById('baeume-search-count');
+  if(!q.trim()){
+    renderBaeumeTable();
+    if(countEl) countEl.textContent = '';
+    return;
+  }
+  const lower = q.toLowerCase();
+  const filtered = _baeumeAllTrees.filter(tree=>
+    (tree.name||'').toLowerCase().includes(lower) ||
+    (tree.art||'').toLowerCase().includes(lower) ||
+    (tree.stadtteil||'').toLowerCase().includes(lower) ||
+    (tree.baumnr||'').toLowerCase().includes(lower) ||
+    (tree.baumId||'').toLowerCase().includes(lower) ||
+    (tree.pflanzjahr||'').toLowerCase().includes(lower)
+  );
+  if(countEl) countEl.textContent = `${filtered.length} Ergebnisse`;
+  renderBaeumeTableWith(filtered);
+}
+
 function renderBaeumeTable(){
+  _baeumeAllTrees = [...trees]; // cache all trees
+  document.getElementById('baeume-search-count').textContent = '';
+  renderBaeumeTableWith(trees);
+}
+
+function renderBaeumeTableWith(treeList){
   const wrap=document.getElementById('baeume-table-wrap');
   if(trees.length===0){
     wrap.innerHTML=`<div class="empty-state" style="margin-top:60px;">
@@ -2049,7 +2088,7 @@ function renderBaeumeTable(){
   }
 
   // Sort: if a tour active, sort by route number; else alphabetical
-  let sorted=[...trees];
+  let sorted=[...treeList];
   if(activeTourOnMap&&tourOrder[activeTourOnMap]){
     const order=tourOrder[activeTourOnMap];
     sorted.sort((a,b)=>{
@@ -3408,7 +3447,7 @@ map.on('contextmenu',e=>{
 });
 
 Object.assign(window,{
-  saveInlineFields,filterDetailTable,saveHistoryEdits,deleteHistoryEntry,refreshControlling,setAutoRefresh,loadTourHistoryForControlling,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
+  saveInlineFields,filterDetailTable,filterBaeumeTable,saveHistoryEdits,deleteHistoryEntry,refreshControlling,setAutoRefresh,loadTourHistoryForControlling,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,
   createProject,openProject,showProjectScreen,
   switchView,openDetail,closePanel,logWatering,
