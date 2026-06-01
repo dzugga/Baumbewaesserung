@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v5.8 -->
+<!-- v6.0 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -2397,6 +2397,23 @@ async function importExcel(input){
 }
 
 // ─── CONTROLLING ─────────────────────────────────────────────
+// Cache tourHistory for controlling (authoritative source)
+window._tourHistoryCache = null;
+
+async function loadTourHistoryForControlling(){
+  if(!currentProjectId)return;
+  try{
+    const snap=await getDocs(collection(db,'projects',currentProjectId,'tourHistory'));
+    window._tourHistoryCache={
+      projectId:currentProjectId,
+      entries:snap.docs.map(d=>({id:d.id,...d.data()}))
+    };
+    // Re-render controlling with fresh data
+    if(currentView==='controlling') renderControlling();
+  }catch(e){ console.warn('tourHistory load error:',e); }
+}
+
+// ─── CONTROLLING ─────────────────────────────────────────────
 let ctrlRefreshTimer=null;
 let ctrlRefreshInterval=60; // seconds
 
@@ -2478,6 +2495,9 @@ function inCtrlRange(dateStr){
 }
 
 function initControlling(){
+  // Refresh tourHistory cache on every open
+  window._tourHistoryCache=null;
+  loadTourHistoryForControlling();
   const prev=(id)=>document.getElementById(id)?.value||'';
 
   // Tours
@@ -2585,47 +2605,63 @@ function renderControlling(){
     }
   }
 
-  // Build complete list of individual reports from BOTH current status AND history
-  // This ensures data survives tour resets
+  // PRIMARY SOURCE: tourHistory snapshots (authoritative, manually editable)
+  // These are loaded async — we use cached version if available
   const allReported=[];
-  const seen=new Set(); // prevent exact duplicates
 
-  filtered.forEach(tree=>{
-    // Current status (if set, not 'offen', and in range)
-    if(tree.lastStatus&&tree.lastStatus!=='offen'&&tree.lastReportAt){
-      const d=tree.lastReportAt.slice?tree.lastReportAt.slice(0,10):tree.lastReportAt;
-      if(inCtrlRange(d)){
-        // Current status: only add if not already covered by history entry
-        const curKey=`cur_${tree.id}_${d}_${tree.lastStatus}_${tree.lastDriver||''}`;
-        if(!seen.has(curKey)){
-          seen.add(curKey);
-          allReported.push({...tree,_fromHistory:false,_projectName:currentProjectData?.name||currentProjectId});
-        }
-      }
-    // Trees with status but no date: skip from Einzelmeldungen (no date = no proof)
-    }
-
-    // History entries (previous tour runs) — most important source
-    (tree.history||[]).forEach(h=>{
-      if(!h.date||!inCtrlRange(h.date))return;
-      if(!h.status||h.status==='offen')return; // skip open entries
-      // Use date+status+driver as key to allow same tree same day different drivers
-      // Use index-based key to allow ALL history entries (no false deduplication)
-      const entryKey=`hist_${tree.id}_${h.date}_${h.status||''}_${h.driver||''}_${h.tourId||''}_${allReported.length}`;
-      if(seen.has(entryKey))return;
-      seen.add(entryKey);
-      allReported.push({
-        ...tree,
-        _fromHistory:true,
-        lastStatus:h.status||null,
-        lastReason:h.reason||null,
-        lastNote:h.note||null,
-        lastDriver:h.driver||h.closedBy||null,
-        lastReportAt:h.date,
-        _projectName:currentProjectData?.name||currentProjectId,
+  if(window._tourHistoryCache&&window._tourHistoryCache.projectId===currentProjectId){
+    // Use cached tourHistory
+    window._tourHistoryCache.entries.forEach(h=>{
+      if(!inCtrlRange(h.date))return;
+      (h.trees||[]).forEach(tree=>{
+        if(!tree.lastStatus||tree.lastStatus==='offen')return;
+        // Only include trees that match current filters
+        const tourId=document.getElementById('ctrl-filter-tour')?.value||'';
+        const stadtteil=document.getElementById('ctrl-filter-stadtteil')?.value||'';
+        const pflanzjahr=document.getElementById('ctrl-filter-pflanzjahr')?.value||'';
+        const fahrer=document.getElementById('ctrl-filter-fahrer')?.value||'';
+        const baumart=document.getElementById('ctrl-filter-baumart')?.value||'';
+        if(tourId&&tree.tourId!==tourId)return;
+        if(stadtteil&&tree.stadtteil!==stadtteil)return;
+        if(pflanzjahr&&tree.pflanzjahr!==pflanzjahr)return;
+        if(fahrer&&tree.lastDriver!==fahrer)return;
+        if(baumart&&tree.art!==baumart)return;
+        allReported.push({
+          ...tree,
+          _fromHistory:true,
+          _tourHistoryId:h.id,
+          _tourHistoryDate:h.date,
+          lastReportAt:tree.lastReportAt||h.date,
+          _projectName:currentProjectData?.name||currentProjectId,
+        });
       });
     });
-  });
+  } else {
+    // Fallback: use tree.history[] while tourHistory loads in background
+    filtered.forEach(tree=>{
+      (tree.history||[]).forEach(h=>{
+        if(!h.date||!inCtrlRange(h.date))return;
+        if(!h.status||h.status==='offen')return;
+        allReported.push({
+          ...tree,_fromHistory:true,
+          lastStatus:h.status,lastReason:h.reason||null,
+          lastNote:h.note||null,lastDriver:h.driver||null,
+          lastReportAt:h.date,
+          _projectName:currentProjectData?.name||currentProjectId,
+        });
+      });
+      // Current status if not in history
+      if(tree.lastStatus&&tree.lastStatus!=='offen'&&tree.lastReportAt){
+        const d=tree.lastReportAt.slice?tree.lastReportAt.slice(0,10):tree.lastReportAt;
+        if(inCtrlRange(d)){
+          const inHist=(tree.history||[]).some(h=>h.date===d&&h.status===tree.lastStatus);
+          if(!inHist) allReported.push({...tree,_fromHistory:false,_projectName:currentProjectData?.name||currentProjectId});
+        }
+      }
+    });
+    // Trigger background load of tourHistory
+    loadTourHistoryForControlling();
+  }
 
   allReported.sort((a,b)=>(b.lastReportAt||'').localeCompare(a.lastReportAt||''));
 
@@ -3031,6 +3067,7 @@ async function saveHistoryEdits(histId){
   // Save to Firestore
   await setDoc(doc(db,'projects',currentProjectId,'tourHistory',histId),h);
   historyCache[histId]=h;
+  window._tourHistoryCache=null; // invalidate controlling cache
   notify('✓ Historie gespeichert');
   document.getElementById('history-modal')?.remove();
   loadTourHistory(); // refresh list
@@ -3344,7 +3381,7 @@ map.on('contextmenu',e=>{
 });
 
 Object.assign(window,{
-  saveInlineFields,filterDetailTable,saveHistoryEdits,deleteHistoryEntry,refreshControlling,setAutoRefresh,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
+  saveInlineFields,filterDetailTable,saveHistoryEdits,deleteHistoryEntry,refreshControlling,setAutoRefresh,loadTourHistoryForControlling,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,
   createProject,openProject,showProjectScreen,
   switchView,openDetail,closePanel,logWatering,
