@@ -215,22 +215,22 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
         </select>
       </div>
 
-      <!-- Tour (nur Bewässerung) -->
-      <div class="form-group" id="login-tour-group" style="display:none;">
-        <label class="form-label">Tour</label>
-        <select class="form-control" id="login-tour" onchange="onTourChange()">
-          <option value="">– Projekt wählen –</option>
-        </select>
-        <div id="login-tour-hint" style="font-size:11px;color:var(--text3);margin-top:4px;display:none;">Keine Touren vorhanden.</div>
-      </div>
-
-      <!-- Name (gefiltert je nach Modus) -->
+      <!-- Name (erscheint nach Projekt) -->
       <div class="form-group" id="login-name-group" style="display:none;">
         <label class="form-label">Dein Name</label>
-        <select class="form-control" id="login-name">
-          <option value="">– Bitte wählen –</option>
+        <select class="form-control" id="login-name" onchange="onNameChange()">
+          <option value="">– Name wählen –</option>
         </select>
         <div id="login-name-hint" style="font-size:11px;color:var(--text3);margin-top:4px;display:none;">Kein Mitarbeiter hinterlegt — bitte im Desktop einrichten.</div>
+      </div>
+
+      <!-- Tour (nur Bewässerung, erscheint nach Name) -->
+      <div class="form-group" id="login-tour-group" style="display:none;">
+        <label class="form-label">Tour</label>
+        <select class="form-control" id="login-tour">
+          <option value="">– Tour wählen –</option>
+        </select>
+        <div id="login-tour-hint" style="font-size:11px;color:var(--text3);margin-top:4px;display:none;">Keine Touren vorhanden.</div>
       </div>
 
       <div id="login-error" style="color:var(--red);font-size:13px;margin-bottom:12px;display:none;"></div>
@@ -1714,63 +1714,57 @@ function onProjectChange(){
   const pid = document.getElementById('login-project').value;
   document.getElementById('login-tour-group').style.display='none';
   document.getElementById('login-name-group').style.display='none';
-  document.getElementById('login-name').innerHTML='<option value="">– Bitte wählen –</option>';
   if(!pid) return;
 
-  if(loginMode==='bewaesserung'){
-    // Show tours for this project
-    const tours = allProjectTours[pid]||[];
-    const tourSel = document.getElementById('login-tour');
-    const hint = document.getElementById('login-tour-hint');
-    if(tours.length===0){
-      tourSel.innerHTML='<option value="">Keine Touren vorhanden</option>';
-      hint.style.display='block';
-    } else {
-      hint.style.display='none';
-      tourSel.innerHTML='<option value="">– Tour wählen –</option>'+
-        tours.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
-    }
-    document.getElementById('login-tour-group').style.display='block';
-    // Auto-select if only one tour
-    if(tours.length===1){
-      tourSel.value=tours[0].id;
-      onTourChange();
-    }
-  } else {
-    // Erfassung: show erfasser names for this project
-    loadNamesForProject(pid);
-  }
-}
-
-function onTourChange(){
-  const pid = document.getElementById('login-project').value;
-  const tid = document.getElementById('login-tour').value;
-  if(!tid) return;
   const tours = allProjectTours[pid]||[];
-  const tour = tours.find(t=>t.id===tid);
-  const drivers = tour?.drivers||[];
-  const nameSel = document.getElementById('login-name');
-  const hint = document.getElementById('login-name-hint');
 
-  if(drivers.length===0){
-    // No drivers assigned to tour — collect all drivers from all tours in project
-    const allDrivers = [...new Set(tours.flatMap(t=>t.drivers||[]))].sort();
-    if(allDrivers.length===0){
+  if(loginMode==='bewaesserung'){
+    // Collect all unique drivers from all tours in this project
+    const drivers = [...new Set(tours.flatMap(t=>t.drivers||[]))].sort();
+    const nameSel = document.getElementById('login-name');
+    const hint = document.getElementById('login-name-hint');
+    if(drivers.length===0){
       nameSel.innerHTML='<option value="">Kein Fahrer hinterlegt</option>';
-      hint.textContent='Bitte im Desktop unter Verwaltung Fahrer zur Tour hinzufügen.';
       hint.style.display='block';
     } else {
       hint.style.display='none';
       nameSel.innerHTML='<option value="">– Name wählen –</option>'+
-        allDrivers.map(n=>`<option value="${n}">${n}</option>`).join('');
+        drivers.map(n=>`<option value="${n}">${n}</option>`).join('');
     }
+    document.getElementById('login-name-group').style.display='block';
+  } else {
+    loadNamesForProject(pid);
+  }
+}
+
+function onNameChange(){
+  if(loginMode!=='bewaesserung') return;
+  const pid  = document.getElementById('login-project').value;
+  const name = document.getElementById('login-name').value;
+  if(!name){ document.getElementById('login-tour-group').style.display='none'; return; }
+
+  const tours = allProjectTours[pid]||[];
+  // Show only tours this person is assigned to; fallback: all tours
+  const myTours = tours.filter(t=>(t.drivers||[]).includes(name));
+  const showTours = myTours.length>0 ? myTours : tours;
+
+  const tourSel = document.getElementById('login-tour');
+  const hint    = document.getElementById('login-tour-hint');
+
+  if(showTours.length===0){
+    tourSel.innerHTML='<option value="">Keine Touren vorhanden</option>';
+    hint.style.display='block';
   } else {
     hint.style.display='none';
-    nameSel.innerHTML='<option value="">– Name wählen –</option>'+
-      drivers.map(n=>`<option value="${n}">${n}</option>`).join('');
+    tourSel.innerHTML='<option value="">– Tour wählen –</option>'+
+      showTours.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
+    // Auto-select if only one
+    if(showTours.length===1){ tourSel.value=showTours[0].id; }
   }
-  document.getElementById('login-name-group').style.display='block';
+  document.getElementById('login-tour-group').style.display='block';
 }
+
+function onTourChange(){ /* handled by doLogin */ }
 
 async function loadNamesForProject(pid){
   const projSnap = await getDoc(doc(db,'projects',pid));
