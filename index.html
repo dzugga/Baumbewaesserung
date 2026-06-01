@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v6.1 -->
+<!-- v6.2 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -807,14 +807,20 @@ function initProjectScreen(){
       psList.innerHTML='<div class="ps-empty">Noch keine Projekte. Erstelle dein erstes Projekt unten.</div>';
       return;
     }
-    psList.innerHTML=snap.docs.map(d=>{
+    // Load live counts for each project
+    const projectsWithCounts = await Promise.all(snap.docs.map(async d=>{
       const data=d.data();
-      const cnt=data.treeCount||0;
-      return `<div class="ps-item" onclick="openProject('${d.id}')">
+      // Live count from subcollection (always accurate)
+      const treesSnap=await getDocs(collection(db,'projects',d.id,'trees'));
+      const toursSnap=await getDocs(collection(db,'projects',d.id,'tours'));
+      return {id:d.id, data, treeCount:treesSnap.size, tourCount:toursSnap.size};
+    }));
+    psList.innerHTML=projectsWithCounts.map(({id,data,treeCount,tourCount})=>{
+      return `<div class="ps-item" onclick="openProject('${id}')">
         <div class="ps-item-icon">🌳</div>
         <div class="ps-item-info">
           <div class="ps-item-name">${data.name}</div>
-          <div class="ps-item-meta">${cnt} Bäume · ${data.tourCount||0} Touren</div>
+          <div class="ps-item-meta">${treeCount} Bäume · ${tourCount} Touren</div>
         </div>
         <svg class="ps-item-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg>
       </div>`;
@@ -2399,7 +2405,7 @@ async function importExcel(input){
       imported++;
     }catch(e){skipped++;}
   }
-  await updateDoc(doc(db,'projects',currentProjectId),{treeCount:trees.length+imported});
+
   input.value='';
   notify(`✓ ${imported} Bäume importiert${skipped>0?' ('+skipped+' übersprungen)':''}`);
 }
