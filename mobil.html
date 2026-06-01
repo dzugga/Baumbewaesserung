@@ -391,17 +391,15 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:14px;">
       <div style="padding:10px 14px;background:var(--green-light);border-bottom:1px solid var(--green-mid);display:flex;align-items:center;justify-content:space-between;">
         <span style="font-size:12px;font-weight:600;color:var(--green);">GPS-Koordinaten</span>
-        <button onclick="setErfGPS()" style="padding:4px 12px;background:var(--green);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">📍 Position</button>
+        <button onclick="setErfGPS()" style="padding:4px 12px;background:var(--green);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">📍 Mein Standort</button>
       </div>
-      <div style="padding:10px 14px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-        <div>
-          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px;">Breitengrad</div>
-          <input id="erf-lat" type="number" step="0.000001" placeholder="52.123456" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;background:var(--bg);">
-        </div>
-        <div>
-          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px;">Längengrad</div>
-          <input id="erf-lng" type="number" step="0.000001" placeholder="8.654321" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;background:var(--bg);">
-        </div>
+      <div id="erf-mini-map" style="height:180px;background:var(--surface2);position:relative;">
+        <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--text3);">Karte wird geladen…</div>
+      </div>
+      <div style="padding:8px 14px;display:flex;gap:8px;align-items:center;">
+        <div style="flex:1;font-size:12px;font-family:monospace;color:var(--text2);" id="erf-coords-display">Noch keine Position</div>
+        <input id="erf-lat" type="hidden">
+        <input id="erf-lng" type="hidden">
       </div>
     </div>
     <div style="display:flex;flex-direction:column;gap:10px;">
@@ -1732,6 +1730,10 @@ function onProjectChange(){
         drivers.map(n=>`<option value="${n}">${n}</option>`).join('');
     }
     document.getElementById('login-name-group').style.display='block';
+    // Also pre-load tour list (shown after name selection)
+    const tourSel = document.getElementById('login-tour');
+    tourSel.innerHTML='<option value="">– Tour wählen –</option>'+
+      tours.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
   } else {
     loadNamesForProject(pid);
   }
@@ -1741,11 +1743,9 @@ function onNameChange(){
   if(loginMode!=='bewaesserung') return;
   const pid  = document.getElementById('login-project').value;
   const name = document.getElementById('login-name').value;
-  if(!name){ document.getElementById('login-tour-group').style.display='none'; return; }
 
   const tours = allProjectTours[pid]||[];
-  // Show only tours this person is assigned to; fallback: all tours
-  const myTours = tours.filter(t=>(t.drivers||[]).includes(name));
+  const myTours = name ? tours.filter(t=>(t.drivers||[]).includes(name)) : [];
   const showTours = myTours.length>0 ? myTours : tours;
 
   const tourSel = document.getElementById('login-tour');
@@ -1758,8 +1758,7 @@ function onNameChange(){
     hint.style.display='none';
     tourSel.innerHTML='<option value="">– Tour wählen –</option>'+
       showTours.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
-    // Auto-select if only one
-    if(showTours.length===1){ tourSel.value=showTours[0].id; }
+    if(showTours.length===1) tourSel.value=showTours[0].id;
   }
   document.getElementById('login-tour-group').style.display='block';
 }
@@ -1910,6 +1909,7 @@ function setErfassungMode(mode){
     btnNew.style.background='var(--green)'; btnNew.style.color='#fff'; btnNew.style.borderColor='var(--green)';
     btnList.style.background='var(--surface)'; btnList.style.color='var(--text2)'; btnList.style.borderColor='var(--border)';
     divList.style.display='none'; divNew.style.display='block';
+    setTimeout(()=>initErfMiniMap(), 100);
   }
 }
 
@@ -1991,13 +1991,39 @@ async function confirmErfassungGPS(treeId, lat, lng, btn){
   }
 }
 
+let erfMiniMap = null;
+let erfMarker = null;
+
+function initErfMiniMap(){
+  if(erfMiniMap) return;
+  const el = document.getElementById('erf-mini-map');
+  if(!el) return;
+  erfMiniMap = L.map('erf-mini-map', {zoomControl:true, attributionControl:false});
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(erfMiniMap);
+  // Allow clicking map to set position
+  erfMiniMap.on('click', e=>{
+    setErfPosition(e.latlng.lat, e.latlng.lng);
+  });
+  setTimeout(()=>erfMiniMap.invalidateSize(),100);
+}
+
+function setErfPosition(lat, lng){
+  document.getElementById('erf-lat').value = lat.toFixed(6);
+  document.getElementById('erf-lng').value = lng.toFixed(6);
+  document.getElementById('erf-coords-display').textContent = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+  if(!erfMiniMap) return;
+  if(erfMarker) erfMarker.remove();
+  erfMarker = L.marker([lat,lng]).addTo(erfMiniMap);
+  erfMiniMap.setView([lat,lng], 17);
+}
+
 function setErfGPS(){
   if(!navigator.geolocation){toast('GPS nicht verfügbar');return;}
+  initErfMiniMap();
   toast('GPS wird ermittelt…');
   navigator.geolocation.getCurrentPosition(pos=>{
-    document.getElementById('erf-lat').value = pos.coords.latitude.toFixed(6);
-    document.getElementById('erf-lng').value = pos.coords.longitude.toFixed(6);
-    toast(`✓ Position: ${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`);
+    setErfPosition(pos.coords.latitude, pos.coords.longitude);
+    toast(`✓ Genauigkeit: ±${Math.round(pos.coords.accuracy)}m`);
   },err=>{toast('GPS-Fehler: '+err.message);},{enableHighAccuracy:true,timeout:10000});
 }
 
