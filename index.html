@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v5.2 -->
+<!-- v5.3 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -897,15 +897,81 @@ async function saveProjectSettings(data){
 }
 
 async function confirmDeleteProject(){
-  if(!confirm(`Projekt "${currentProjectData.name}" wirklich löschen? Alle Bäume und Touren werden gelöscht!`))return;
-  // delete subcollections via batch — simplified: just delete project doc, warn user
-  closeSettings();
-  // Delete all trees & tours first
-  for(const tree of trees) await deleteDoc(doc(db,'projects',currentProjectId,'trees',tree.id));
-  for(const tour of tours) await deleteDoc(doc(db,'projects',currentProjectId,'tours',tour.id));
-  await deleteDoc(doc(db,'projects',currentProjectId));
-  notify('Projekt gelöscht');
-  showProjectScreen();
+  if(!currentProjectId||!currentProjectData)return;
+
+  // Custom confirm dialog with cancel focused
+  const modal=document.createElement('div');
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9998;display:flex;align-items:center;justify-content:center;';
+  modal.innerHTML=`<div style="background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow-md);width:420px;max-width:90vw;overflow:hidden;">
+    <div style="padding:18px 20px 10px;border-bottom:1px solid var(--border);">
+      <div style="font-size:16px;font-weight:700;color:var(--red);">⚠ Projekt löschen</div>
+    </div>
+    <div style="padding:16px 20px;font-size:13px;color:var(--text2);line-height:1.7;">
+      Projekt <b style="color:var(--text);">${currentProjectData.name}</b> wirklich löschen?<br>
+      <span style="color:var(--red);">Alle Bäume, Touren, Routen und Historiendaten werden unwiderruflich gelöscht.</span>
+    </div>
+    <div style="padding:6px 20px 8px;">
+      <input id="delete-confirm-input" class="form-control" placeholder='Projektname eingeben zur Bestätigung' style="border-color:var(--red-light);">
+      <div style="font-size:11px;color:var(--text3);margin-top:4px;">Gib <b>${currentProjectData.name}</b> ein um zu bestätigen</div>
+    </div>
+    <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
+      <button id="del-proj-cancel" style="padding:8px 16px;border:1.5px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;font-size:13px;font-weight:600;">Abbrechen</button>
+      <button id="del-proj-ok" style="padding:8px 16px;border:none;border-radius:6px;background:var(--red);color:#fff;cursor:pointer;font-size:13px;font-weight:600;" disabled>Projekt löschen</button>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+
+  // Enable delete button only when name matches
+  const input=modal.querySelector('#delete-confirm-input');
+  const delBtn=modal.querySelector('#del-proj-ok');
+  input.oninput=()=>{
+    delBtn.disabled=input.value.trim()!==currentProjectData.name;
+    delBtn.style.opacity=delBtn.disabled?'0.4':'1';
+  };
+
+  setTimeout(()=>modal.querySelector('#del-proj-cancel').focus(),50);
+
+  const confirmed=await new Promise(resolve=>{
+    modal.querySelector('#del-proj-cancel').onclick=()=>{modal.remove();resolve(false);};
+    delBtn.onclick=()=>{if(!delBtn.disabled){modal.remove();resolve(true);}};
+    modal.onclick=e=>{if(e.target===modal){modal.remove();resolve(false);}};
+  });
+  if(!confirmed)return;
+
+  // Show progress
+  setSyncState('syncing','Projekt wird gelöscht…');
+  try{
+    const pid=currentProjectId;
+
+    // Delete all subcollections
+    const subcollections=['trees','tours','routes','reasons','tourHistory'];
+    for(const sub of subcollections){
+      const snap=await getDocs(collection(db,'projects',pid,sub));
+      for(const d of snap.docs){
+        await deleteDoc(doc(db,'projects',pid,sub,d.id));
+      }
+    }
+
+    // Delete project document itself
+    await deleteDoc(doc(db,'projects',pid));
+
+    setSyncState('ok','Synchronisiert');
+    notify('Projekt gelöscht');
+
+    // Reset to project screen
+    currentProjectId=null;
+    currentProjectData=null;
+    trees=[];
+    tours=[];
+    tourRoutes={};
+    tourOrder={};
+    closeSettings();
+    showProjectScreen();
+  }catch(e){
+    setSyncState('ok','Synchronisiert');
+    notify('Fehler beim Löschen: '+e.message);
+    console.error(e);
+  }
 }
 
 // ─── ROUTING ──────────────────────────────────────────────────
