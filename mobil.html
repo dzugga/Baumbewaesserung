@@ -1384,7 +1384,6 @@ async function saveReport(id){
 
   // Pflichtfeld: Grund bei "nicht bewässert"
   if(status==='nicht' && !reason && !note.trim()){
-    // Highlight reason section
     const reasonSec=document.getElementById('reason-section');
     if(reasonSec){
       reasonSec.style.border='2px solid var(--red)';
@@ -1401,6 +1400,7 @@ async function saveReport(id){
     toast('⚠ Bitte einen Grund angeben');
     return;
   }
+
   const zustand=document.getElementById('p-zustand')?.value||tree.zustand;
   const wasser=document.getElementById('p-wasser')?.value||tree.wasser;
   const notiz=document.getElementById('p-notiz')?.value||tree.notiz||'';
@@ -1415,19 +1415,18 @@ async function saveReport(id){
   };
   if(status==='bewaessert') updates.datum=new Date().toISOString().slice(0,10);
 
-  const histEntry = {
+  const histEntry={
     date:new Date().toISOString().slice(0,10),
     note:`${status==='bewaessert'?'Bewässert':'Nicht bewässert'}${reason?' — '+reason:''}${note?' ('+note+')':''}`,
     driver:currentDriver
   };
-  const historyUpdates = {...updates, history:[...(tree.history||[]),histEntry]};
+  const historyUpdates={...updates,history:[...(tree.history||[]),histEntry]};
 
-  // Update local tree state immediately
+  // Update local state immediately
   Object.assign(tree, updates);
   renderMarkers(); renderList(''); updateProgress();
 
   if(!isOnline){
-    // Queue for later sync
     addToOfflineQueue(id, historyUpdates);
     closeSheet();
     toast('📦 Offline gespeichert — wird synchronisiert wenn Netz verfügbar');
@@ -1436,17 +1435,22 @@ async function saveReport(id){
       await updateDoc(doc(db,'projects',currentProjectId,'trees',id), historyUpdates);
       closeSheet();
       toast(status==='bewaessert'?'✓ Bewässert gemeldet':'✕ Nicht bewässert gemeldet');
-    // Auto-advance to next
-    setTimeout(()=>{
-      const nextIdx=getNextIdx();
-      if(nextIdx!==-1){
-        const nextId=routeOrder[nextIdx];
-        const next=trees.find(t=>t.id===nextId);
-        if(next&&next.lat&&next.lng) map.panTo([next.lat,next.lng],{animate:true,duration:0.8});
-      }
-    },800);
-  }catch(e){toast('Fehler: '+e.message);}
+      setTimeout(()=>{
+        const nextIdx=getNextIdx();
+        if(nextIdx!==-1){
+          const nextId=routeOrder[nextIdx];
+          const next=trees.find(t=>t.id===nextId);
+          if(next&&next.lat&&next.lng) map.panTo([next.lat,next.lng],{animate:true,duration:0.8});
+        }
+      },800);
+    }catch(e){
+      addToOfflineQueue(id, historyUpdates);
+      closeSheet();
+      toast('📦 Offline gespeichert — wird später synchronisiert');
+    }
+  }
 }
+
 
 // ─── TABS ─────────────────────────────────────────────────────
 function switchTab(t){
