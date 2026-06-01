@@ -1731,6 +1731,11 @@ function onProjectChange(){
         tours.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
     }
     document.getElementById('login-tour-group').style.display='block';
+    // Auto-select if only one tour
+    if(tours.length===1){
+      tourSel.value=tours[0].id;
+      onTourChange();
+    }
   } else {
     // Erfassung: show erfasser names for this project
     loadNamesForProject(pid);
@@ -1741,15 +1746,24 @@ function onTourChange(){
   const pid = document.getElementById('login-project').value;
   const tid = document.getElementById('login-tour').value;
   if(!tid) return;
-  // Show drivers for this tour
   const tours = allProjectTours[pid]||[];
   const tour = tours.find(t=>t.id===tid);
   const drivers = tour?.drivers||[];
   const nameSel = document.getElementById('login-name');
   const hint = document.getElementById('login-name-hint');
+
   if(drivers.length===0){
-    nameSel.innerHTML='<option value="">Kein Fahrer hinterlegt</option>';
-    hint.style.display='block';
+    // No drivers assigned to tour — collect all drivers from all tours in project
+    const allDrivers = [...new Set(tours.flatMap(t=>t.drivers||[]))].sort();
+    if(allDrivers.length===0){
+      nameSel.innerHTML='<option value="">Kein Fahrer hinterlegt</option>';
+      hint.textContent='Bitte im Desktop unter Verwaltung Fahrer zur Tour hinzufügen.';
+      hint.style.display='block';
+    } else {
+      hint.style.display='none';
+      nameSel.innerHTML='<option value="">– Name wählen –</option>'+
+        allDrivers.map(n=>`<option value="${n}">${n}</option>`).join('');
+    }
   } else {
     hint.style.display='none';
     nameSel.innerHTML='<option value="">– Name wählen –</option>'+
