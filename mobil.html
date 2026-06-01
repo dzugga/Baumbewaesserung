@@ -180,66 +180,31 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22V12"/><path d="M12 12C12 12 7 9 7 5a5 5 0 0 1 10 0c0 4-5 7-5 7z"/></svg>
       Baumbewässerung
     </div>
-    <div class="login-sub">Mitarbeiter-App</div>
-
-    <!-- Step 0: Modus-Auswahl -->
-    <div id="login-step-mode">
-      <div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:12px;text-align:center;">Was möchtest du heute tun?</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:4px;">
-        <button onclick="selectLoginMode('bewaesserung')" id="mode-btn-bew"
-          style="padding:16px 10px;border-radius:12px;border:2px solid var(--green);background:var(--green);color:#fff;font-size:13px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22a8 8 0 0 1-8-8c0-4.5 8-13 8-13s8 8.5 8 13a8 8 0 0 1-8 8z"/></svg>
-          Bewässerung
-          <span style="font-size:10px;font-weight:400;opacity:.85;">Tour abarbeiten</span>
-        </button>
-        <button onclick="selectLoginMode('erfassung')" id="mode-btn-erf"
-          style="padding:16px 10px;border-radius:12px;border:2px solid var(--border);background:var(--surface2);color:var(--text2);font-size:13px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-          Erfassung
-          <span style="font-size:10px;font-weight:400;opacity:.85;">Bäume erfassen</span>
-        </button>
-      </div>
+    <div class="login-sub">Fahrer-App</div>
+    <div class="form-group">
+      <label class="form-label">Projekt</label>
+      <select class="form-control" id="login-project" onchange="onLoginProjectChange()">
+        <option value="">Wird geladen…</option>
+      </select>
     </div>
-
-    <!-- Step 1: Login Felder -->
-    <div id="login-step-details" style="display:none;">
-      <div id="login-mode-badge" style="text-align:center;margin-bottom:14px;">
-        <span id="login-mode-label" style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;background:var(--green-light);color:var(--green);"></span>
-      </div>
-
-      <!-- Projekt (beide Modi) -->
-      <div class="form-group">
-        <label class="form-label">Projekt</label>
-        <select class="form-control" id="login-project" onchange="onProjectChange()">
-          <option value="">Wird geladen…</option>
-        </select>
-      </div>
-
-      <!-- Name (erscheint nach Projekt) -->
-      <div class="form-group" id="login-name-group" style="display:none;">
-        <label class="form-label">Dein Name</label>
-        <select class="form-control" id="login-name" onchange="onNameChange()">
-          <option value="">– Name wählen –</option>
-        </select>
-        <div id="login-name-hint" style="font-size:11px;color:var(--text3);margin-top:4px;display:none;">Kein Mitarbeiter hinterlegt — bitte im Desktop einrichten.</div>
-      </div>
-
-      <!-- Tour (nur Bewässerung, erscheint nach Name) -->
-      <div class="form-group" id="login-tour-group" style="display:none;">
-        <label class="form-label">Tour</label>
-        <select class="form-control" id="login-tour">
-          <option value="">– Tour wählen –</option>
-        </select>
-        <div id="login-tour-hint" style="font-size:11px;color:var(--text3);margin-top:4px;display:none;">Keine Touren vorhanden.</div>
-      </div>
-
-      <div id="login-error" style="color:var(--red);font-size:13px;margin-bottom:12px;display:none;"></div>
-      <button class="btn btn-primary" onclick="doLogin()" id="login-submit-btn" style="width:100%;">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-        <span id="login-submit-label">Starten</span>
-      </button>
-      <button onclick="backToModeSelect()" style="width:100%;margin-top:8px;padding:10px;border:none;background:none;color:var(--text3);font-size:13px;cursor:pointer;">← Zurück</button>
+    <div class="form-group">
+      <label class="form-label">Tour</label>
+      <select class="form-control" id="login-tour" onchange="onLoginTourChange()">
+        <option value="">– Projekt wählen –</option>
+      </select>
     </div>
+    <div class="form-group">
+      <label class="form-label">Dein Name</label>
+      <select class="form-control" id="login-name">
+        <option value="">– Tour wählen –</option>
+      </select>
+      <div id="login-name-hint" style="font-size:11px;color:var(--text3);margin-top:4px;display:none;">Kein Fahrer hinterlegt — bitte im Desktop Verwaltung einrichten.</div>
+    </div>
+    <div id="login-error" style="color:var(--red);font-size:13px;margin-bottom:12px;display:none;"></div>
+    <button class="btn btn-primary" onclick="doLogin()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      Tour starten
+    </button>
   </div>
 </div>
 
@@ -320,10 +285,7 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
       Liste
     </button>
-    <button class="tab-btn" id="tab-btn-erfassung" onclick="switchTab('erfassung')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-      Erfassung
-    </button>
+
 
   </div>
 </div>
@@ -634,40 +596,12 @@ async function doLogin() {
   const errEl = document.getElementById('login-error');
   errEl.style.display='none';
 
-  if(!pid){
-    errEl.textContent='Bitte ein Projekt wählen.';
-    errEl.style.display='block';
-    return;
-  }
-  if(loginMode==='bewaesserung' && !tid){
-    errEl.textContent='Bitte eine Tour wählen.';
-    errEl.style.display='block';
-    return;
-  }
-  if(!name){
-    errEl.textContent='Bitte deinen Namen wählen.';
+  if(!pid||!tid||!name){
+    errEl.textContent='Bitte alle Felder ausfüllen.';
     errEl.style.display='block';
     return;
   }
 
-  // Erfassung mode — go directly to erfassung tab
-  if(loginMode==='erfassung'){
-    currentProjectId=pid;
-    currentDriver=name;
-    localStorage.setItem('bwt_mobile_session',JSON.stringify({
-      driver:name,projectId:pid,tourId:null,mode:'erfassung',savedAt:Date.now()
-    }));
-    document.getElementById('screen-login').classList.remove('active');
-    document.getElementById('screen-app').classList.add('active');
-    document.getElementById('app-header-tour').textContent='Erfassung';
-    document.getElementById('app-header-driver').textContent='Erfasser: '+name;
-    document.getElementById('tab-btn-map').style.display='none';
-    document.getElementById('tab-btn-list').style.display='none';
-    switchTab('erfassung');
-    return;
-  }
-
-  // Bewässerung mode — original flow
   await startBewässerungLogin(name, pid, tid);
 }
 
@@ -1640,145 +1574,60 @@ function toast(msg){
 }
 
 // ─── GLOBALS ──────────────────────────────────────────────────
-// ─── LOGIN MODE ──────────────────────────────────────────────
-let loginMode = 'bewaesserung';
-let allProjects = [];
-let allProjectTours = {}; // pid -> tours[]
-let allProjectData = {}; // pid -> project data
-
-function selectLoginMode(mode){
-  loginMode = mode;
-  document.getElementById('login-step-mode').style.display='none';
-  document.getElementById('login-step-details').style.display='block';
-
-  const label = document.getElementById('login-mode-label');
-  if(mode==='bewaesserung'){
-    label.innerHTML='🌿 Bewässerung';
-    label.style.cssText='display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;background:var(--green-light);color:var(--green);';
-    document.getElementById('login-submit-label').textContent='Tour starten';
-  } else {
-    label.innerHTML='📍 Erfassung';
-    label.style.cssText='display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;background:#ede9fe;color:#5b21b6;';
-    document.getElementById('login-submit-label').textContent='Erfassung starten';
-  }
-
-  // Reset fields
-  document.getElementById('login-project').innerHTML='<option value="">Wird geladen…</option>';
-  document.getElementById('login-tour-group').style.display='none';
-  document.getElementById('login-name-group').style.display='none';
-  document.getElementById('login-error').style.display='none';
-
-  loadLoginProjects();
-}
-
-function backToModeSelect(){
-  document.getElementById('login-step-mode').style.display='block';
-  document.getElementById('login-step-details').style.display='none';
-}
+// ─── LOGIN HELPERS ────────────────────────────────────────────
+let _loginProjects = [];
+let _loginTours = {};
 
 async function loadLoginProjects(){
-  const projSel = document.getElementById('login-project');
-  if(!projSel) return;
-  projSel.innerHTML='<option value="">Lädt…</option>';
   try{
     const snap = await getDocs(collection(db,'projects'));
-    allProjects = snap.docs.map(d=>({id:d.id,...d.data()}));
-    allProjects.forEach(p=>{ allProjectData[p.id]=p; });
-
-    // Pre-load tours for each project
-    for(const proj of allProjects){
-      const toursSnap = await getDocs(collection(db,'projects',proj.id,'tours'));
-      allProjectTours[proj.id] = toursSnap.docs.map(d=>({id:d.id,...d.data()}));
+    _loginProjects = snap.docs.map(d=>({id:d.id,...d.data()}));
+    const sel = document.getElementById('login-project');
+    sel.innerHTML='<option value="">– Projekt wählen –</option>'+
+      _loginProjects.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+    if(_loginProjects.length===1){
+      sel.value=_loginProjects[0].id;
+      onLoginProjectChange();
     }
-
-    if(allProjects.length===0){
-      projSel.innerHTML='<option value="">Keine Projekte vorhanden</option>';
-    } else {
-      projSel.innerHTML='<option value="">– Projekt wählen –</option>'+
-        allProjects.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
-      // Auto-select if only one project
-      if(allProjects.length===1){
-        projSel.value=allProjects[0].id;
-        onProjectChange();
-      }
-    }
-  }catch(e){
-    console.error('loadLoginProjects error:',e);
-    projSel.innerHTML='<option value="">Fehler beim Laden</option>';
-  }
+  }catch(e){ console.error(e); }
 }
 
-function onProjectChange(){
+async function onLoginProjectChange(){
   const pid = document.getElementById('login-project').value;
-  document.getElementById('login-tour-group').style.display='none';
-  document.getElementById('login-name-group').style.display='none';
-  if(!pid) return;
-
-  const tours = allProjectTours[pid]||[];
-
-  if(loginMode==='bewaesserung'){
-    // Collect all unique drivers from all tours in this project
-    const drivers = [...new Set(tours.flatMap(t=>t.drivers||[]))].sort();
-    const nameSel = document.getElementById('login-name');
-    const hint = document.getElementById('login-name-hint');
-    if(drivers.length===0){
-      nameSel.innerHTML='<option value="">Kein Fahrer hinterlegt</option>';
-      hint.style.display='block';
-    } else {
-      hint.style.display='none';
-      nameSel.innerHTML='<option value="">– Name wählen –</option>'+
-        drivers.map(n=>`<option value="${n}">${n}</option>`).join('');
-    }
-    document.getElementById('login-name-group').style.display='block';
-    // Also pre-load tour list (shown after name selection)
-    const tourSel = document.getElementById('login-tour');
-    tourSel.innerHTML='<option value="">– Tour wählen –</option>'+
-      tours.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
-  } else {
-    loadNamesForProject(pid);
-  }
-}
-
-function onNameChange(){
-  if(loginMode!=='bewaesserung') return;
-  const pid  = document.getElementById('login-project').value;
-  const name = document.getElementById('login-name').value;
-
-  const tours = allProjectTours[pid]||[];
-  const myTours = name ? tours.filter(t=>(t.drivers||[]).includes(name)) : [];
-  const showTours = myTours.length>0 ? myTours : tours;
-
   const tourSel = document.getElementById('login-tour');
-  const hint    = document.getElementById('login-tour-hint');
-
-  if(showTours.length===0){
-    tourSel.innerHTML='<option value="">Keine Touren vorhanden</option>';
-    hint.style.display='block';
-  } else {
-    hint.style.display='none';
-    tourSel.innerHTML='<option value="">– Tour wählen –</option>'+
-      showTours.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
-    if(showTours.length===1) tourSel.value=showTours[0].id;
+  const nameSel = document.getElementById('login-name');
+  tourSel.innerHTML='<option value="">– Projekt wählen –</option>';
+  nameSel.innerHTML='<option value="">– Tour wählen –</option>';
+  if(!pid) return;
+  const snap = await getDocs(collection(db,'projects',pid,'tours'));
+  _loginTours[pid] = snap.docs.map(d=>({id:d.id,...d.data()}));
+  tourSel.innerHTML='<option value="">– Tour wählen –</option>'+
+    _loginTours[pid].map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
+  if(_loginTours[pid].length===1){
+    tourSel.value=_loginTours[pid][0].id;
+    onLoginTourChange();
   }
-  document.getElementById('login-tour-group').style.display='block';
 }
 
-function onTourChange(){ /* handled by doLogin */ }
-
-async function loadNamesForProject(pid){
-  const projSnap = await getDoc(doc(db,'projects',pid));
-  const erfasser = projSnap.data()?.erfasser||[];
+function onLoginTourChange(){
+  const pid = document.getElementById('login-project').value;
+  const tid = document.getElementById('login-tour').value;
   const nameSel = document.getElementById('login-name');
   const hint = document.getElementById('login-name-hint');
-  if(erfasser.length===0){
-    nameSel.innerHTML='<option value="">Kein Erfasser hinterlegt</option>';
+  nameSel.innerHTML='<option value="">– Tour wählen –</option>';
+  if(!tid) return;
+  const tours = _loginTours[pid]||[];
+  const tour = tours.find(t=>t.id===tid);
+  const drivers = tour?.drivers||[];
+  if(drivers.length===0){
+    nameSel.innerHTML='<option value="">Kein Fahrer hinterlegt</option>';
     hint.style.display='block';
   } else {
     hint.style.display='none';
     nameSel.innerHTML='<option value="">– Name wählen –</option>'+
-      erfasser.map(n=>`<option value="${n}">${n}</option>`).join('');
+      drivers.map(n=>`<option value="${n}">${n}</option>`).join('');
+    if(drivers.length===1) nameSel.value=drivers[0];
   }
-  document.getElementById('login-name-group').style.display='block';
 }
 
 // ─── OFFLINE MANAGER ─────────────────────────────────────────
@@ -2102,6 +1951,7 @@ async function tryResumeSession() {
   if(!saved){
     if(loadingEl) loadingEl.style.display='none';
     if(loginEl)   loginEl.classList.add('active');
+    loadLoginProjects();
     return;
   }
 
@@ -2114,6 +1964,7 @@ async function tryResumeSession() {
       localStorage.removeItem('bwt_mobile_session');
       if(loadingEl) loadingEl.style.display='none';
       if(loginEl)   loginEl.classList.add('active');
+      loadLoginProjects();
       return;
     }
 
@@ -2149,6 +2000,7 @@ async function tryResumeSession() {
     localStorage.removeItem('bwt_mobile_session');
     if(loadingEl) loadingEl.style.display='none';
     if(loginEl)   loginEl.classList.add('active');
+    loadLoginProjects();
   }
 }
 
