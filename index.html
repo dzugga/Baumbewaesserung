@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v5.4 -->
+<!-- v5.5 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -597,7 +597,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     </div>
 
     <!-- KPI Cards -->
-    <div id="ctrl-kpis" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;position:sticky;top:0;z-index:10;background:var(--bg);padding:10px 0 6px;margin-top:-8px;"></div>
+    <div id="ctrl-kpis" style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px;position:sticky;top:0;z-index:10;background:var(--bg);padding:10px 0 6px;margin-top:-8px;"></div>
 
     <!-- Charts: kompakt 2x2 -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
@@ -2645,20 +2645,32 @@ function renderControlling(){
   // For KPI counters: use current status if set, else look at today's history
   const today=new Date().toISOString().slice(0,10);
   // KPIs: count unique trees reported in range (from current status + history)
-  const reportedTreeIds=new Set(allReported.map(r=>r.id));
+  // ── Unique tree counts (a tree reported multiple times counts once) ──
+  // For KPIs: count unique trees by their LATEST status in period
+  const treeStatusMap=new Map(); // treeId → latest status
+  // Process allReported sorted oldest→newest so latest wins
+  const sortedForKpi=[...allReported].sort((a,b)=>(a.lastReportAt||'').localeCompare(b.lastReportAt||''));
+  sortedForKpi.forEach(r=>{ if(r.id) treeStatusMap.set(r.id, r.lastStatus); });
+
+  const uniqueBewaessert=[...treeStatusMap.entries()].filter(([,s])=>s==='bewaessert').length;
+  const uniqueNicht=[...treeStatusMap.entries()].filter(([,s])=>s==='nicht').length;
+  const reportedTreeIds=new Set(treeStatusMap.keys());
+  const offen=filtered.filter(t=>!reportedTreeIds.has(t.id));
+
+  // For charts: use allReported (all history entries) for accurate totals
   const bewaessert=allReported.filter(r=>r.lastStatus==='bewaessert');
   const nicht=allReported.filter(r=>r.lastStatus==='nicht');
-  const offen=filtered.filter(t=>!reportedTreeIds.has(t.id));
-  const totalReported=bewaessert.length+nicht.length;
-  const pct=filtered.length>0?Math.round(bewaessert.length/filtered.length*100):0;
+  const totalReported=uniqueBewaessert+uniqueNicht;
+  const pct=filtered.length>0?Math.round(uniqueBewaessert/filtered.length*100):0;
 
   // ── KPI Cards ─────────────────────────────────────────────────
   const activeFahrer=[...new Set(allReported.map(r=>r.lastDriver).filter(Boolean))].length;
   const kpiEl=document.getElementById('ctrl-kpis');
   if(kpiEl) kpiEl.innerHTML=[
     {val:filtered.length,lbl:'Gesamt',sub:'Bäume im Filter',color:'var(--text)'},
-    {val:bewaessert.length,lbl:'Bewässert',sub:`${pct}% erledigt`,color:'#16a34a'},
-    {val:nicht.length,lbl:'Nicht bewässert',sub:'im Zeitraum',color:'var(--red)'},
+    {val:uniqueBewaessert,lbl:'Bewässert',sub:`${pct}% der Bäume`,color:'#16a34a'},
+    {val:uniqueNicht,lbl:'Nicht bewässert',sub:'eindeutige Bäume',color:'var(--red)'},
+    {val:allReported.length,lbl:'Meldungen gesamt',sub:'inkl. Wiederholungen',color:'var(--text2)'},
     {val:activeFahrer,lbl:'Aktive Fahrer',sub:'im Zeitraum',color:'var(--blue)'},
   ].map(k=>`<div class="kpi-card">
     <div class="kpi-val" style="color:${k.color};">${k.val}</div>
@@ -2672,7 +2684,10 @@ function renderControlling(){
   // Charts use finalReported so status filter applies everywhere
   const finalBew=finalReported.filter(r=>r.lastStatus==='bewaessert').length;
   const finalNicht=finalReported.filter(r=>r.lastStatus==='nicht').length;
-  renderPieChart(finalBew,finalNicht);
+  // Charts: use unique tree counts for pie, all reports for bar/timeline
+  const finalUniqBew=statusFilter==='nicht'?0:[...new Set(finalReported.filter(r=>r.lastStatus==='bewaessert').map(r=>r.id))].length;
+  const finalUniqNicht=statusFilter==='bewaessert'?0:[...new Set(finalReported.filter(r=>r.lastStatus==='nicht').map(r=>r.id))].length;
+  renderPieChart(finalUniqBew,finalUniqNicht);
   renderBarChart(filtered,finalReported);
   renderTimelineChart(filtered,from,to);
   renderStadtteilChart(filtered,finalReported);
