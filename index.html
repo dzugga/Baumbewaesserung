@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v5.7 -->
+<!-- v5.8 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -2595,9 +2595,10 @@ function renderControlling(){
     if(tree.lastStatus&&tree.lastStatus!=='offen'&&tree.lastReportAt){
       const d=tree.lastReportAt.slice?tree.lastReportAt.slice(0,10):tree.lastReportAt;
       if(inCtrlRange(d)){
-        const key=`${tree.id}_${d}_${tree.lastStatus}_${tree.lastDriver||''}`;
-        if(!seen.has(key)){
-          seen.add(key);
+        // Current status: only add if not already covered by history entry
+        const curKey=`cur_${tree.id}_${d}_${tree.lastStatus}_${tree.lastDriver||''}`;
+        if(!seen.has(curKey)){
+          seen.add(curKey);
           allReported.push({...tree,_fromHistory:false,_projectName:currentProjectData?.name||currentProjectId});
         }
       }
@@ -2609,13 +2610,10 @@ function renderControlling(){
       if(!h.date||!inCtrlRange(h.date))return;
       if(!h.status||h.status==='offen')return; // skip open entries
       // Use date+status+driver as key to allow same tree same day different drivers
-      // Unique per tree+date+status+driver+tourId combination
-      // This ensures same tree reported in multiple tour runs on same day both appear
-      const driverKey=h.driver||h.closedBy||'';
-      const tourKey=h.tourId||currentTourId||'';
-      const key=`${tree.id}_${h.date}_${h.status}_${driverKey}_${tourKey}`;
-      if(seen.has(key))return;
-      seen.add(key);
+      // Use index-based key to allow ALL history entries (no false deduplication)
+      const entryKey=`hist_${tree.id}_${h.date}_${h.status||''}_${h.driver||''}_${h.tourId||''}_${allReported.length}`;
+      if(seen.has(entryKey))return;
+      seen.add(entryKey);
       allReported.push({
         ...tree,
         _fromHistory:true,
