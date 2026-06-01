@@ -221,6 +221,10 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
       <div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
     </div>
     <div id="header-count" style="font-size:13px;font-weight:600;color:var(--text2);white-space:nowrap;"></div>
+    <div id="network-badge" style="display:none;background:#991b1b;color:#fff;border-radius:20px;padding:4px 10px;font-size:11px;font-weight:600;align-items:center;gap:4px;white-space:nowrap;">
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55M5 12.55a10.94 10.94 0 0 1 5.17-2.39M10.71 5.05A16 16 0 0 1 22.56 9M1.42 9a15.91 15.91 0 0 1 4.7-2.88M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg>
+      Offline
+    </div>
     <button class="btn btn-secondary btn-sm" onclick="doLogout()" style="padding:6px 10px;">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
     </button>
@@ -548,13 +552,20 @@ async function doLogin() {
   document.getElementById('header-tour-name').textContent = currentTour.name;
   document.getElementById('header-driver').textContent = `Fahrer: ${name}`;
 
+  // Cache trees locally for offline use
+  cacheTreesLocally(pid, tid, trees);
+
   renderMarkers();
   renderList('');
   updateProgress();
+  updateNetworkBadge();
   // Map will be fitted to tour bounds after load (see fitBounds above)
   setTimeout(()=>map.invalidateSize(),100);
   startGPS();
   drawRoute();
+
+  // Sync any pending offline reports
+  if(isOnline) syncOfflineQueue();
 
   // If tour was closed → ask immediately after login
   if(currentTour?.status === 'abgeschlossen'){
@@ -577,6 +588,7 @@ async function doLogin() {
       .filter(t=>t.tourId===tid);
     routeOrder = routeOrder.filter(id=>trees.find(t=>t.id===id));
     trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
+    cacheTreesLocally(pid, tid, trees);
     renderMarkers();
     renderList(document.getElementById('list-search-input')?.value||'');
     updateProgress();
@@ -710,6 +722,7 @@ async function dialogNeuStarten(){
       .filter(t=>t.tourId===currentTourId);
     routeOrder = routeOrder.filter(id=>trees.find(t=>t.id===id));
     trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
+    cacheTreesLocally(pid, tid, trees);
     renderMarkers();
     renderList(document.getElementById('list-search-input')?.value||'');
     updateProgress();
@@ -1402,17 +1415,27 @@ async function saveReport(id){
   };
   if(status==='bewaessert') updates.datum=new Date().toISOString().slice(0,10);
 
-  try{
-    await updateDoc(doc(db,'projects',currentProjectId,'trees',id),updates);
-    // Log to history
-    const history=[...(tree.history||[]),{
-      date:new Date().toISOString().slice(0,10),
-      note:`${status==='bewaessert'?'Bewässert':'Nicht bewässert'}${reason?' — '+reason:''}${note?' ('+note+')':''}`,
-      driver:currentDriver
-    }];
-    await updateDoc(doc(db,'projects',currentProjectId,'trees',id),{history});
+  const histEntry = {
+    date:new Date().toISOString().slice(0,10),
+    note:`${status==='bewaessert'?'Bewässert':'Nicht bewässert'}${reason?' — '+reason:''}${note?' ('+note+')':''}`,
+    driver:currentDriver
+  };
+  const historyUpdates = {...updates, history:[...(tree.history||[]),histEntry]};
+
+  // Update local tree state immediately
+  Object.assign(tree, updates);
+  renderMarkers(); renderList(''); updateProgress();
+
+  if(!isOnline){
+    // Queue for later sync
+    addToOfflineQueue(id, historyUpdates);
     closeSheet();
-    toast(status==='bewaessert'?'✓ Bewässert gemeldet':'✕ Nicht bewässert gemeldet');
+    toast('📦 Offline gespeichert — wird synchronisiert wenn Netz verfügbar');
+  } else {
+    try{
+      await updateDoc(doc(db,'projects',currentProjectId,'trees',id), historyUpdates);
+      closeSheet();
+      toast(status==='bewaessert'?'✓ Bewässert gemeldet':'✕ Nicht bewässert gemeldet');
     // Auto-advance to next
     setTimeout(()=>{
       const nextIdx=getNextIdx();
@@ -1443,6 +1466,115 @@ function toast(msg){
 }
 
 // ─── GLOBALS ──────────────────────────────────────────────────
+// ─── OFFLINE MANAGER ─────────────────────────────────────────
+const CACHE_KEY = 'bwt_offline_trees';
+const QUEUE_KEY = 'bwt_offline_queue';
+let isOnline = navigator.onLine;
+let syncInProgress = false;
+
+// Network status monitoring
+window.addEventListener('online', ()=>{
+  isOnline = true;
+  updateNetworkBadge();
+  syncOfflineQueue();
+});
+window.addEventListener('offline', ()=>{
+  isOnline = false;
+  updateNetworkBadge();
+  toast('⚠ Kein Netz — Meldungen werden lokal gespeichert');
+});
+
+function updateNetworkBadge(){
+  const badge = document.getElementById('network-badge');
+  if(!badge) return;
+  if(isOnline){
+    badge.style.display = 'none';
+  } else {
+    badge.style.display = 'flex';
+    const q = getOfflineQueue();
+    badge.textContent = q.length > 0 ? `Offline · ${q.length} ausstehend` : 'Offline';
+  }
+}
+
+// ── Local tree cache ──────────────────────────────────────────
+function cacheTreesLocally(projectId, tourId, treesData){
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({
+      projectId, tourId,
+      trees: treesData,
+      cachedAt: new Date().toISOString()
+    }));
+  } catch(e){ console.warn('Cache write failed:', e); }
+}
+
+function loadCachedTrees(projectId, tourId){
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if(!raw) return null;
+    const data = JSON.parse(raw);
+    if(data.projectId === projectId && data.tourId === tourId){
+      return data.trees;
+    }
+  } catch(e){}
+  return null;
+}
+
+// ── Offline queue ─────────────────────────────────────────────
+function getOfflineQueue(){
+  try { return JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]'); }
+  catch(e){ return []; }
+}
+
+function addToOfflineQueue(treeId, updates){
+  const q = getOfflineQueue();
+  // Replace existing entry for same tree (latest wins)
+  const idx = q.findIndex(e=>e.treeId===treeId);
+  const entry = { treeId, updates, projectId: currentProjectId, queuedAt: new Date().toISOString() };
+  if(idx>=0) q[idx] = entry;
+  else q.push(entry);
+  localStorage.setItem(QUEUE_KEY, JSON.stringify(q));
+  updateNetworkBadge();
+}
+
+function clearOfflineQueue(){
+  localStorage.removeItem(QUEUE_KEY);
+  updateNetworkBadge();
+}
+
+async function syncOfflineQueue(){
+  if(syncInProgress || !isOnline) return;
+  const q = getOfflineQueue();
+  if(q.length === 0) return;
+
+  syncInProgress = true;
+  const badge = document.getElementById('network-badge');
+  if(badge){ badge.style.display='flex'; badge.textContent=`Synchronisiert ${q.length}…`; }
+
+  let synced = 0;
+  const failed = [];
+
+  for(const entry of q){
+    try {
+      await updateDoc(
+        doc(db,'projects',entry.projectId,'trees',entry.treeId),
+        entry.updates
+      );
+      synced++;
+    } catch(e){
+      console.warn('Sync failed for', entry.treeId, e);
+      failed.push(entry);
+    }
+  }
+
+  localStorage.setItem(QUEUE_KEY, JSON.stringify(failed));
+  syncInProgress = false;
+
+  if(synced > 0){
+    toast(`✓ ${synced} Meldung${synced>1?'en':''} synchronisiert`);
+  }
+  updateNetworkBadge();
+}
+
 Object.assign(window,{
   doLogin,doLogout,switchTab,openSheet,closeSheet,
   selectStatus,saveReport,goToNextTree,recalcFromGPS,
