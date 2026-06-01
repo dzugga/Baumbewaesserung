@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v5.3 -->
+<!-- v5.4 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -2556,6 +2556,7 @@ function getCtrlFilteredTrees(){
 }
 
 function renderControlling(){
+  if(!currentProjectId){ document.getElementById('ctrl-kpis').innerHTML='<div style="padding:20px;color:var(--text3);">Bitte zuerst ein Projekt öffnen.</div>'; return; }
   const filtered=getCtrlFilteredTrees();
   const {from,to}=getCtrlDateRange();
 
@@ -2597,7 +2598,7 @@ function renderControlling(){
         const key=`${tree.id}_${d}_${tree.lastStatus}_${tree.lastDriver||''}`;
         if(!seen.has(key)){
           seen.add(key);
-          allReported.push({...tree,_fromHistory:false});
+          allReported.push({...tree,_fromHistory:false,_projectName:currentProjectData?.name||currentProjectId});
         }
       }
     // Trees with status but no date: skip from Einzelmeldungen (no date = no proof)
@@ -2622,7 +2623,8 @@ function renderControlling(){
         lastReason:h.reason||null,
         lastNote:h.note||null,
         lastDriver:h.driver||h.closedBy||null,
-        lastReportAt:h.date, // date only, no time
+        lastReportAt:h.date,
+        _projectName:currentProjectData?.name||currentProjectId,
       });
     });
   });
@@ -2822,7 +2824,7 @@ function renderDetailTable(reported,skipCache){
   const count=document.getElementById('ctrl-table-count');
   if(!head||!body)return;
 
-  const cols=['#','Anlage/Straße','Baumnr.','Stadtteil','Tour','Status','Grund','Fahrer','Datum',''];
+  const cols=['#','Projekt','Anlage/Straße','Baumnr.','Stadtteil','Tour','Status','Grund','Fahrer','Datum',''];
   head.innerHTML=cols.map(h=>`<th style="padding:8px 12px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);white-space:nowrap;">${h}</th>`).join('');
   if(count) count.textContent=`${reported.length} Meldungen`;
 
@@ -2859,6 +2861,7 @@ function renderDetailTable(reported,skipCache){
     const rowBg=tree._fromHistory?'background:var(--surface2);':'';
     return `<tr style="border-top:1px solid var(--border);${rowBg}" onmouseenter="this.style.background='#f0ede6'" onmouseleave="this.style.background='${tree._fromHistory?'var(--surface2)':''}'"  >
       <td style="padding:8px 12px;font-size:11px;color:var(--text3);font-family:monospace;">${idx+1}</td>
+      <td style="padding:8px 12px;font-size:11px;font-weight:600;color:var(--green);white-space:nowrap;">${tree._projectName||currentProjectData?.name||'–'}</td>
       <td style="padding:8px 12px;font-size:12px;font-weight:500;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${tree.name||''}">${tree.name||'–'}</td>
       <td style="padding:8px 12px;font-size:11px;color:var(--text2);font-family:monospace;white-space:nowrap;">${tree.baumnr||'–'}</td>
       <td style="padding:8px 12px;font-size:12px;color:var(--text2);white-space:nowrap;">${tree.stadtteil||'–'}</td>
