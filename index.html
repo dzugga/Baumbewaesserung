@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v7.2 -->
+<!-- v7.3 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -530,6 +530,19 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
           <input class="form-control" id="new-reason-mgmt" placeholder="Neuen Grund eingeben…" style="flex:1;" onkeydown="if(event.key==='Enter')addReasonMgmt()">
           <button class="btn btn-primary" style="white-space:nowrap;" onclick="addReasonMgmt()">+ Hinzufügen</button>
         </div>
+      </div>
+    </div>
+
+    <!-- Erfasser -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;">
+        <span style="font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;">Erfasser</span>
+        <span style="font-size:11px;color:var(--text3);">Mitarbeiter für die Baumerfassung</span>
+      </div>
+      <div id="erfasser-list" style="padding:8px 0;min-height:40px;"></div>
+      <div style="padding:8px 16px 12px;display:flex;gap:8px;">
+        <input class="form-control" id="new-erfasser-input" placeholder="Name des Erfassers…" style="flex:1;" onkeydown="if(event.key==='Enter')addErfasser()">
+        <button class="btn btn-primary" style="white-space:nowrap;" onclick="addErfasser()">+ Hinzufügen</button>
       </div>
     </div>
 
@@ -2302,6 +2315,7 @@ function notify(msg){
 let reasons=[];
 
 async function initVerwaltung(){
+  loadErfasser();
   if(!currentProjectId)return;
   await loadReasons();
   // Auto-seed standard reasons if none exist yet
@@ -3523,8 +3537,42 @@ map.on('contextmenu',e=>{
   setTimeout(()=>document.addEventListener('click',closeCtxMenu),10);
 });
 
+async function loadErfasser(){
+  if(!currentProjectId)return;
+  const el=document.getElementById('erfasser-list');
+  if(!el)return;
+  const projSnap=await getDoc(doc(db,'projects',currentProjectId));
+  const erfasser=projSnap.data()?.erfasser||[];
+  el.innerHTML=erfasser.length===0
+    ?'<div style="padding:10px 16px;font-size:13px;color:var(--text3);">Noch keine Erfasser hinterlegt.</div>'
+    :erfasser.map(n=>`<div style="padding:8px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);">
+        <span style="font-size:13px;">${n}</span>
+        <button onclick="removeErfasser('${n}')" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:13px;">×</button>
+      </div>`).join('');
+}
+
+async function addErfasser(){
+  const input=document.getElementById('new-erfasser-input');
+  const name=input.value.trim();
+  if(!name)return;
+  const projSnap=await getDoc(doc(db,'projects',currentProjectId));
+  const erfasser=[...(projSnap.data()?.erfasser||[])];
+  if(erfasser.includes(name)){notify('Name bereits vorhanden');return;}
+  erfasser.push(name);
+  await updateDoc(doc(db,'projects',currentProjectId),{erfasser});
+  input.value='';
+  loadErfasser();
+}
+
+async function removeErfasser(name){
+  const projSnap=await getDoc(doc(db,'projects',currentProjectId));
+  const erfasser=(projSnap.data()?.erfasser||[]).filter(n=>n!==name);
+  await updateDoc(doc(db,'projects',currentProjectId),{erfasser});
+  loadErfasser();
+}
+
 Object.assign(window,{
-  saveInlineFields,filterDetailTable,filterBaeumeTable,saveHistoryEdits,deleteHistoryEntry,refreshControlling,setAutoRefresh,loadTourHistoryForControlling,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
+  saveInlineFields,filterDetailTable,filterBaeumeTable,saveHistoryEdits,deleteHistoryEntry,refreshControlling,setAutoRefresh,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,
   createProject,openProject,showProjectScreen,
   switchView,openDetail,closePanel,logWatering,

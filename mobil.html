@@ -180,31 +180,60 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22V12"/><path d="M12 12C12 12 7 9 7 5a5 5 0 0 1 10 0c0 4-5 7-5 7z"/></svg>
       Baumbewässerung
     </div>
-    <div class="login-sub">Fahrer-App</div>
-    <div class="form-group">
-      <label class="form-label">Projekt</label>
-      <select class="form-control" id="login-project">
-        <option value="">Wird geladen…</option>
-      </select>
+    <div class="login-sub">Mitarbeiter-App</div>
+
+    <!-- Step 0: Modus-Auswahl -->
+    <div id="login-step-mode">
+      <div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:12px;text-align:center;">Was möchtest du heute tun?</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:4px;">
+        <button onclick="selectLoginMode('bewaesserung')" id="mode-btn-bew"
+          style="padding:16px 10px;border-radius:12px;border:2px solid var(--green);background:var(--green);color:#fff;font-size:13px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22a8 8 0 0 1-8-8c0-4.5 8-13 8-13s8 8.5 8 13a8 8 0 0 1-8 8z"/></svg>
+          Bewässerung
+          <span style="font-size:10px;font-weight:400;opacity:.85;">Tour abarbeiten</span>
+        </button>
+        <button onclick="selectLoginMode('erfassung')" id="mode-btn-erf"
+          style="padding:16px 10px;border-radius:12px;border:2px solid var(--border);background:var(--surface2);color:var(--text2);font-size:13px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+          Erfassung
+          <span style="font-size:10px;font-weight:400;opacity:.85;">Bäume erfassen</span>
+        </button>
+      </div>
     </div>
-    <div class="form-group">
-      <label class="form-label">Deine Tour</label>
-      <select class="form-control" id="login-tour">
-        <option value="">– Projekt wählen –</option>
-      </select>
+
+    <!-- Step 1: Name -->
+    <div id="login-step-details" style="display:none;">
+      <div id="login-mode-badge" style="text-align:center;margin-bottom:14px;">
+        <span id="login-mode-label" style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;background:var(--green-light);color:var(--green);"></span>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Dein Name</label>
+        <select class="form-control" id="login-name" onchange="onNameChange()">
+          <option value="">– Name wählen –</option>
+        </select>
+        <div id="login-name-hint" style="font-size:11px;color:var(--text3);margin-top:4px;display:none;">Kein Mitarbeiter hinterlegt — bitte im Desktop einrichten.</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Projekt</label>
+        <select class="form-control" id="login-project" onchange="onProjectChange()">
+          <option value="">– Wird geladen… –</option>
+        </select>
+      </div>
+      <!-- Tour: nur bei Bewässerung -->
+      <div class="form-group" id="login-tour-group" style="display:none;">
+        <label class="form-label">Tour</label>
+        <select class="form-control" id="login-tour">
+          <option value="">– Name & Projekt wählen –</option>
+        </select>
+        <div id="login-tour-hint" style="font-size:11px;color:var(--text3);margin-top:4px;display:none;">Keine Touren für diesen Fahrer hinterlegt.</div>
+      </div>
+      <div id="login-error" style="color:var(--red);font-size:13px;margin-bottom:12px;display:none;"></div>
+      <button class="btn btn-primary" onclick="doLogin()" id="login-submit-btn" style="width:100%;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        <span id="login-submit-label">Starten</span>
+      </button>
+      <button onclick="backToModeSelect()" style="width:100%;margin-top:8px;padding:10px;border:none;background:none;color:var(--text3);font-size:13px;cursor:pointer;">← Zurück</button>
     </div>
-    <div class="form-group">
-      <label class="form-label">Dein Name</label>
-      <select class="form-control" id="login-name">
-        <option value="">– Tour wählen –</option>
-      </select>
-      <div id="login-name-hint" style="font-size:11px;color:var(--text3);margin-top:4px;display:none;">Kein Fahrer hinterlegt — bitte im Desktop Verwaltung einrichten.</div>
-    </div>
-    <div id="login-error" style="color:var(--red);font-size:13px;margin-bottom:12px;display:none;"></div>
-    <button class="btn btn-primary" onclick="doLogin()">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-      Tour starten
-    </button>
   </div>
 </div>
 
@@ -548,15 +577,7 @@ function setLoadingStatus(msg) {
 
 async function loadProjects() {
   setLoadingStatus('Lade Projekte…');
-  const snap = await getDocs(collection(db, 'projects'));
-  const sel = document.getElementById('login-project');
-  sel.innerHTML = '<option value="">– Projekt wählen –</option>';
-  snap.docs.forEach(d => {
-    const opt = document.createElement('option');
-    opt.value = d.id; opt.textContent = d.data().name;
-    sel.appendChild(opt);
-  });
-  hideLoading();
+  // Now handled by loadAllNames() — keep stub for compat
 }
 
 // Store loaded tours for driver lookup
@@ -604,94 +625,41 @@ document.getElementById('login-tour').onchange = function() {
 
 async function doLogin() {
   const name = document.getElementById('login-name').value;
-  const pid = document.getElementById('login-project').value;
-  const tid = document.getElementById('login-tour').value;
+  const pid  = document.getElementById('login-project').value;
+  const tid  = document.getElementById('login-tour').value;
   const errEl = document.getElementById('login-error');
-  if (!name) { errEl.textContent = 'Bitte Fahrer auswählen.'; errEl.style.display = 'block'; return; }
-  if (!pid) { errEl.textContent = 'Bitte Projekt wählen.'; errEl.style.display = 'block'; return; }
-  if (!tid) { errEl.textContent = 'Bitte Tour wählen.'; errEl.style.display = 'block'; return; }
-  errEl.style.display = 'none';
+  errEl.style.display='none';
 
-  currentDriver = name;
-  currentProjectId = pid;
-  currentTourId = tid;
-
-  // Load tour
-  const tourSnap = await getDoc(doc(db, 'projects', pid, 'tours', tid));
-  currentTour = {id: tid, ...tourSnap.data()};
-
-  // Load reasons
-  await loadReasons();
-
-  // Load trees
-  await loadTrees();
-
-  // Load saved route order
-  try {
-    const routeSnap = await getDoc(doc(db, 'projects', pid, 'routes', tid));
-    if (routeSnap.exists() && routeSnap.data().orderIds) {
-      routeOrder = routeSnap.data().orderIds.filter(id => trees.find(t => t.id === id));
-      // Add any trees not in route
-      trees.forEach(t => { if (!routeOrder.includes(t.id)) routeOrder.push(t.id); });
-    } else {
-      routeOrder = trees.map(t => t.id);
-    }
-  } catch(e) { routeOrder = trees.map(t => t.id); }
-
-  // Save session for auto-resume
-  localStorage.setItem('bwt_mobile_session', JSON.stringify({
-    driver: name, projectId: pid, tourId: tid, savedAt: Date.now()
-  }));
-
-  // Show app
-  document.getElementById('screen-login').classList.remove('active');
-  document.getElementById('screen-app').classList.add('active');
-
-  document.getElementById('header-tour-name').textContent = currentTour.name;
-  document.getElementById('header-driver').textContent = `Fahrer: ${name}`;
-
-  // Cache trees locally for offline use
-  cacheTreesLocally(pid, tid, trees);
-
-  renderMarkers();
-  renderList('');
-  updateProgress();
-  updateNetworkBadge();
-  // Map will be fitted to tour bounds after load (see fitBounds above)
-  setTimeout(()=>map.invalidateSize(),100);
-  startGPS();
-  drawRoute();
-
-  // Sync any pending offline reports
-  if(isOnline) syncOfflineQueue();
-
-  // If tour was closed → ask immediately after login
-  if(currentTour?.status === 'abgeschlossen'){
-    setTimeout(()=>showResumeOrRestartDialog(), 600);
+  if(!name || !pid){
+    errEl.textContent='Bitte Name und Projekt ausfüllen.';
+    errEl.style.display='block';
+    return;
+  }
+  if(loginMode==='bewaesserung' && !tid){
+    errEl.textContent='Bitte eine Tour wählen.';
+    errEl.style.display='block';
+    return;
   }
 
-  // Auto-zoom to tour trees — all visible immediately
-  const treesWithCoords = trees.filter(t=>t.lat&&t.lng);
-  if(treesWithCoords.length > 1){
-    const bounds = L.latLngBounds(treesWithCoords.map(t=>[t.lat,t.lng]));
-    if(bounds.isValid()) map.fitBounds(bounds,{padding:[60,60],maxZoom:17,animate:true});
-  } else if(treesWithCoords.length===1){
-    map.setView([treesWithCoords[0].lat,treesWithCoords[0].lng],16,{animate:true});
+  // Erfassung mode — go directly to erfassung tab
+  if(loginMode==='erfassung'){
+    currentProjectId=pid;
+    currentDriver=name;
+    localStorage.setItem('bwt_mobile_session',JSON.stringify({
+      driver:name,projectId:pid,tourId:null,mode:'erfassung',savedAt:Date.now()
+    }));
+    document.getElementById('screen-login').classList.remove('active');
+    document.getElementById('screen-app').classList.add('active');
+    document.getElementById('app-header-tour').textContent='Erfassung';
+    document.getElementById('app-header-driver').textContent='Erfasser: '+name;
+    document.getElementById('tab-btn-map').style.display='none';
+    document.getElementById('tab-btn-list').style.display='none';
+    switchTab('erfassung');
+    return;
   }
 
-  // Live updates
-  unsubTrees = onSnapshot(collection(db,'projects',pid,'trees'), snap => {
-    if(pauseSnapshot) return;
-    trees = snap.docs.map(d=>({id:d.id,...d.data()}))
-      .filter(t=>t.tourId===tid);
-    routeOrder = routeOrder.filter(id=>trees.find(t=>t.id===id));
-    trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
-    cacheTreesLocally(pid, tid, trees);
-    renderMarkers();
-    renderList(document.getElementById('list-search-input')?.value||'');
-    updateProgress();
-    if(selectedTreeId) openSheet(selectedTreeId); // refresh if open
-  });
+  // Bewässerung mode — original flow
+  await startBewässerungLogin(name, pid, tid);
 }
 
 function doLogout() {
@@ -699,6 +667,101 @@ function doLogout() {
   localStorage.removeItem('bwt_mobile_session');
   location.reload();
 }
+
+async function startBewässerungLogin(name, pid, tid) {
+  // Original bewässerung login flow
+  const btn = document.querySelector('#login-submit-btn');
+  if(btn){ btn.disabled=true; btn.textContent='Lädt…'; }
+
+  try{
+    // Load project data
+    const projSnap = await getDoc(doc(db,'projects',pid));
+    if(!projSnap.exists()){ throw new Error('Projekt nicht gefunden'); }
+    currentProjectData = {id:pid,...projSnap.data()};
+    currentProjectId = pid;
+    currentTourId = tid;
+    currentDriver = name;
+
+    // Load tour data
+    const tourSnap = await getDoc(doc(db,'projects',pid,'tours',tid));
+    currentTour = tourSnap.exists() ? {id:tid,...tourSnap.data()} : null;
+
+    // Load trees for this tour
+    const treesSnap = await getDocs(collection(db,'projects',pid,'trees'));
+    trees = treesSnap.docs.map(d=>({id:d.id,...d.data()}))
+      .filter(t=>t.tourId===tid);
+    routeOrder = trees.map(t=>t.id);
+
+    // Load reasons
+    const reasonsSnap = await getDocs(collection(db,'projects',pid,'reasons'));
+    reasons = reasonsSnap.docs.map(d=>({id:d.id,...d.data()}));
+
+    // Save session
+    localStorage.setItem('bwt_mobile_session', JSON.stringify({
+      driver:name, projectId:pid, tourId:tid, mode:'bewaesserung', savedAt:Date.now()
+    }));
+
+    // Show app
+    document.getElementById('screen-login').classList.remove('active');
+    document.getElementById('screen-app').classList.add('active');
+    document.getElementById('app-header-tour').textContent = currentTour?.name||'Tour';
+    document.getElementById('app-header-driver').textContent = 'Fahrer: '+name;
+
+    // Show all tabs
+    ['tab-btn-map','tab-btn-list','tab-btn-erfassung'].forEach(id=>{
+      const el=document.getElementById(id);
+      if(el) el.style.display='';
+    });
+    switchTab('map');
+
+    // Cache trees
+    cacheTreesLocally(pid, tid, trees);
+
+    // Render
+    renderMarkers();
+    renderList('');
+    updateProgress();
+    updateNetworkBadge();
+    setTimeout(()=>map.invalidateSize(),100);
+
+    // Auto-zoom
+    const withCoords = trees.filter(t=>t.lat&&t.lng);
+    if(withCoords.length>1){
+      const bounds=L.latLngBounds(withCoords.map(t=>[t.lat,t.lng]));
+      if(bounds.isValid()) map.fitBounds(bounds,{padding:[60,60],maxZoom:17});
+    }
+
+    startGPS();
+    drawRoute();
+
+    // Subscribe to live updates
+    unsubTrees = onSnapshot(collection(db,'projects',pid,'trees'), snap=>{
+      if(pauseSnapshot)return;
+      trees=snap.docs.map(d=>({id:d.id,...d.data()})).filter(t=>t.tourId===tid);
+      routeOrder=routeOrder.filter(id=>trees.find(t=>t.id===id));
+      trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
+      cacheTreesLocally(pid,tid,trees);
+      renderMarkers();
+      renderList(document.getElementById('list-search-input')?.value||'');
+      updateProgress();
+      if(selectedTreeId) openSheet(selectedTreeId);
+    });
+
+    if(isOnline) syncOfflineQueue();
+
+    if(currentTour?.status==='abgeschlossen'){
+      setTimeout(()=>showResumeOrRestartDialog(),600);
+    }
+
+  }catch(e){
+    console.error(e);
+    const errEl=document.getElementById('login-error');
+    if(errEl){ errEl.textContent='Fehler: '+e.message; errEl.style.display='block'; }
+  }finally{
+    if(btn){ btn.disabled=false; btn.textContent='Tour starten'; }
+  }
+}
+
 
 async function loadTrees() {
   const snap = await getDocs(collection(db,'projects',currentProjectId,'trees'));
@@ -1568,6 +1631,82 @@ function toast(msg){
 }
 
 // ─── GLOBALS ──────────────────────────────────────────────────
+// ─── LOGIN MODE ──────────────────────────────────────────────
+let loginMode = 'bewaesserung';
+let allProjects = [];
+let allProjectTours = {};
+
+function selectLoginMode(mode){
+  loginMode = mode;
+  document.getElementById('login-step-mode').style.display='none';
+  document.getElementById('login-step-details').style.display='block';
+  const label = document.getElementById('login-mode-label');
+  if(mode==='bewaesserung'){
+    label.innerHTML='🌿 Bewässerung';
+    label.style.cssText='display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;background:var(--green-light);color:var(--green);';
+    document.getElementById('login-submit-label').textContent='Tour starten';
+  } else {
+    label.innerHTML='📍 Erfassung';
+    label.style.cssText='display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;background:#ede9fe;color:#5b21b6;';
+    document.getElementById('login-submit-label').textContent='Erfassung starten';
+  }
+  loadAllNames();
+}
+
+function backToModeSelect(){
+  document.getElementById('login-step-mode').style.display='block';
+  document.getElementById('login-step-details').style.display='none';
+}
+
+async function loadAllNames(){
+  const nameSel = document.getElementById('login-name');
+  nameSel.innerHTML='<option value="">Wird geladen…</option>';
+  try{
+    const snap = await getDocs(collection(db,'projects'));
+    allProjects = snap.docs.map(d=>({id:d.id,...d.data()}));
+    const names = new Set();
+    for(const proj of allProjects){
+      const toursSnap = await getDocs(collection(db,'projects',proj.id,'tours'));
+      allProjectTours[proj.id] = toursSnap.docs.map(d=>({id:d.id,...d.data()}));
+      allProjectTours[proj.id].forEach(t=>(t.drivers||[]).forEach(n=>names.add(n)));
+      if(loginMode==='erfassung')(proj.erfasser||[]).forEach(n=>names.add(n));
+    }
+    const sorted=[...names].sort();
+    nameSel.innerHTML='<option value="">– Name wählen –</option>'+
+      sorted.map(n=>`<option value="${n}">${n}</option>`).join('');
+    if(sorted.length===0) document.getElementById('login-name-hint').style.display='block';
+
+    const projSel=document.getElementById('login-project');
+    projSel.innerHTML='<option value="">– Projekt wählen –</option>'+
+      allProjects.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+  }catch(e){console.error(e);}
+}
+
+function onNameChange(){
+  document.getElementById('login-project').value='';
+  document.getElementById('login-tour').innerHTML='<option value="">– Projekt wählen –</option>';
+  document.getElementById('login-tour-group').style.display='none';
+}
+
+function onProjectChange(){
+  const name=document.getElementById('login-name').value;
+  const pid=document.getElementById('login-project').value;
+  if(!pid||loginMode==='erfassung') return;
+  const tours=allProjectTours[pid]||[];
+  const myTours=name?tours.filter(t=>(t.drivers||[]).includes(name)):tours;
+  const tourSel=document.getElementById('login-tour');
+  const hint=document.getElementById('login-tour-hint');
+  if(myTours.length===0){
+    tourSel.innerHTML='<option value="">Keine Touren verfügbar</option>';
+    hint.style.display='block';
+  } else {
+    hint.style.display='none';
+    tourSel.innerHTML='<option value="">– Tour wählen –</option>'+
+      myTours.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
+  }
+  document.getElementById('login-tour-group').style.display='block';
+}
+
 // ─── OFFLINE MANAGER ─────────────────────────────────────────
 const CACHE_KEY = 'bwt_offline_trees';
 const QUEUE_KEY = 'bwt_offline_queue';
@@ -1844,7 +1983,7 @@ async function saveNewTree(){
 }
 
 Object.assign(window,{
-  doLogin,doLogout,switchTab,setErfassungMode,loadErfassungList,erfassungSelectTree,confirmErfassungGPS,setErfGPS,saveNewTree,openSheet,closeSheet,
+  doLogin,doLogout,switchTab,setErfassungMode,selectLoginMode,backToModeSelect,onNameChange,onProjectChange,loadErfassungList,erfassungSelectTree,confirmErfassungGPS,setErfGPS,saveNewTree,openSheet,closeSheet,
   selectStatus,saveReport,goToNextTree,recalcFromGPS,
   renderList,toast,showFinishConfirm,closeFinishSheet,finishTour,reopenTour,
   showResumeOrRestartDialog,closeResumeDialog,dialogFortsetzen,dialogNeuStarten,
