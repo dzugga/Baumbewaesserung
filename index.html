@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v6.7 -->
+<!-- v7.1 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -281,23 +281,26 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 
     <!-- Tour legend inside sidebar -->
     <div id="tour-legend" style="border-bottom:1px solid var(--border);flex-shrink:0;display:none;"></div>
-    <!-- Route info inside sidebar — compact single line -->
-    <div id="sidebar-route-info" style="display:none;padding:6px 14px;border-bottom:1px solid var(--border);background:var(--green-light);flex-shrink:0;">
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-        <span id="sidebar-route-tour-name" style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.04em;flex-shrink:0;"></span>
-        <div style="display:flex;align-items:center;gap:12px;flex:1;">
-          <span style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:600;color:var(--green);">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
-            <span id="sidebar-route-km">–</span>
-          </span>
-          <span style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:600;color:var(--green);">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-            <span id="sidebar-route-time">–</span>
-          </span>
-          <span style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:600;color:var(--green);">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22V12"/><path d="M12 12C12 12 7 9 7 5a5 5 0 0 1 10 0c0 4-5 7-5 7z"/></svg>
-            <span id="sidebar-route-cnt">–</span>
-          </span>
+    <!-- Route info inside sidebar -->
+    <div id="sidebar-route-info" style="display:none;border-bottom:1px solid var(--border);background:var(--green-light);flex-shrink:0;">
+      <div style="padding:6px 14px 4px;display:flex;align-items:center;justify-content:space-between;">
+        <span id="sidebar-route-tour-name" style="font-size:10px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.05em;"></span>
+        <span id="sidebar-route-cnt" style="font-size:11px;color:var(--green);font-weight:600;"></span>
+      </div>
+      <div style="padding:0 14px 8px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
+        <!-- km -->
+        <div style="background:rgba(255,255,255,.6);border-radius:6px;padding:5px 8px;text-align:center;">
+          <div style="font-size:15px;font-weight:700;color:var(--green);line-height:1;" id="sidebar-route-km">–</div>
+          <div style="font-size:9px;color:var(--green);opacity:.7;margin-top:2px;text-transform:uppercase;letter-spacing:.04em;">Strecke</div>
+        </div>
+        <!-- Fahrzeit + Bewässerung + Gesamt -->
+        <div style="background:rgba(255,255,255,.6);border-radius:6px;padding:5px 8px;text-align:center;" id="sidebar-route-drive-box">
+          <div style="font-size:13px;font-weight:700;color:var(--green);line-height:1;" id="sidebar-route-drive">–</div>
+          <div style="font-size:9px;color:var(--green);opacity:.7;margin-top:2px;text-transform:uppercase;letter-spacing:.04em;">Fahrt</div>
+        </div>
+        <div style="background:rgba(255,255,255,.9);border-radius:6px;padding:5px 8px;text-align:center;border:1.5px solid var(--green-mid);">
+          <div style="font-size:13px;font-weight:700;color:var(--green);line-height:1;" id="sidebar-route-total">–</div>
+          <div style="font-size:9px;color:var(--green);opacity:.7;margin-top:2px;text-transform:uppercase;letter-spacing:.04em;">Gesamt</div>
         </div>
       </div>
     </div>
@@ -393,6 +396,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
             </button>
           </div>
           <div class="form-section" style="margin-top:18px;">Routing-Modus</div>
+          <div class="form-group">
+            <label class="form-label">⏱ Bewässerungsdauer pro Baum</label>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <input class="form-control" type="number" id="s-bew-duration" min="1" max="120" value="5" style="width:80px;" oninput="localStorage.setItem('bew_duration_min',this.value);updateRouteInfoBar();">
+              <span style="font-size:12px;color:var(--text3);">Minuten/Baum</span>
+            </div>
+          </div>
           <div class="form-group">
             <label class="form-label">Betriebshof als</label>
             <select class="form-control" id="s-depot-mode">
@@ -693,7 +703,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
           <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Beschreibung</th>
           <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Bäume</th>
           <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Strecke</th>
-          <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Fahrzeit</th>
+          <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Fahrzeit / Bew. / Gesamt</th>
           <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;width:200px;"></th>
         </tr>
       </thead>
@@ -902,6 +912,26 @@ function subscribeToProject(){
 // ─── PROJECT SETTINGS ─────────────────────────────────────────
 function getDepot(){ return currentProjectData?.depot||null; }
 function getOrsKey(){ return currentProjectData?.orsKey||localStorage.getItem('bwt_ors_key')||''; }
+function getBewDuration(){
+  return parseInt(localStorage.getItem('bew_duration_min'))||5;
+}
+
+function fmtBewTime(treeCount){
+  const mins=treeCount*getBewDuration();
+  const h=Math.floor(mins/60);
+  const m=mins%60;
+  return h>0?`${h}h ${m}min`:`${m} min`;
+}
+
+function fmtTotalTime(driveSec,treeCount){
+  const driveMin=Math.round(driveSec/60);
+  const bewMin=treeCount*getBewDuration();
+  const total=driveMin+bewMin;
+  const h=Math.floor(total/60);
+  const m=total%60;
+  return h>0?`${h}h ${m}min`:`${m} min`;
+}
+
 function getDepotMode(){ return currentProjectData?.depotMode||'round'; }
 
 async function saveProjectDepot(depot){
@@ -1225,11 +1255,16 @@ function updateRouteInfoBar(){
     const tour=tours.find(t=>t.id===activeTourOnMap);
     const cnt=trees.filter(t=>t.tourId===activeTourOnMap&&t.lat&&t.lng).length;
     const depot=getDepot();
-    txt.textContent=`${tour?.name||''} · ${cnt} Bäume · ${km.toFixed(1)} km · ${fmtDuration(durationSec)}${depot?' (inkl. Betriebshof)':''}`;
+    const _bewT=fmtBewTime(cnt);
+    const _totT=fmtTotalTime(durationSec,cnt);
+    txt.textContent=`${tour?.name||''} · ${cnt} Bäume · ${km.toFixed(1)} km · ${fmtDuration(durationSec)} Fahrt + ${_bewT} Bew. = ${_totT}${depot?' (inkl. Depot)':''}`;
     bar.classList.add('visible');
+    const bewTime=fmtBewTime(cnt);
+    const totalTime=fmtTotalTime(durationSec,cnt);
     document.getElementById('sidebar-route-tour-name').textContent=tour?.name||'';
     document.getElementById('sidebar-route-km').textContent=km.toFixed(1)+' km';
-    document.getElementById('sidebar-route-time').textContent=fmtDuration(durationSec);
+    document.getElementById('sidebar-route-drive').textContent=fmtDuration(durationSec);
+    document.getElementById('sidebar-route-total').textContent=totalTime;
     document.getElementById('sidebar-route-cnt').textContent=cnt+' Bäume';
     sidePanel.style.display='block';
   } else {
@@ -1980,6 +2015,7 @@ function openSettings(){
   document.getElementById('s-depot-lng').value=depot?.lng||'';
   document.getElementById('s-depot-mode').value=getDepotMode();
   document.getElementById('s-project-name').value=currentProjectData?.name||'';
+  document.getElementById('s-bew-duration').value=getBewDuration();
   loadReasons();
   renderDriverAssignment();
   const el=document.getElementById('depot-status');
@@ -2205,7 +2241,9 @@ function renderTourenGrid(){
     const schlecht=treesInTour.filter(t=>t.zustand==='schlecht').length;
     const rt=tourRoutes[tour.id];
     const km=rt?rt.km.toFixed(1)+' km':'–';
-    const zeit=rt&&rt.durationSec?fmtDuration(rt.durationSec):'–';
+    const driveZeit=rt&&rt.durationSec?fmtDuration(rt.durationSec):'–';
+    const bewZeit=rt?fmtBewTime(cnt):'–';
+    const gesamtZeit=rt&&rt.durationSec?fmtTotalTime(rt.durationSec,cnt):'–';
     const bar=cnt>0?`<div style="display:flex;height:6px;border-radius:3px;overflow:hidden;gap:1px;width:120px;">
       ${gut>0?`<div style="flex:${gut};background:var(--green);" title="${gut} gut"></div>`:''}
       ${mittel>0?`<div style="flex:${mittel};background:var(--amber);" title="${mittel} mittel"></div>`:''}
@@ -2218,7 +2256,11 @@ function renderTourenGrid(){
       <td style="padding:10px 16px;color:var(--text2);font-size:12px;">${tour.desc||'–'}</td>
       <td style="padding:10px 16px;text-align:right;font-weight:600;">${cnt}</td>
       <td style="padding:10px 16px;text-align:right;color:var(--text2);font-size:12px;">${km}</td>
-      <td style="padding:10px 16px;text-align:right;color:var(--text2);font-size:12px;">${zeit}</td>
+      <td style="padding:10px 16px;text-align:right;font-size:12px;">
+        <div style="color:var(--text2);">${driveZeit} <span style="color:var(--text3);font-size:10px;">Fahrt</span></div>
+        <div style="color:var(--text2);">${bewZeit} <span style="color:var(--text3);font-size:10px;">Bew.</span></div>
+        <div style="font-weight:600;color:var(--text);">${gesamtZeit} <span style="color:var(--text3);font-size:10px;">Gesamt</span></div>
+      </td>
       <td style="padding:10px 16px;">
         <div style="display:flex;gap:5px;justify-content:flex-end;align-items:center;">
           <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" data-action="karte" data-tid="${tour.id}">Karte</button>
