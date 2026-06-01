@@ -1679,6 +1679,9 @@ function backToModeSelect(){
 }
 
 async function loadLoginProjects(){
+  const projSel = document.getElementById('login-project');
+  if(!projSel) return;
+  projSel.innerHTML='<option value="">Lädt…</option>';
   try{
     const snap = await getDocs(collection(db,'projects'));
     allProjects = snap.docs.map(d=>({id:d.id,...d.data()}));
@@ -1690,10 +1693,21 @@ async function loadLoginProjects(){
       allProjectTours[proj.id] = toursSnap.docs.map(d=>({id:d.id,...d.data()}));
     }
 
-    const projSel = document.getElementById('login-project');
-    projSel.innerHTML='<option value="">– Projekt wählen –</option>'+
-      allProjects.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
-  }catch(e){ console.error('loadLoginProjects error:',e); }
+    if(allProjects.length===0){
+      projSel.innerHTML='<option value="">Keine Projekte vorhanden</option>';
+    } else {
+      projSel.innerHTML='<option value="">– Projekt wählen –</option>'+
+        allProjects.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+      // Auto-select if only one project
+      if(allProjects.length===1){
+        projSel.value=allProjects[0].id;
+        onProjectChange();
+      }
+    }
+  }catch(e){
+    console.error('loadLoginProjects error:',e);
+    projSel.innerHTML='<option value="">Fehler beim Laden</option>';
+  }
 }
 
 function onProjectChange(){
