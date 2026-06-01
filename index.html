@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v6.0 -->
+<!-- v6.1 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -1561,6 +1561,7 @@ function openDetail(id){
     <div class="status-bar" style="background:${statusBg};color:${statusColor};">${zLabel} — Zustand</div>
 
     <div class="form-section">Identifikation</div>
+    <div class="detail-field"><span class="detail-key">Baum-ID</span><span class="detail-val" style="font-family:monospace;font-weight:700;color:var(--green);">${tree.baumId||'–'}</span></div>
     <div class="detail-field"><span class="detail-key">Reihenfolge</span><span class="detail-val">${rNum!=null?`#${rNum} · ${tour?.name||'–'}`:'–'}</span></div>
     <div class="detail-field"><span class="detail-key">Baumnummer</span><span class="detail-val">${tree.baumnr||'–'}</span></div>
     <div class="detail-field"><span class="detail-key">Stadtteil</span><span class="detail-val">${tree.stadtteil||'–'}</span></div>
@@ -1719,9 +1720,13 @@ async function saveTree(){
       await updateDoc(doc(db,'projects',currentProjectId,'trees',editingTreeId),data);
       notify('Baum aktualisiert');
     } else {
-      await addDoc(collection(db,'projects',currentProjectId,'trees'),{...data,history:[],createdAt:serverTimestamp()});
-      // update project treeCount
-      await updateDoc(doc(db,'projects',currentProjectId),{treeCount:trees.length+1});
+      const baumId=await getNextBaumId();
+      await addDoc(collection(db,'projects',currentProjectId,'trees'),{
+        ...data,
+        baumId, // eindeutige fortlaufende ID z.B. B-00042
+        history:[],
+        createdAt:serverTimestamp()
+      });
       notify('Baum hinzugefügt');
     }
     routeCache={};closeTreeModal();
@@ -2052,6 +2057,7 @@ function renderBaeumeTable(){
 
   const cols=[
     {label:'#',        w:'40px'},
+    {label:'Baum-ID',  w:'80px'},
     {label:'Anlage / Straße', w:'200px'},
     {label:'Stadtteil',w:'110px'},
     {label:'Baumnr.',  w:'130px'},
@@ -2080,6 +2086,7 @@ function renderBaeumeTable(){
     const pzt=tree.pflanzzeitpunkt||'–';
     rows+=`<tr style="border-top:1px solid var(--border);transition:background .1s;cursor:pointer;" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''" data-treeid="${tree.id}">
       <td style="padding:8px 12px;font-family:'DM Mono',monospace;color:var(--text3);font-size:11px;white-space:nowrap;">${rNum!=null?'<b style=color:var(--green)>#'+rNum+'</b>':'–'}</td>
+      <td style="padding:8px 12px;font-family:'DM Mono',monospace;font-size:11px;font-weight:600;color:var(--green);white-space:nowrap;">${tree.baumId||'–'}</td>
       <td style="padding:8px 12px;font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${tree.name||''}">${tree.name||'–'}</td>
       <td style="padding:8px 12px;color:var(--text2);white-space:nowrap;">${tree.stadtteil||'–'}</td>
       <td style="padding:8px 12px;color:var(--text2);font-family:'DM Mono',monospace;font-size:11px;white-space:nowrap;">${tree.baumnr||'–'}</td>
@@ -2387,13 +2394,26 @@ async function importExcel(input){
       datum:'',tourId:'',history:[],
     };
     try{
-      await addDoc(collection(db,'projects',currentProjectId,'trees'),{...treeData,createdAt:serverTimestamp()});
+      const baumId=await getNextBaumId();
+      await addDoc(collection(db,'projects',currentProjectId,'trees'),{...treeData,baumId,createdAt:serverTimestamp()});
       imported++;
     }catch(e){skipped++;}
   }
   await updateDoc(doc(db,'projects',currentProjectId),{treeCount:trees.length+imported});
   input.value='';
   notify(`✓ ${imported} Bäume importiert${skipped>0?' ('+skipped+' übersprungen)':''}`);
+}
+
+// ─── BAUM ID ──────────────────────────────────────────────────
+async function getNextBaumId(){
+  // Read current counter from project, increment atomically
+  const projRef=doc(db,'projects',currentProjectId);
+  const projSnap=await getDoc(projRef);
+  const current=projSnap.data()?.lastBaumId||0;
+  const next=current+1;
+  await updateDoc(projRef,{lastBaumId:next});
+  // Format: B-00001, B-00002, ...
+  return 'B-'+String(next).padStart(5,'0');
 }
 
 // ─── CONTROLLING ─────────────────────────────────────────────
