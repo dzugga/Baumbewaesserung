@@ -1993,33 +1993,62 @@ Object.assign(window,{
 // ── SESSION RESUME ───────────────────────────────────────────
 // Try to restore last session so driver doesn't have to log in every time
 async function tryResumeSession() {
+  // Always show login screen first — hide loading screen
+  const loadingEl = document.getElementById('screen-loading');
+  const loginEl   = document.getElementById('screen-login');
+
   const saved = localStorage.getItem('bwt_mobile_session');
-  if(!saved) { loadProjects(); return; }
-  try {
+  if(!saved){
+    if(loadingEl) loadingEl.style.display='none';
+    if(loginEl)   loginEl.classList.add('active');
+    return;
+  }
+
+  try{
     const session = JSON.parse(saved);
-    const {driver, projectId, tourId, savedAt} = session;
-    // Session valid for 12 hours
-    if(Date.now() - savedAt > 12*3600*1000) { localStorage.removeItem('bwt_mobile_session'); loadProjects(); return; }
+    const {driver, projectId, tourId, savedAt, mode} = session;
+
+    // Session expired after 12 hours
+    if(Date.now()-savedAt > 12*3600*1000){
+      localStorage.removeItem('bwt_mobile_session');
+      if(loadingEl) loadingEl.style.display='none';
+      if(loginEl)   loginEl.classList.add('active');
+      return;
+    }
+
     setLoadingStatus(`Willkommen zurück, ${driver}!`);
-    // Pre-fill login form
-    document.getElementById('login-name').value = driver;
-    // Load project list
-    await loadProjects();
-    // Auto-select project, tour, and driver
-    const projSel = document.getElementById('login-project');
-    projSel.value = projectId;
-    await projSel.dispatchEvent(new Event('change'));
-    setTimeout(()=>{
-      const tourSel = document.getElementById('login-tour');
-      tourSel.value = tourId;
-      tourSel.dispatchEvent(new Event('change'));
-      setTimeout(()=>{
-        const nameSel = document.getElementById('login-name');
-        if(nameSel) nameSel.value = driver;
-      }, 400);
-    }, 600);
-    // Session restored — dialog will show after login
-  } catch(e) { loadProjects(); }
+
+    // Resume session directly
+    if(mode==='erfassung'){
+      loginMode='erfassung';
+      currentProjectId=projectId;
+      currentDriver=driver;
+      if(loadingEl) loadingEl.style.display='none';
+      if(loginEl)   loginEl.classList.remove('active');
+      document.getElementById('screen-app').classList.add('active');
+      document.getElementById('app-header-tour').textContent='Erfassung';
+      document.getElementById('app-header-driver').textContent='Erfasser: '+driver;
+      document.getElementById('tab-btn-map').style.display='none';
+      document.getElementById('tab-btn-list').style.display='none';
+      switchTab('erfassung');
+    } else {
+      // Bewässerung — resume with tour
+      if(tourId){
+        loginMode='bewaesserung';
+        if(loadingEl) loadingEl.style.display='none';
+        if(loginEl)   loginEl.classList.remove('active');
+        await startBewässerungLogin(driver, projectId, tourId);
+      } else {
+        if(loadingEl) loadingEl.style.display='none';
+        if(loginEl)   loginEl.classList.add('active');
+      }
+    }
+  }catch(e){
+    console.error('Session resume error:', e);
+    localStorage.removeItem('bwt_mobile_session');
+    if(loadingEl) loadingEl.style.display='none';
+    if(loginEl)   loginEl.classList.add('active');
+  }
 }
 
 // Init
