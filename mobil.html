@@ -285,6 +285,10 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
       Liste
     </button>
+    <button class="tab-btn" id="tab-btn-erfassung" onclick="switchTab('erfassung')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+      Erfassung
+    </button>
 
   </div>
 </div>
@@ -319,6 +323,100 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
       <button id="btn-fortsetzen" onclick="dialogFortsetzen()" style="width:100%;padding:14px;background:var(--surface2);color:var(--text);border:1.5px solid var(--border);border-radius:12px;font-size:15px;font-weight:500;cursor:pointer;">
         ▶ Fortsetzen
       </button>
+    </div>
+  </div>
+</div>
+
+<!-- ERFASSUNG TAB CONTENT -->
+<div class="tab-content" id="tab-erfassung" style="display:none;flex-direction:column;height:100%;overflow:hidden;">
+  <div style="background:var(--surface);border-bottom:1px solid var(--border);padding:12px 16px;flex-shrink:0;">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <button id="erf-mode-btn-list" onclick="setErfassungMode('list')" style="padding:10px;border-radius:10px;border:2px solid var(--green);background:var(--green);color:#fff;font-size:13px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+        Aus Liste
+      </button>
+      <button id="erf-mode-btn-new" onclick="setErfassungMode('new')" style="padding:10px;border-radius:10px;border:2px solid var(--border);background:var(--surface);color:var(--text2);font-size:13px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        Neu vor Ort
+      </button>
+    </div>
+  </div>
+
+  <!-- Modus 1: Aus Liste -->
+  <div id="erf-mode-list" style="flex:1;overflow-y:auto;">
+    <div style="padding:10px 16px;background:var(--surface2);border-bottom:1px solid var(--border);">
+      <div style="font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.04em;">Bäume ohne Koordinaten</div>
+      <div style="font-size:12px;color:var(--text3);margin-top:2px;">GPS-Position wird beim Antippen gesetzt</div>
+    </div>
+    <div id="erf-list-content"><div style="padding:32px 20px;text-align:center;color:var(--text3);font-size:13px;">Lädt…</div></div>
+  </div>
+
+  <!-- Modus 2: Neu vor Ort -->
+  <div id="erf-mode-new" style="flex:1;overflow-y:auto;display:none;padding:16px;">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:14px;">
+      <div style="padding:10px 14px;background:var(--green-light);border-bottom:1px solid var(--green-mid);display:flex;align-items:center;justify-content:space-between;">
+        <span style="font-size:12px;font-weight:600;color:var(--green);">GPS-Koordinaten</span>
+        <button onclick="setErfGPS()" style="padding:4px 12px;background:var(--green);color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">📍 Position</button>
+      </div>
+      <div style="padding:10px 14px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div>
+          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px;">Breitengrad</div>
+          <input id="erf-lat" type="number" step="0.000001" placeholder="52.123456" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;background:var(--bg);">
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px;">Längengrad</div>
+          <input id="erf-lng" type="number" step="0.000001" placeholder="8.654321" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;background:var(--bg);">
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <div>
+        <div style="font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Anlage / Straße *</div>
+        <input id="erf-name" type="text" placeholder="z.B. Am Steinmarkt" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:var(--bg);">
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Baumart</div>
+        <input id="erf-art" type="text" placeholder="z.B. Quercus robur" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:var(--bg);">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>
+          <div style="font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Stadtteil</div>
+          <input id="erf-stadtteil" type="text" placeholder="z.B. Innenstadt" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:var(--bg);">
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Baumnummer</div>
+          <input id="erf-baumnr" type="text" placeholder="z.B. 42-0320" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:var(--bg);">
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>
+          <div style="font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Pflanzjahr</div>
+          <input id="erf-pflanzjahr" type="number" placeholder="2024" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:var(--bg);">
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Pflanzzeitpunkt</div>
+          <input id="erf-pflanzzeitpunkt" type="text" placeholder="Frühjahr" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:var(--bg);">
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>
+          <div style="font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Zustand</div>
+          <select id="erf-zustand" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:var(--bg);">
+            <option value="">–</option><option value="gut">Gut</option><option value="mittel">Mittel</option><option value="schlecht">Schlecht</option>
+          </select>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Wasserbedarf</div>
+          <select id="erf-wasser" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:var(--bg);">
+            <option value="">–</option><option value="hoch">Hoch</option><option value="mittel">Mittel</option><option value="niedrig">Niedrig</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Bemerkung</div>
+        <textarea id="erf-notiz" rows="3" placeholder="Notizen…" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:var(--bg);resize:none;"></textarea>
+      </div>
+      <button onclick="saveNewTree()" style="width:100%;padding:14px;background:var(--green);color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;margin-top:4px;">✓ Baum speichern</button>
     </div>
   </div>
 </div>
@@ -1579,8 +1677,174 @@ async function syncOfflineQueue(){
   updateNetworkBadge();
 }
 
+// ─── ERFASSUNG ────────────────────────────────────────────────
+let erfMode = 'list';
+let erfTrees = []; // trees without coordinates
+
+function setErfassungMode(mode){
+  erfMode = mode;
+  const btnList = document.getElementById('erf-mode-btn-list');
+  const btnNew  = document.getElementById('erf-mode-btn-new');
+  const divList = document.getElementById('erf-mode-list');
+  const divNew  = document.getElementById('erf-mode-new');
+  if(mode==='list'){
+    btnList.style.background='var(--green)'; btnList.style.color='#fff'; btnList.style.borderColor='var(--green)';
+    btnNew.style.background='var(--surface)'; btnNew.style.color='var(--text2)'; btnNew.style.borderColor='var(--border)';
+    divList.style.display='block'; divNew.style.display='none';
+    loadErfassungList();
+  } else {
+    btnNew.style.background='var(--green)'; btnNew.style.color='#fff'; btnNew.style.borderColor='var(--green)';
+    btnList.style.background='var(--surface)'; btnList.style.color='var(--text2)'; btnList.style.borderColor='var(--border)';
+    divList.style.display='none'; divNew.style.display='block';
+  }
+}
+
+async function loadErfassungList(){
+  const el = document.getElementById('erf-list-content');
+  if(!el) return;
+  el.innerHTML = '<div style="padding:32px 20px;text-align:center;color:var(--text3);font-size:13px;">Lädt…</div>';
+  try{
+    const snap = await getDocs(collection(db,'projects',currentProjectId,'trees'));
+    erfTrees = snap.docs.map(d=>({id:d.id,...d.data()}))
+      .filter(t=>!t.lat || !t.lng);
+
+    if(erfTrees.length===0){
+      el.innerHTML='<div style="padding:32px 20px;text-align:center;color:var(--text3);font-size:13px;">Alle Bäume haben bereits Koordinaten 🎉</div>';
+      return;
+    }
+    el.innerHTML = erfTrees.map(t=>`
+      <div onclick="erfassungSelectTree('${t.id}')" style="padding:14px 16px;border-bottom:1px solid var(--border);cursor:pointer;active:background:var(--surface2);">
+        <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:2px;">${t.name||'–'}</div>
+        <div style="font-size:12px;color:var(--text3);">${[t.art,t.stadtteil,t.baumnr].filter(Boolean).join(' · ')||'Keine weiteren Angaben'}</div>
+        <div style="font-size:11px;color:var(--amber);margin-top:3px;display:flex;align-items:center;gap:4px;">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 6.9 8 11.7z"/></svg>
+          Keine Koordinaten
+        </div>
+      </div>`).join('');
+  }catch(e){
+    el.innerHTML=`<div style="padding:20px;color:var(--red);font-size:13px;">Fehler: ${e.message}</div>`;
+  }
+}
+
+async function erfassungSelectTree(treeId){
+  const tree = erfTrees.find(t=>t.id===treeId);
+  if(!tree) return;
+
+  // Get current GPS
+  if(!navigator.geolocation){toast('GPS nicht verfügbar');return;}
+
+  toast('GPS wird ermittelt…');
+  navigator.geolocation.getCurrentPosition(async pos=>{
+    const lat = pos.coords.latitude;
+    const lng = pos.coords.longitude;
+
+    // Show confirm sheet
+    const modal = document.createElement('div');
+    modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:5000;display:flex;align-items:flex-end;';
+    modal.innerHTML=`<div style="background:var(--surface);border-radius:20px 20px 0 0;width:100%;padding:20px 20px calc(20px + env(safe-area-inset-bottom));">
+      <div style="width:40px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px;"></div>
+      <div style="font-size:16px;font-weight:700;margin-bottom:4px;">${tree.name||'Baum'}</div>
+      <div style="font-size:13px;color:var(--text3);margin-bottom:16px;">${[tree.art,tree.stadtteil,tree.baumnr].filter(Boolean).join(' · ')}</div>
+      <div style="background:var(--green-light);border-radius:10px;padding:12px 14px;margin-bottom:16px;">
+        <div style="font-size:11px;color:var(--green);font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">GPS-Position</div>
+        <div style="font-size:13px;font-family:monospace;color:var(--green);">${lat.toFixed(6)}, ${lng.toFixed(6)}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px;">Genauigkeit: ±${Math.round(pos.coords.accuracy)}m</div>
+      </div>
+      <button onclick="confirmErfassungGPS('${treeId}',${lat},${lng},this)" style="width:100%;padding:14px;background:var(--green);color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;margin-bottom:10px;">
+        ✓ Koordinaten speichern
+      </button>
+      <button onclick="this.closest('[style*=fixed]').remove()" style="width:100%;padding:14px;background:var(--surface2);color:var(--text2);border:none;border-radius:12px;font-size:15px;cursor:pointer;">
+        Abbrechen
+      </button>
+    </div>`;
+    document.body.appendChild(modal);
+    modal.onclick=e=>{if(e.target===modal)modal.remove();};
+  }, err=>{
+    toast('GPS-Fehler: '+err.message);
+  },{enableHighAccuracy:true,timeout:10000});
+}
+
+async function confirmErfassungGPS(treeId, lat, lng, btn){
+  btn.disabled=true; btn.textContent='Speichert…';
+  try{
+    await updateDoc(doc(db,'projects',currentProjectId,'trees',treeId),{lat,lng});
+    document.querySelector('[style*="position:fixed"][style*="z-index:5000"]')?.remove();
+    toast('✓ Koordinaten gespeichert');
+    loadErfassungList(); // refresh list
+  }catch(e){
+    btn.disabled=false; btn.textContent='✓ Koordinaten speichern';
+    toast('Fehler: '+e.message);
+  }
+}
+
+function setErfGPS(){
+  if(!navigator.geolocation){toast('GPS nicht verfügbar');return;}
+  toast('GPS wird ermittelt…');
+  navigator.geolocation.getCurrentPosition(pos=>{
+    document.getElementById('erf-lat').value = pos.coords.latitude.toFixed(6);
+    document.getElementById('erf-lng').value = pos.coords.longitude.toFixed(6);
+    toast(`✓ Position: ${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`);
+  },err=>{toast('GPS-Fehler: '+err.message);},{enableHighAccuracy:true,timeout:10000});
+}
+
+async function saveNewTree(){
+  const name = document.getElementById('erf-name').value.trim();
+  if(!name){
+    document.getElementById('erf-name').style.borderColor='var(--red)';
+    toast('⚠ Anlage/Straße ist Pflichtfeld');
+    return;
+  }
+  const lat = parseFloat(document.getElementById('erf-lat').value)||null;
+  const lng = parseFloat(document.getElementById('erf-lng').value)||null;
+
+  const treeData = {
+    name,
+    art:   document.getElementById('erf-art').value.trim()||'',
+    stadtteil: document.getElementById('erf-stadtteil').value.trim()||'',
+    baumnr: document.getElementById('erf-baumnr').value.trim()||'',
+    pflanzjahr: document.getElementById('erf-pflanzjahr').value||'',
+    pflanzzeitpunkt: document.getElementById('erf-pflanzzeitpunkt').value.trim()||'',
+    zustand: document.getElementById('erf-zustand').value||'mittel',
+    wasser: document.getElementById('erf-wasser').value||'mittel',
+    notiz: document.getElementById('erf-notiz').value.trim()||'',
+    lat, lng,
+    tourId: null, tourIds: [],
+    history: [],
+    lastStatus: null,
+    createdBy: currentDriver,
+    createdAt: new Date().toISOString(),
+    createdVia: 'mobile',
+  };
+
+  const btn = document.querySelector('#erf-mode-new button[onclick="saveNewTree()"]');
+  if(btn){btn.disabled=true;btn.textContent='Speichert…';}
+
+  try{
+    // Get next BaumID from project
+    const projRef = doc(db,'projects',currentProjectId);
+    const projSnap = await getDoc(projRef);
+    const current = projSnap.data()?.lastBaumId||0;
+    const next = current+1;
+    await updateDoc(projRef,{lastBaumId:next});
+    treeData.baumId = 'B-'+String(next).padStart(5,'0');
+
+    await addDoc(collection(db,'projects',currentProjectId,'trees'),treeData);
+    toast('✓ Baum '+treeData.baumId+' gespeichert');
+
+    // Reset form
+    ['erf-name','erf-art','erf-stadtteil','erf-baumnr','erf-pflanzjahr','erf-pflanzzeitpunkt','erf-notiz','erf-lat','erf-lng']
+      .forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+    document.getElementById('erf-zustand').value='';
+    document.getElementById('erf-wasser').value='';
+    if(btn){btn.disabled=false;btn.textContent='✓ Baum speichern';}
+  }catch(e){
+    toast('Fehler: '+e.message);
+    if(btn){btn.disabled=false;btn.textContent='✓ Baum speichern';}
+  }
+}
+
 Object.assign(window,{
-  doLogin,doLogout,switchTab,openSheet,closeSheet,
+  doLogin,doLogout,switchTab,setErfassungMode,loadErfassungList,erfassungSelectTree,confirmErfassungGPS,setErfGPS,saveNewTree,openSheet,closeSheet,
   selectStatus,saveReport,goToNextTree,recalcFromGPS,
   renderList,toast,showFinishConfirm,closeFinishSheet,finishTour,reopenTour,
   showResumeOrRestartDialog,closeResumeDialog,dialogFortsetzen,dialogNeuStarten,
