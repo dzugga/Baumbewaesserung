@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v-20 -->
+<!-- v-22 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -364,7 +364,7 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
 
 <div class="toast" id="toast"></div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { getFirestore, collection, doc, getDoc, getDocs, updateDoc, addDoc, setDoc,
@@ -400,18 +400,21 @@ let mapMarkers = {};
 let routeLayer = null;
 
 // ─── MAP ──────────────────────────────────────────────────────
-const map = L.map('map', {zoomControl: false}).setView([51.05, 13.73], 14);
-// Use OpenStreetMap via faster CDN with aggressive caching
-L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '© <a href="https://openstreetmap.org">OSM</a>',
-  maxZoom: 19,
-  maxNativeZoom: 18,
-  keepBuffer: 8,
-  updateWhenZooming: false,
-  updateWhenIdle: false,
-  crossOrigin: true,
-}).addTo(map);
-L.control.zoom({position: 'topright'}).addTo(map);
+let map = null;
+function initMap(){
+  if(map) return;
+  map = L.map('map', {zoomControl: false}).setView([51.05, 13.73], 14);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://openstreetmap.org">OSM</a>',
+    maxZoom: 19,
+    maxNativeZoom: 18,
+    keepBuffer: 8,
+    updateWhenZooming: false,
+    updateWhenIdle: false,
+    crossOrigin: true,
+  }).addTo(map);
+  L.control.zoom({position: 'topright'}).addTo(map);
+}
 
 // GPS tracking
 function startGPS() {
@@ -477,6 +480,7 @@ function doLogout() {
 }
 
 async function startBewässerungLogin(name, pid, tid) {
+  initMap(); // ensure map is ready before rendering
   // Original bewässerung login flow
   const btn = document.querySelector('#login-submit-btn');
   if(btn){ btn.disabled=true; btn.textContent='Lädt…'; }
@@ -1638,6 +1642,31 @@ setTimeout(()=>{
 
 // Init
 tryResumeSession();
+
+// ─── EXPOSE TO WINDOW (required for type="module") ─────────────
+window.doLogin = doLogin;
+window.doLogout = doLogout;
+window.onLoginProjectChange = onLoginProjectChange;
+window.onLoginTourChange = onLoginTourChange;
+window.startGPS = startGPS;
+window.switchTab = switchTab;
+window.openSheet = openSheet;
+window.closeSheet = closeSheet;
+window.selectStatus = selectStatus;
+window.saveReport = saveReport;
+window.goToNextTree = goToNextTree;
+window.recalcFromGPS = recalcFromGPS;
+window.showFinishConfirm = showFinishConfirm;
+window.closeFinishSheet = closeFinishSheet;
+window.finishTour = finishTour;
+window.reopenTour = reopenTour;
+window.markAllDone = markAllDone;
+window.closeBulkSheet = closeBulkSheet;
+window.confirmMarkAllDone = confirmMarkAllDone;
+window.closeResumeDialog = closeResumeDialog;
+window.dialogFortsetzen = dialogFortsetzen;
+window.dialogNeuStarten = dialogNeuStarten;
+window.toast = toast;
 
 </script>
 </body>
