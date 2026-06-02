@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v-31 -->
+<!-- v-33 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -523,12 +523,13 @@ async function startBewässerungLogin(name, pid, tid) {
   if(btn){ btn.disabled=true; btn.textContent='Lädt…'; }
 
   try{
-    // Load all data in parallel
-    const [projSnap, tourSnap, treesSnap, reasonsSnap] = await Promise.all([
+    // Load all data in parallel (incl. route)
+    const [projSnap, tourSnap, treesSnap, reasonsSnap, routeSnap] = await Promise.all([
       getDoc(doc(db,'projects',pid)),
       getDoc(doc(db,'projects',pid,'tours',tid)),
       getDocs(collection(db,'projects',pid,'trees')),
-      getDocs(collection(db,'projects',pid,'reasons'))
+      getDocs(collection(db,'projects',pid,'reasons')),
+      getDoc(doc(db,'projects',pid,'routes',tid))
     ]);
     if(!projSnap.exists){ throw new Error('Projekt nicht gefunden'); }
     currentProjectData = {id:pid,...projSnap.data()};
@@ -539,6 +540,9 @@ async function startBewässerungLogin(name, pid, tid) {
     trees = treesSnap.docs.map(d=>({id:d.id,...d.data()})).filter(t=>t.tourId===tid);
     routeOrder = trees.map(t=>t.id);
     reasons = reasonsSnap.docs.map(d=>({id:d.id,...d.data()}));
+
+    // Cache route snap so drawRoute doesn't re-fetch
+    _cachedRouteSnap = routeSnap;
 
     // Save session
     localStorage.setItem('bwt_mobile_session', JSON.stringify({
@@ -579,9 +583,10 @@ async function startBewässerungLogin(name, pid, tid) {
     drawRoute();
 
     // Subscribe to live updates
-    unsubTrees = onSnapshot(collection(db,'projects',pid,'trees'), snap=>{
+    const treesQuery = db.collection('projects').doc(pid).collection('trees').where('tourId','==',tid);
+    unsubTrees = treesQuery.onSnapshot(snap=>{
       if(pauseSnapshot)return;
-      trees=snap.docs.map(d=>({id:d.id,...d.data()})).filter(t=>t.tourId===tid);
+      trees=snap.docs.map(d=>({id:d.id,...d.data()}));
       routeOrder=routeOrder.filter(id=>trees.find(t=>t.id===id));
       trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
       cacheTreesLocally(pid,tid,trees);
@@ -720,14 +725,13 @@ async function dialogNeuStarten(){
   });
   currentTour = {...currentTour, status: 'aktiv'};
 
-  // Step 5: Re-subscribe
-  unsubTrees = onSnapshot(collection(db,'projects',currentProjectId,'trees'), snap => {
+  // Step 5: Re-subscribe (filtered by tourId)
+  const _reoQ1 = db.collection('projects').doc(currentProjectId).collection('trees').where('tourId','==',currentTourId);
+  unsubTrees = _reoQ1.onSnapshot(snap => {
     if(pauseSnapshot) return;
-    trees = snap.docs.map(d=>({id:d.id,...d.data()}))
-      .filter(t=>t.tourId===currentTourId);
+    trees = snap.docs.map(d=>({id:d.id,...d.data()}));
     routeOrder = routeOrder.filter(id=>trees.find(t=>t.id===id));
     trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
-    cacheTreesLocally(pid, tid, trees);
     renderMarkers();
     renderList(document.getElementById('list-search-input')?.value||'');
     updateProgress();
@@ -1055,12 +1059,11 @@ async function reopenTour() {
     });
     currentTour = {...currentTour, status: 'aktiv'};
 
-    // Step 5: Re-subscribe listener — now reads fresh (empty) data
-    const treesRef = collection(db,'projects',currentProjectId,'trees');
-    unsubTrees = onSnapshot(treesRef, snap => {
+    // Step 5: Re-subscribe filtered by tourId
+    const _reoQ2 = db.collection('projects').doc(currentProjectId).collection('trees').where('tourId','==',currentTourId);
+    unsubTrees = _reoQ2.onSnapshot(snap => {
       if(pauseSnapshot) return;
-      trees = snap.docs.map(d=>({id:d.id,...d.data()}))
-        .filter(t=>t.tourId===currentTourId);
+      trees = snap.docs.map(d=>({id:d.id,...d.data()}));
       routeOrder = routeOrder.filter(id=>trees.find(t=>t.id===id));
       trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
       renderMarkers();
@@ -1118,9 +1121,10 @@ async function drawRoute(){
 
   const color=currentTour?.color||'#2d6a4f';
 
-  // Load saved route from Firestore (same as desktop)
+  // Use cached route snap from login (avoid extra Firestore call)
   try{
-    const routeSnap=await getDoc(doc(db,'projects',currentProjectId,'routes',currentTourId));
+    const routeSnap = _cachedRouteSnap || await getDoc(doc(db,'projects',currentProjectId,'routes',currentTourId));
+    _cachedRouteSnap = null; // use once
     if(routeSnap.exists){
       const data=routeSnap.data();
       // Restore route order from saved data
@@ -1161,9 +1165,9 @@ let depotMarker=null;
 
 async function getRouteWithDepot(pts){
   try{
-    const projSnap=await getDoc(doc(db,'projects',currentProjectId));
-    const depot=projSnap.data()?.depot;
-    const depotMode=projSnap.data()?.depotMode||'round';
+    const data = currentProjectData || {};
+    const depot=data.depot;
+    const depotMode=data.depotMode||'round';
     if(depot?.lat&&depot?.lng){
       const dp=[depot.lat,depot.lng];
       return depotMode==='round'?[dp,...pts,dp]:[dp,...pts];
@@ -1175,8 +1179,7 @@ async function getRouteWithDepot(pts){
 async function drawDepotMarker(routeData){
   if(depotMarker){map.removeLayer(depotMarker);depotMarker=null;}
   try{
-    const projSnap=await getDoc(doc(db,'projects',currentProjectId));
-    const depot=projSnap.data()?.depot;
+    const depot=(currentProjectData||{}).depot;
     if(!depot?.lat)return;
     const icon=L.divIcon({
       className:'',
@@ -1482,6 +1485,7 @@ function toast(msg){
 // ─── LOGIN HELPERS ────────────────────────────────────────────
 let _loginProjects = [];
 let _loginTours = {};
+let _cachedRouteSnap = null;
 
 async function loadLoginProjects(){
   try{
