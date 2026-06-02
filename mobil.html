@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v-28 -->
+<!-- v-29 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -276,11 +276,11 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
 
   <!-- Tab bar -->
   <div class="tab-bar">
-    <button class="tab-btn active" id="tab-btn-map" id="tab-btn-map-click">
+    <button class="tab-btn active" id="tab-btn-map">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>
       Karte
     </button>
-    <button class="tab-btn" id="tab-btn-list" id="tab-btn-list-click">
+    <button class="tab-btn" id="tab-btn-list">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
       Liste
     </button>
@@ -1637,34 +1637,8 @@ async function tryResumeSession() {
     loadLoginProjects();
   }
 
-  // Test if localStorage is available at all
-  let storageOk = false;
-  try { localStorage.setItem('_test','1'); localStorage.removeItem('_test'); storageOk = true; } catch(e) {}
-
-  if(!storageOk){ showLogin(); return; }
-
-  let saved = null;
-  try { saved = localStorage.getItem('bwt_mobile_session'); } catch(e) { showLogin(); return; }
-
-  if(!saved){ showLogin(); return; }
-
-  try{
-    const session = JSON.parse(saved);
-    const {driver, projectId, tourId, savedAt} = session;
-    if(!driver || !projectId || !tourId || !savedAt){ showLogin(); return; }
-    if(Date.now()-savedAt > 12*3600*1000){
-      try{ localStorage.removeItem('bwt_mobile_session'); }catch(e){}
-      showLogin(); return;
-    }
-    setLoadingStatus(`Willkommen zurück, ${driver}!`);
-    if(loadingEl) loadingEl.style.display='none';
-    if(loginEl)   loginEl.classList.remove('active');
-    await startBewässerungLogin(driver, projectId, tourId);
-  }catch(e){
-    console.error('Session resume error:', e);
-    try{ localStorage.removeItem('bwt_mobile_session'); }catch(ex){}
-    showLogin();
-  }
+  // Always show login — session resume disabled (localStorage blocked by Edge Tracking Prevention)
+  showLogin();
 }
 
 // Safety fallback — show login after 5s if still loading
@@ -1700,9 +1674,9 @@ document.addEventListener('DOMContentLoaded', () => {
   if(pill) pill.addEventListener('click', goToNextTree);
 
   // Tab bar
-  const tabMapBtn = document.getElementById('tab-btn-map-click');
+  const tabMapBtn = document.getElementById('tab-btn-map');
   if(tabMapBtn) tabMapBtn.addEventListener('click', () => switchTab('map'));
-  const tabListBtn = document.getElementById('tab-btn-list-click');
+  const tabListBtn = document.getElementById('tab-btn-list');
   if(tabListBtn) tabListBtn.addEventListener('click', () => switchTab('list'));
 
   // Resume dialog
