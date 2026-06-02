@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v-25 -->
+<!-- v-26 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -365,11 +365,45 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
 <div class="toast" id="toast"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script type="module">
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getFirestore, collection, doc, getDoc, getDocs, updateDoc, addDoc, setDoc,
-         onSnapshot, serverTimestamp, query, orderBy }
-  from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+<!-- Firebase compat (no ES module needed — works without type=module) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script>
+// Firebase compat API shims — maps modular API calls to compat SDK
+function initializeApp(cfg){ return firebase.initializeApp(cfg); }
+function getFirestore(app){ return firebase.firestore(app); }
+
+// collection(db, 'col') or collection(db, 'col', 'id', 'subcol')
+function collection(db, ...segs){
+  // segs alternates: col, docId, col, docId ... ending on col
+  let ref = db;
+  for(let i=0;i<segs.length;i++){
+    ref = (i%2===0) ? ref.collection(segs[i]) : ref.doc(segs[i]);
+  }
+  return ref;
+}
+
+// doc(db, 'col', 'id') or doc(db, 'col', 'id', 'subcol', 'id2')
+function doc(db, ...segs){
+  let ref = db;
+  for(let i=0;i<segs.length;i++){
+    ref = (i%2===0) ? ref.collection(segs[i]) : ref.doc(segs[i]);
+  }
+  return ref;
+}
+
+function getDoc(ref){ return ref.get(); }
+function getDocs(ref){ return ref.get(); }
+function updateDoc(ref, data){ return ref.update(data); }
+function addDoc(ref, data){ return ref.add(data); }
+function setDoc(ref, data, opts){ return opts ? ref.set(data, opts) : ref.set(data); }
+function deleteDoc(ref){ return ref.delete(); }
+function onSnapshot(ref, cb){ return ref.onSnapshot(cb); }
+function serverTimestamp(){ return firebase.firestore.FieldValue.serverTimestamp(); }
+function query(ref){ return ref; }
+function orderBy(field, dir='asc'){ return ref => ref.orderBy(field, dir); }
+</script>
+<script>
 
 const firebaseConfig = {
   apiKey: "AIzaSyBShCcASfAG26EDyax6er6SIiqeSBrFWek",
@@ -1691,3 +1725,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnFinish = document.getElementById('btn-show-finish');
   if(btnFinish) btnFinish.addEventListener('click', showFinishConfirm);
 });
+</script>
+</body>
+</html>
