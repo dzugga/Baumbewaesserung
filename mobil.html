@@ -1514,7 +1514,7 @@ async function onLoginProjectChange(){
     _loginTours[pid].map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
   if(_loginTours[pid].length===1){
     tourSel.value=_loginTours[pid][0].id;
-    onLoginTourChange();
+    await onLoginTourChange();
   }
 }
 
