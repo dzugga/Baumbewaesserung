@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v-restore -->
+<!-- v-r2 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -1526,26 +1526,23 @@ async function onLoginTourChange(){
   nameSel.innerHTML='<option value="">Lädt…</option>';
   if(!tid) return;
 
-  // If tours not cached yet, load them now
-  if(!_loginTours[pid] || _loginTours[pid].length===0){
-    try{
-      const snap = await getDocs(collection(db,'projects',pid,'tours'));
-      _loginTours[pid] = snap.docs.map(d=>({id:d.id,...d.data()}));
-    }catch(e){ console.error(e); }
-  }
+  try{
+    // Always load directly from Firestore — no cache dependency
+    const tourSnap = await getDoc(doc(db,'projects',pid,'tours',tid));
+    const drivers = tourSnap.exists() ? (tourSnap.data().drivers||[]) : [];
 
-  const tours = _loginTours[pid]||[];
-  const tour = tours.find(t=>t.id===tid);
-  const drivers = tour?.drivers||[];
-
-  if(drivers.length===0){
-    nameSel.innerHTML='<option value="">Kein Fahrer hinterlegt</option>';
-    hint.style.display='block';
-  } else {
-    hint.style.display='none';
-    nameSel.innerHTML='<option value="">– Name wählen –</option>'+
-      drivers.map(n=>`<option value="${n}">${n}</option>`).join('');
-    if(drivers.length===1) nameSel.value=drivers[0];
+    if(drivers.length===0){
+      nameSel.innerHTML='<option value="">Kein Fahrer hinterlegt</option>';
+      hint.style.display='block';
+    } else {
+      hint.style.display='none';
+      nameSel.innerHTML='<option value="">– Name wählen –</option>'+
+        drivers.map(n=>`<option value="${n}">${n}</option>`).join('');
+      if(drivers.length===1) nameSel.value=drivers[0];
+    }
+  }catch(e){
+    console.error('onLoginTourChange error:', e);
+    nameSel.innerHTML='<option value="">Fehler beim Laden</option>';
   }
 }
 
