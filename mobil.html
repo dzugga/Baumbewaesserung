@@ -1644,6 +1644,58 @@ async function syncOfflineQueue(){
   updateNetworkBadge();
 }
 
+
+async function tryResumeSession() {
+  const loadingEl = document.getElementById('screen-loading');
+  const loginEl   = document.getElementById('screen-login');
+
+  function showLogin(){
+    if(loadingEl) loadingEl.style.display='none';
+    if(loginEl)   loginEl.classList.add('active');
+    loadLoginProjects();
+  }
+
+  let saved = null;
+  try { saved = localStorage.getItem('bwt_mobile_session'); } catch(e) {}
+
+  if(!saved){ showLogin(); return; }
+
+  try{
+    const session = JSON.parse(saved);
+    const {driver, projectId, tourId, savedAt} = session;
+    if(Date.now()-savedAt > 12*3600*1000){
+      try{ localStorage.removeItem('bwt_mobile_session'); }catch(e){}
+      showLogin(); return;
+    }
+    if(projectId && tourId){
+      setLoadingStatus(`Willkommen zurück, ${driver}!`);
+      if(loadingEl) loadingEl.style.display='none';
+      if(loginEl)   loginEl.classList.remove('active');
+      await startBewässerungLogin(driver, projectId, tourId);
+    } else {
+      showLogin();
+    }
+  }catch(e){
+    console.error('Session resume error:', e);
+    try{ localStorage.removeItem('bwt_mobile_session'); }catch(ex){}
+    showLogin();
+  }
+}
+
+// Safety fallback — show login after 5s if still loading
+setTimeout(()=>{
+  const loading = document.getElementById('screen-loading');
+  const login   = document.getElementById('screen-login');
+  if(loading && loading.style.display !== 'none'){
+    loading.style.display = 'none';
+    if(login) login.classList.add('active');
+    loadLoginProjects();
+  }
+}, 5000);
+
+// Init
+tryResumeSession();
+
 </script>
 </body>
 </html>
