@@ -1,0 +1,1395 @@
+// Firebase compat API shims — maps modular API calls to compat SDK
+function initializeApp(cfg){ return firebase.initializeApp(cfg); }
+function getFirestore(app){ return firebase.firestore(app); }
+
+// collection(db, 'col') or collection(db, 'col', 'id', 'subcol')
+function collection(db, ...segs){
+  // segs alternates: col, docId, col, docId ... ending on col
+  let ref = db;
+  for(let i=0;i<segs.length;i++){
+    ref = (i%2===0) ? ref.collection(segs[i]) : ref.doc(segs[i]);
+  }
+  return ref;
+}
+
+// doc(db, 'col', 'id') or doc(db, 'col', 'id', 'subcol', 'id2')
+function doc(db, ...segs){
+  let ref = db;
+  for(let i=0;i<segs.length;i++){
+    ref = (i%2===0) ? ref.collection(segs[i]) : ref.doc(segs[i]);
+  }
+  return ref;
+}
+
+function getDoc(ref){ return ref.get(); }
+function getDocs(ref){ return ref.get(); }
+function updateDoc(ref, data){ return ref.update(data); }
+function addDoc(ref, data){ return ref.add(data); }
+function setDoc(ref, data, opts){ return opts ? ref.set(data, opts) : ref.set(data); }
+function deleteDoc(ref){ return ref.delete(); }
+function onSnapshot(ref, cb){ return ref.onSnapshot(cb); }
+function serverTimestamp(){ return firebase.firestore.FieldValue.serverTimestamp(); }
+function query(ref){ return ref; }
+function orderBy(field, dir='asc'){ return ref => ref.orderBy(field, dir); }
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBShCcASfAG26EDyax6er6SIiqeSBrFWek",
+  authDomain: "baumbewaesserung.firebaseapp.com",
+  projectId: "baumbewaesserung",
+  storageBucket: "baumbewaesserung.firebasestorage.app",
+  messagingSenderId: "1001991004222",
+  appId: "1:1001991004222:web:1405d80d0788bd6548f16f"
+};
+const fbApp = initializeApp(firebaseConfig);
+const db = getFirestore(fbApp);
+
+// ─── STATE ────────────────────────────────────────────────────
+let currentDriver = null;
+let currentProjectData = null;
+let currentProjectId = null;
+let currentTourId = null;
+let currentTour = null;
+let trees = [];
+let routeOrder = []; // ordered tree ids
+let reasons = [];    // not-watered reasons from Firestore
+let selectedTreeId = null;
+let currentTab = 'map';
+let pauseSnapshot = false;
+let unsubTrees = null;
+let gpsMarker = null;
+let gpsLatLng = null;
+let mapMarkers = {};
+let routeLayer = null;
+
+// ─── MAP ──────────────────────────────────────────────────────
+let map = null;
+function initMap(){
+  if(map) return;
+  map = L.map('map', {zoomControl: false}).setView([51.05, 13.73], 14);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://openstreetmap.org">OSM</a>',
+    maxZoom: 19,
+    maxNativeZoom: 18,
+    keepBuffer: 8,
+    updateWhenZooming: false,
+    updateWhenIdle: false,
+    crossOrigin: true,
+  }).addTo(map);
+  L.control.zoom({position: 'topright'}).addTo(map);
+}
+
+// GPS tracking
+function startGPS() {
+  if (!navigator.geolocation) return;
+  navigator.geolocation.watchPosition(pos => {
+    gpsLatLng = [pos.coords.latitude, pos.coords.longitude];
+    if (!gpsMarker) {
+      const icon = L.divIcon({
+        className: '',
+        html: '<div class="gps-dot"></div>',
+        iconSize: [16, 16], iconAnchor: [8, 8]
+      });
+      gpsMarker = L.marker(gpsLatLng, {icon, zIndexOffset: 2000}).addTo(map);
+    } else {
+      gpsMarker.setLatLng(gpsLatLng);
+    }
+    document.getElementById('map-status').textContent =
+      `GPS: ${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`;
+  }, err => {
+    document.getElementById('map-status').textContent = 'GPS nicht verfügbar';
+  }, {enableHighAccuracy: true, maximumAge: 5000});
+}
+
+// ─── LOGIN ────────────────────────────────────────────────────
+// Hide loading screen once app is ready
+function hideLoading() {
+  const el = document.getElementById('screen-loading');
+  if(el) { el.style.opacity='0'; el.style.transition='opacity .3s'; setTimeout(()=>el.remove(),300); }
+}
+
+// Update loading status text
+function setLoadingStatus(msg) {
+  const el = document.getElementById('loading-status');
+  if(el) el.textContent = msg;
+}
+
+async function loadProjects() {
+  setLoadingStatus('Lade Projekte…');
+  // Now handled by loadAllNames() — keep stub for compat
+}
+
+
+async function doLogin() {
+  const pid  = document.getElementById('login-project').value;
+  const tid  = document.getElementById('login-tour').value;
+  const name = document.getElementById('login-name').value;
+  const errEl = document.getElementById('login-error');
+  errEl.style.display='none';
+
+  if(!pid||!tid||!name){
+    errEl.textContent='Bitte alle Felder ausfüllen.';
+    errEl.style.display='block';
+    return;
+  }
+
+  await startBewässerungLogin(name, pid, tid);
+}
+
+function doLogout() {
+  if (!confirm('Abmelden?')) return;
+  localStorage.removeItem('bwt_mobile_session');
+  location.reload();
+}
+
+async function startBewässerungLogin(name, pid, tid) {
+  initMap(); // ensure map is ready before rendering
+  // Original bewässerung login flow
+  const btn = document.querySelector('#login-submit-btn');
+  if(btn){ btn.disabled=true; btn.textContent='Lädt…'; }
+
+  try{
+    // Load all data in parallel (incl. route)
+    const [projSnap, tourSnap, treesSnap, reasonsSnap, routeSnap] = await Promise.all([
+      getDoc(doc(db,'projects',pid)),
+      getDoc(doc(db,'projects',pid,'tours',tid)),
+      getDocs(collection(db,'projects',pid,'trees')),
+      getDocs(collection(db,'projects',pid,'reasons')),
+      getDoc(doc(db,'projects',pid,'routes',tid))
+    ]);
+    if(!projSnap.exists){ throw new Error('Projekt nicht gefunden'); }
+    currentProjectData = {id:pid,...projSnap.data()};
+    currentProjectId = pid;
+    currentTourId = tid;
+    currentDriver = name;
+    currentTour = tourSnap.exists ? {id:tid,...tourSnap.data()} : null;
+    trees = treesSnap.docs.map(d=>({id:d.id,...d.data()})).filter(t=>t.tourId===tid);
+    routeOrder = trees.map(t=>t.id);
+    reasons = reasonsSnap.docs.map(d=>({id:d.id,...d.data()}));
+
+    // Cache route snap so drawRoute doesn't re-fetch
+    _cachedRouteSnap = routeSnap;
+
+    // Save session
+    localStorage.setItem('bwt_mobile_session', JSON.stringify({
+      driver:name, projectId:pid, tourId:tid, mode:'bewaesserung', savedAt:Date.now()
+    }));
+
+    // Show app
+    document.getElementById('screen-login').classList.remove('active');
+    document.getElementById('screen-app').classList.add('active');
+    const _ht=document.getElementById('header-tour-name'); if(_ht) _ht.textContent = currentTour?.name||'Tour';
+    const _hd=document.getElementById('header-driver'); if(_hd) _hd.textContent = 'Fahrer: '+name;
+
+    // Show all tabs
+    ['tab-btn-map','tab-btn-list'].forEach(id=>{
+      const el=document.getElementById(id);
+      if(el) el.style.display='';
+    });
+    switchTab('map');
+
+    // Cache trees
+    cacheTreesLocally(pid, tid, trees);
+
+    // Render
+    renderMarkers();
+    renderList('');
+    updateProgress();
+    updateNetworkBadge();
+    setTimeout(()=>map.invalidateSize(),100);
+
+    // Auto-zoom
+    const withCoords = trees.filter(t=>t.lat&&t.lng);
+    if(withCoords.length>1){
+      const bounds=L.latLngBounds(withCoords.map(t=>[t.lat,t.lng]));
+      if(bounds.isValid()) map.fitBounds(bounds,{padding:[60,60],maxZoom:17});
+    }
+
+    startGPS();
+    drawRoute();
+
+    // Subscribe to live updates
+    const treesQuery = db.collection('projects').doc(pid).collection('trees').where('tourId','==',tid);
+    unsubTrees = treesQuery.onSnapshot(snap=>{
+      if(pauseSnapshot)return;
+      trees=snap.docs.map(d=>({id:d.id,...d.data()}));
+      routeOrder=routeOrder.filter(id=>trees.find(t=>t.id===id));
+      trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
+      cacheTreesLocally(pid,tid,trees);
+      renderMarkers();
+      renderList(document.getElementById('list-search-input')?.value||'');
+      updateProgress();
+      if(selectedTreeId) openSheet(selectedTreeId);
+    });
+
+    if(isOnline) syncOfflineQueue();
+
+    if(currentTour?.status==='abgeschlossen'){
+      setTimeout(()=>showResumeOrRestartDialog(),600);
+    }
+
+  }catch(e){
+    console.error(e);
+    const errEl=document.getElementById('login-error');
+    if(errEl){ errEl.textContent='Fehler: '+e.message; errEl.style.display='block'; }
+  }finally{
+    if(btn){ btn.disabled=false; btn.textContent='Tour starten'; }
+  }
+}
+
+
+async function loadTrees() {
+  const snap = await getDocs(collection(db,'projects',currentProjectId,'trees'));
+  trees = snap.docs.map(d=>({id:d.id,...d.data()}))
+    .filter(t=>t.tourId===currentTourId);
+}
+
+async function loadReasons() {
+  try {
+    const snap = await getDocs(collection(db,'projects',currentProjectId,'reasons'));
+    reasons = snap.docs.map(d=>({id:d.id,...d.data()}));
+    // No defaults here — reasons are managed exclusively in the desktop app
+  }catch(e){ reasons=[]; }
+}
+
+// ─── PROGRESS ─────────────────────────────────────────────────
+function updateProgress() {
+  const done = trees.filter(t=>t.lastStatus).length;
+  const total = trees.length;
+  const pct = total>0?Math.round(done/total*100):0;
+  document.getElementById('progress-fill').style.width = pct+'%';
+  document.getElementById('header-count').textContent = `${done}/${total}`;
+  updateNextTreePreview();
+}
+
+function updateNextTreePreview() {
+  const nextEl = document.getElementById('next-tree-name');
+  if(!nextEl) return;
+  const idx = getNextIdx();
+  if(idx === -1) {
+    nextEl.textContent = '✓ Alle erledigt!';
+    nextEl.parentElement.previousElementSibling?.style && (nextEl.style.color = '#16a34a');
+  } else {
+    const id = routeOrder[idx];
+    const tree = trees.find(t=>t.id===id);
+    nextEl.textContent = tree ? `#${idx+1} — ${tree.name||'–'}` : '–';
+    nextEl.style.color = '';
+  }
+}
+
+function showResumeOrRestartDialog(){
+  const bew = trees.filter(t=>t.lastStatus==='bewaessert').length;
+  const nicht = trees.filter(t=>t.lastStatus==='nicht').length;
+  const offen = trees.filter(t=>!t.lastStatus).length;
+  const isClosed = currentTour?.status === 'abgeschlossen';
+
+  document.getElementById('rd-bew').textContent = bew;
+  document.getElementById('rd-nicht').textContent = nicht;
+  document.getElementById('rd-offen').textContent = offen;
+
+  if(isClosed){
+    // Tour was closed → auto-start fresh, no choice needed
+    document.getElementById('resume-icon').textContent = '🔄';
+    document.getElementById('resume-title').textContent = 'Neue Runde starten';
+    document.getElementById('resume-desc').textContent =
+      'Die letzte Tour wurde abgeschlossen und gespeichert. Eine neue Erfassung wird gestartet — alle Status werden zurückgesetzt.';
+    document.getElementById('btn-fortsetzen').style.display = 'none';
+    document.getElementById('btn-neu-starten').textContent = '✓ Neue Runde starten';
+  } else {
+    // Tour in progress → offer choice
+    document.getElementById('resume-icon').textContent = '📋';
+    document.getElementById('resume-title').textContent = 'Tour fortsetzen?';
+    document.getElementById('resume-desc').textContent =
+      'Du hast diese Tour bereits begonnen. Weiter machen oder neu starten?';
+    document.getElementById('btn-fortsetzen').style.display = 'block';
+    document.getElementById('btn-neu-starten').textContent = '🔄 Neu starten';
+  }
+
+  document.getElementById('resume-backdrop').style.display = 'flex';
+}
+
+function closeResumeDialog(){
+  document.getElementById('resume-backdrop').style.display = 'none';
+}
+
+function dialogFortsetzen(){
+  // Just close dialog — keep existing status, continue where left off
+  closeResumeDialog();
+  toast('Tour wird fortgesetzt');
+}
+
+async function dialogNeuStarten(){
+  closeResumeDialog();
+  toast('Status wird zurückgesetzt…');
+
+  const resetFields = {
+    lastStatus: null, lastReason: null, lastNote: null,
+    lastReportAt: null, lastDriver: null,
+  };
+
+  // Step 1: Unsubscribe listener
+  if(unsubTrees){ unsubTrees(); unsubTrees=null; }
+
+  // Step 2: Reset local state immediately
+  trees.forEach(tree => Object.assign(tree, resetFields));
+  renderMarkers();
+  renderList('');
+  updateProgress();
+
+  // Step 3: Write to Firestore
+  await Promise.all(
+    trees.map(tree =>
+      updateDoc(doc(db,'projects',currentProjectId,'trees',tree.id), resetFields)
+    )
+  );
+
+  // Step 4: Set tour to active
+  await updateDoc(doc(db,'projects',currentProjectId,'tours',currentTourId),{
+    status: 'aktiv',
+    reopenedAt: new Date().toISOString(),
+    reopenedBy: currentDriver,
+  });
+  currentTour = {...currentTour, status: 'aktiv'};
+
+  // Step 5: Re-subscribe (filtered by tourId)
+  const _reoQ1 = db.collection('projects').doc(currentProjectId).collection('trees').where('tourId','==',currentTourId);
+  unsubTrees = _reoQ1.onSnapshot(snap => {
+    if(pauseSnapshot) return;
+    trees = snap.docs.map(d=>({id:d.id,...d.data()}));
+    routeOrder = routeOrder.filter(id=>trees.find(t=>t.id===id));
+    trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
+    renderMarkers();
+    renderList(document.getElementById('list-search-input')?.value||'');
+    updateProgress();
+    if(selectedTreeId) openSheet(selectedTreeId);
+  });
+
+  drawRoute();
+  toast('🔄 Neu gestartet — viel Erfolg!');
+}
+
+function markAllDone(){
+  // Count only truly open trees (no status at all)
+  const open = trees.filter(t => !t.lastStatus);
+  if(open.length === 0){
+    toast('Keine offenen Bäume mehr');
+    return;
+  }
+  // Show confirm sheet
+  document.getElementById('bulk-desc').textContent =
+    `${open.length} Bäume ohne Rückmeldung werden als „Bewässert" markiert. ` +
+    `${trees.filter(t=>t.lastStatus==='nicht').length} negative Rückmeldungen bleiben erhalten.`;
+  document.getElementById('bulk-backdrop').style.display = 'block';
+  document.getElementById('bulk-sheet').style.display = 'block';
+}
+
+function closeBulkSheet(){
+  document.getElementById('bulk-backdrop').style.display = 'none';
+  document.getElementById('bulk-sheet').style.display = 'none';
+}
+
+async function confirmMarkAllDone(){
+  closeBulkSheet();
+  try {
+    const now = new Date().toISOString();
+    const open = trees.filter(t => !t.lastStatus);
+    if(open.length === 0){ toast('Keine offenen Bäume'); return; }
+
+    toast(`${open.length} Bäume werden aktualisiert…`);
+
+    const updates = {
+      lastStatus: 'bewaessert',
+      lastDriver: currentDriver,
+      lastReportAt: now,
+      lastReason: null,
+      lastNote: null,
+      datum: now.slice(0,10),
+    };
+
+    // Ensure snapshot doesn't overwrite our changes
+    pauseSnapshot = true;
+
+    // Update local state immediately
+    open.forEach(tree => Object.assign(tree, updates));
+    renderMarkers();
+    renderList('');
+    updateProgress();
+
+    // Write to Firestore in parallel
+    await Promise.all(
+      open.map(tree =>
+        updateDoc(doc(db,'projects',currentProjectId,'trees',tree.id), updates)
+      )
+    );
+
+    // Resume snapshot
+    setTimeout(()=>{ pauseSnapshot = false; }, 1500);
+
+    toast(`✓ ${open.length} Bäume als bewässert markiert`);
+  } catch(e) {
+    pauseSnapshot = false;
+    toast('Fehler: ' + e.message);
+    console.error('confirmMarkAllDone error:', e);
+  }
+}
+
+function showFinishConfirm() {
+  // Prevent double-open
+  if(document.getElementById('finish-sheet').style.display === 'block') return;
+
+  const bewaessert = trees.filter(t=>t.lastStatus==='bewaessert').length;
+  const nicht = trees.filter(t=>t.lastStatus==='nicht').length;
+  const offen = trees.filter(t=>!t.lastStatus).length;
+  const total = trees.length;
+  const alreadyClosed = currentTour?.status === 'abgeschlossen';
+
+  // Block finish if open trees remain
+  if(!alreadyClosed && offen > 0) {
+    const content = document.getElementById('finish-content');
+    content.innerHTML = `
+      <div style="text-align:center;margin-bottom:20px;">
+        <div style="width:56px;height:56px;background:var(--amber-light);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        </div>
+        <div style="font-size:18px;font-weight:700;color:var(--text);">Noch ${offen} Bäume offen</div>
+        <div style="font-size:13px;color:var(--text3);margin-top:6px;line-height:1.6;">
+          Alle Bäume müssen eine Rückmeldung haben, bevor die Tour abgeschlossen werden kann.<br>
+          Nutze <b>„Alle als bewässert markieren"</b> für eine Schnellerfassung.
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:20px;">
+        <div style="background:var(--green-light);border-radius:10px;padding:12px;text-align:center;">
+          <div style="font-size:22px;font-weight:700;color:#16a34a;">${bewaessert}</div>
+          <div style="font-size:11px;color:var(--text3);">Bewässert</div>
+        </div>
+        <div style="background:var(--red-light);border-radius:10px;padding:12px;text-align:center;">
+          <div style="font-size:22px;font-weight:700;color:#991b1b;">${nicht}</div>
+          <div style="font-size:11px;color:var(--text3);">Nicht bew.</div>
+        </div>
+        <div style="background:var(--amber-light);border-radius:10px;padding:12px;text-align:center;">
+          <div style="font-size:22px;font-weight:700;color:var(--amber);">${offen}</div>
+          <div style="font-size:11px;color:var(--text3);">Noch offen</div>
+        </div>
+      </div>
+      <button onclick="closeFinishSheet();switchTab('list');" style="width:100%;padding:14px;background:var(--green);color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;margin-bottom:10px;">
+        Zur Liste — offene Bäume bearbeiten
+      </button>
+      <button onclick="closeFinishSheet()" style="width:100%;padding:14px;background:var(--surface2);color:var(--text2);border:none;border-radius:12px;font-size:15px;cursor:pointer;">
+        Schließen
+      </button>`;
+    document.getElementById('finish-backdrop').style.display = 'block';
+    document.getElementById('finish-sheet').style.display = 'block';
+    document.getElementById('finish-backdrop').onclick = closeFinishSheet;
+    return;
+  }
+
+  const content = document.getElementById('finish-content');
+
+  const statsHtml = `
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:20px;">
+      <div style="background:var(--green-light);border-radius:10px;padding:12px;text-align:center;">
+        <div style="font-size:24px;font-weight:700;color:#16a34a;">${bewaessert}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px;">Bewässert</div>
+      </div>
+      <div style="background:var(--red-light);border-radius:10px;padding:12px;text-align:center;">
+        <div style="font-size:24px;font-weight:700;color:#991b1b;">${nicht}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px;">Nicht bew.</div>
+      </div>
+      <div style="background:var(--amber-light);border-radius:10px;padding:12px;text-align:center;">
+        <div style="font-size:24px;font-weight:700;color:var(--amber);">${offen}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px;">Offen</div>
+      </div>
+    </div>`;
+
+  if(alreadyClosed) {
+    content.innerHTML = `
+      <div style="text-align:center;margin-bottom:16px;">
+        <div style="width:56px;height:56px;background:#dcfce7;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+        </div>
+        <div style="font-size:18px;font-weight:700;">Tour abgeschlossen</div>
+        <div style="font-size:13px;color:var(--text3);margin-top:4px;">Letzte Abschluss: ${currentTour?.lastClosedDate||'–'}</div>
+      </div>
+      ${statsHtml}
+      <button onclick="reopenTour()" style="width:100%;padding:14px;background:var(--green);color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;margin-bottom:10px;">
+        🔄 Neue Runde starten
+      </button>
+      <button onclick="closeFinishSheet()" style="width:100%;padding:14px;background:var(--surface2);color:var(--text2);border:none;border-radius:12px;font-size:15px;cursor:pointer;">
+        Schließen
+      </button>`;
+  } else {
+    content.innerHTML = `
+      <div style="text-align:center;margin-bottom:16px;">
+        <div style="font-size:17px;font-weight:700;">${offen===0?'🎉 Alle erledigt!':'Tour abschließen'}</div>
+        <div style="font-size:13px;color:var(--text3);margin-top:4px;">${offen>0?`Noch ${offen} Bäume ohne Rückmeldung`:'Alle Bäume wurden bearbeitet'}</div>
+      </div>
+      ${statsHtml}
+      <button id="btn-finish-confirm" onclick="finishTour()" style="width:100%;padding:14px;background:#991b1b;color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:8px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        Tour abschließen & speichern
+      </button>
+      <button onclick="closeFinishSheet()" style="width:100%;padding:14px;background:var(--surface2);color:var(--text2);border:none;border-radius:12px;font-size:15px;cursor:pointer;">
+        Weiter arbeiten
+      </button>`;
+  }
+
+  document.getElementById('finish-backdrop').style.display = 'block';
+  document.getElementById('finish-sheet').style.display = 'block';
+  // Close on backdrop tap
+  document.getElementById('finish-backdrop').onclick = closeFinishSheet;
+}
+
+function closeFinishSheet() {
+  document.getElementById('finish-backdrop').style.display = 'none';
+  document.getElementById('finish-sheet').style.display = 'none';
+}
+
+async function finishTour() {
+  const btn = document.getElementById('btn-finish-confirm');
+  if(btn){ if(btn.disabled) return; btn.disabled = true; }
+
+  // ── Progress overlay ──────────────────────────────────────────
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9500;display:flex;align-items:center;justify-content:center;padding:24px;';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:20px;width:100%;max-width:340px;padding:28px 24px;text-align:center;">
+      <div style="font-size:17px;font-weight:700;color:#1a1a1a;margin-bottom:6px;">Tour wird gespeichert…</div>
+      <div id="finish-progress-label" style="font-size:13px;color:#6b7280;margin-bottom:16px;">Vorbereitung…</div>
+      <div style="background:#e5e7eb;border-radius:99px;height:10px;overflow:hidden;">
+        <div id="finish-progress-bar" style="height:100%;width:0%;background:#16a34a;border-radius:99px;transition:width .25s ease;"></div>
+      </div>
+      <div id="finish-progress-pct" style="font-size:12px;color:#9ca3af;margin-top:8px;">0%</div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  function setProgress(pct, label) {
+    const bar = document.getElementById('finish-progress-bar');
+    const lbl = document.getElementById('finish-progress-label');
+    const pctEl = document.getElementById('finish-progress-pct');
+    if(bar) bar.style.width = pct + '%';
+    if(lbl) lbl.textContent = label;
+    if(pctEl) pctEl.textContent = Math.round(pct) + '%';
+  }
+
+  try {
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0,10);
+    const tsStr = now.toISOString();
+    const treesWithStatus = trees.filter(t=>t.lastStatus);
+    const stats = {
+      total: trees.length,
+      bewaessert: trees.filter(t=>t.lastStatus==='bewaessert').length,
+      nicht: trees.filter(t=>t.lastStatus==='nicht').length,
+      offen: trees.filter(t=>!t.lastStatus).length,
+    };
+
+    setProgress(10, 'Zusammenfassung wird erstellt…');
+
+    // ── Lean snapshot: only status fields, no full tree data ─────
+    const histId = `${dateStr}_${now.getTime()}_${currentTourId}`;
+    const snapshot = {
+      tourId: currentTourId,
+      tourName: currentTour?.name||'',
+      tourColor: currentTour?.color||'',
+      date: dateStr, closedAt: tsStr, closedBy: currentDriver,
+      stats,
+      // Only save status results, not full geometry/metadata
+      results: treesWithStatus.map(t=>({
+        id: t.id, baumnr: t.baumnr||'', name: t.name||'',
+        status: t.lastStatus, reason: t.lastReason||null,
+        note: t.lastNote||null, driver: t.lastDriver||null,
+        reportAt: t.lastReportAt||null,
+      })),
+    };
+
+    setProgress(20, `${treesWithStatus.length} Bäume werden gespeichert…`);
+
+    // ── Build batches (max 498 ops each, leaving 2 for meta writes) ─
+    const BATCH_SIZE = 498;
+    const batchPromises = [];
+    let completed = 0;
+
+    for(let i = 0; i < treesWithStatus.length; i += BATCH_SIZE) {
+      const batch = db.batch();
+      const chunk = treesWithStatus.slice(i, i + BATCH_SIZE);
+
+      chunk.forEach(tree => {
+        const entry = {
+          date: dateStr, tourId: currentTourId, tourName: currentTour?.name||'',
+          status: tree.lastStatus, reason: tree.lastReason||null,
+          note: tree.lastNote||null, driver: tree.lastDriver||null,
+        };
+        const treeRef = db.collection('projects').doc(currentProjectId)
+          .collection('trees').doc(tree.id);
+        batch.update(treeRef, { history: firebase.firestore.FieldValue.arrayUnion(entry) });
+      });
+
+      // First batch carries the meta writes
+      if(i === 0) {
+        batch.set(
+          db.collection('projects').doc(currentProjectId).collection('tourHistory').doc(histId),
+          snapshot
+        );
+        batch.update(
+          db.collection('projects').doc(currentProjectId).collection('tours').doc(currentTourId),
+          { status:'abgeschlossen', closedAt:tsStr, closedBy:currentDriver, lastClosedDate:dateStr }
+        );
+      }
+
+      const batchIndex = i;
+      batchPromises.push(
+        batch.commit().then(() => {
+          completed += chunk.length;
+          const pct = 20 + (completed / Math.max(treesWithStatus.length,1)) * 75;
+          setProgress(pct, `${completed} / ${treesWithStatus.length} Bäume gespeichert…`);
+        })
+      );
+    }
+
+    // Edge case: no trees with status — still write meta
+    if(treesWithStatus.length === 0) {
+      const batch = db.batch();
+      batch.set(
+        db.collection('projects').doc(currentProjectId).collection('tourHistory').doc(histId),
+        snapshot
+      );
+      batch.update(
+        db.collection('projects').doc(currentProjectId).collection('tours').doc(currentTourId),
+        { status:'abgeschlossen', closedAt:tsStr, closedBy:currentDriver, lastClosedDate:dateStr }
+      );
+      batchPromises.push(batch.commit());
+    }
+
+    await Promise.all(batchPromises);
+    setProgress(100, 'Gespeichert!');
+
+    currentTour = {...currentTour, status:'abgeschlossen', lastClosedDate:dateStr};
+
+    // ── Success ───────────────────────────────────────────────────
+    setTimeout(() => {
+      overlay.remove();
+      closeFinishSheet();
+
+      const banner = document.createElement('div');
+      banner.style.cssText = 'position:fixed;inset:0;background:var(--green);z-index:9000;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;';
+      banner.innerHTML = `
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5" style="margin-bottom:16px;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        <div style="font-size:24px;font-weight:700;margin-bottom:8px;">Tour abgeschlossen!</div>
+        <div style="font-size:14px;opacity:.85;">${stats.bewaessert} bewässert · ${stats.nicht} nicht · ${stats.offen} offen</div>
+        <div style="font-size:13px;opacity:.7;margin-top:6px;">✓ Erfolgreich gespeichert</div>`;
+      document.body.appendChild(banner);
+      setTimeout(()=>banner.remove(), 3000);
+
+      const finishBtn = document.getElementById('btn-show-finish');
+      if(finishBtn){ finishBtn.textContent='✅ Abgeschlossen'; finishBtn.style.background='#16a34a'; finishBtn.disabled=true; }
+    }, 400);
+
+  } catch(e) {
+    console.error('finishTour error:', e);
+    overlay.remove();
+    if(btn){ btn.disabled=false; btn.innerHTML='⚠ Fehler — erneut versuchen'; btn.style.background='#b45309'; }
+    toast('Fehler beim Speichern: ' + e.message);
+  }
+}
+
+async function reopenTour() {
+  try {
+    const now = new Date();
+
+    const resetFields = {
+      lastStatus: null,
+      lastReason: null,
+      lastNote: null,
+      lastReportAt: null,
+      lastDriver: null,
+    };
+
+    // Step 1: Unsubscribe listener so it doesn't overwrite our reset
+    if(unsubTrees){ unsubTrees(); unsubTrees=null; }
+
+    // Step 2: Reset local state immediately and re-render
+    trees.forEach(tree => Object.assign(tree, resetFields));
+    renderMarkers();
+    renderList('');
+    updateProgress();
+
+    // Step 3: Write all resets to Firestore in parallel
+    await Promise.all(
+      trees.map(tree =>
+        updateDoc(doc(db,'projects',currentProjectId,'trees',tree.id), resetFields)
+      )
+    );
+
+    // Step 4: Mark tour as active
+    await updateDoc(doc(db,'projects',currentProjectId,'tours',currentTourId),{
+      status: 'aktiv',
+      reopenedAt: now.toISOString(),
+      reopenedBy: currentDriver,
+    });
+    currentTour = {...currentTour, status: 'aktiv'};
+
+    // Step 5: Re-subscribe filtered by tourId
+    const _reoQ2 = db.collection('projects').doc(currentProjectId).collection('trees').where('tourId','==',currentTourId);
+    unsubTrees = _reoQ2.onSnapshot(snap => {
+      if(pauseSnapshot) return;
+      trees = snap.docs.map(d=>({id:d.id,...d.data()}));
+      routeOrder = routeOrder.filter(id=>trees.find(t=>t.id===id));
+      trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
+      renderMarkers();
+      renderList(document.getElementById('list-search-input')?.value||'');
+      updateProgress();
+      if(selectedTreeId) openSheet(selectedTreeId);
+    });
+
+    drawRoute();
+    closeFinishSheet();
+    toast('🔄 Tour neu gestartet');
+
+  } catch(e) { toast('Fehler: '+e.message); console.error(e); }
+}
+
+// ─── MARKERS ──────────────────────────────────────────────────
+function makeTreeIcon(tree, idx) {
+  const status = tree.lastStatus; // 'bewaessert' | 'nicht' | null
+  const color = currentTour?.color || '#2d6a4f';
+  const bg = status==='bewaessert'?'#16a34a':status==='nicht'?'#991b1b':color;
+  const num = idx+1;
+  const isNext = routeOrder.indexOf(tree.id) === getNextIdx();
+  const size = isNext ? 38 : 30;
+  const border = isNext ? '4px solid #fff' : '3px solid #fff';
+  const shadow = isNext ? '0 0 0 3px '+color+', 0 4px 12px rgba(0,0,0,.3)' : '0 2px 6px rgba(0,0,0,.3)';
+  return L.divIcon({
+    className:'',
+    html:`<div style="position:relative;width:${size}px;height:${size}px;">
+      <div style="width:${size}px;height:${size}px;border-radius:50%;background:${bg};border:${border};box-shadow:${shadow};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;font-family:'SF Mono','Fira Code',Consolas,monospace;">${status?status==='bewaessert'?'✓':'✕':num}</div>
+    </div>`,
+    iconSize:[size,size],iconAnchor:[size/2,size/2]
+  });
+}
+
+function renderMarkers() {
+  Object.values(mapMarkers).forEach(m=>map.removeLayer(m));
+  mapMarkers={};
+  routeOrder.forEach((id,idx)=>{
+    const tree=trees.find(t=>t.id===id);
+    if(!tree||!tree.lat||!tree.lng)return;
+    const m=L.marker([tree.lat,tree.lng],{icon:makeTreeIcon(tree,idx)})
+      .addTo(map).on('click',()=>openSheet(id));
+    mapMarkers[id]=m;
+  });
+  // Route drawn separately via drawRoute() to load from Firestore
+}
+
+async function drawRoute(){
+  if(routeLayer){
+    if(Array.isArray(routeLayer))routeLayer.forEach(l=>map.removeLayer(l));
+    else map.removeLayer(routeLayer);
+    routeLayer=null;
+  }
+  if(depotMarker){map.removeLayer(depotMarker);depotMarker=null;}
+
+  const color=currentTour?.color||'#2d6a4f';
+
+  // Use cached route snap from login (avoid extra Firestore call)
+  try{
+    const routeSnap = _cachedRouteSnap || await getDoc(doc(db,'projects',currentProjectId,'routes',currentTourId));
+    _cachedRouteSnap = null; // use once
+    if(routeSnap.exists){
+      const data=routeSnap.data();
+      // Restore route order from saved data
+      if(data.orderIds){
+        const savedOrder=data.orderIds.filter(id=>trees.find(t=>t.id===id));
+        // Merge: keep done trees in order, append remaining
+        const done=routeOrder.filter(id=>trees.find(t=>t.id===id)&&trees.find(t=>t.id===id).lastStatus);
+        const remaining=savedOrder.filter(id=>!trees.find(t=>t.id===id)?.lastStatus);
+        routeOrder=[...done,...remaining];
+        trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
+      }
+      // Draw real street route from saved GeoJSON
+      if(data.geojsonStr){
+        try{
+          const geo=JSON.parse(data.geojsonStr);
+          routeLayer=L.geoJSON(geo,{style:{color,weight:4,opacity:.85}}).addTo(map);
+          drawDepotMarker(data);
+          return;
+        }catch(e){}
+      }
+    }
+  }catch(e){}
+
+  // Fallback: dashed polyline with depot if set
+  const pts=routeOrder.map(id=>{
+    const t=trees.find(x=>x.id===id);
+    return t&&t.lat&&t.lng?[t.lat,t.lng]:null;
+  }).filter(Boolean);
+  if(pts.length<2)return;
+
+  // Add depot to route if configured
+  const allPts=await getRouteWithDepot(pts);
+  routeLayer=L.polyline(allPts,{color,weight:3,opacity:.7,dashArray:'8 5'}).addTo(map);
+  drawDepotMarker(null);
+}
+
+let depotMarker=null;
+
+async function getRouteWithDepot(pts){
+  try{
+    const data = currentProjectData || {};
+    const depot=data.depot;
+    const depotMode=data.depotMode||'round';
+    if(depot?.lat&&depot?.lng){
+      const dp=[depot.lat,depot.lng];
+      return depotMode==='round'?[dp,...pts,dp]:[dp,...pts];
+    }
+  }catch(e){}
+  return pts;
+}
+
+async function drawDepotMarker(routeData){
+  if(depotMarker){map.removeLayer(depotMarker);depotMarker=null;}
+  try{
+    const depot=(currentProjectData||{}).depot;
+    if(!depot?.lat)return;
+    const icon=L.divIcon({
+      className:'',
+      html:`<div style="width:32px;height:32px;border-radius:8px;background:#f59e0b;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;font-size:16px;">🏭</div>`,
+      iconSize:[32,32],iconAnchor:[16,16]
+    });
+    depotMarker=L.marker([depot.lat,depot.lng],{icon,zIndexOffset:1000})
+      .addTo(map)
+      .bindTooltip(`<b>Betriebshof</b>`,{direction:'top',offset:[0,-18]});
+  }catch(e){}
+}
+
+// ─── NEXT TREE ─────────────────────────────────────────────────
+function getNextIdx(){
+  return routeOrder.findIndex(id=>{
+    const t=trees.find(x=>x.id===id);
+    return t&&!t.lastStatus;
+  });
+}
+
+function goToNextTree(){
+  const idx=getNextIdx();
+  if(idx===-1){toast('Alle Bäume abgearbeitet! 🎉');return;}
+  const id=routeOrder[idx];
+  const tree=trees.find(t=>t.id===id);
+  if(tree&&tree.lat&&tree.lng) map.panTo([tree.lat,tree.lng],{animate:true});
+  openSheet(id);
+}
+
+function recalcFromGPS(){
+  if(!gpsLatLng){toast('GPS noch nicht verfügbar');return;}
+  // Nearest-neighbor from GPS position
+  const remaining=trees.filter(t=>!t.lastStatus&&t.lat&&t.lng);
+  if(remaining.length===0){toast('Alle erledigt!');return;}
+  const done=trees.filter(t=>t.lastStatus);
+  const ordered=nearestNeighbor(remaining,gpsLatLng[0],gpsLatLng[1]);
+  routeOrder=[...done.map(t=>t.id),...ordered.map(t=>t.id)];
+  renderMarkers();
+  renderList('');
+  toast('Route neu berechnet');
+  drawRoute();
+}
+
+function nearestNeighbor(pts,startLat,startLng){
+  const visited=new Set();const result=[];
+  let lat=startLat,lng=startLng;
+  while(result.length<pts.length){
+    let best=null,bestD=Infinity;
+    for(const p of pts){
+      if(visited.has(p.id))continue;
+      const d=haversine(lat,lng,p.lat,p.lng);
+      if(d<bestD){bestD=d;best=p;}
+    }
+    if(!best)break;
+    result.push(best);visited.add(best.id);lat=best.lat;lng=best.lng;
+  }
+  return result;
+}
+
+function haversine(a,b,c,d){
+  const R=6371,dLat=(c-a)*Math.PI/180,dLon=(d-b)*Math.PI/180;
+  const x=Math.sin(dLat/2)**2+Math.cos(a*Math.PI/180)*Math.cos(c*Math.PI/180)*Math.sin(dLon/2)**2;
+  return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
+}
+
+// ─── LIST ──────────────────────────────────────────────────────
+function renderList(q=''){
+  const el=document.getElementById('tree-list-mobile');
+  let list=routeOrder.map(id=>trees.find(t=>t.id===id)).filter(Boolean);
+  if(q) list=list.filter(t=>(t.name||'').toLowerCase().includes(q.toLowerCase())||(t.art||'').toLowerCase().includes(q.toLowerCase()));
+  if(list.length===0){el.innerHTML='<div style="padding:40px;text-align:center;color:var(--text3);">Keine Bäume</div>';return;}
+  el.innerHTML=list.map((tree,i)=>{
+    const idx=routeOrder.indexOf(tree.id);
+    const st=tree.lastStatus;
+    const dotClass=st==='bewaessert'?'bewaessert':st==='nicht'?'nicht':'offen';
+    const color=currentTour?.color||'#2d6a4f';
+    return `<div class="tree-row${st?' done':''}" data-id="${tree.id}">
+      <div class="tree-row-num" style="background:${color}22;color:${color};">${idx+1}</div>
+      <div class="tree-row-info">
+        <div class="tree-row-name">${tree.name||'–'}</div>
+        <div class="tree-row-meta">${tree.art||'–'} · ${tree.stadtteil||''}</div>
+      </div>
+      <div class="status-dot ${dotClass}"></div>
+    </div>`;
+  }).join('');
+  el.onclick=e=>{
+    const row=e.target.closest('[data-id]');
+    if(row) openSheet(row.dataset.id);
+  };
+}
+
+// ─── SHEET ────────────────────────────────────────────────────
+function openSheet(id){
+  selectedTreeId=id;
+  const tree=trees.find(t=>t.id===id);
+  if(!tree)return;
+  document.getElementById('sheet-title').textContent=tree.name||'–';
+  document.getElementById('sheet-meta').textContent=
+    `${tree.art||'–'} · ${tree.stadtteil||''} · ${tree.baumnr||''}`;
+
+  const idx=routeOrder.indexOf(id);
+  const statusVal=tree.lastStatus||'';
+  const reasonVal=tree.lastReason||'';
+
+  // Build reason chips
+  const reasonChips=reasons.length>0
+    ? reasons.map(r=>`<div class="reason-chip${reasonVal===r.text?' selected':''}" data-reason="${r.text}">${r.text}</div>`).join('')
+    : '<div style="font-size:12px;color:var(--text3);padding:4px 0;">Keine Gründe hinterlegt — bitte in der Desktop-App unter Verwaltung einrichten.</div>';
+
+  document.getElementById('sheet-body').innerHTML=`
+    <!-- Status -->
+    <div class="section-title">Bewässerungsstatus</div>
+    <div class="status-btns">
+      <div class="status-btn${statusVal==='bewaessert'?' selected-ok':''}" id="btn-ok" onclick="selectStatus('bewaessert')">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+        Bewässert
+      </div>
+      <div class="status-btn${statusVal==='nicht'?' selected-nok':''}" id="btn-nok" onclick="selectStatus('nicht')">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        Nicht bewässert
+      </div>
+    </div>
+
+    <!-- Reasons (only when nicht) -->
+    <div id="reason-section" style="display:${statusVal==='nicht'?'block':'none'}">
+      <div class="section-title">Grund</div>
+      <div class="reason-chips" id="reason-chips">${reasonChips}</div>
+      <input class="prop-input prop-full" id="reason-custom" placeholder="Weitere Bemerkung…" value="${tree.lastNote||''}">
+    </div>
+
+    <!-- Properties -->
+    <div class="section-title" style="margin-top:16px;">Eigenschaften erfassen</div>
+    <div class="prop-grid">
+      <div class="prop-group">
+        <label class="prop-label">Zustand</label>
+        <select class="prop-input" id="p-zustand">
+          <option value="gut"${tree.zustand==='gut'?' selected':''}>Gut</option>
+          <option value="mittel"${(!tree.zustand||tree.zustand==='mittel')?' selected':''}>Mittel</option>
+          <option value="schlecht"${tree.zustand==='schlecht'?' selected':''}>Schlecht</option>
+        </select>
+      </div>
+      <div class="prop-group">
+        <label class="prop-label">Wasserbedarf</label>
+        <select class="prop-input" id="p-wasser">
+          <option value="gering"${tree.wasser==='gering'?' selected':''}>Gering</option>
+          <option value="mittel"${(!tree.wasser||tree.wasser==='mittel')?' selected':''}>Mittel</option>
+          <option value="hoch"${tree.wasser==='hoch'?' selected':''}>Hoch</option>
+        </select>
+      </div>
+      <div class="prop-group prop-full">
+        <label class="prop-label">Bemerkung</label>
+        <input class="prop-input" id="p-notiz" placeholder="Freitext…" value="${tree.notiz||''}">
+      </div>
+    </div>
+
+    <!-- Info fields -->
+    <div class="section-title">Stammdaten</div>
+    <div class="field-row"><span class="field-key">Baumnr.</span><span class="field-val">${tree.baumnr||'–'}</span></div>
+    <div class="field-row"><span class="field-key">Baumart</span><span class="field-val" style="font-style:italic;">${tree.art||'–'}</span></div>
+    <div class="field-row"><span class="field-key">Pflanzjahr</span><span class="field-val">${tree.pflanzjahr||'–'}</span></div>
+    <div class="field-row"><span class="field-key">Pflanzzeit</span><span class="field-val">${tree.pflanzzeitpunkt||'–'}</span></div>
+    <div class="field-row"><span class="field-key">Koordinaten</span><span class="field-val" style="font-size:11px;font-family:monospace;">${tree.lat?tree.lat.toFixed(5)+', '+tree.lng.toFixed(5):'–'}</span></div>
+    <div class="field-row"><span class="field-key">Route #</span><span class="field-val">#${idx+1}</span></div>
+    ${tree.lastStatus?`<div class="field-row"><span class="field-key">Letzte Meldung</span><span class="field-val">${tree.lastStatus==='bewaessert'?'✓ Bewässert':'✕ Nicht bewässert'}</span></div>`:''}
+  `;
+
+  // Reason chips click
+  document.getElementById('reason-chips').onclick=e=>{
+    const chip=e.target.closest('[data-reason]');
+    if(!chip)return;
+    document.querySelectorAll('.reason-chip').forEach(c=>c.classList.remove('selected'));
+    chip.classList.add('selected');
+  };
+
+  document.getElementById('sheet-footer').innerHTML=`
+    <button class="btn btn-secondary" style="flex:1;" onclick="closeSheet()">Abbrechen</button>
+    <button class="btn btn-primary" style="flex:2;" onclick="saveReport('${id}')">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+      Speichern & weiter
+    </button>
+  `;
+
+  document.getElementById('sheet-backdrop').classList.add('open');
+  document.getElementById('detail-sheet').classList.add('open');
+
+  // Pan map to tree
+  if(tree.lat&&tree.lng&&currentTab==='map')
+    map.panTo([tree.lat,tree.lng],{animate:true});
+}
+
+let _sheetStatus=null;
+function selectStatus(s){
+  _sheetStatus=s;
+  document.getElementById('btn-ok').className='status-btn'+(s==='bewaessert'?' selected-ok':'');
+  document.getElementById('btn-nok').className='status-btn'+(s==='nicht'?' selected-nok':'');
+  document.getElementById('reason-section').style.display=s==='nicht'?'block':'none';
+}
+
+function closeSheet(){
+  _sheetStatus=null;
+  selectedTreeId=null;
+  document.getElementById('sheet-backdrop').classList.remove('open');
+  document.getElementById('detail-sheet').classList.remove('open');
+}
+
+async function saveReport(id){
+  const tree=trees.find(t=>t.id===id);if(!tree)return;
+  const status=_sheetStatus||tree.lastStatus;
+  const selectedChip=document.querySelector('.reason-chip.selected');
+  const reason=selectedChip?selectedChip.dataset.reason:'';
+  const note=document.getElementById('reason-custom')?.value||'';
+
+  // Pflichtfeld: Grund bei "nicht bewässert"
+  if(status==='nicht' && !reason && !note.trim()){
+    const reasonSec=document.getElementById('reason-section');
+    if(reasonSec){
+      reasonSec.style.border='2px solid var(--red)';
+      reasonSec.style.borderRadius='8px';
+      reasonSec.style.padding='8px';
+      reasonSec.style.background='var(--red-light)';
+      setTimeout(()=>{
+        reasonSec.style.border='';
+        reasonSec.style.borderRadius='';
+        reasonSec.style.padding='';
+        reasonSec.style.background='';
+      },2000);
+    }
+    toast('⚠ Bitte einen Grund angeben');
+    return;
+  }
+
+  const zustand=document.getElementById('p-zustand')?.value||tree.zustand;
+  const wasser=document.getElementById('p-wasser')?.value||tree.wasser;
+  const notiz=document.getElementById('p-notiz')?.value||tree.notiz||'';
+
+  const updates={
+    zustand,wasser,notiz,
+    lastStatus:status||null,
+    lastReason:reason||null,
+    lastNote:note||null,
+    lastDriver:currentDriver,
+    lastReportAt:new Date().toISOString(),
+  };
+  if(status==='bewaessert') updates.datum=new Date().toISOString().slice(0,10);
+
+  const histEntry={
+    date:new Date().toISOString().slice(0,10),
+    note:`${status==='bewaessert'?'Bewässert':'Nicht bewässert'}${reason?' — '+reason:''}${note?' ('+note+')':''}`,
+    driver:currentDriver
+  };
+  // Use arrayUnion — no need to read existing history first
+  const firestoreUpdates={...updates, history: firebase.firestore.FieldValue.arrayUnion(histEntry)};
+  const offlineUpdates={...updates, history:[...(tree.history||[]),histEntry]};
+
+  // Update local state immediately — UI responds at once
+  Object.assign(tree, updates);
+  renderMarkers(); renderList(''); updateProgress();
+
+  if(!isOnline){
+    addToOfflineQueue(id, offlineUpdates);
+    closeSheet();
+    toast('📦 Offline gespeichert — wird synchronisiert wenn Netz verfügbar');
+  } else {
+    try{
+      await updateDoc(doc(db,'projects',currentProjectId,'trees',id), firestoreUpdates);
+      closeSheet();
+      toast(status==='bewaessert'?'✓ Bewässert gemeldet':'✕ Nicht bewässert gemeldet');
+      setTimeout(()=>{
+        const nextIdx=getNextIdx();
+        if(nextIdx!==-1){
+          const nextId=routeOrder[nextIdx];
+          const next=trees.find(t=>t.id===nextId);
+          if(next&&next.lat&&next.lng) map.panTo([next.lat,next.lng],{animate:true,duration:0.8});
+        }
+      },800);
+    }catch(e){
+      addToOfflineQueue(id, historyUpdates);
+      closeSheet();
+      toast('📦 Offline gespeichert — wird später synchronisiert');
+    }
+  }
+}
+
+
+// ─── TABS ─────────────────────────────────────────────────────
+function switchTab(t){
+  currentTab=t;
+  document.querySelectorAll('.tab-content').forEach(el=>el.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(el=>el.classList.remove('active'));
+  document.getElementById('tab-'+t).classList.add('active');
+  document.getElementById('tab-btn-'+t).classList.add('active');
+  if(t==='map') setTimeout(()=>map.invalidateSize(),50);
+}
+
+// ─── TOAST ────────────────────────────────────────────────────
+function toast(msg){
+  const el=document.getElementById('toast');
+  el.textContent=msg;el.classList.add('show');
+  setTimeout(()=>el.classList.remove('show'),2500);
+}
+
+// ─── GLOBALS ──────────────────────────────────────────────────
+// ─── LOGIN HELPERS ────────────────────────────────────────────
+let _loginProjects = [];
+let _loginTours = {};
+let _cachedRouteSnap = null;
+
+async function loadLoginProjects(){
+  try{
+    const snap = await getDocs(collection(db,'projects'));
+    _loginProjects = snap.docs.map(d=>({id:d.id,...d.data()}));
+    const sel = document.getElementById('login-project');
+    sel.innerHTML='<option value="">– Projekt wählen –</option>'+
+      _loginProjects.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+    if(_loginProjects.length===1){
+      sel.value=_loginProjects[0].id;
+      // Pre-load tours for the only project immediately
+      onLoginProjectChange();
+    } else if(_loginProjects.length>0){
+      // Pre-load tours for all projects in parallel
+      const tourSnaps = await Promise.all(
+        _loginProjects.map(p=>getDocs(collection(db,'projects',p.id,'tours')))
+      );
+      _loginProjects.forEach((p,i)=>{
+        _loginTours[p.id] = tourSnaps[i].docs.map(d=>({id:d.id,...d.data()}));
+      });
+    }
+  }catch(e){ console.error(e); }
+}
+
+async function onLoginProjectChange(){
+  const pid = document.getElementById('login-project').value;
+  const tourSel = document.getElementById('login-tour');
+  const nameSel = document.getElementById('login-name');
+  tourSel.innerHTML='<option value="">– Tour wählen –</option>';
+  nameSel.innerHTML='<option value="">– Fahrer wählen –</option>';
+  if(!pid) return;
+  // Use cache if available, otherwise load
+  if(!_loginTours[pid]){
+    const snap = await getDocs(collection(db,'projects',pid,'tours'));
+    _loginTours[pid] = snap.docs.map(d=>({id:d.id,...d.data()}));
+  }
+  tourSel.innerHTML='<option value="">– Tour wählen –</option>'+
+    _loginTours[pid].map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
+  if(_loginTours[pid].length===1){
+    tourSel.value=_loginTours[pid][0].id;
+    await onLoginTourChange();
+  }
+}
+
+async function onLoginTourChange(){
+  const pid = document.getElementById('login-project').value;
+  const tid = document.getElementById('login-tour').value;
+  const nameSel = document.getElementById('login-name');
+  nameSel.innerHTML='<option value="">– Fahrer wählen –</option>';
+  if(!tid) return;
+  const tours = _loginTours[pid]||[];
+  const tour = tours.find(t=>t.id===tid);
+  if(!tour) return;
+  const drivers = tour.drivers || (tour.assignedDriver ? [tour.assignedDriver] : []);
+  if(drivers.length>0){
+    nameSel.innerHTML='<option value="">– Fahrer wählen –</option>'+
+      drivers.map(d=>`<option value="${d}">${d}</option>`).join('');
+    if(drivers.length===1) nameSel.value=drivers[0];
+  }
+}
+
+// ─── OFFLINE MANAGER ─────────────────────────────────────────
+const CACHE_KEY = 'bwt_offline_trees';
+const QUEUE_KEY = 'bwt_offline_queue';
+let isOnline = navigator.onLine;
+let syncInProgress = false;
+
+// Network status monitoring
+window.addEventListener('online', ()=>{
+  isOnline = true;
+  updateNetworkBadge();
+  syncOfflineQueue();
+});
+window.addEventListener('offline', ()=>{
+  isOnline = false;
+  updateNetworkBadge();
+  toast('⚠ Kein Netz — Meldungen werden lokal gespeichert');
+});
+
+function updateNetworkBadge(){
+  const badge = document.getElementById('network-badge');
+  if(!badge) return;
+  if(isOnline){
+    badge.style.display = 'none';
+  } else {
+    badge.style.display = 'flex';
+    const q = getOfflineQueue();
+    badge.textContent = q.length > 0 ? `Offline · ${q.length} ausstehend` : 'Offline';
+  }
+}
+
+// ── Local tree cache ──────────────────────────────────────────
+function cacheTreesLocally(projectId, tourId, treesData){
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({
+      projectId, tourId,
+      trees: treesData,
+      cachedAt: new Date().toISOString()
+    }));
+  } catch(e){ console.warn('Cache write failed:', e); }
+}
+
+function loadCachedTrees(projectId, tourId){
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if(!raw) return null;
+    const data = JSON.parse(raw);
+    if(data.projectId === projectId && data.tourId === tourId){
+      return data.trees;
+    }
+  } catch(e){}
+  return null;
+}
+
+// ── Offline queue ─────────────────────────────────────────────
+function getOfflineQueue(){
+  try { return JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]'); }
+  catch(e){ return []; }
+}
+
+function addToOfflineQueue(treeId, updates){
+  const q = getOfflineQueue();
+  // Replace existing entry for same tree (latest wins)
+  const idx = q.findIndex(e=>e.treeId===treeId);
+  const entry = { treeId, updates, projectId: currentProjectId, queuedAt: new Date().toISOString() };
+  if(idx>=0) q[idx] = entry;
+  else q.push(entry);
+  localStorage.setItem(QUEUE_KEY, JSON.stringify(q));
+  updateNetworkBadge();
+}
+
+
+async function syncOfflineQueue(){
+  if(syncInProgress || !isOnline) return;
+  const q = getOfflineQueue();
+  if(q.length === 0) return;
+
+  syncInProgress = true;
+  const badge = document.getElementById('network-badge');
+  if(badge){ badge.style.display='flex'; badge.textContent=`Synchronisiert ${q.length}…`; }
+
+  let synced = 0;
+  const failed = [];
+
+  for(const entry of q){
+    try {
+      await updateDoc(
+        doc(db,'projects',entry.projectId,'trees',entry.treeId),
+        entry.updates
+      );
+      synced++;
+    } catch(e){
+      console.warn('Sync failed for', entry.treeId, e);
+      failed.push(entry);
+    }
+  }
+
+  localStorage.setItem(QUEUE_KEY, JSON.stringify(failed));
+  syncInProgress = false;
+
+  if(synced > 0){
+    toast(`✓ ${synced} Meldung${synced>1?'en':''} synchronisiert`);
+  }
+  updateNetworkBadge();
+}
+
+
+async function tryResumeSession() {
+  const loadingEl = document.getElementById('screen-loading');
+  const loginEl   = document.getElementById('screen-login');
+
+  function showLogin(){
+    if(loadingEl) loadingEl.style.display='none';
+    if(loginEl)   loginEl.classList.add('active');
+    loadLoginProjects();
+  }
+
+  // Always show login — session resume disabled (localStorage blocked by Edge Tracking Prevention)
+  showLogin();
+}
+
+// Safety fallback — show login after 5s if still loading
+setTimeout(()=>{
+  const loading = document.getElementById('screen-loading');
+  const login   = document.getElementById('screen-login');
+  if(loading && loading.style.display !== 'none'){
+    loading.style.display = 'none';
+    if(login) login.classList.add('active');
+    loadLoginProjects();
+  }
+}, 800);
+
+// Init
+tryResumeSession();
+
+
+// ─── EVENT LISTENERS (replaces all inline onclick/onchange) ──────
+document.addEventListener('DOMContentLoaded', () => {
+  // Login
+  document.getElementById('login-project').addEventListener('change', onLoginProjectChange);
+  document.getElementById('login-tour').addEventListener('change', onLoginTourChange);
+  document.getElementById('btn-login').addEventListener('click', doLogin);
+
+  // App header
+  const btnLogout = document.getElementById('btn-logout');
+  if(btnLogout) btnLogout.addEventListener('click', doLogout);
+
+  // Map controls
+  const btnRecalc = document.getElementById('btn-recalc');
+  if(btnRecalc) btnRecalc.addEventListener('click', recalcFromGPS);
+  const pill = document.getElementById('map-progress-pill');
+  if(pill) pill.addEventListener('click', goToNextTree);
+
+  // Tab bar
+  const tabMapBtn = document.getElementById('tab-btn-map');
+  if(tabMapBtn) tabMapBtn.addEventListener('click', () => switchTab('map'));
+  const tabListBtn = document.getElementById('tab-btn-list');
+  if(tabListBtn) tabListBtn.addEventListener('click', () => switchTab('list'));
+
+  // Resume dialog
+  const btnNeu = document.getElementById('btn-neu-starten');
+  if(btnNeu) btnNeu.addEventListener('click', dialogNeuStarten);
+  const btnFort = document.getElementById('btn-fortsetzen');
+  if(btnFort) btnFort.addEventListener('click', dialogFortsetzen);
+
+  // Bulk sheet
+  const bulkBackdrop = document.getElementById('bulk-backdrop');
+  if(bulkBackdrop) bulkBackdrop.addEventListener('click', closeBulkSheet);
+
+  // Sheet backdrop
+  const sheetBackdrop = document.getElementById('sheet-backdrop');
+  if(sheetBackdrop) sheetBackdrop.addEventListener('click', closeSheet);
+
+  // Header action buttons
+  const btnMarkAll = document.getElementById('btn-mark-all-done');
+  if(btnMarkAll) btnMarkAll.addEventListener('click', markAllDone);
+  const btnFinish = document.getElementById('btn-show-finish');
+  if(btnFinish) btnFinish.addEventListener('click', showFinishConfirm);
+});
