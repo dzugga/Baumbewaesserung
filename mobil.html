@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v-27 -->
+<!-- v-28 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -551,8 +551,8 @@ async function startBewässerungLogin(name, pid, tid) {
     // Show app
     document.getElementById('screen-login').classList.remove('active');
     document.getElementById('screen-app').classList.add('active');
-    document.getElementById('app-header-tour').textContent = currentTour?.name||'Tour';
-    document.getElementById('app-header-driver').textContent = 'Fahrer: '+name;
+    const _ht=document.getElementById('header-tour-name'); if(_ht) _ht.textContent = currentTour?.name||'Tour';
+    const _hd=document.getElementById('header-driver'); if(_hd) _hd.textContent = 'Fahrer: '+name;
 
     // Show all tabs
     ['tab-btn-map','tab-btn-list'].forEach(id=>{
