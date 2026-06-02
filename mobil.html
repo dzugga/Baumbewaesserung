@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v-24 -->
+<!-- v-25 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -1603,26 +1603,29 @@ async function tryResumeSession() {
     loadLoginProjects();
   }
 
+  // Test if localStorage is available at all
+  let storageOk = false;
+  try { localStorage.setItem('_test','1'); localStorage.removeItem('_test'); storageOk = true; } catch(e) {}
+
+  if(!storageOk){ showLogin(); return; }
+
   let saved = null;
-  try { saved = localStorage.getItem('bwt_mobile_session'); } catch(e) {}
+  try { saved = localStorage.getItem('bwt_mobile_session'); } catch(e) { showLogin(); return; }
 
   if(!saved){ showLogin(); return; }
 
   try{
     const session = JSON.parse(saved);
     const {driver, projectId, tourId, savedAt} = session;
+    if(!driver || !projectId || !tourId || !savedAt){ showLogin(); return; }
     if(Date.now()-savedAt > 12*3600*1000){
       try{ localStorage.removeItem('bwt_mobile_session'); }catch(e){}
       showLogin(); return;
     }
-    if(projectId && tourId){
-      setLoadingStatus(`Willkommen zurück, ${driver}!`);
-      if(loadingEl) loadingEl.style.display='none';
-      if(loginEl)   loginEl.classList.remove('active');
-      await startBewässerungLogin(driver, projectId, tourId);
-    } else {
-      showLogin();
-    }
+    setLoadingStatus(`Willkommen zurück, ${driver}!`);
+    if(loadingEl) loadingEl.style.display='none';
+    if(loginEl)   loginEl.classList.remove('active');
+    await startBewässerungLogin(driver, projectId, tourId);
   }catch(e){
     console.error('Session resume error:', e);
     try{ localStorage.removeItem('bwt_mobile_session'); }catch(ex){}
@@ -1639,7 +1642,7 @@ setTimeout(()=>{
     if(login) login.classList.add('active');
     loadLoginProjects();
   }
-}, 5000);
+}, 800);
 
 // Init
 tryResumeSession();
