@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v-30 -->
+<!-- v-31 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -955,9 +955,8 @@ async function finishTour() {
     };
 
     const histId = `${dateStr}_${now.getTime()}_${currentTourId}`;
-    await setDoc(doc(db,'projects',currentProjectId,'tourHistory',histId), snapshot);
 
-    // ── 2. Add history entry to each reported tree ────────────────
+    // ── 2. Build tree history entries (no read needed — use arrayUnion) ──
     const histWrites = trees
       .filter(t=>t.lastStatus)
       .map(tree=>{
@@ -969,18 +968,21 @@ async function finishTour() {
         };
         return updateDoc(
           doc(db,'projects',currentProjectId,'trees',tree.id),
-          {history: [...(tree.history||[]), entry]}
+          { history: firebase.firestore.FieldValue.arrayUnion(entry) }
         );
       });
-    await Promise.all(histWrites);
 
-    // ── 3. Mark tour closed ───────────────────────────────────────
-    await updateDoc(doc(db,'projects',currentProjectId,'tours',currentTourId),{
-      status: 'abgeschlossen',
-      closedAt: tsStr,
-      closedBy: currentDriver,
-      lastClosedDate: dateStr,
-    });
+    // ── Run all 3 writes in parallel ─────────────────────────────
+    await Promise.all([
+      setDoc(doc(db,'projects',currentProjectId,'tourHistory',histId), snapshot),
+      ...histWrites,
+      updateDoc(doc(db,'projects',currentProjectId,'tours',currentTourId),{
+        status: 'abgeschlossen',
+        closedAt: tsStr,
+        closedBy: currentDriver,
+        lastClosedDate: dateStr,
+      })
+    ]);
     currentTour = {...currentTour, status: 'abgeschlossen', lastClosedDate: dateStr};
 
     // ── 4. Show success state ─────────────────────────────────────
@@ -1425,19 +1427,21 @@ async function saveReport(id){
     note:`${status==='bewaessert'?'Bewässert':'Nicht bewässert'}${reason?' — '+reason:''}${note?' ('+note+')':''}`,
     driver:currentDriver
   };
-  const historyUpdates={...updates,history:[...(tree.history||[]),histEntry]};
+  // Use arrayUnion — no need to read existing history first
+  const firestoreUpdates={...updates, history: firebase.firestore.FieldValue.arrayUnion(histEntry)};
+  const offlineUpdates={...updates, history:[...(tree.history||[]),histEntry]};
 
-  // Update local state immediately
+  // Update local state immediately — UI responds at once
   Object.assign(tree, updates);
   renderMarkers(); renderList(''); updateProgress();
 
   if(!isOnline){
-    addToOfflineQueue(id, historyUpdates);
+    addToOfflineQueue(id, offlineUpdates);
     closeSheet();
     toast('📦 Offline gespeichert — wird synchronisiert wenn Netz verfügbar');
   } else {
     try{
-      await updateDoc(doc(db,'projects',currentProjectId,'trees',id), historyUpdates);
+      await updateDoc(doc(db,'projects',currentProjectId,'trees',id), firestoreUpdates);
       closeSheet();
       toast(status==='bewaessert'?'✓ Bewässert gemeldet':'✕ Nicht bewässert gemeldet');
       setTimeout(()=>{
