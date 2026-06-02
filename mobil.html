@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v-22 -->
+<!-- v-24 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -184,13 +184,13 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
     <div class="login-sub">Fahrer-App</div>
     <div class="form-group">
       <label class="form-label">Projekt</label>
-      <select class="form-control" id="login-project" onchange="onLoginProjectChange()">
+      <select class="form-control" id="login-project">
         <option value="">Wird geladen…</option>
       </select>
     </div>
     <div class="form-group">
       <label class="form-label">Tour</label>
-      <select class="form-control" id="login-tour" onchange="onLoginTourChange()">
+      <select class="form-control" id="login-tour">
         <option value="">– Projekt wählen –</option>
       </select>
     </div>
@@ -200,7 +200,7 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
       <div id="login-name-hint" style="font-size:11px;color:var(--text3);margin-top:4px;display:none;"></div>
     </div>
     <div id="login-error" style="color:var(--red);font-size:13px;margin-bottom:12px;display:none;"></div>
-    <button class="btn btn-primary" onclick="doLogin()">
+    <button class="btn btn-primary" id="btn-login">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
       Tour starten
     </button>
@@ -224,7 +224,7 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55M5 12.55a10.94 10.94 0 0 1 5.17-2.39M10.71 5.05A16 16 0 0 1 22.56 9M1.42 9a15.91 15.91 0 0 1 4.7-2.88M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg>
       Offline
     </div>
-    <button class="btn btn-secondary btn-sm" onclick="doLogout()" style="padding:6px 10px;">
+    <button class="btn btn-secondary btn-sm" id="btn-logout" style="padding:6px 10px;">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
     </button>
   </div>
@@ -234,7 +234,7 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
     <div id="map"></div>
     <div class="map-overlay-top">
       <div class="map-pill" id="map-status">Karte lädt…</div>
-      <button class="recalc-btn" onclick="recalcFromGPS()">
+      <button class="recalc-btn" id="btn-recalc">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline;vertical-align:middle;margin-right:4px;"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
         Route neu
       </button>
@@ -242,7 +242,7 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
     <!-- Elegant floating bottom bar on map -->
     <div id="map-bottom-bar" style="position:absolute;bottom:16px;left:12px;right:12px;z-index:1000;display:flex;gap:8px;align-items:flex-end;">
       <!-- Progress pill -->
-      <div id="map-progress-pill" style="background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:8px 14px;box-shadow:var(--shadow-md);flex:1;display:flex;align-items:center;gap:10px;cursor:pointer;" onclick="goToNextTree()">
+      <div id="map-progress-pill" style="background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:8px 14px;box-shadow:var(--shadow-md);flex:1;display:flex;align-items:center;gap:10px;cursor:pointer;">
         <div style="flex:1;">
           <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin-bottom:3px;">Nächster Baum</div>
           <div id="next-tree-name" style="font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">–</div>
@@ -263,10 +263,10 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           <input type="text" placeholder="Baum suchen…" oninput="renderList(this.value)" id="list-search-input">
         </div>
-        <button onclick="markAllDone()" style="background:var(--green);color:#fff;border:none;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">
+        <button id="btn-mark-all-done" style="background:var(--green);color:#fff;border:none;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">
           ✓✓ Alle erledigt
         </button>
-        <button onclick="showFinishConfirm()" style="background:#991b1b;color:#fff;border:none;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">
+        <button id="btn-show-finish" style="background:#991b1b;color:#fff;border:none;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">
           ✓ Abschließen
         </button>
       </div>
@@ -276,11 +276,11 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
 
   <!-- Tab bar -->
   <div class="tab-bar">
-    <button class="tab-btn active" id="tab-btn-map" onclick="switchTab('map')">
+    <button class="tab-btn active" id="tab-btn-map" id="tab-btn-map-click">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>
       Karte
     </button>
-    <button class="tab-btn" id="tab-btn-list" onclick="switchTab('list')">
+    <button class="tab-btn" id="tab-btn-list" id="tab-btn-list-click">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
       Liste
     </button>
@@ -313,10 +313,10 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
       </div>
     </div>
     <div style="padding:0 24px 24px;display:flex;flex-direction:column;gap:10px;">
-      <button id="btn-neu-starten" onclick="dialogNeuStarten()" style="width:100%;padding:14px;background:var(--green);color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;">
+      <button id="btn-neu-starten" style="width:100%;padding:14px;background:var(--green);color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;">
         🔄 Neu starten
       </button>
-      <button id="btn-fortsetzen" onclick="dialogFortsetzen()" style="width:100%;padding:14px;background:var(--surface2);color:var(--text);border:1.5px solid var(--border);border-radius:12px;font-size:15px;font-weight:500;cursor:pointer;">
+      <button id="btn-fortsetzen" style="width:100%;padding:14px;background:var(--surface2);color:var(--text);border:1.5px solid var(--border);border-radius:12px;font-size:15px;font-weight:500;cursor:pointer;">
         ▶ Fortsetzen
       </button>
     </div>
@@ -324,7 +324,7 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
 </div>
 
 <!-- BULK DONE CONFIRM SHEET -->
-<div id="bulk-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:3500;" onclick="closeBulkSheet()"></div>
+<div id="bulk-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:3500;"></div>
 <div id="bulk-sheet" style="display:none;position:fixed;left:0;right:0;bottom:0;z-index:3501;background:var(--surface);border-radius:20px 20px 0 0;padding:24px 24px calc(24px + var(--safe-bottom));">
   <div style="width:40px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 20px;"></div>
   <div style="text-align:center;margin-bottom:16px;">
@@ -351,7 +351,7 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
 </div>
 
 <!-- DETAIL SHEET -->
-<div id="sheet-backdrop" onclick="closeSheet()"></div>
+<div id="sheet-backdrop"></div>
 <div id="detail-sheet">
   <div class="sheet-handle"></div>
   <div class="sheet-header">
@@ -384,6 +384,7 @@ const db = getFirestore(fbApp);
 
 // ─── STATE ────────────────────────────────────────────────────
 let currentDriver = null;
+let currentProjectData = null;
 let currentProjectId = null;
 let currentTourId = null;
 let currentTour = null;
@@ -966,7 +967,7 @@ async function finishTour() {
     setTimeout(()=>banner.remove(), 2500);
 
     // Update list button state
-    const finishBtn = document.querySelector('[onclick="showFinishConfirm()"]');
+    const finishBtn = document.getElementById('btn-show-finish');
     if(finishBtn){
       finishBtn.textContent = '✅ Abgeschlossen';
       finishBtn.style.background = '#16a34a';
@@ -1643,31 +1644,47 @@ setTimeout(()=>{
 // Init
 tryResumeSession();
 
-// ─── EXPOSE TO WINDOW (required for type="module") ─────────────
-window.doLogin = doLogin;
-window.doLogout = doLogout;
-window.onLoginProjectChange = onLoginProjectChange;
-window.onLoginTourChange = onLoginTourChange;
-window.startGPS = startGPS;
-window.switchTab = switchTab;
-window.openSheet = openSheet;
-window.closeSheet = closeSheet;
-window.selectStatus = selectStatus;
-window.saveReport = saveReport;
-window.goToNextTree = goToNextTree;
-window.recalcFromGPS = recalcFromGPS;
-window.showFinishConfirm = showFinishConfirm;
-window.closeFinishSheet = closeFinishSheet;
-window.finishTour = finishTour;
-window.reopenTour = reopenTour;
-window.markAllDone = markAllDone;
-window.closeBulkSheet = closeBulkSheet;
-window.confirmMarkAllDone = confirmMarkAllDone;
-window.closeResumeDialog = closeResumeDialog;
-window.dialogFortsetzen = dialogFortsetzen;
-window.dialogNeuStarten = dialogNeuStarten;
-window.toast = toast;
 
-</script>
-</body>
-</html>
+// ─── EVENT LISTENERS (replaces all inline onclick/onchange) ──────
+document.addEventListener('DOMContentLoaded', () => {
+  // Login
+  document.getElementById('login-project').addEventListener('change', onLoginProjectChange);
+  document.getElementById('login-tour').addEventListener('change', onLoginTourChange);
+  document.getElementById('btn-login').addEventListener('click', doLogin);
+
+  // App header
+  const btnLogout = document.getElementById('btn-logout');
+  if(btnLogout) btnLogout.addEventListener('click', doLogout);
+
+  // Map controls
+  const btnRecalc = document.getElementById('btn-recalc');
+  if(btnRecalc) btnRecalc.addEventListener('click', recalcFromGPS);
+  const pill = document.getElementById('map-progress-pill');
+  if(pill) pill.addEventListener('click', goToNextTree);
+
+  // Tab bar
+  const tabMapBtn = document.getElementById('tab-btn-map-click');
+  if(tabMapBtn) tabMapBtn.addEventListener('click', () => switchTab('map'));
+  const tabListBtn = document.getElementById('tab-btn-list-click');
+  if(tabListBtn) tabListBtn.addEventListener('click', () => switchTab('list'));
+
+  // Resume dialog
+  const btnNeu = document.getElementById('btn-neu-starten');
+  if(btnNeu) btnNeu.addEventListener('click', dialogNeuStarten);
+  const btnFort = document.getElementById('btn-fortsetzen');
+  if(btnFort) btnFort.addEventListener('click', dialogFortsetzen);
+
+  // Bulk sheet
+  const bulkBackdrop = document.getElementById('bulk-backdrop');
+  if(bulkBackdrop) bulkBackdrop.addEventListener('click', closeBulkSheet);
+
+  // Sheet backdrop
+  const sheetBackdrop = document.getElementById('sheet-backdrop');
+  if(sheetBackdrop) sheetBackdrop.addEventListener('click', closeSheet);
+
+  // Header action buttons
+  const btnMarkAll = document.getElementById('btn-mark-all-done');
+  if(btnMarkAll) btnMarkAll.addEventListener('click', markAllDone);
+  const btnFinish = document.getElementById('btn-show-finish');
+  if(btnFinish) btnFinish.addEventListener('click', showFinishConfirm);
+});
