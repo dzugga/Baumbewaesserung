@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v-19 -->
+<!-- v-20 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -196,10 +196,8 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
     </div>
     <div class="form-group">
       <label class="form-label">Dein Name</label>
-      <select class="form-control" id="login-name">
-        <option value="">– Tour wählen –</option>
-      </select>
-      <div id="login-name-hint" style="font-size:11px;color:var(--text3);margin-top:4px;display:none;">Kein Fahrer hinterlegt — bitte im Desktop Verwaltung einrichten.</div>
+      <input type="text" class="form-control" id="login-name" placeholder="Vor- und Nachname eingeben…" autocomplete="name" autocorrect="off" autocapitalize="words">
+      <div id="login-name-hint" style="font-size:11px;color:var(--text3);margin-top:4px;display:none;"></div>
     </div>
     <div id="login-error" style="color:var(--red);font-size:13px;margin-bottom:12px;display:none;"></div>
     <button class="btn btn-primary" onclick="doLogin()">
@@ -455,8 +453,6 @@ async function loadProjects() {
   // Now handled by loadAllNames() — keep stub for compat
 }
 
-// Login-Dropdowns werden über onLoginProjectChange() / onLoginTourChange() gesteuert
-// (siehe weiter unten im Code — diese Funktionen lesen direkt aus Firestore)
 
 async function doLogin() {
   const pid  = document.getElementById('login-project').value;
@@ -1466,7 +1462,7 @@ async function onLoginProjectChange(){
   const tourSel = document.getElementById('login-tour');
   const nameSel = document.getElementById('login-name');
   tourSel.innerHTML='<option value="">– Projekt wählen –</option>';
-  nameSel.innerHTML='<option value="">– Tour wählen –</option>';
+  nameSel.value='';
   if(!pid) return;
   const snap = await getDocs(collection(db,'projects',pid,'tours'));
   _loginTours[pid] = snap.docs.map(d=>({id:d.id,...d.data()}));
@@ -1481,29 +1477,9 @@ async function onLoginProjectChange(){
 async function onLoginTourChange(){
   const pid = document.getElementById('login-project').value;
   const tid = document.getElementById('login-tour').value;
-  const nameSel = document.getElementById('login-name');
-  const hint = document.getElementById('login-name-hint');
-  nameSel.innerHTML='<option value="">Lädt…</option>';
   if(!tid) return;
-
-  try{
-    // Always load directly from Firestore — no cache dependency
-    const tourSnap = await getDoc(doc(db,'projects',pid,'tours',tid));
-    const drivers = tourSnap.exists() ? (tourSnap.data().drivers||[]) : [];
-
-    if(drivers.length===0){
-      nameSel.innerHTML='<option value="">Kein Fahrer hinterlegt</option>';
-      hint.style.display='block';
-    } else {
-      hint.style.display='none';
-      nameSel.innerHTML='<option value="">– Name wählen –</option>'+
-        drivers.map(n=>`<option value="${n}">${n}</option>`).join('');
-      if(drivers.length===1) nameSel.value=drivers[0];
-    }
-  }catch(e){
-    console.error('onLoginTourChange error:', e);
-    nameSel.innerHTML='<option value="">Fehler beim Laden</option>';
-  }
+  // Fahrername wird frei eingegeben — kein Laden nötig
+  document.getElementById('login-name').focus();
 }
 
 // ─── OFFLINE MANAGER ─────────────────────────────────────────
