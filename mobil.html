@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v-34 -->
+<!-- v-35 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -920,51 +920,68 @@ function closeFinishSheet() {
 
 async function finishTour() {
   const btn = document.getElementById('btn-finish-confirm');
+  if(btn){ if(btn.disabled) return; btn.disabled = true; }
 
-  // Prevent double-submit
-  if(btn) {
-    if(btn.disabled) return;
-    btn.disabled = true;
-    btn.innerHTML = '<div class="spinner"></div> Wird gespeichert…';
-    btn.style.opacity = '0.8';
+  // ── Progress overlay ──────────────────────────────────────────
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9500;display:flex;align-items:center;justify-content:center;padding:24px;';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:20px;width:100%;max-width:340px;padding:28px 24px;text-align:center;">
+      <div style="font-size:17px;font-weight:700;color:#1a1a1a;margin-bottom:6px;">Tour wird gespeichert…</div>
+      <div id="finish-progress-label" style="font-size:13px;color:#6b7280;margin-bottom:16px;">Vorbereitung…</div>
+      <div style="background:#e5e7eb;border-radius:99px;height:10px;overflow:hidden;">
+        <div id="finish-progress-bar" style="height:100%;width:0%;background:#16a34a;border-radius:99px;transition:width .25s ease;"></div>
+      </div>
+      <div id="finish-progress-pct" style="font-size:12px;color:#9ca3af;margin-top:8px;">0%</div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  function setProgress(pct, label) {
+    const bar = document.getElementById('finish-progress-bar');
+    const lbl = document.getElementById('finish-progress-label');
+    const pctEl = document.getElementById('finish-progress-pct');
+    if(bar) bar.style.width = pct + '%';
+    if(lbl) lbl.textContent = label;
+    if(pctEl) pctEl.textContent = Math.round(pct) + '%';
   }
 
   try {
     const now = new Date();
     const dateStr = now.toISOString().slice(0,10);
     const tsStr = now.toISOString();
+    const treesWithStatus = trees.filter(t=>t.lastStatus);
+    const stats = {
+      total: trees.length,
+      bewaessert: trees.filter(t=>t.lastStatus==='bewaessert').length,
+      nicht: trees.filter(t=>t.lastStatus==='nicht').length,
+      offen: trees.filter(t=>!t.lastStatus).length,
+    };
 
-    // ── 1. Save snapshot to tourHistory ──────────────────────────
+    setProgress(10, 'Zusammenfassung wird erstellt…');
+
+    // ── Lean snapshot: only status fields, no full tree data ─────
+    const histId = `${dateStr}_${now.getTime()}_${currentTourId}`;
     const snapshot = {
       tourId: currentTourId,
       tourName: currentTour?.name||'',
       tourColor: currentTour?.color||'',
-      date: dateStr,
-      closedAt: tsStr,
-      closedBy: currentDriver,
-      trees: trees.map(t=>({
-        id: t.id, name: t.name||'', art: t.art||'', baumnr: t.baumnr||'',
-        stadtteil: t.stadtteil||'', pflanzjahr: t.pflanzjahr||'',
-        lat: t.lat||null, lng: t.lng||null, zustand: t.zustand||'',
-        wasser: t.wasser||'', lastStatus: t.lastStatus||null,
-        lastReason: t.lastReason||null, lastNote: t.lastNote||null,
-        lastDriver: t.lastDriver||null, lastReportAt: t.lastReportAt||null,
+      date: dateStr, closedAt: tsStr, closedBy: currentDriver,
+      stats,
+      // Only save status results, not full geometry/metadata
+      results: treesWithStatus.map(t=>({
+        id: t.id, baumnr: t.baumnr||'', name: t.name||'',
+        status: t.lastStatus, reason: t.lastReason||null,
+        note: t.lastNote||null, driver: t.lastDriver||null,
+        reportAt: t.lastReportAt||null,
       })),
-      stats: {
-        total: trees.length,
-        bewaessert: trees.filter(t=>t.lastStatus==='bewaessert').length,
-        nicht: trees.filter(t=>t.lastStatus==='nicht').length,
-        offen: trees.filter(t=>!t.lastStatus).length,
-      }
     };
 
-    const histId = `${dateStr}_${now.getTime()}_${currentTourId}`;
+    setProgress(20, `${treesWithStatus.length} Bäume werden gespeichert…`);
 
-    // ── 2+3. Batch all writes into a single HTTP request ─────────
-    // Firestore batch max = 500 ops — split if needed
-    const treesWithStatus = trees.filter(t=>t.lastStatus);
-    const BATCH_SIZE = 490;
-    const batches = [];
+    // ── Build batches (max 498 ops each, leaving 2 for meta writes) ─
+    const BATCH_SIZE = 498;
+    const batchPromises = [];
+    let completed = 0;
 
     for(let i = 0; i < treesWithStatus.length; i += BATCH_SIZE) {
       const batch = db.batch();
@@ -975,74 +992,77 @@ async function finishTour() {
           date: dateStr, tourId: currentTourId, tourName: currentTour?.name||'',
           status: tree.lastStatus, reason: tree.lastReason||null,
           note: tree.lastNote||null, driver: tree.lastDriver||null,
-          zustand: tree.zustand||null, wasser: tree.wasser||null,
         };
-        const treeRef = db.collection('projects').doc(currentProjectId).collection('trees').doc(tree.id);
+        const treeRef = db.collection('projects').doc(currentProjectId)
+          .collection('trees').doc(tree.id);
         batch.update(treeRef, { history: firebase.firestore.FieldValue.arrayUnion(entry) });
       });
 
-      // In the first batch, also write tourHistory + tour status
-      if(i === 0){
-        const histRef = db.collection('projects').doc(currentProjectId).collection('tourHistory').doc(histId);
-        batch.set(histRef, snapshot);
-        const tourRef = db.collection('projects').doc(currentProjectId).collection('tours').doc(currentTourId);
-        batch.update(tourRef, {
-          status: 'abgeschlossen',
-          closedAt: tsStr,
-          closedBy: currentDriver,
-          lastClosedDate: dateStr,
-        });
+      // First batch carries the meta writes
+      if(i === 0) {
+        batch.set(
+          db.collection('projects').doc(currentProjectId).collection('tourHistory').doc(histId),
+          snapshot
+        );
+        batch.update(
+          db.collection('projects').doc(currentProjectId).collection('tours').doc(currentTourId),
+          { status:'abgeschlossen', closedAt:tsStr, closedBy:currentDriver, lastClosedDate:dateStr }
+        );
       }
-      batches.push(batch.commit());
+
+      const batchIndex = i;
+      batchPromises.push(
+        batch.commit().then(() => {
+          completed += chunk.length;
+          const pct = 20 + (completed / Math.max(treesWithStatus.length,1)) * 75;
+          setProgress(pct, `${completed} / ${treesWithStatus.length} Bäume gespeichert…`);
+        })
+      );
     }
 
-    // If no trees have status yet, still write tourHistory + tour status
-    if(treesWithStatus.length === 0){
+    // Edge case: no trees with status — still write meta
+    if(treesWithStatus.length === 0) {
       const batch = db.batch();
-      const histRef = db.collection('projects').doc(currentProjectId).collection('tourHistory').doc(histId);
-      batch.set(histRef, snapshot);
-      const tourRef = db.collection('projects').doc(currentProjectId).collection('tours').doc(currentTourId);
-      batch.update(tourRef, {
-        status: 'abgeschlossen', closedAt: tsStr,
-        closedBy: currentDriver, lastClosedDate: dateStr,
-      });
-      batches.push(batch.commit());
+      batch.set(
+        db.collection('projects').doc(currentProjectId).collection('tourHistory').doc(histId),
+        snapshot
+      );
+      batch.update(
+        db.collection('projects').doc(currentProjectId).collection('tours').doc(currentTourId),
+        { status:'abgeschlossen', closedAt:tsStr, closedBy:currentDriver, lastClosedDate:dateStr }
+      );
+      batchPromises.push(batch.commit());
     }
 
-    // ── 4. Show success immediately (optimistic) — save happens in background
-    currentTour = {...currentTour, status: 'abgeschlossen', lastClosedDate: dateStr};
-    closeFinishSheet();
+    await Promise.all(batchPromises);
+    setProgress(100, 'Gespeichert!');
 
-    const banner = document.createElement('div');
-    banner.style.cssText = 'position:fixed;inset:0;background:var(--green);z-index:9000;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;';
-    banner.innerHTML = `
-      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5" style="margin-bottom:16px;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-      <div style="font-size:24px;font-weight:700;margin-bottom:8px;">Tour abgeschlossen!</div>
-      <div style="font-size:14px;opacity:.85;">${snapshot.stats.bewaessert} bewässert · ${snapshot.stats.nicht} nicht · ${snapshot.stats.offen} offen</div>
-      <div style="font-size:13px;opacity:.7;margin-top:6px;">Daten wurden gespeichert</div>`;
-    document.body.appendChild(banner);
-    setTimeout(()=>banner.remove(), 2500);
+    currentTour = {...currentTour, status:'abgeschlossen', lastClosedDate:dateStr};
 
-    // Finish writing in background (already shown success)
-    await Promise.all(batches);
+    // ── Success ───────────────────────────────────────────────────
+    setTimeout(() => {
+      overlay.remove();
+      closeFinishSheet();
 
-    // Update list button state
-    const finishBtn = document.getElementById('btn-show-finish');
-    if(finishBtn){
-      finishBtn.textContent = '✅ Abgeschlossen';
-      finishBtn.style.background = '#16a34a';
-      finishBtn.disabled = true;
-    }
+      const banner = document.createElement('div');
+      banner.style.cssText = 'position:fixed;inset:0;background:var(--green);z-index:9000;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;';
+      banner.innerHTML = `
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5" style="margin-bottom:16px;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        <div style="font-size:24px;font-weight:700;margin-bottom:8px;">Tour abgeschlossen!</div>
+        <div style="font-size:14px;opacity:.85;">${stats.bewaessert} bewässert · ${stats.nicht} nicht · ${stats.offen} offen</div>
+        <div style="font-size:13px;opacity:.7;margin-top:6px;">✓ Erfolgreich gespeichert</div>`;
+      document.body.appendChild(banner);
+      setTimeout(()=>banner.remove(), 3000);
+
+      const finishBtn = document.getElementById('btn-show-finish');
+      if(finishBtn){ finishBtn.textContent='✅ Abgeschlossen'; finishBtn.style.background='#16a34a'; finishBtn.disabled=true; }
+    }, 400);
 
   } catch(e) {
     console.error('finishTour error:', e);
-    if(btn) {
-      btn.disabled = false;
-      btn.innerHTML = '⚠ Fehler — erneut versuchen';
-      btn.style.background = '#b45309';
-      btn.style.opacity = '1';
-    }
-    toast('Fehler: ' + e.message);
+    overlay.remove();
+    if(btn){ btn.disabled=false; btn.innerHTML='⚠ Fehler — erneut versuchen'; btn.style.background='#b45309'; }
+    toast('Fehler beim Speichern: ' + e.message);
   }
 }
 
