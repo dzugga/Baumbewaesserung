@@ -1485,37 +1485,43 @@ function toast(msg){
 
 // ─── GLOBALS ──────────────────────────────────────────────────
 // ─── LOGIN HELPERS ────────────────────────────────────────────
-let _loginProjects = [];
-let _loginTours = {};
-
 async function loadLoginProjects(){
+  const projSel = document.getElementById('login-project');
+  projSel.innerHTML='<option value="">Lädt…</option>';
   try{
     const snap = await getDocs(collection(db,'projects'));
-    _loginProjects = snap.docs.map(d=>({id:d.id,...d.data()}));
-    const sel = document.getElementById('login-project');
-    sel.innerHTML='<option value="">– Projekt wählen –</option>'+
-      _loginProjects.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
-    if(_loginProjects.length===1){
-      sel.value=_loginProjects[0].id;
-      onLoginProjectChange();
+    const projects = snap.docs.map(d=>({id:d.id,...d.data()}));
+    projSel.innerHTML='<option value="">– Projekt wählen –</option>'+
+      projects.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+    if(projects.length===1){
+      projSel.value=projects[0].id;
+      await onLoginProjectChange();
     }
-  }catch(e){ console.error(e); }
+  }catch(e){
+    projSel.innerHTML='<option value="">Fehler beim Laden</option>';
+    console.error(e);
+  }
 }
 
 async function onLoginProjectChange(){
   const pid = document.getElementById('login-project').value;
   const tourSel = document.getElementById('login-tour');
   const nameSel = document.getElementById('login-name');
-  tourSel.innerHTML='<option value="">– Projekt wählen –</option>';
+  tourSel.innerHTML='<option value="">Lädt…</option>';
   nameSel.innerHTML='<option value="">– Tour wählen –</option>';
   if(!pid) return;
-  const snap = await getDocs(collection(db,'projects',pid,'tours'));
-  _loginTours[pid] = snap.docs.map(d=>({id:d.id,...d.data()}));
-  tourSel.innerHTML='<option value="">– Tour wählen –</option>'+
-    _loginTours[pid].map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
-  if(_loginTours[pid].length===1){
-    tourSel.value=_loginTours[pid][0].id;
-    await onLoginTourChange();
+  try{
+    const snap = await getDocs(collection(db,'projects',pid,'tours'));
+    const tours = snap.docs.map(d=>({id:d.id,...d.data()}));
+    tourSel.innerHTML='<option value="">– Tour wählen –</option>'+
+      tours.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
+    if(tours.length===1){
+      tourSel.value=tours[0].id;
+      await onLoginTourChange();
+    }
+  }catch(e){
+    tourSel.innerHTML='<option value="">Fehler</option>';
+    console.error(e);
   }
 }
 
@@ -1525,13 +1531,10 @@ async function onLoginTourChange(){
   const nameSel = document.getElementById('login-name');
   const hint = document.getElementById('login-name-hint');
   nameSel.innerHTML='<option value="">Lädt…</option>';
-  if(!tid) return;
-
+  if(!pid||!tid) return;
   try{
-    // Always load directly from Firestore — no cache dependency
     const tourSnap = await getDoc(doc(db,'projects',pid,'tours',tid));
     const drivers = tourSnap.exists() ? (tourSnap.data().drivers||[]) : [];
-
     if(drivers.length===0){
       nameSel.innerHTML='<option value="">Kein Fahrer hinterlegt</option>';
       hint.style.display='block';
@@ -1542,10 +1545,11 @@ async function onLoginTourChange(){
       if(drivers.length===1) nameSel.value=drivers[0];
     }
   }catch(e){
-    console.error('onLoginTourChange error:', e);
     nameSel.innerHTML='<option value="">Fehler beim Laden</option>';
+    console.error('onLoginTourChange:',e);
   }
 }
+
 
 // ─── OFFLINE MANAGER ─────────────────────────────────────────
 const CACHE_KEY = 'bwt_offline_trees';
