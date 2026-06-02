@@ -370,7 +370,8 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getFirestore, collection, doc, getDoc, getDocs, updateDoc, addDoc, setDoc,
+import { getFirestore, initializeFirestore, memoryLocalCache,
+         collection, doc, getDoc, getDocs, updateDoc, addDoc, setDoc,
          onSnapshot, serverTimestamp, query, orderBy }
   from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
@@ -383,7 +384,7 @@ const firebaseConfig = {
   appId: "1:1001991004222:web:1405d80d0788bd6548f16f"
 };
 const fbApp = initializeApp(firebaseConfig);
-const db = getFirestore(fbApp);
+const db = initializeFirestore(fbApp, { localCache: memoryLocalCache() });
 
 // ─── STATE ────────────────────────────────────────────────────
 let currentDriver = null;
