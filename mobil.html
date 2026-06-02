@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v-33 -->
+<!-- v-34 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -960,39 +960,59 @@ async function finishTour() {
 
     const histId = `${dateStr}_${now.getTime()}_${currentTourId}`;
 
-    // ── 2. Build tree history entries (no read needed — use arrayUnion) ──
-    const histWrites = trees
-      .filter(t=>t.lastStatus)
-      .map(tree=>{
+    // ── 2+3. Batch all writes into a single HTTP request ─────────
+    // Firestore batch max = 500 ops — split if needed
+    const treesWithStatus = trees.filter(t=>t.lastStatus);
+    const BATCH_SIZE = 490;
+    const batches = [];
+
+    for(let i = 0; i < treesWithStatus.length; i += BATCH_SIZE) {
+      const batch = db.batch();
+      const chunk = treesWithStatus.slice(i, i + BATCH_SIZE);
+
+      chunk.forEach(tree => {
         const entry = {
           date: dateStr, tourId: currentTourId, tourName: currentTour?.name||'',
           status: tree.lastStatus, reason: tree.lastReason||null,
           note: tree.lastNote||null, driver: tree.lastDriver||null,
           zustand: tree.zustand||null, wasser: tree.wasser||null,
         };
-        return updateDoc(
-          doc(db,'projects',currentProjectId,'trees',tree.id),
-          { history: firebase.firestore.FieldValue.arrayUnion(entry) }
-        );
+        const treeRef = db.collection('projects').doc(currentProjectId).collection('trees').doc(tree.id);
+        batch.update(treeRef, { history: firebase.firestore.FieldValue.arrayUnion(entry) });
       });
 
-    // ── Run all 3 writes in parallel ─────────────────────────────
-    await Promise.all([
-      setDoc(doc(db,'projects',currentProjectId,'tourHistory',histId), snapshot),
-      ...histWrites,
-      updateDoc(doc(db,'projects',currentProjectId,'tours',currentTourId),{
-        status: 'abgeschlossen',
-        closedAt: tsStr,
-        closedBy: currentDriver,
-        lastClosedDate: dateStr,
-      })
-    ]);
-    currentTour = {...currentTour, status: 'abgeschlossen', lastClosedDate: dateStr};
+      // In the first batch, also write tourHistory + tour status
+      if(i === 0){
+        const histRef = db.collection('projects').doc(currentProjectId).collection('tourHistory').doc(histId);
+        batch.set(histRef, snapshot);
+        const tourRef = db.collection('projects').doc(currentProjectId).collection('tours').doc(currentTourId);
+        batch.update(tourRef, {
+          status: 'abgeschlossen',
+          closedAt: tsStr,
+          closedBy: currentDriver,
+          lastClosedDate: dateStr,
+        });
+      }
+      batches.push(batch.commit());
+    }
 
-    // ── 4. Show success state ─────────────────────────────────────
+    // If no trees have status yet, still write tourHistory + tour status
+    if(treesWithStatus.length === 0){
+      const batch = db.batch();
+      const histRef = db.collection('projects').doc(currentProjectId).collection('tourHistory').doc(histId);
+      batch.set(histRef, snapshot);
+      const tourRef = db.collection('projects').doc(currentProjectId).collection('tours').doc(currentTourId);
+      batch.update(tourRef, {
+        status: 'abgeschlossen', closedAt: tsStr,
+        closedBy: currentDriver, lastClosedDate: dateStr,
+      });
+      batches.push(batch.commit());
+    }
+
+    // ── 4. Show success immediately (optimistic) — save happens in background
+    currentTour = {...currentTour, status: 'abgeschlossen', lastClosedDate: dateStr};
     closeFinishSheet();
 
-    // Show full-screen success banner
     const banner = document.createElement('div');
     banner.style.cssText = 'position:fixed;inset:0;background:var(--green);z-index:9000;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;';
     banner.innerHTML = `
@@ -1002,6 +1022,9 @@ async function finishTour() {
       <div style="font-size:13px;opacity:.7;margin-top:6px;">Daten wurden gespeichert</div>`;
     document.body.appendChild(banner);
     setTimeout(()=>banner.remove(), 2500);
+
+    // Finish writing in background (already shown success)
+    await Promise.all(batches);
 
     // Update list button state
     const finishBtn = document.getElementById('btn-show-finish');
