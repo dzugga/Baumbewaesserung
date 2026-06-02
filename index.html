@@ -181,10 +181,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 /* ── LASSO ──────────────────────────────────── */
 .lasso-canvas{position:absolute;left:0;right:0;bottom:0;top:55px;z-index:999;cursor:crosshair;display:none;}
 .lasso-canvas.active{display:block;}
-.lasso-banner{background:#7c3aed;color:#fff;border-radius:var(--radius-sm);padding:7px 13px;font-size:13px;font-weight:500;box-shadow:var(--shadow-md);display:none;align-items:center;gap:8px;pointer-events:all;flex-wrap:wrap;}
+.lasso-banner{background:#374151;color:#fff;border-radius:var(--radius-sm);padding:7px 13px;font-size:13px;font-weight:500;box-shadow:var(--shadow-md);display:none;align-items:center;gap:8px;pointer-events:all;flex-wrap:wrap;}
 .lasso-banner.visible{display:flex;}
-.lasso-tour-pill{padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;border:2px solid transparent;color:#fff;transition:all .15s;pointer-events:all;user-select:none;}
-.lasso-tour-pill.selected{border-color:#fff;box-shadow:0 0 0 2px rgba(255,255,255,.4);}
+
 ::-webkit-scrollbar{width:5px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
@@ -319,8 +318,18 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       <!-- Unified assign banner — outside toolbar so pointer-events work -->
       <div class="lasso-banner" id="assign-lasso-banner" style="position:absolute;top:12px;left:12px;z-index:1002;pointer-events:all;">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-        Tour zuweisen — Klick oder Lasso:
-        <div style="display:flex;gap:5px;flex-wrap:wrap;" id="assign-tour-pills"></div>
+        Tour zuweisen:
+        <div style="display:flex;align-items:center;gap:6px;">
+          <div style="position:relative;">
+            <select id="assign-tour-select" onchange="setAssignTour(this.value)" style="background:rgba(255,255,255,.12);border:1.5px solid rgba(255,255,255,.35);border-radius:6px;color:#fff;font-size:12px;padding:4px 28px 4px 10px;cursor:pointer;appearance:none;-webkit-appearance:none;outline:none;min-width:140px;"></select>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.7)" stroke-width="2.5" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);pointer-events:none;"><path d="M6 9l6 6 6-6"/></svg>
+          </div>
+          <div id="assign-tour-swatch" style="width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,.5);flex-shrink:0;"></div>
+        </div>
+        <button id="lasso-toggle-btn" onclick="toggleLassoMode()" style="padding:3px 10px;font-size:12px;border:1.5px solid rgba(255,255,255,.4);background:rgba(255,255,255,.1);color:#fff;border-radius:var(--radius-sm);cursor:pointer;display:flex;align-items:center;gap:5px;white-space:nowrap;">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10"/><path d="M14 22c-1 0-4-3-4-10"/><path d="M20 18c0 2-1.5 4-4 4"/></svg>
+          Lasso
+        </button>
         <button class="btn btn-secondary" style="padding:3px 10px;font-size:12px;color:#fff;border-color:rgba(255,255,255,.4);background:rgba(255,255,255,.15);" onclick="cancelAssign()">Fertig</button>
       </div>
 
@@ -405,7 +414,17 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
               Alternativ: auf Karte klicken
             </button>
           </div>
-          <div class="form-section" style="margin-top:18px;">Routing-Modus</div>
+          <div class="form-section" style="margin-top:18px;">Routing &amp; Reihenfolge</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);margin-bottom:12px;">
+            <div>
+              <div style="font-size:13px;font-weight:500;color:var(--text);">Reihenfolgeplanung</div>
+              <div style="font-size:11px;color:var(--text3);margin-top:2px;">Route berechnen &amp; Reihenfolge auf Karte zeigen</div>
+            </div>
+            <div id="s-toggle-route" onclick="toggleRoutePlanning()" role="switch" aria-label="Reihenfolgeplanung" style="width:36px;height:20px;border-radius:99px;background:#2d6a4f;cursor:pointer;position:relative;flex-shrink:0;transition:background .2s;">
+              <div style="position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .2s;transform:translateX(16px);" id="s-toggle-knob"></div>
+            </div>
+          </div>
+          <div id="s-routing-sub">
           <div class="form-group">
             <label class="form-label">⏱ Bewässerungsdauer pro Baum</label>
             <div style="display:flex;align-items:center;gap:8px;">
@@ -419,6 +438,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
               <option value="round">Rundtour (Start &amp; Ziel)</option>
               <option value="start">Nur Startpunkt</option>
             </select>
+          </div>
           </div>
           <div class="form-section" style="margin-top:18px;">Projekt</div>
           <div class="form-group">
@@ -1181,6 +1201,7 @@ function drawSavedRoute(tourId, routeData){
 
 // Load and display all saved routes from Firestore (no recalculation)
 async function loadSavedRoutes(){
+  if(!getRoutePlanningEnabled()) return;
   Object.values(tourRoutes).forEach(r=>map.removeLayer(r.layer));tourRoutes={};
   for(const tour of tours){
     const routeSnap=await getDoc(doc(db,'projects',currentProjectId,'routes',tour.id));
@@ -1269,6 +1290,7 @@ async function calculateAllRoutes(){
 }
 
 async function rebuildActiveRoute(){
+  if(!getRoutePlanningEnabled()) return;
   // Just reload saved routes — no auto-recalculation
   await loadSavedRoutes();
   if(activeTourOnMap){
@@ -1915,18 +1937,39 @@ function cancelMode(){
   document.getElementById('mode-banner').classList.remove('visible');
 }
 
+
+let _lassoActive = false;
+function toggleLassoMode() {
+  _lassoActive = !_lassoActive;
+  const btn = document.getElementById('lasso-toggle-btn');
+  const canvas = document.getElementById('lasso-canvas');
+  if(_lassoActive) {
+    canvas.style.pointerEvents = 'all';
+    map.getContainer().style.cursor = 'crosshair';
+    if(btn) { btn.style.background = 'rgba(255,255,255,.35)'; btn.style.borderColor = '#fff'; }
+  } else {
+    canvas.style.pointerEvents = 'none';
+    map.getContainer().style.cursor = '';
+    if(btn) { btn.style.background = 'rgba(255,255,255,.1)'; btn.style.borderColor = 'rgba(255,255,255,.4)'; }
+    if(lassoCtx) lassoCtx.clearRect(0,0,canvas.width,canvas.height);
+    lassoPoints=[];lassoDrawing=false;
+  }
+}
+
 function startAssignMode(){
   if(!currentProjectId){notify('Bitte zuerst ein Projekt öffnen');return;}
   if(tours.length===0){notify('Bitte zuerst eine Tour anlegen');return;}
-  assignMode=true;lassoMode=true;assignTourId=tours[0].id;lassoTourId=tours[0].id;
+  assignMode=true;lassoMode=false;assignTourId=tours[0].id;lassoTourId=tours[0].id;
   lassoPoints=[];lassoDrawing=false;
+  _lassoActive=false;
 
-  // Setup lasso canvas
+  // Setup lasso canvas (hidden until user activates)
   const canvas=document.getElementById('lasso-canvas');
   const mapEl=document.getElementById('map');
   canvas.width=mapEl.offsetWidth;canvas.height=mapEl.offsetHeight;
   lassoCtx=canvas.getContext('2d');
   canvas.classList.add('active');
+  canvas.style.pointerEvents='none';
 
   // Build unified pills
   rebuildAssignPills();
@@ -1938,8 +1981,8 @@ function startAssignMode(){
   // Allow map pan when not actively drawing
   canvas.style.pointerEvents='none';
   canvas.onmousedown=e=>{
+    if(!_lassoActive)return;
     lassoDrawing=true;lassoPoints=[];
-    canvas.style.pointerEvents='all';
     const r=canvas.getBoundingClientRect();
     lassoPoints.push({x:e.clientX-r.left,y:e.clientY-r.top});
   };
@@ -1972,10 +2015,15 @@ function startAssignMode(){
       if(nearestTree) assignTreeToTour(nearestTree.id,assignTourId);
     } else {
       applyLasso();
+      // Auto-deactivate after draw so map is pannable again
+      _lassoActive=false;
+      canvas.style.pointerEvents='none';
+      map.getContainer().style.cursor='';
+      const _lb=document.getElementById('lasso-toggle-btn');
+      if(_lb){_lb.style.background='rgba(255,255,255,.1)';_lb.style.borderColor='rgba(255,255,255,.4)';}
     }
   };
   canvas.ontouchstart=e=>{
-    // Only capture touch if user holds still briefly (intent to lasso)
     lassoDrawing=true;lassoPoints=[];
     canvas.style.pointerEvents='all';
     const r=canvas.getBoundingClientRect(),t=e.touches[0];
@@ -1991,26 +2039,32 @@ function startAssignMode(){
 }
 
 function rebuildAssignPills(){
-  const pills=document.getElementById('assign-tour-pills');
-  pills.innerHTML=tours.map(t=>
-    `<span class="lasso-tour-pill${t.id===assignTourId?' selected':''}" style="background:${t.color};" data-tourid="${t.id}">${t.name}</span>`
+  const sel = document.getElementById('assign-tour-select');
+  if(!sel) return;
+  sel.innerHTML = tours.map(t =>
+    `<option value="${t.id}" style="color:#111;background:#fff;">${t.name}</option>`
   ).join('');
-  // Use event delegation — works reliably with innerHTML
-  pills.onclick=e=>{
-    const pill=e.target.closest('[data-tourid]');
-    if(!pill)return;
-    setAssignTour(pill.dataset.tourid);
-  };
+  // Set initial value
+  if(assignTourId) sel.value = assignTourId;
+  else if(tours.length) { sel.value = tours[0].id; assignTourId = tours[0].id; }
+  updateAssignSwatch();
 }
 
 function setAssignTour(id){
   assignTourId=id;lassoTourId=id;
-  document.querySelectorAll('#assign-tour-pills [data-tourid]').forEach(p=>{
-    p.classList.toggle('selected', p.dataset.tourid===id);
-  });
+  const sel=document.getElementById('assign-tour-select');
+  if(sel) sel.value=id;
+  updateAssignSwatch();
+}
+
+function updateAssignSwatch(){
+  const tour=tours.find(t=>t.id===assignTourId);
+  const sw=document.getElementById('assign-tour-swatch');
+  if(sw&&tour) sw.style.background=tour.color||'#888';
 }
 
 function cancelAssign(){
+  _lassoActive=false;
   assignMode=false;lassoMode=false;lassoDrawing=false;lassoPoints=[];
   assignTourId=null;lassoTourId=null;
   const canvas=document.getElementById('lasso-canvas');
@@ -2111,6 +2165,32 @@ async function deleteTour(id){
 }
 
 // ─── SETTINGS ─────────────────────────────────────────────────
+
+function getRoutePlanningEnabled(){
+  const v = localStorage.getItem('bwt_route_planning');
+  return v === null ? true : v === 'true';
+}
+
+function toggleRoutePlanning(){
+  const newVal = !getRoutePlanningEnabled();
+  localStorage.setItem('bwt_route_planning', newVal);
+  const btn = document.getElementById('s-toggle-route');
+  const knob = document.getElementById('s-toggle-knob');
+  const sub = document.getElementById('s-routing-sub');
+  if(btn) btn.style.background = newVal ? '#2d6a4f' : '#d1d5db';
+  if(knob) knob.style.transform = newVal ? 'translateX(16px)' : 'translateX(0)';
+  if(sub){ sub.style.opacity = newVal ? '1' : '0.4'; sub.style.pointerEvents = newVal ? '' : 'none'; }
+  // Apply immediately to map
+  if(!newVal){
+    // Hide all routes
+    Object.values(tourRoutes).forEach(r=>{ if(r){ try{ map.removeLayer(r); }catch(e){} } });
+    Object.keys(tourRoutes).forEach(k=>tourRoutes[k]=null);
+    document.getElementById('route-info-bar')?.classList.remove('visible');
+  } else {
+    loadSavedRoutes();
+  }
+}
+
 function openSettings(){
   // Hide bottom route bar to avoid overlap
   document.getElementById('route-info-bar')?.classList.remove('visible');
@@ -2120,6 +2200,13 @@ function openSettings(){
   document.getElementById('s-depot-lat').value=depot?.lat||'';
   document.getElementById('s-depot-lng').value=depot?.lng||'';
   document.getElementById('s-depot-mode').value=getDepotMode();
+  const _routeOn = getRoutePlanningEnabled();
+  const _rtBtn = document.getElementById('s-toggle-route');
+  if(_rtBtn){ _rtBtn.style.background = _routeOn ? '#2d6a4f' : '#d1d5db'; }
+  const _rtKnob = document.getElementById('s-toggle-knob');
+  if(_rtKnob) _rtKnob.style.transform = _routeOn ? 'translateX(16px)' : 'translateX(0)';
+  const _rtSub = document.getElementById('s-routing-sub');
+  if(_rtSub){ _rtSub.style.opacity = _routeOn ? '1' : '0.4'; _rtSub.style.pointerEvents = _routeOn ? '' : 'none'; }
   document.getElementById('s-project-name').value=currentProjectData?.name||'';
   document.getElementById('s-bew-duration').value=getBewDuration();
   loadReasons();
@@ -3496,21 +3583,33 @@ async function applyLasso(){
   const tourId=assignTourId||lassoTourId;
   const tour=tours.find(t=>t.id===tourId);
 
-  // Find trees inside lasso polygon
+  // Find trees inside OR touching lasso polygon
   const selected=[];
+
+  // Helper: minimum distance from point to lasso boundary segment
+  function ptSegDist(px,py,ax,ay,bx,by){
+    const dx=bx-ax,dy=by-ay;
+    const lenSq=dx*dx+dy*dy;
+    if(lenSq===0) return Math.hypot(px-ax,py-ay);
+    const t=Math.max(0,Math.min(1,((px-ax)*dx+(py-ay)*dy)/lenSq));
+    return Math.hypot(px-(ax+t*dx),py-(ay+t*dy));
+  }
+  function touchesLasso(px,py,r){
+    // 1. Center inside polygon
+    if(pointInPolygon(px,py,lassoPoints)) return true;
+    // 2. Any lasso segment within marker radius
+    for(let i=0;i<lassoPoints.length;i++){
+      const a=lassoPoints[i],b=lassoPoints[(i+1)%lassoPoints.length];
+      if(ptSegDist(px,py,a.x,a.y,b.x,b.y)<=r) return true;
+    }
+    return false;
+  }
+
+  const MARKER_RADIUS=20; // px — generous touch zone
   trees.forEach(tree=>{
     if(!tree.lat||!tree.lng)return;
     const pt=map.latLngToContainerPoint(L.latLng(tree.lat,tree.lng));
-    // Check if marker center OR any point within marker radius is inside lasso
-    const r=18; // marker radius in pixels
-    const inPoly=pointInPolygon(pt.x,pt.y,lassoPoints);
-    // Also check cardinal points around marker (for nearby/touching markers)
-    const touches=inPoly||
-      pointInPolygon(pt.x+r,pt.y,lassoPoints)||
-      pointInPolygon(pt.x-r,pt.y,lassoPoints)||
-      pointInPolygon(pt.x,pt.y+r,lassoPoints)||
-      pointInPolygon(pt.x,pt.y-r,lassoPoints);
-    if(touches) selected.push(tree);
+    if(touchesLasso(pt.x,pt.y,MARKER_RADIUS)) selected.push(tree);
   });
 
   lassoPoints=[];
