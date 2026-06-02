@@ -455,48 +455,8 @@ async function loadProjects() {
   // Now handled by loadAllNames() — keep stub for compat
 }
 
-// Store loaded tours for driver lookup
-let loadedTours = [];
-
-document.getElementById('login-project').onchange = async function() {
-  const pid = this.value;
-  const tourSel = document.getElementById('login-tour');
-  const nameSel = document.getElementById('login-name');
-  tourSel.innerHTML = '<option value="">Lädt…</option>';
-  nameSel.innerHTML = '<option value="">– Tour wählen –</option>';
-  if (!pid) { tourSel.innerHTML = '<option value="">– Projekt wählen –</option>'; return; }
-  const snap = await getDocs(collection(db, 'projects', pid, 'tours'));
-  loadedTours = snap.docs.map(d => ({id: d.id, ...d.data()}));
-  tourSel.innerHTML = '<option value="">– Tour wählen –</option>';
-  loadedTours.forEach(t => {
-    const opt = document.createElement('option');
-    opt.value = t.id;
-    opt.textContent = t.name;
-    tourSel.appendChild(opt);
-  });
-};
-
-document.getElementById('login-tour').onchange = function() {
-  const tid = this.value;
-  const nameSel = document.getElementById('login-name');
-  const hint = document.getElementById('login-name-hint');
-  nameSel.innerHTML = '<option value="">– Fahrer wählen –</option>';
-  if (!tid) return;
-  const tour = loadedTours.find(t => t.id === tid);
-  if (!tour) return;
-  // Support both old assignedDriver string and new drivers array
-  const drivers = tour.drivers || (tour.assignedDriver ? [tour.assignedDriver] : []);
-  if (drivers.length === 0) {
-    hint.style.display = 'block';
-  } else {
-    hint.style.display = 'none';
-    drivers.forEach(d => {
-      const opt = document.createElement('option');
-      opt.value = d; opt.textContent = d;
-      nameSel.appendChild(opt);
-    });
-  }
-};
+// Login-Dropdowns werden über onLoginProjectChange() / onLoginTourChange() gesteuert
+// (siehe weiter unten im Code — diese Funktionen lesen direkt aus Firestore)
 
 async function doLogin() {
   const pid  = document.getElementById('login-project').value;
