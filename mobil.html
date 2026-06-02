@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v-26 -->
+<!-- v-27 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -523,7 +523,7 @@ async function startBewässerungLogin(name, pid, tid) {
   try{
     // Load project data
     const projSnap = await getDoc(doc(db,'projects',pid));
-    if(!projSnap.exists()){ throw new Error('Projekt nicht gefunden'); }
+    if(!projSnap.exists){ throw new Error('Projekt nicht gefunden'); }
     currentProjectData = {id:pid,...projSnap.data()};
     currentProjectId = pid;
     currentTourId = tid;
@@ -531,7 +531,7 @@ async function startBewässerungLogin(name, pid, tid) {
 
     // Load tour data
     const tourSnap = await getDoc(doc(db,'projects',pid,'tours',tid));
-    currentTour = tourSnap.exists() ? {id:tid,...tourSnap.data()} : null;
+    currentTour = tourSnap.exists ? {id:tid,...tourSnap.data()} : null;
 
     // Load trees for this tour
     const treesSnap = await getDocs(collection(db,'projects',pid,'trees'));
@@ -1122,7 +1122,7 @@ async function drawRoute(){
   // Load saved route from Firestore (same as desktop)
   try{
     const routeSnap=await getDoc(doc(db,'projects',currentProjectId,'routes',currentTourId));
-    if(routeSnap.exists()){
+    if(routeSnap.exists){
       const data=routeSnap.data();
       // Restore route order from saved data
       if(data.orderIds){
