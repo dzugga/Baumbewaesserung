@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- v-29 -->
+<!-- v-30 -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -196,7 +196,9 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
     </div>
     <div class="form-group">
       <label class="form-label">Dein Name</label>
-      <input type="text" class="form-control" id="login-name" placeholder="Vor- und Nachname eingeben…" autocomplete="name" autocorrect="off" autocapitalize="words">
+      <select class="form-control" id="login-name">
+        <option value="">– Fahrer wählen –</option>
+      </select>
       <div id="login-name-hint" style="font-size:11px;color:var(--text3);margin-top:4px;display:none;"></div>
     </div>
     <div id="login-error" style="color:var(--red);font-size:13px;margin-bottom:12px;display:none;"></div>
@@ -521,26 +523,21 @@ async function startBewässerungLogin(name, pid, tid) {
   if(btn){ btn.disabled=true; btn.textContent='Lädt…'; }
 
   try{
-    // Load project data
-    const projSnap = await getDoc(doc(db,'projects',pid));
+    // Load all data in parallel
+    const [projSnap, tourSnap, treesSnap, reasonsSnap] = await Promise.all([
+      getDoc(doc(db,'projects',pid)),
+      getDoc(doc(db,'projects',pid,'tours',tid)),
+      getDocs(collection(db,'projects',pid,'trees')),
+      getDocs(collection(db,'projects',pid,'reasons'))
+    ]);
     if(!projSnap.exists){ throw new Error('Projekt nicht gefunden'); }
     currentProjectData = {id:pid,...projSnap.data()};
     currentProjectId = pid;
     currentTourId = tid;
     currentDriver = name;
-
-    // Load tour data
-    const tourSnap = await getDoc(doc(db,'projects',pid,'tours',tid));
     currentTour = tourSnap.exists ? {id:tid,...tourSnap.data()} : null;
-
-    // Load trees for this tour
-    const treesSnap = await getDocs(collection(db,'projects',pid,'trees'));
-    trees = treesSnap.docs.map(d=>({id:d.id,...d.data()}))
-      .filter(t=>t.tourId===tid);
+    trees = treesSnap.docs.map(d=>({id:d.id,...d.data()})).filter(t=>t.tourId===tid);
     routeOrder = trees.map(t=>t.id);
-
-    // Load reasons
-    const reasonsSnap = await getDocs(collection(db,'projects',pid,'reasons'));
     reasons = reasonsSnap.docs.map(d=>({id:d.id,...d.data()}));
 
     // Save session
@@ -1491,7 +1488,16 @@ async function loadLoginProjects(){
       _loginProjects.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
     if(_loginProjects.length===1){
       sel.value=_loginProjects[0].id;
+      // Pre-load tours for the only project immediately
       onLoginProjectChange();
+    } else if(_loginProjects.length>0){
+      // Pre-load tours for all projects in parallel
+      const tourSnaps = await Promise.all(
+        _loginProjects.map(p=>getDocs(collection(db,'projects',p.id,'tours')))
+      );
+      _loginProjects.forEach((p,i)=>{
+        _loginTours[p.id] = tourSnaps[i].docs.map(d=>({id:d.id,...d.data()}));
+      });
     }
   }catch(e){ console.error(e); }
 }
@@ -1500,11 +1506,14 @@ async function onLoginProjectChange(){
   const pid = document.getElementById('login-project').value;
   const tourSel = document.getElementById('login-tour');
   const nameSel = document.getElementById('login-name');
-  tourSel.innerHTML='<option value="">– Projekt wählen –</option>';
-  nameSel.value='';
+  tourSel.innerHTML='<option value="">– Tour wählen –</option>';
+  nameSel.innerHTML='<option value="">– Fahrer wählen –</option>';
   if(!pid) return;
-  const snap = await getDocs(collection(db,'projects',pid,'tours'));
-  _loginTours[pid] = snap.docs.map(d=>({id:d.id,...d.data()}));
+  // Use cache if available, otherwise load
+  if(!_loginTours[pid]){
+    const snap = await getDocs(collection(db,'projects',pid,'tours'));
+    _loginTours[pid] = snap.docs.map(d=>({id:d.id,...d.data()}));
+  }
   tourSel.innerHTML='<option value="">– Tour wählen –</option>'+
     _loginTours[pid].map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
   if(_loginTours[pid].length===1){
@@ -1516,9 +1525,18 @@ async function onLoginProjectChange(){
 async function onLoginTourChange(){
   const pid = document.getElementById('login-project').value;
   const tid = document.getElementById('login-tour').value;
+  const nameSel = document.getElementById('login-name');
+  nameSel.innerHTML='<option value="">– Fahrer wählen –</option>';
   if(!tid) return;
-  // Fahrername wird frei eingegeben — kein Laden nötig
-  document.getElementById('login-name').focus();
+  const tours = _loginTours[pid]||[];
+  const tour = tours.find(t=>t.id===tid);
+  if(!tour) return;
+  const drivers = tour.drivers || (tour.assignedDriver ? [tour.assignedDriver] : []);
+  if(drivers.length>0){
+    nameSel.innerHTML='<option value="">– Fahrer wählen –</option>'+
+      drivers.map(d=>`<option value="${d}">${d}</option>`).join('');
+    if(drivers.length===1) nameSel.value=drivers[0];
+  }
 }
 
 // ─── OFFLINE MANAGER ─────────────────────────────────────────
