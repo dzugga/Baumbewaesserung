@@ -7,6 +7,8 @@
 <title>Baumbewässerung — Einsatzleiter</title>
 <link rel="preconnect" href="https://cdn.jsdelivr.net">
 <link rel="preconnect" href="https://www.gstatic.com">
+<link rel="preconnect" href="https://unpkg.com">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <meta name="theme-color" content="#1e40af">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -102,6 +104,15 @@ body{overflow:hidden;}
 
 /* TIMELINE */
 .chart-wrap{position:relative;height:200px;}
+
+/* MAP */
+.map-wrap{position:relative;height:340px;border-radius:var(--radius-sm);overflow:hidden;border:1px solid var(--border);}
+#nicht-map{height:100%;width:100%;background:var(--surface2);}
+.map-empty{position:absolute;inset:0;z-index:500;display:none;align-items:center;justify-content:center;background:rgba(245,243,238,.85);font-size:13px;color:var(--text3);text-align:center;padding:0 24px;pointer-events:none;}
+.map-empty.show{display:flex;}
+.map-note{font-size:11px;color:var(--text3);margin-top:8px;}
+.leaflet-popup-content{font-size:12px;line-height:1.45;margin:10px 12px;}
+.leaflet-popup-content b{font-size:13px;}
 
 /* REASONS */
 .reason-row{margin-bottom:11px;}
@@ -226,6 +237,20 @@ body{overflow:hidden;}
       </div>
     </div>
 
+    <!-- Karte: nicht bewässerte Bäume -->
+    <div class="card">
+      <div class="card-title">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        Nicht bewässert — Karte
+        <span class="pct" id="map-count" style="color:var(--red);"></span>
+      </div>
+      <div class="map-wrap">
+        <div id="nicht-map"></div>
+        <div class="map-empty" id="map-empty">Keine nicht-bewässerten Bäume im Zeitraum 🎉</div>
+      </div>
+      <div class="map-note" id="map-note"></div>
+    </div>
+
     <!-- Verlauf -->
     <div class="card">
       <div class="card-title">
@@ -240,6 +265,7 @@ body{overflow:hidden;}
 
 <div class="toast" id="toast"></div>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>

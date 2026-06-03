@@ -24,6 +24,8 @@ let unsubTours = null;
 let refreshTimer = null;
 let period = 'month';
 let timelineChart = null;
+let nichtMap = null;
+let nichtLayer = null;
 
 // ─── n:m TOUR-HELFER ──────────────────────────────────────────
 function getTreeTourIds(tree){
@@ -144,6 +146,7 @@ function render(){
 
   renderTourProgress(reported);
   renderReasons(nicht);
+  renderNichtMap(nicht);
   renderTimeline(reported, from, to);
 
   const u=document.getElementById('header-updated');
@@ -209,6 +212,61 @@ function renderReasons(nichtTrees){
       <div class="reason-head"><span>${reason}</span><b>${cnt}</b></div>
       <div class="reason-bar"><div class="fill" style="width:${Math.round(cnt/max*100)}%;"></div></div>
     </div>`).join('');
+}
+
+function nichtIcon(){
+  return window.L.divIcon({
+    className:'',
+    html:'<div style="width:18px;height:18px;border-radius:50%;background:#dc2626;border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);"></div>',
+    iconSize:[18,18], iconAnchor:[9,9]
+  });
+}
+
+function renderNichtMap(nichtReports){
+  const L=window.L;
+  const wrap=document.getElementById('nicht-map');
+  if(!L || !wrap) return;
+  if(!nichtMap){
+    nichtMap=L.map('nicht-map',{zoomControl:true,attributionControl:false}).setView([50.0,8.42],12);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(nichtMap);
+    nichtLayer=L.layerGroup().addTo(nichtMap);
+    setTimeout(()=>nichtMap.invalidateSize(),200);
+  }
+  nichtLayer.clearLayers();
+
+  // Pro Baum nur die jüngste „nicht"-Meldung
+  const byId={};
+  nichtReports.forEach(r=>{
+    const k=r.id||(r.lat+','+r.lng);
+    if(!byId[k] || (r.lastReportAt||'')>(byId[k].lastReportAt||'')) byId[k]=r;
+  });
+  const uniq=Object.values(byId);
+  const withCoords=uniq.filter(r=>r.lat&&r.lng);
+  const ohne=uniq.length-withCoords.length;
+
+  const countEl=document.getElementById('map-count');
+  if(countEl) countEl.textContent=uniq.length>0?`${uniq.length} Bäume`:'';
+  const noteEl=document.getElementById('map-note');
+  if(noteEl) noteEl.textContent=ohne>0?`${ohne} ohne Koordinaten (nicht auf der Karte)`:'';
+  const emptyEl=document.getElementById('map-empty');
+  if(emptyEl) emptyEl.classList.toggle('show', uniq.length===0);
+
+  const pts=[];
+  withCoords.forEach(r=>{
+    const d=r.lastReportAt?new Date(r.lastReportAt).toLocaleDateString('de-DE'):'–';
+    const meta=[r.stadtteil,r.baumnr].filter(Boolean).join(' · ');
+    const popup=`<b>${r.name||'Baum'}</b>`+
+      (meta?`<br>${meta}`:'')+
+      (r.art?`<br><i>${r.art}</i>`:'')+
+      `<br>Grund: <b style="color:#dc2626;">${r.lastReason||'nicht angegeben'}</b>`+
+      (r.lastNote?`<br>Notiz: ${r.lastNote}`:'')+
+      (r.lastDriver?`<br>Fahrer: ${r.lastDriver}`:'')+
+      `<br>${d}`;
+    window.L.marker([r.lat,r.lng],{icon:nichtIcon()}).bindPopup(popup).addTo(nichtLayer);
+    pts.push([r.lat,r.lng]);
+  });
+  if(pts.length>0) nichtMap.fitBounds(window.L.latLngBounds(pts),{padding:[40,40],maxZoom:16});
+  setTimeout(()=>nichtMap.invalidateSize(),100);
 }
 
 function renderTimeline(reported, from, to){
