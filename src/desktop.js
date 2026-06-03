@@ -118,8 +118,9 @@ let depotMarker = null;
 
 // ─── MAP ──────────────────────────────────────────────────────
 const L = window.L;
-const map = L.map('map',{zoomControl:false}).setView([52.279,8.047],13);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:19}).addTo(map);
+const map = L.map('map',{zoomControl:false,attributionControl:false}).setView([52.279,8.047],13);
+L.control.attribution({position:'bottomleft',prefix:false}).addAttribution('© OpenStreetMap').addTo(map);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
 L.control.zoom({position:'bottomleft'}).addTo(map);
 
 map.on('mousemove',e=>{
@@ -1037,10 +1038,7 @@ function openDetail(id){
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 6.9 8 11.7z"/></svg>
       Position setzen
     </button>` : ''}
-    <button class="btn btn-secondary" style="flex:1;" onclick="openEditTree('${id}')">Bearbeiten</button>
-    <button class="btn btn-danger" onclick="deleteTree('${id}')">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="m19 6-.867 12.142A2 2 0 0 1 16.138 20H7.862a2 2 0 0 1-1.995-1.858L5 6m5 0V4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2"/></svg>
-    </button>`;
+    <button class="btn btn-secondary" style="flex:1;" onclick="openEditTree('${id}')">Bearbeiten</button>`;
   switchDetailTab('details');
   const _vb = document.getElementById('panel-body-verlauf');
   if(_vb) _vb._treeId = id;
