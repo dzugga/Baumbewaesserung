@@ -1581,21 +1581,34 @@ async function saveTour(){
 
 async function deleteTour(id){
   const tour=tours.find(t=>t.id===id);
+  const name=tour?.name||'';
+  const cnt=trees.filter(t=>treeInTour(t,id)).length;
   const modal=document.createElement('div');
   modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;';
-  modal.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);width:360px;max-width:90vw;overflow:hidden;">
-    <div style="padding:18px 20px 10px;border-bottom:1px solid var(--border);font-size:15px;font-weight:600;">Tour löschen?</div>
-    <div style="padding:14px 20px;font-size:13px;color:var(--text2);"><b>${tour?.name||''}</b> löschen? Bäume bleiben erhalten.</div>
+  modal.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);width:390px;max-width:90vw;overflow:hidden;">
+    <div style="padding:18px 20px 10px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;color:var(--red);">⚠ Tour löschen</div>
+    <div style="padding:14px 20px 6px;font-size:13px;color:var(--text2);line-height:1.6;">Tour <b style="color:var(--text);">${name}</b> löschen?<br>${cnt?`${cnt} Baum/Bäume werden aus der Tour entfernt (bleiben erhalten).`:'Bäume bleiben erhalten.'}</div>
+    <div style="padding:6px 20px 10px;">
+      <input id="del-tour-input" class="form-control" placeholder="Tournamen eingeben zur Bestätigung" style="border-color:var(--red-light);" autocomplete="off">
+      <div style="font-size:11px;color:var(--text3);margin-top:4px;">Gib <b>${name}</b> ein um zu bestätigen</div>
+    </div>
     <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
       <button id="del-cancel" style="padding:7px 16px;border:1.5px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;font-size:13px;font-weight:600;">Abbrechen</button>
-      <button id="del-ok" style="padding:7px 16px;border:none;border-radius:6px;background:var(--red);color:#fff;cursor:pointer;font-size:13px;">Löschen</button>
+      <button id="del-ok" style="padding:7px 16px;border:none;border-radius:6px;background:var(--red);color:#fff;cursor:pointer;font-size:13px;font-weight:600;opacity:0.4;" disabled>Löschen</button>
     </div>
   </div>`;
   document.body.appendChild(modal);
-  setTimeout(()=>modal.querySelector('#del-cancel').focus(),50);
+  const input=modal.querySelector('#del-tour-input');
+  const delBtn=modal.querySelector('#del-ok');
+  input.oninput=()=>{
+    delBtn.disabled=input.value.trim()!==name;
+    delBtn.style.opacity=delBtn.disabled?'0.4':'1';
+  };
+  setTimeout(()=>input.focus(),50);
   const confirmed=await new Promise(resolve=>{
     modal.querySelector('#del-cancel').onclick=()=>{modal.remove();resolve(false);};
-    modal.querySelector('#del-ok').onclick=()=>{modal.remove();resolve(true);};
+    delBtn.onclick=()=>{if(!delBtn.disabled){modal.remove();resolve(true);}};
+    input.onkeydown=e=>{if(e.key==='Enter'&&!delBtn.disabled){modal.remove();resolve(true);}};
     modal.onclick=e=>{if(e.target===modal){modal.remove();resolve(false);}};
   });
   if(!confirmed)return;
