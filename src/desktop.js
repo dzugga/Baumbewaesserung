@@ -1316,6 +1316,7 @@ async function deleteTree(id){
 }
 
 // Modal-Wrapper (nutzen editingTreeId)
+function showTreeOnMapFromModal(){ const id=editingTreeId; closeTreeModal(); if(id) selectTree(id); }
 function archiveTreeFromModal(){ const id=editingTreeId; closeTreeModal(); if(id) archiveTree(id); }
 function reactivateTreeFromModal(){ const id=editingTreeId; closeTreeModal(); if(id) reactivateTree(id); }
 function deleteTreeFromModal(){ if(editingTreeId) deleteTree(editingTreeId); }
@@ -1845,9 +1846,6 @@ function renderBaeumeTableWith(treeList){
       <td style="padding:8px 12px;color:var(--text2);font-family:'DM Mono',monospace;font-size:11px;white-space:nowrap;">${tree.datum||'–'}</td>
       <td style="padding:8px 12px;">${!tree.lat||!tree.lng?'<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:#fef3c7;color:#b45309;white-space:nowrap;">Kein GPS</span>':''}</td>
       <td style="padding:8px 12px;">
-        <button class="btn btn-secondary" style="padding:3px 8px;font-size:11px;white-space:nowrap;" data-mapid="${tree.id}" title="Auf Karte zeigen">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-        </button>
         <button class="btn btn-secondary" style="padding:3px 10px;font-size:11px;white-space:nowrap;" data-editid="${tree.id}">Bearbeiten</button>
       </td>
     </tr>`;
@@ -3355,7 +3353,7 @@ Object.assign(window,{
   createProject,openProject,showProjectScreen,
   switchView,openDetail,closePanel,logWatering,
   openAddTree,openEditTree,closeTreeModal,saveTree,deleteTree,
-  archiveTree,reactivateTree,archiveTreeFromModal,reactivateTreeFromModal,deleteTreeFromModal,toggleShowInactive,
+  archiveTree,reactivateTree,archiveTreeFromModal,reactivateTreeFromModal,deleteTreeFromModal,toggleShowInactive,showTreeOnMapFromModal,
   openTourModal,closeTourModal,saveTour,deleteTour,
   focusTour,focusTourAndSwitch,
   startPlacement,cancelMode,setDepotOnMap,
