@@ -788,10 +788,17 @@ function renderLegend(){
       ${isActive?`<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" style="color:var(--green);flex-shrink:0;margin-left:2px;"><path d="M20 6L9 17l-5-5"/></svg>`:''}
     </div>`;
   });
-  // All tours row
-  html+=`<div class="legend-item${!activeTourOnMap?' active-tour':''}" data-tourid="__all__" style="padding:3px 6px;margin-top:2px;border-top:1px solid var(--border);">
+  // All tours row — aktiv nur wenn weder Tour-Fokus noch 'none'-Filter
+  html+=`<div class="legend-item${(!activeTourOnMap&&filterTour!=='none')?' active-tour':''}" data-tourid="__all__" style="padding:3px 6px;margin-top:2px;border-top:1px solid var(--border);">
     <div style="width:16px;height:3px;border-radius:2px;background:#ccc;flex-shrink:0;"></div>
     <span style="color:var(--text3);flex:1;font-size:12px;">Alle anzeigen</span>
+  </div>`;
+  // Nicht verplant — Objekte ohne Tour
+  const unplannedCount=trees.filter(t=>isActive(t)&&getTreeTourIds(t).length===0).length;
+  html+=`<div class="legend-item${filterTour==='none'?' active-tour':''}" data-tourid="__none__" style="padding:3px 6px;">
+    <div style="width:16px;height:3px;border-radius:2px;background:repeating-linear-gradient(90deg,#9c9890 0 3px,transparent 3px 6px);flex-shrink:0;"></div>
+    <span style="color:var(--text3);flex:1;font-size:12px;">Nicht verplant</span>
+    <span class="legend-km" style="font-size:10px;">${unplannedCount}</span>
   </div>`;
   html+=`</div>`;
 
@@ -826,7 +833,11 @@ function renderLegend(){
       return;
     }
     const item=e.target.closest('[data-tourid]');
-    if(item){const tid=item.dataset.tourid;if(tid==='__all__')focusTour(null);else focusTour(tid);return;}
+    if(item){const tid=item.dataset.tourid;
+      if(tid==='__all__')focusTour(null);
+      else if(tid==='__none__')setFilter('none');
+      else focusTour(tid);
+      return;}
     const btn=e.target.closest('[data-action]');
     if(btn){
       if(btn.dataset.action==='calc-active'&&activeTourOnMap)calculateAndSaveRoute(activeTourOnMap);
@@ -850,6 +861,15 @@ function setFilter(f,el){
     renderLegend();
     document.getElementById('sidebar-route-info').classList.remove('visible');
     document.getElementById('route-info-bar').classList.remove('visible');
+    // Auf nicht verplante Objekte zoomen — robust gegen Ausreißer (5.–95. Perzentil)
+    const unplanned=trees.filter(t=>isActive(t)&&getTreeTourIds(t).length===0&&t.lat&&t.lng);
+    if(unplanned.length>0){
+      const lats=unplanned.map(t=>t.lat).sort((a,b)=>a-b);
+      const lngs=unplanned.map(t=>t.lng).sort((a,b)=>a-b);
+      const q=(arr,p)=>arr[Math.min(arr.length-1,Math.max(0,Math.floor(arr.length*p)))];
+      map.fitBounds(L.latLngBounds([[q(lats,0.05),q(lngs,0.05)],[q(lats,0.95),q(lngs,0.95)]]),
+        {padding:[60,60],maxZoom:15});
+    }
   } else if(f==='all'){
     activeTourOnMap=null;
     filterTour='all';
@@ -866,7 +886,7 @@ function renderList(){
   const q=document.getElementById('search-input')?.value.toLowerCase()||'';
   let filtered=trees.filter(t=>{
     const mq=!q||t.name?.toLowerCase().includes(q)||(t.art||'').toLowerCase().includes(q);
-    const mf=filterTour==='all'||treeInTour(t,filterTour)||(filterTour==='none'&&getTreeTourIds(t).length===0);
+    const mf=filterTour==='all'||treeInTour(t,filterTour)||(filterTour==='none'&&isActive(t)&&getTreeTourIds(t).length===0);
     return mq&&mf;
   });
   // Sort by route number when a tour is active
