@@ -82,32 +82,42 @@ function fmtDE(d){ return d.toLocaleDateString('de-DE',{day:'2-digit',month:'2-d
 // ─── MELDUNGEN AUFBAUEN (Quelle: tourHistory, Fallback: tree.history) ─
 function buildReported(){
   const out=[];
+  const seen=new Set(); // BaumID|YYYY-MM-DD — verhindert Doppelzählung
   if(tourHistoryLoaded){
+    // Historischer Bestand: abgeschlossene Touren (autoritativ, editierbar)
     tourHistory.forEach(h=>{
       if(!inRange(h.date)) return;
       (h.trees||[]).forEach(tree=>{
         if(!tree.lastStatus || tree.lastStatus==='offen') return;
         // h.tourId = Tour, die bewässert hat (Baum-Snapshot trägt keine Tour-Zuordnung)
-        out.push({...tree, lastReportAt: tree.lastReportAt||h.date, _tourId: h.tourId});
+        const at=tree.lastReportAt||h.date;
+        out.push({...tree, lastReportAt: at, _tourId: h.tourId});
+        seen.add((tree.id||'')+'|'+dayStr(at));
       });
     });
   } else {
+    // Fallback während tourHistory lädt: tree.history[]
     trees.forEach(tree=>{
       (tree.history||[]).forEach(h=>{
         if(!h.date || !inRange(h.date)) return;
         if(!h.status || h.status==='offen') return;
         out.push({...tree, lastStatus:h.status, lastReason:h.reason||null,
                   lastDriver:h.driver||null, lastReportAt:h.date});
+        seen.add((tree.id||'')+'|'+dayStr(h.date));
       });
-      if(tree.lastStatus && tree.lastStatus!=='offen' && tree.lastReportAt){
-        const d=dayStr(tree.lastReportAt);
-        if(inRange(d)){
-          const inHist=(tree.history||[]).some(h=>h.date===d && h.status===tree.lastStatus);
-          if(!inHist) out.push({...tree});
-        }
-      }
     });
   }
+  // Live-Meldungen ergänzen: laufende, noch nicht abgeschlossene Touren stehen
+  // nur in tree.lastStatus/lastReportAt und (noch) nicht in tourHistory.
+  trees.forEach(tree=>{
+    if(!tree.lastStatus || tree.lastStatus==='offen' || !tree.lastReportAt) return;
+    const d=dayStr(tree.lastReportAt);
+    if(!inRange(d)) return;
+    const key=(tree.id||'')+'|'+d;
+    if(seen.has(key)) return;
+    seen.add(key);
+    out.push({...tree});
+  });
   return out;
 }
 
@@ -284,8 +294,11 @@ function renderTimeline(reported, from, to){
   const monthly=spanDays>92;
 
   const buckets={}; const order=[];
-  const keyOf=(d)=> monthly ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
-                            : d.toISOString().slice(0,10);
+  // Schlüssel über lokale Datums-Komponenten (konsistent für Buckets + Meldungen,
+  // sonst Zeitzonen-Versatz durch toISOString)
+  const pad=n=>String(n).padStart(2,'0');
+  const keyOf=(d)=> monthly ? `${d.getFullYear()}-${pad(d.getMonth()+1)}`
+                            : `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
   const cur=new Date(start.getFullYear(),start.getMonth(),monthly?1:start.getDate());
   let guard=0;
   while(cur<=end && guard++<2000){
@@ -294,8 +307,9 @@ function renderTimeline(reported, from, to){
     if(monthly) cur.setMonth(cur.getMonth()+1); else cur.setDate(cur.getDate()+1);
   }
   reported.forEach(r=>{
-    const ds=dayStr(r.lastReportAt); if(!ds) return;
-    const k=monthly?ds.slice(0,7):ds;
+    if(!r.lastReportAt) return;
+    const rd=new Date(r.lastReportAt); if(isNaN(rd)) return;
+    const k=keyOf(rd);
     if(!buckets[k]) return;
     if(r.lastStatus==='bewaessert') buckets[k].bew++;
     else if(r.lastStatus==='nicht') buckets[k].nicht++;
