@@ -220,38 +220,15 @@ async function loadErfassteMarkersUebersicht() {
   updateUebersichtLabel();
 }
 
-async function resetUebersicht() {
-  if (!confirm('Karte leeren? Die Bäume bleiben erhalten, werden aber beim nächsten Login nicht mehr angezeigt.')) return;
-
-  // Felder in Firestore löschen damit beim nächsten Login nichts mehr erscheint
-  // Nur Bäume die wirklich in Firestore existieren (haben echte ID, nicht aus Queue)
-  const queueIds = new Set(getQueue().filter(e=>e.type==='newTree').map(e=>e.data?.baumId));
-  const deleteField = firebase.firestore.FieldValue.delete();
-  const batch = db.batch();
-
-  _erfassteData
-    .filter(t => t.id && !queueIds.has(t.baumId))
-    .forEach(t => batch.update(
-      db.collection('projects').doc(currentProjectId).collection('trees').doc(t.id),
-      { erfasstVon: deleteField }
-    ));
-  _koordiniertData
-    .filter(t => t.id)
-    .forEach(t => batch.update(
-      db.collection('projects').doc(currentProjectId).collection('trees').doc(t.id),
-      { koordiniertVon: deleteField }
-    ));
-
-  try {
-    if (batch._mutations?.length > 0 || batch._writes?.length > 0) await batch.commit();
-  } catch(e) { console.warn('Reset batch:', e); }
-
-  // Lokale Marker entfernen
+// Lokale Marker + Zähler der Übersicht leeren
+function clearOverviewLocal() {
   erfassteMarkers.forEach(m => { try { mapNeu.removeLayer(m); } catch(e){} });
   erfassteMarkers.length = 0;
-  erfassteMarkersUebersicht.forEach(m => mapUebersicht.removeLayer(m));
+  if (mapUebersicht) {
+    erfassteMarkersUebersicht.forEach(m => { try { mapUebersicht.removeLayer(m); } catch(e){} });
+    koordiniertMarkers.forEach(m => { try { mapUebersicht.removeLayer(m); } catch(e){} });
+  }
   erfassteMarkersUebersicht.length = 0;
-  koordiniertMarkers.forEach(m => mapUebersicht.removeLayer(m));
   koordiniertMarkers.length = 0;
   _erfassteData.length = 0;
   _koordiniertData.length = 0;
@@ -259,7 +236,44 @@ async function resetUebersicht() {
   koordiniertCount = 0;
   updateErfasstCounter();
   updateUebersichtLabel();
-  toast('✓ Karte geleert');
+}
+
+async function resetUebersicht() {
+  if (!confirm('Karte leeren?\nEntfernt deine Erfassungs-Markierungen aus der Übersicht. Bäume und Koordinaten bleiben erhalten.')) return;
+  toast('Karte wird geleert…');
+  try {
+    const col = db.collection('projects').doc(currentProjectId).collection('trees');
+    // Alle eigenen Markierungen FRISCH vom Server holen (nicht nur lokal Geladenes)
+    const [erfSnap, koordSnap] = await Promise.all([
+      col.where('erfasstVon', '==', currentErfasser).get(),
+      col.where('koordiniertVon', '==', currentErfasser).get(),
+    ]);
+    const deleteField = firebase.firestore.FieldValue.delete();
+    // Pro Dokument zusammenfassen (falls beide Felder gesetzt)
+    const updates = {};
+    erfSnap.docs.forEach(d => { (updates[d.id] = updates[d.id] || { ref: d.ref, data: {} }).data.erfasstVon = deleteField; });
+    koordSnap.docs.forEach(d => { (updates[d.id] = updates[d.id] || { ref: d.ref, data: {} }).data.koordiniertVon = deleteField; });
+    const ops = Object.values(updates);
+
+    for (let i = 0; i < ops.length; i += 400) {
+      const batch = db.batch();
+      ops.slice(i, i + 400).forEach(o => batch.update(o.ref, o.data));
+      await batch.commit();
+    }
+    // Auf Server-Bestätigung warten (max. 10s)
+    const synced = await Promise.race([
+      db.waitForPendingWrites().then(() => true),
+      new Promise(r => setTimeout(() => r(false), 10000)),
+    ]);
+
+    clearOverviewLocal();
+    if (ops.length === 0) toast('✓ Übersicht ist bereits leer');
+    else if (synced) toast(`✓ Karte geleert — ${ops.length} Markierungen entfernt`);
+    else toast('⚠ Teilweise nicht synchronisiert — bei Verbindung „Karte leeren" erneut tippen');
+  } catch (e) {
+    console.warn('resetUebersicht:', e);
+    toast(`⚠ Fehler beim Leeren: ${e.code || e.message}`);
+  }
 }
 
 // ─── MAPS ─────────────────────────────────────────────────────
