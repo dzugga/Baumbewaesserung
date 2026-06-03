@@ -125,7 +125,7 @@ const baseOSM = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
   {maxZoom:19, attribution:'© OpenStreetMap'}).addTo(map);
 const baseSat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
   {maxZoom:19, attribution:'© Esri, Maxar, Earthstar Geographics'});
-L.control.layers({'Karte':baseOSM,'Satellit':baseSat}, null, {position:'topright', collapsed:false}).addTo(map);
+L.control.layers({'Karte':baseOSM,'Satellit':baseSat}, null, {position:'topleft', collapsed:false}).addTo(map);
 L.control.zoom({position:'bottomleft'}).addTo(map);
 
 map.on('mousemove',e=>{
@@ -995,7 +995,6 @@ function openDetail(id){
 
     <div class="form-section">Identifikation</div>
     <div class="detail-field"><span class="detail-key">Objekt-ID</span><span class="detail-val" style="font-family:monospace;font-weight:700;color:var(--green);">${tree.baumId||'–'}</span></div>
-    <div class="detail-field"><span class="detail-key">Reihenfolge</span><span class="detail-val">${rNum!=null?`#${rNum} · ${tour?.name||'–'}`:'–'}</span></div>
     <div class="detail-field"><span class="detail-key">Baumnummer</span><span class="detail-val">${tree.baumnr||'–'}</span></div>
     <div class="detail-field"><span class="detail-key">${FL.stadtteil}</span><span class="detail-val">${tree.stadtteil||'–'}</span></div>
     <div class="detail-field"><span class="detail-key">${FL.art}</span><span class="detail-val" style="font-style:italic;">${tree.art||'–'}</span></div>
