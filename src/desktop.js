@@ -175,7 +175,7 @@ function initProjectScreen(){
         <div class="ps-item-icon">🌳</div>
         <div class="ps-item-info">
           <div class="ps-item-name">${data.name}</div>
-          <div class="ps-item-meta">${treeCount} Bäume · ${tourCount} Touren</div>
+          <div class="ps-item-meta">${treeCount} Objekte · ${tourCount} Touren</div>
         </div>
         <svg class="ps-item-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg>
       </div>`;
@@ -291,7 +291,7 @@ async function confirmDeleteProject(){
     </div>
     <div style="padding:16px 20px;font-size:13px;color:var(--text2);line-height:1.7;">
       Projekt <b style="color:var(--text);">${currentProjectData.name}</b> wirklich löschen?<br>
-      <span style="color:var(--red);">Alle Bäume, Touren, Routen und Historiendaten werden unwiderruflich gelöscht.</span>
+      <span style="color:var(--red);">Alle Objekte, Touren, Routen und Historiendaten werden unwiderruflich gelöscht.</span>
     </div>
     <div style="padding:6px 20px 8px;">
       <input id="delete-confirm-input" class="form-control" placeholder='Projektname eingeben zur Bestätigung' style="border-color:var(--red-light);">
@@ -505,7 +505,7 @@ async function loadSavedRoutes(){
 async function calculateAndSaveRoute(tourId){
   const tour=tours.find(t=>t.id===tourId);if(!tour)return;
   const trs=trees.filter(t=>treeInTour(t,tourId)&&t.lat&&t.lng);
-  if(trs.length<1){notify('Keine Bäume in dieser Tour');return;}
+  if(trs.length<1){notify('Keine Objekte in dieser Tour');return;}
 
   setSyncState('syncing','Route wird berechnet…');
   document.getElementById('route-spinner').classList.add('visible');
@@ -596,7 +596,7 @@ function updateRouteInfoBar(){
     const depot=getDepot();
     const _bewT=fmtBewTime(cnt);
     const _totT=fmtTotalTime(durationSec,cnt);
-    txt.textContent=`${tour?.name||''} · ${cnt} Bäume · ${km.toFixed(1)} km · ${fmtDuration(durationSec)} Fahrt + ${_bewT} Bew. = ${_totT}${depot?' (inkl. Depot)':''}`;
+    txt.textContent=`${tour?.name||''} · ${cnt} Objekte · ${km.toFixed(1)} km · ${fmtDuration(durationSec)} Fahrt + ${_bewT} Bew. = ${_totT}${depot?' (inkl. Depot)':''}`;
     bar.classList.add('visible');
     const bewTime=fmtBewTime(cnt);
     const totalTime=fmtTotalTime(durationSec,cnt);
@@ -604,7 +604,7 @@ function updateRouteInfoBar(){
     document.getElementById('sidebar-route-km').textContent=km.toFixed(1)+' km';
     document.getElementById('sidebar-route-drive').textContent=fmtDuration(durationSec);
     document.getElementById('sidebar-route-total').textContent=totalTime;
-    document.getElementById('sidebar-route-cnt').textContent=cnt+' Bäume';
+    document.getElementById('sidebar-route-cnt').textContent=cnt+' Objekte';
     sidePanel.style.display='block';
   } else {
     bar.classList.remove('visible');
@@ -903,7 +903,7 @@ function renderList(){
     });
   }
   const list=document.getElementById('tree-list');if(!list)return;
-  if(filtered.length===0){list.innerHTML=`<div class="empty-state"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22V12"/><path d="M12 12C12 12 7 9 7 5a5 5 0 0 1 10 0c0 4-5 7-5 7z"/></svg><p>Keine Bäume gefunden</p></div>`;
+  if(filtered.length===0){list.innerHTML=`<div class="empty-state"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22V12"/><path d="M12 12C12 12 7 9 7 5a5 5 0 0 1 10 0c0 4-5 7-5 7z"/></svg><p>Keine Objekte gefunden</p></div>`;
   } else {
     list.innerHTML=filtered.map(tree=>{
       const treeTours=getTreeTourIds(tree).map(id=>tours.find(t=>t.id===id)).filter(Boolean);
@@ -934,7 +934,7 @@ function renderList(){
       if(item) selectTree(item.dataset.treeid);
     };
   }
-  document.getElementById('list-count').textContent=`${filtered.length} Bäume`;
+  document.getElementById('list-count').textContent=`${filtered.length} Objekte`;
 }
 
 function selectTree(id){
@@ -988,7 +988,7 @@ function openDetail(id){
     <div class="status-bar" style="background:${statusBg};color:${statusColor};">${zLabel} — Zustand</div>
 
     <div class="form-section">Identifikation</div>
-    <div class="detail-field"><span class="detail-key">Baum-ID</span><span class="detail-val" style="font-family:monospace;font-weight:700;color:var(--green);">${tree.baumId||'–'}</span></div>
+    <div class="detail-field"><span class="detail-key">Objekt-ID</span><span class="detail-val" style="font-family:monospace;font-weight:700;color:var(--green);">${tree.baumId||'–'}</span></div>
     <div class="detail-field"><span class="detail-key">Reihenfolge</span><span class="detail-val">${rNum!=null?`#${rNum} · ${tour?.name||'–'}`:'–'}</span></div>
     <div class="detail-field"><span class="detail-key">Baumnummer</span><span class="detail-val">${tree.baumnr||'–'}</span></div>
     <div class="detail-field"><span class="detail-key">${FL.stadtteil}</span><span class="detail-val">${tree.stadtteil||'–'}</span></div>
@@ -1260,7 +1260,7 @@ async function saveTree(){
   }catch(e){ notify('Fehler: '+e.message); }
 }
 
-// Baum-ID aus allen Routen-Reihenfolgen entfernen (sonst tote Referenzen)
+// Objekt-ID aus allen Routen-Reihenfolgen entfernen (sonst tote Referenzen)
 async function removeTreeFromRoutes(treeId){
   try{
     const snap=await getDocs(collection(db,'projects',currentProjectId,'routes'));
@@ -1313,7 +1313,7 @@ async function reactivateTree(id){
 async function deleteTree(id){
   const tree=trees.find(t=>t.id===id);
   if(!tree){ await deleteDoc(doc(db,'projects',currentProjectId,'trees',id)); closePanel(); return; }
-  // Schutz: Bäume mit Historie nicht endgültig löschen → Archiv anbieten
+  // Schutz: Objekte mit Historie nicht endgültig löschen → Archiv anbieten
   if(await treeHasHistory(tree)){
     if(confirm(`„${tree.name||'Baum'}" hat eine Bewässerungs-Historie und kann nicht endgültig `+
       `gelöscht werden (Historie/Controlling würde verfälscht).\n\nStattdessen als INAKTIV archivieren?`)){
@@ -1587,7 +1587,7 @@ async function deleteTour(id){
   modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;';
   modal.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);width:390px;max-width:90vw;overflow:hidden;">
     <div style="padding:18px 20px 10px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;color:var(--red);">⚠ Tour löschen</div>
-    <div style="padding:14px 20px 6px;font-size:13px;color:var(--text2);line-height:1.6;">Tour <b style="color:var(--text);">${name}</b> löschen?<br>${cnt?`${cnt} Baum/Bäume werden aus der Tour entfernt (bleiben erhalten).`:'Bäume bleiben erhalten.'}</div>
+    <div style="padding:14px 20px 6px;font-size:13px;color:var(--text2);line-height:1.6;">Tour <b style="color:var(--text);">${name}</b> löschen?<br>${cnt?`${cnt} Baum/Objekte werden aus der Tour entfernt (bleiben erhalten).`:'Objekte bleiben erhalten.'}</div>
     <div style="padding:6px 20px 10px;">
       <input id="del-tour-input" class="form-control" placeholder="Tournamen eingeben zur Bestätigung" style="border-color:var(--red-light);" autocomplete="off">
       <div style="font-size:11px;color:var(--text3);margin-top:4px;">Gib <b>${name}</b> ein um zu bestätigen</div>
@@ -1813,7 +1813,7 @@ function renderBaeumeTableWith(treeList){
   if(trees.length===0){
     wrap.innerHTML=`<div class="empty-state" style="margin-top:60px;">
       <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22V12"/><path d="M12 12C12 12 7 9 7 5a5 5 0 0 1 10 0c0 4-5 7-5 7z"/></svg>
-      <p>Noch keine Bäume</p></div>`;
+      <p>Noch keine Objekte</p></div>`;
     return;
   }
 
@@ -1833,7 +1833,7 @@ function renderBaeumeTableWith(treeList){
 
   const cols=[
     {label:'#',        w:'40px'},
-    {label:'Baum-ID',  w:'80px'},
+    {label:'Objekt-ID',  w:'80px'},
     {label:FL.name,          w:'200px'},
     {label:FL.stadtteil,     w:'110px'},
     {label:FL.baumnr,        w:'130px'},
@@ -1884,7 +1884,7 @@ function renderBaeumeTableWith(treeList){
 
   wrap.innerHTML=`
     <div style="padding:12px 20px 8px;display:flex;align-items:center;gap:16px;flex-shrink:0;border-bottom:1px solid var(--border);background:var(--surface);">
-      <span style="font-size:13px;font-weight:600;color:var(--text);">${sorted.length} Bäume${activeTourOnMap?' — <span style=color:'+tours.find(t=>t.id===activeTourOnMap)?.color+';font-weight:700>'+tours.find(t=>t.id===activeTourOnMap)?.name+'</span>':''}</span>
+      <span style="font-size:13px;font-weight:600;color:var(--text);">${sorted.length} Objekte${activeTourOnMap?' — <span style=color:'+tours.find(t=>t.id===activeTourOnMap)?.color+';font-weight:700>'+tours.find(t=>t.id===activeTourOnMap)?.name+'</span>':''}</span>
       <span style="font-size:12px;color:var(--text3);">Klick auf Zeile → Karte</span>
     </div>
     <div style="overflow:auto;flex:1;">
@@ -2239,7 +2239,7 @@ async function importExcel(input){
     if(!row||row.length<1)continue;
     const lat=parseFloat(row[7]);
     const lng=parseFloat(row[8]);
-    // Koordinaten optional — Bäume ohne GPS werden trotzdem importiert
+    // Koordinaten optional — Objekte ohne GPS werden trotzdem importiert
     const treeData={
       name:row[0]||'Unbekannt',
       stadtteil:row[1]||'',
@@ -2261,7 +2261,7 @@ async function importExcel(input){
   }
 
   input.value='';
-  notify(`✓ ${imported} Bäume importiert${skipped>0?' ('+skipped+' übersprungen)':''}`);
+  notify(`✓ ${imported} Objekte importiert${skipped>0?' ('+skipped+' übersprungen)':''}`);
 }
 
 // ─── BAUM ID ──────────────────────────────────────────────────
@@ -2444,7 +2444,7 @@ function getCtrlFilteredTrees(){
   const baumart=document.getElementById('ctrl-filter-baumart')?.value||'';
 
   return trees.filter(t=>{
-    if(!isActive(t))return false; // archivierte Bäume nicht in Controlling-Gesamt/offen
+    if(!isActive(t))return false; // archivierte Objekte nicht in Controlling-Gesamt/offen
     if(tourId&&!treeInTour(t,tourId))return false;
     if(stadtteil&&t.stadtteil!==stadtteil)return false;
     if(pflanzjahr&&t.pflanzjahr!==pflanzjahr)return false;
@@ -2480,7 +2480,7 @@ function renderControlling(){
   if(summaryEl&&summaryTxt){
     if(activeFilters.length>0){
       summaryEl.style.display='flex';
-      summaryTxt.textContent=`Aktive Filter: ${activeFilters.join(' · ')} — ${filtered.length} Bäume`;
+      summaryTxt.textContent=`Aktive Filter: ${activeFilters.join(' · ')} — ${filtered.length} Objekte`;
     } else {
       summaryEl.style.display='none';
     }
@@ -2575,7 +2575,7 @@ function renderControlling(){
   const activeFahrer=[...new Set(allReported.map(r=>r.lastDriver).filter(Boolean))].length;
   const kpiEl=document.getElementById('ctrl-kpis');
   if(kpiEl) kpiEl.innerHTML=[
-    {val:filtered.length,lbl:'Gesamt',sub:'Bäume im Projekt',color:'var(--text)'},
+    {val:filtered.length,lbl:'Gesamt',sub:'Objekte im Projekt',color:'var(--text)'},
     {val:bewaessert.length,lbl:'Bewässert',sub:`${pct}% der Meldungen`,color:'#16a34a'},
     {val:nicht.length,lbl:'Nicht bewässert',sub:'Einzelmeldungen',color:'var(--red)'},
     {val:totalReported,lbl:'Meldungen gesamt',sub:'im Zeitraum',color:'var(--text2)'},
@@ -3178,7 +3178,7 @@ async function applyLasso(){
   });
 
   lassoPoints=[];
-  if(selected.length===0){notify('Keine Bäume im Lasso-Bereich');return;}
+  if(selected.length===0){notify('Keine Objekte im Lasso-Bereich');return;}
 
   // Split into conflict (already in another tour) vs clean
   const conflicts=selected.filter(t=>getTreeTourIds(t).length>0&&!treeInTour(t,tourId));
@@ -3191,15 +3191,15 @@ async function applyLasso(){
     if(confirmed) toAssign=[...toAssign,...conflicts];
   }
 
-  if(toAssign.length===0){notify('Keine Bäume zugewiesen');return;}
+  if(toAssign.length===0){notify('Keine Objekte zugewiesen');return;}
 
-  setSyncState('syncing',`${toAssign.length} Bäume werden zugewiesen…`);
+  setSyncState('syncing',`${toAssign.length} Objekte werden zugewiesen…`);
   for(const tree of toAssign){
     const newIds=[...new Set([...getTreeTourIds(tree),tourId])];
     await setTreeTourIds(tree.id,newIds);
   }
   setSyncState('ok','Synchronisiert');
-  notify(`✓ ${toAssign.length} Bäume → ${tour?.name||'Tour'}`);
+  notify(`✓ ${toAssign.length} Objekte → ${tour?.name||'Tour'}`);
 }
 
 // cancelLasso merged into cancelAssign
@@ -3241,10 +3241,10 @@ function showLassoConflictDialog(conflicts, toTour){
     const names=conflicts.slice(0,3).map(t=>t.name).join(', ')+(conflicts.length>3?` +${conflicts.length-3} weitere`:'');
     modal.innerHTML=`<div style="background:#fff;border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);width:400px;max-width:90vw;overflow:hidden;">
       <div style="padding:18px 20px 10px;border-bottom:1px solid #ddd9d0;">
-        <div style="font-size:15px;font-weight:600;color:#1a1917;">${conflicts.length} Bäume bereits verplant</div>
+        <div style="font-size:15px;font-weight:600;color:#1a1917;">${conflicts.length} Objekte bereits verplant</div>
       </div>
       <div style="padding:16px 20px;font-size:13px;color:#6b6760;line-height:1.6;">
-        Folgende Bäume sind bereits anderen Touren zugewiesen:<br>
+        Folgende Objekte sind bereits anderen Touren zugewiesen:<br>
         <b style="color:#1a1917;">${names}</b><br><br>
         Sollen diese trotzdem zu <b style="color:#1a1917;">${toTour}</b> verschoben werden?
       </div>

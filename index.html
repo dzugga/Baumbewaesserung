@@ -246,7 +246,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
   </div>
   <nav class="topbar-nav">
     <button class="nav-btn active" onclick="switchView('karte')">Karte</button>
-    <button class="nav-btn" onclick="switchView('baeume')">Bäume</button>
+    <button class="nav-btn" onclick="switchView('baeume')">Objekte</button>
     <button class="nav-btn" onclick="switchView('touren')">Touren</button>
     <button class="nav-btn" onclick="switchView('controlling')">Controlling</button>
     <button class="nav-btn" onclick="switchView('verwaltung')">Verwaltung</button>
@@ -271,7 +271,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 <div class="main">
   <div class="sidebar">
     <div class="sidebar-header">
-      <div class="sidebar-title">Bäume</div>
+      <div class="sidebar-title">Objekte</div>
       <div class="search-box">
         <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
         <input type="text" id="search-input" placeholder="Suchen…" oninput="renderList()">
@@ -304,7 +304,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       </div>
     </div>
     <div class="tree-list" id="tree-list"></div>
-    <div class="sidebar-footer" id="list-count">0 Bäume</div>
+    <div class="sidebar-footer" id="list-count">0 Objekte</div>
   </div>
 
   <div id="view-container" style="flex:1;position:relative;overflow:hidden;display:flex;flex-direction:column;">
@@ -739,7 +739,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
   <div style="background:var(--surface);border-bottom:1px solid var(--border);padding:8px 20px;flex-shrink:0;display:flex;align-items:center;gap:10px;">
     <div style="position:relative;flex:1;max-width:420px;">
       <svg style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text3);" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-      <input id="baeume-search" type="text" placeholder="Suche nach Name, Baumart, Stadtteil, Baumnr., Baum-ID…" oninput="filterBaeumeTable(this.value)"
+      <input id="baeume-search" type="text" placeholder="Suche nach Name, Baumart, Stadtteil, Baumnr., Objekt-ID…" oninput="filterBaeumeTable(this.value)"
         style="width:100%;padding:7px 12px 7px 32px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--bg);outline:none;"
         onfocus="this.style.borderColor='var(--green-mid)'" onblur="this.style.borderColor='var(--border)'">
     </div>
@@ -775,7 +775,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
           <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);width:20px;"></th>
           <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Tourname</th>
           <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Beschreibung</th>
-          <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Bäume</th>
+          <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Objekte</th>
           <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Strecke</th>
           <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Fahrzeit / Bew. / Gesamt</th>
           <th style="position:sticky;top:0;background:var(--surface2);padding:9px 16px;width:200px;"></th>
