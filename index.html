@@ -505,6 +505,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       <div class="form-group"><label class="form-label">Bemerkungen</label><textarea class="form-control" id="f-notiz" rows="2" style="resize:vertical;"></textarea></div>
     </div>
     <div class="modal-footer">
+      <div id="tree-danger" style="display:none;margin-right:auto;gap:8px;align-items:center;">
+        <button class="btn btn-secondary" id="btn-tree-archive" onclick="archiveTreeFromModal()">Inaktiv setzen</button>
+        <button class="btn btn-danger" id="btn-tree-delete" onclick="deleteTreeFromModal()">Löschen</button>
+      </div>
       <button class="btn btn-secondary" onclick="closeTreeModal()">Abbrechen</button>
       <button class="btn btn-primary" onclick="saveTree()">Speichern</button>
     </div>
@@ -738,6 +742,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <button id="btn-filter-nogps" class="btn btn-secondary" style="padding:5px 10px;font-size:12px;white-space:nowrap;" onclick="toggleFilterNoGps(this)">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline;vertical-align:middle;margin-right:3px;"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55M5 12.55a10.94 10.94 0 0 1 5.17-2.39M10.71 5.05A16 16 0 0 1 22.56 9M1.42 9a15.91 15.91 0 0 1 4.7-2.88M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg>
       Ohne GPS
+    </button>
+    <button id="btn-filter-inactive" class="btn btn-secondary" style="padding:5px 10px;font-size:12px;white-space:nowrap;" onclick="toggleShowInactive(this)">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline;vertical-align:middle;margin-right:3px;"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/></svg>
+      Inaktive zeigen
     </button>
     <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px;" onclick="document.getElementById('baeume-search').value='';_baeumeNoGpsFilter=false;updateBtnFilterNoGps();filterBaeumeTable('')">✕</button>
   </div>

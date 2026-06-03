@@ -39,6 +39,8 @@ function getTreeTourIds(tree){
 function treeInTour(tree, tourId){
   return getTreeTourIds(tree).includes(tourId);
 }
+// Archiv: tree.aktiv===false → inaktiv (gefällt/abgegangen). Default = aktiv.
+function isActive(tree){ return !tree || tree.aktiv!==false; }
 function primaryTour(tree){
   const ids = getTreeTourIds(tree);
   return ids.length>0 ? tours.find(t=>t.id===ids[0]) : null;
@@ -671,7 +673,7 @@ function setMarkerVisibility(){
 
 function refreshMarkers(){
   Object.values(mapMarkers).forEach(m=>map.removeLayer(m));mapMarkers={};
-  trees.forEach(tree=>{ if(tree.lat&&tree.lng) mapMarkers[tree.id]=makeMarker(tree); });
+  trees.forEach(tree=>{ if(isActive(tree)&&tree.lat&&tree.lng) mapMarkers[tree.id]=makeMarker(tree); });
   setMarkerVisibility();
   loadSavedRoutes();  // load from Firestore, never auto-recalculate
   renderDepotMarker();
@@ -681,7 +683,7 @@ function refreshMarkers(){
 function rebuildMarkersWithNumbers(){
   Object.values(mapMarkers).forEach(m=>map.removeLayer(m));mapMarkers={};
   // makeMarker uses selectedTreeId for highlight — always passes current state
-  trees.forEach(tree=>{ if(tree.lat&&tree.lng) mapMarkers[tree.id]=makeMarker(tree); });
+  trees.forEach(tree=>{ if(isActive(tree)&&tree.lat&&tree.lng) mapMarkers[tree.id]=makeMarker(tree); });
   setMarkerVisibility();
 }
 
@@ -1165,6 +1167,7 @@ function openAddTree(lat,lng){
   if(lat&&lng){info.textContent=`📍 ${lat.toFixed(5)}, ${lng.toFixed(5)}`;info.style.display='block';}
   else info.style.display='none';
   fillTourSelect(activeTourOnMap||'');
+  const danger=document.getElementById('tree-danger'); if(danger) danger.style.display='none';
   document.getElementById('tree-modal').classList.add('open');
 }
 
@@ -1186,9 +1189,20 @@ function openEditTree(id){
   document.getElementById('f-notiz').value=tree.notiz||'';
   document.getElementById('modal-coord-info').style.display='none';
   fillTourSelect(tree.tourId||'');
+  // Gefahrenzone (Archiv/Löschen) einblenden
+  const danger=document.getElementById('tree-danger');
+  const archBtn=document.getElementById('btn-tree-archive');
+  if(danger) danger.style.display='flex';
+  if(!isActive(tree)){
+    document.getElementById('modal-tree-title').textContent='Baum bearbeiten (inaktiv)';
+    if(archBtn){ archBtn.textContent='Reaktivieren'; archBtn.onclick=reactivateTreeFromModal; }
+  } else {
+    if(archBtn){ archBtn.textContent='Inaktiv setzen'; archBtn.onclick=archiveTreeFromModal; }
+  }
   document.getElementById('tree-modal').classList.add('open');
 }
-function closeTreeModal(){ document.getElementById('tree-modal').classList.remove('open');editingTreeId=null; }
+function closeTreeModal(){ document.getElementById('tree-modal').classList.remove('open');editingTreeId=null;
+  const danger=document.getElementById('tree-danger'); if(danger) danger.style.display='none'; }
 
 async function saveTree(){
   const name=document.getElementById('f-name').value.trim();
@@ -1228,11 +1242,83 @@ async function saveTree(){
   }catch(e){ notify('Fehler: '+e.message); }
 }
 
-async function deleteTree(id){
-  if(!confirm('Baum wirklich löschen?'))return;
-  await deleteDoc(doc(db,'projects',currentProjectId,'trees',id));
-  closePanel();notify('Baum gelöscht');
+// Baum-ID aus allen Routen-Reihenfolgen entfernen (sonst tote Referenzen)
+async function removeTreeFromRoutes(treeId){
+  try{
+    const snap=await getDocs(collection(db,'projects',currentProjectId,'routes'));
+    for(const d of snap.docs){
+      const data=d.data()||{};
+      if(Array.isArray(data.orderIds)&&data.orderIds.includes(treeId)){
+        await updateDoc(doc(db,'projects',currentProjectId,'routes',d.id),
+          {orderIds:data.orderIds.filter(x=>x!==treeId)});
+      }
+    }
+  }catch(e){ console.warn('removeTreeFromRoutes:',e); }
+  routeCache={};
 }
+
+// Hat der Baum eine Bewässerungs-Historie (eigene history[] oder tourHistory-Treffer)?
+async function treeHasHistory(tree){
+  if((tree.history||[]).length>0) return true;
+  if(tree.lastStatus && tree.lastStatus!=='offen') return true;
+  try{
+    const snap=await getDocs(collection(db,'projects',currentProjectId,'tourHistory'));
+    return snap.docs.some(d=>(d.data().trees||[]).some(x=>x.id===tree.id));
+  }catch(e){ console.warn('treeHasHistory:',e); return true; } // im Zweifel schützen
+}
+
+async function archiveTree(id){
+  const tree=trees.find(t=>t.id===id); if(!tree) return;
+  const tourCnt=getTreeTourIds(tree).length;
+  if(!confirm(`„${tree.name||'Baum'}" als INAKTIV markieren?\n\n`+
+    `• Wird aus Karte, Tourplanung und „offen"-Zahlen ausgeblendet`+
+    (tourCnt?`\n• Wird aus ${tourCnt} Tour(en) entfernt`:'')+
+    `\n• Historie bleibt erhalten, jederzeit reaktivierbar`)) return;
+  setSyncState('syncing','Speichert…');
+  try{
+    await updateDoc(doc(db,'projects',currentProjectId,'trees',id),
+      {aktiv:false, archiviertAm:serverTimestamp(), tourIds:[], tourId:''});
+    await removeTreeFromRoutes(id);
+    notify('Baum inaktiv gesetzt');
+  }catch(e){ notify('Fehler: '+e.message); }
+}
+
+async function reactivateTree(id){
+  if(!trees.find(t=>t.id===id)) return;
+  setSyncState('syncing','Speichert…');
+  try{
+    await updateDoc(doc(db,'projects',currentProjectId,'trees',id),{aktiv:true});
+    notify('Baum reaktiviert — bei Bedarf wieder einer Tour zuweisen');
+  }catch(e){ notify('Fehler: '+e.message); }
+}
+
+async function deleteTree(id){
+  const tree=trees.find(t=>t.id===id);
+  if(!tree){ await deleteDoc(doc(db,'projects',currentProjectId,'trees',id)); closePanel(); return; }
+  // Schutz: Bäume mit Historie nicht endgültig löschen → Archiv anbieten
+  if(await treeHasHistory(tree)){
+    if(confirm(`„${tree.name||'Baum'}" hat eine Bewässerungs-Historie und kann nicht endgültig `+
+      `gelöscht werden (Historie/Controlling würde verfälscht).\n\nStattdessen als INAKTIV archivieren?`)){
+      await archiveTree(id);
+    }
+    return;
+  }
+  const tourCnt=getTreeTourIds(tree).length;
+  if(!confirm(`„${tree.name||'Baum'}" ENDGÜLTIG löschen?\n\n`+
+    (tourCnt?`• Wird aus ${tourCnt} Tour(en) entfernt\n`:'')+
+    `• Kann nicht rückgängig gemacht werden`)) return;
+  setSyncState('syncing','Löscht…');
+  try{
+    await removeTreeFromRoutes(id);
+    await deleteDoc(doc(db,'projects',currentProjectId,'trees',id));
+    closePanel(); closeTreeModal(); notify('Baum gelöscht');
+  }catch(e){ notify('Fehler: '+e.message); }
+}
+
+// Modal-Wrapper (nutzen editingTreeId)
+function archiveTreeFromModal(){ const id=editingTreeId; closeTreeModal(); if(id) archiveTree(id); }
+function reactivateTreeFromModal(){ const id=editingTreeId; closeTreeModal(); if(id) reactivateTree(id); }
+function deleteTreeFromModal(){ if(editingTreeId) deleteTree(editingTreeId); }
 
 // ─── PLACEMENT & ASSIGN ───────────────────────────────────────
 function startPlacement(){
@@ -1641,10 +1727,20 @@ function switchView(v){
 
 let _baeumeAllTrees = []; // cache for search
 let _baeumeNoGpsFilter = false;
+let _baeumeShowInactive = false;
 
 function toggleFilterNoGps(btn){
   _baeumeNoGpsFilter = !_baeumeNoGpsFilter;
   updateBtnFilterNoGps();
+  filterBaeumeTable(document.getElementById('baeume-search')?.value||'');
+}
+function toggleShowInactive(btn){
+  _baeumeShowInactive = !_baeumeShowInactive;
+  if(btn){
+    btn.style.background = _baeumeShowInactive ? 'var(--text2)' : '';
+    btn.style.color = _baeumeShowInactive ? '#fff' : '';
+    btn.style.borderColor = _baeumeShowInactive ? 'var(--text2)' : '';
+  }
   filterBaeumeTable(document.getElementById('baeume-search')?.value||'');
 }
 function updateBtnFilterNoGps(){
@@ -1668,6 +1764,7 @@ function filterBaeumeTable(q){
     (tree.pflanzjahr||'').toLowerCase().includes(lower)
   );
   if(_baeumeNoGpsFilter) filtered = filtered.filter(t => !t.lat || !t.lng);
+  if(!_baeumeShowInactive) filtered = filtered.filter(isActive);
   const hasFilter = q.trim() || _baeumeNoGpsFilter;
   if(countEl) countEl.textContent = hasFilter ? `${filtered.length} Ergebnisse` : '';
   renderBaeumeTableWith(filtered);
@@ -1676,7 +1773,7 @@ function filterBaeumeTable(q){
 function renderBaeumeTable(){
   _baeumeAllTrees = [...trees]; // cache all trees
   document.getElementById('baeume-search-count').textContent = '';
-  renderBaeumeTableWith(trees);
+  renderBaeumeTableWith(_baeumeShowInactive ? trees : trees.filter(isActive));
 }
 
 function renderBaeumeTableWith(treeList){
@@ -1726,16 +1823,17 @@ function renderBaeumeTableWith(treeList){
   let rows='';
   sorted.forEach(tree=>{
     const tour=tours.find(t=>t.id===tree.tourId);
+    const inact=!isActive(tree);
     const zCl={gut:'badge-ok',mittel:'badge-warn',schlecht:'badge-crit'}[tree.zustand]||'badge-gray';
     const zLbl={gut:'Gut',mittel:'Mittel',schlecht:'Schlecht'}[tree.zustand]||tree.zustand||'–';
     const wLbl={gering:'Gering',mittel:'Mittel',hoch:'Hoch'}[tree.wasser]||'–';
     const rNum=getRouteNum(tree.id);
     const pzt=tree.pflanzzeitpunkt||'–';
     const rowTours=getTreeTourIds(tree).map(id=>tours.find(t=>t.id===id)).filter(Boolean);
-    rows+=`<tr style="border-top:1px solid var(--border);transition:background .1s;cursor:pointer;" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''" data-treeid="${tree.id}">
+    rows+=`<tr style="border-top:1px solid var(--border);transition:background .1s;cursor:pointer;${inact?'opacity:.55;':''}" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''" data-treeid="${tree.id}">
       <td style="padding:8px 12px;font-family:'DM Mono',monospace;color:var(--text3);font-size:11px;white-space:nowrap;">${rNum!=null?'<b style=color:var(--green)>#'+rNum+'</b>':'–'}</td>
       <td style="padding:8px 12px;font-family:'DM Mono',monospace;font-size:11px;font-weight:600;color:var(--green);white-space:nowrap;">${tree.baumId||'–'}</td>
-      <td style="padding:8px 12px;font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${tree.name||''}">${tree.name||'–'}</td>
+      <td style="padding:8px 12px;font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${tree.name||''}">${inact?'<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:9px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);margin-right:5px;">INAKTIV</span>':''}${tree.name||'–'}</td>
       <td style="padding:8px 12px;color:var(--text2);white-space:nowrap;">${tree.stadtteil||'–'}</td>
       <td style="padding:8px 12px;color:var(--text2);font-family:'DM Mono',monospace;font-size:11px;white-space:nowrap;">${tree.baumnr||'–'}</td>
       <td style="padding:8px 12px;color:var(--text2);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${tree.art||''}">${tree.art||'–'}</td>
@@ -2317,6 +2415,7 @@ function getCtrlFilteredTrees(){
   const baumart=document.getElementById('ctrl-filter-baumart')?.value||'';
 
   return trees.filter(t=>{
+    if(!isActive(t))return false; // archivierte Bäume nicht in Controlling-Gesamt/offen
     if(tourId&&!treeInTour(t,tourId))return false;
     if(stadtteil&&t.stadtteil!==stadtteil)return false;
     if(pflanzjahr&&t.pflanzjahr!==pflanzjahr)return false;
@@ -3256,6 +3355,7 @@ Object.assign(window,{
   createProject,openProject,showProjectScreen,
   switchView,openDetail,closePanel,logWatering,
   openAddTree,openEditTree,closeTreeModal,saveTree,deleteTree,
+  archiveTree,reactivateTree,archiveTreeFromModal,reactivateTreeFromModal,deleteTreeFromModal,toggleShowInactive,
   openTourModal,closeTourModal,saveTour,deleteTour,
   focusTour,focusTourAndSwitch,
   startPlacement,cancelMode,setDepotOnMap,
