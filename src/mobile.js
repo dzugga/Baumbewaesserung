@@ -162,7 +162,7 @@ async function startBewässerungLogin(name, pid, tid) {
     currentTourId = tid;
     currentDriver = name;
     currentTour = tourSnap.exists ? {id:tid,...tourSnap.data()} : null;
-    trees = treesSnap.docs.map(d=>({id:d.id,...d.data()})).filter(t=>t.tourId===tid);
+    trees = treesSnap.docs.map(d=>({id:d.id,...d.data()})).filter(t=>(t.tourIds||[t.tourId]).includes(tid));
     routeOrder = trees.map(t=>t.id);
     reasons = reasonsSnap.docs.map(d=>({id:d.id,...d.data()}));
 
@@ -208,10 +208,13 @@ async function startBewässerungLogin(name, pid, tid) {
     drawRoute();
 
     // Subscribe to live updates
-    const treesQuery = db.collection('projects').doc(pid).collection('trees').where('tourId','==',tid);
+    // Lädt alle Bäume des Projekts, filtert client-seitig (kompatibel mit tourId und tourIds)
+    const treesQuery = db.collection('projects').doc(pid).collection('trees');
     unsubTrees = treesQuery.onSnapshot(snap=>{
       if(pauseSnapshot)return;
-      trees=snap.docs.map(d=>({id:d.id,...d.data()}));
+      // Client-seitiger Filter: tourIds-Array oder altes tourId-Feld
+      const all=snap.docs.map(d=>({id:d.id,...d.data()}));
+      trees=all.filter(t=>(t.tourIds||[t.tourId]).includes(tid));
       routeOrder=routeOrder.filter(id=>trees.find(t=>t.id===id));
       trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
       cacheTreesLocally(pid,tid,trees);
@@ -240,7 +243,7 @@ async function startBewässerungLogin(name, pid, tid) {
 async function loadTrees() {
   const snap = await getDocs(collection(db,'projects',currentProjectId,'trees'));
   trees = snap.docs.map(d=>({id:d.id,...d.data()}))
-    .filter(t=>t.tourId===currentTourId);
+    .filter(t=>(t.tourIds||[t.tourId]).includes(currentTourId));
 }
 
 async function loadReasons() {
@@ -351,10 +354,11 @@ async function dialogNeuStarten(){
   currentTour = {...currentTour, status: 'aktiv'};
 
   // Step 5: Re-subscribe (filtered by tourId)
-  const _reoQ1 = db.collection('projects').doc(currentProjectId).collection('trees').where('tourId','==',currentTourId);
+  const _reoQ1 = db.collection('projects').doc(currentProjectId).collection('trees')/* alle laden, client-seitig filtern */;
   unsubTrees = _reoQ1.onSnapshot(snap => {
     if(pauseSnapshot) return;
-    trees = snap.docs.map(d=>({id:d.id,...d.data()}));
+    const _all = snap.docs.map(d=>({id:d.id,...d.data()}));
+    trees = _all.filter(t=>(t.tourIds||[t.tourId]).includes(currentTourId));
     routeOrder = routeOrder.filter(id=>trees.find(t=>t.id===id));
     trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
     renderMarkers();
@@ -387,49 +391,40 @@ function closeBulkSheet(){
   document.getElementById('bulk-sheet').style.display = 'none';
 }
 
-async function confirmMarkAllDone(){
+function confirmMarkAllDone(){
   closeBulkSheet();
-  try {
-    const now = new Date().toISOString();
-    const open = trees.filter(t => !t.lastStatus);
-    if(open.length === 0){ toast('Keine offenen Bäume'); return; }
+  const now = new Date().toISOString();
+  const open = trees.filter(t => !t.lastStatus);
+  if(open.length === 0){ toast('Keine offenen Bäume'); return; }
 
-    toast(`${open.length} Bäume werden aktualisiert…`);
+  const updates = {
+    lastStatus: 'bewaessert',
+    lastDriver: currentDriver,
+    lastReportAt: now,
+    lastReason: null,
+    lastNote: null,
+    datum: now.slice(0,10),
+  };
 
-    const updates = {
-      lastStatus: 'bewaessert',
-      lastDriver: currentDriver,
-      lastReportAt: now,
-      lastReason: null,
-      lastNote: null,
-      datum: now.slice(0,10),
-    };
+  // Update local state + UI immediately
+  pauseSnapshot = true;
+  open.forEach(tree => Object.assign(tree, updates));
+  renderMarkers();
+  renderList('');
+  updateProgress();
+  toast(`✓ ${open.length} Bäume als bewässert markiert`);
 
-    // Ensure snapshot doesn't overwrite our changes
-    pauseSnapshot = true;
-
-    // Update local state immediately
-    open.forEach(tree => Object.assign(tree, updates));
-    renderMarkers();
-    renderList('');
-    updateProgress();
-
-    // Write to Firestore in parallel
-    await Promise.all(
-      open.map(tree =>
-        updateDoc(doc(db,'projects',currentProjectId,'trees',tree.id), updates)
-      )
-    );
-
-    // Resume snapshot
-    setTimeout(()=>{ pauseSnapshot = false; }, 1500);
-
-    toast(`✓ ${open.length} Bäume als bewässert markiert`);
-  } catch(e) {
-    pauseSnapshot = false;
-    toast('Fehler: ' + e.message);
+  // Firestore writes in background
+  Promise.all(
+    open.map(tree =>
+      updateDoc(doc(db,'projects',currentProjectId,'trees',tree.id), updates)
+    )
+  ).catch(e => {
+    toast('Sync-Fehler: ' + e.message);
     console.error('confirmMarkAllDone error:', e);
-  }
+  }).finally(()=>{
+    setTimeout(()=>{ pauseSnapshot = false; }, 500);
+  });
 }
 
 function showFinishConfirm() {
@@ -478,7 +473,7 @@ function showFinishConfirm() {
       </button>`;
     document.getElementById('finish-backdrop').style.display = 'block';
     document.getElementById('finish-sheet').style.display = 'block';
-    document.getElementById('finish-backdrop').onclick = closeFinishSheet;
+    document.getElementById('finish-backdrop').onclick = e => { if(e.target===document.getElementById('finish-backdrop')) closeFinishSheet(); };
     return;
   }
 
@@ -534,8 +529,10 @@ function showFinishConfirm() {
 
   document.getElementById('finish-backdrop').style.display = 'block';
   document.getElementById('finish-sheet').style.display = 'block';
-  // Close on backdrop tap
-  document.getElementById('finish-backdrop').onclick = closeFinishSheet;
+  // Nur schließen wenn direkt auf Backdrop geklickt (nicht auf Sheet-Inhalt)
+  document.getElementById('finish-backdrop').onclick = e => {
+    if(e.target === document.getElementById('finish-backdrop')) closeFinishSheet();
+  };
 }
 
 function closeFinishSheet() {
@@ -547,27 +544,56 @@ async function finishTour() {
   const btn = document.getElementById('btn-finish-confirm');
   if(btn){ if(btn.disabled) return; btn.disabled = true; }
 
-  // ── Progress overlay ──────────────────────────────────────────
+  // ── Progress overlay — erscheint sofort ──────────────────────
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9500;display:flex;align-items:center;justify-content:center;padding:24px;';
   overlay.innerHTML = `
     <div style="background:#fff;border-radius:20px;width:100%;max-width:340px;padding:28px 24px;text-align:center;">
       <div style="font-size:17px;font-weight:700;color:#1a1a1a;margin-bottom:6px;">Tour wird gespeichert…</div>
       <div id="finish-progress-label" style="font-size:13px;color:#6b7280;margin-bottom:16px;">Vorbereitung…</div>
-      <div style="background:#e5e7eb;border-radius:99px;height:10px;overflow:hidden;">
-        <div id="finish-progress-bar" style="height:100%;width:0%;background:#16a34a;border-radius:99px;transition:width .25s ease;"></div>
+      <div style="background:#e5e7eb;border-radius:99px;height:12px;overflow:hidden;">
+        <div id="finish-progress-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#16a34a,#22c55e);border-radius:99px;transition:width .3s ease;"></div>
       </div>
-      <div id="finish-progress-pct" style="font-size:12px;color:#9ca3af;margin-top:8px;">0%</div>
+      <div id="finish-progress-pct" style="font-size:13px;font-weight:600;color:#374151;margin-top:10px;">0%</div>
     </div>`;
   document.body.appendChild(overlay);
 
+  // Animierter Fortschritt — bewegt sich auch während Netz wartet
+  let _animPct = 0;
+  let _animTarget = 0;
+  let _animDone = false;
   function setProgress(pct, label) {
+    _animTarget = pct;
     const bar = document.getElementById('finish-progress-bar');
     const lbl = document.getElementById('finish-progress-label');
     const pctEl = document.getElementById('finish-progress-pct');
-    if(bar) bar.style.width = pct + '%';
     if(lbl) lbl.textContent = label;
-    if(pctEl) pctEl.textContent = Math.round(pct) + '%';
+    // Sofort auf Zielwert wenn fertig, sonst smooth
+    if(pct >= 100) {
+      if(bar) bar.style.width = '100%';
+      if(pctEl) pctEl.textContent = '100%';
+    } else {
+      if(bar) bar.style.width = pct + '%';
+      if(pctEl) pctEl.textContent = Math.round(pct) + '%';
+    }
+  }
+
+  // Fake-Fortschritt: kriecht von 0→80% in ~1s während Netz wartet
+  function startFakeProgress(from, to, durationMs) {
+    const start = Date.now();
+    const tick = () => {
+      if(_animDone) return;
+      const elapsed = Date.now() - start;
+      const t = Math.min(elapsed / durationMs, 1);
+      const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
+      const cur = from + (to - from) * eased;
+      const bar = document.getElementById('finish-progress-bar');
+      const pctEl = document.getElementById('finish-progress-pct');
+      if(bar) bar.style.width = cur + '%';
+      if(pctEl) pctEl.textContent = Math.round(cur) + '%';
+      if(t < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
   }
 
   try {
@@ -582,17 +608,17 @@ async function finishTour() {
       offen: trees.filter(t=>!t.lastStatus).length,
     };
 
-    setProgress(10, 'Zusammenfassung wird erstellt…');
+    // Starte Fake-Animation sofort (0→75% in 800ms)
+    const lbl = document.getElementById('finish-progress-label');
+    if(lbl) lbl.textContent = `${treesWithStatus.length} Bäume werden gespeichert…`;
+    startFakeProgress(0, 75, 800);
 
-    // ── Lean snapshot: only status fields, no full tree data ─────
+    // ── Lean snapshot ────────────────────────────────────────────
     const histId = `${dateStr}_${now.getTime()}_${currentTourId}`;
     const snapshot = {
-      tourId: currentTourId,
-      tourName: currentTour?.name||'',
+      tourId: currentTourId, tourName: currentTour?.name||'',
       tourColor: currentTour?.color||'',
-      date: dateStr, closedAt: tsStr, closedBy: currentDriver,
-      stats,
-      // Only save status results, not full geometry/metadata
+      date: dateStr, closedAt: tsStr, closedBy: currentDriver, stats,
       results: treesWithStatus.map(t=>({
         id: t.id, baumnr: t.baumnr||'', name: t.name||'',
         status: t.lastStatus, reason: t.lastReason||null,
@@ -601,29 +627,25 @@ async function finishTour() {
       })),
     };
 
-    setProgress(20, `${treesWithStatus.length} Bäume werden gespeichert…`);
-
-    // ── Build batches (max 498 ops each, leaving 2 for meta writes) ─
-    const BATCH_SIZE = 498;
+    // ── Batches: max 20 Trees pro Batch → granulares Progress-Update ─
+    const BATCH_SIZE = 20;
     const batchPromises = [];
     let completed = 0;
 
     for(let i = 0; i < treesWithStatus.length; i += BATCH_SIZE) {
       const batch = db.batch();
       const chunk = treesWithStatus.slice(i, i + BATCH_SIZE);
-
       chunk.forEach(tree => {
         const entry = {
           date: dateStr, tourId: currentTourId, tourName: currentTour?.name||'',
           status: tree.lastStatus, reason: tree.lastReason||null,
           note: tree.lastNote||null, driver: tree.lastDriver||null,
         };
-        const treeRef = db.collection('projects').doc(currentProjectId)
-          .collection('trees').doc(tree.id);
-        batch.update(treeRef, { history: firebase.firestore.FieldValue.arrayUnion(entry) });
+        batch.update(
+          db.collection('projects').doc(currentProjectId).collection('trees').doc(tree.id),
+          { history: firebase.firestore.FieldValue.arrayUnion(entry) }
+        );
       });
-
-      // First batch carries the meta writes
       if(i === 0) {
         batch.set(
           db.collection('projects').doc(currentProjectId).collection('tourHistory').doc(histId),
@@ -634,33 +656,26 @@ async function finishTour() {
           { status:'abgeschlossen', closedAt:tsStr, closedBy:currentDriver, lastClosedDate:dateStr }
         );
       }
-
-      const batchIndex = i;
       batchPromises.push(
         batch.commit().then(() => {
           completed += chunk.length;
-          const pct = 20 + (completed / Math.max(treesWithStatus.length,1)) * 75;
-          setProgress(pct, `${completed} / ${treesWithStatus.length} Bäume gespeichert…`);
+          const realPct = 75 + (completed / Math.max(treesWithStatus.length,1)) * 20;
+          setProgress(realPct, `${completed} / ${treesWithStatus.length} gespeichert…`);
         })
       );
     }
 
-    // Edge case: no trees with status — still write meta
     if(treesWithStatus.length === 0) {
       const batch = db.batch();
-      batch.set(
-        db.collection('projects').doc(currentProjectId).collection('tourHistory').doc(histId),
-        snapshot
-      );
-      batch.update(
-        db.collection('projects').doc(currentProjectId).collection('tours').doc(currentTourId),
-        { status:'abgeschlossen', closedAt:tsStr, closedBy:currentDriver, lastClosedDate:dateStr }
-      );
+      batch.set(db.collection('projects').doc(currentProjectId).collection('tourHistory').doc(histId), snapshot);
+      batch.update(db.collection('projects').doc(currentProjectId).collection('tours').doc(currentTourId),
+        { status:'abgeschlossen', closedAt:tsStr, closedBy:currentDriver, lastClosedDate:dateStr });
       batchPromises.push(batch.commit());
     }
 
     await Promise.all(batchPromises);
-    setProgress(100, 'Gespeichert!');
+    _animDone = true;
+    setProgress(100, 'Gespeichert! ✓');
 
     currentTour = {...currentTour, status:'abgeschlossen', lastClosedDate:dateStr};
 
@@ -728,7 +743,7 @@ async function reopenTour() {
     currentTour = {...currentTour, status: 'aktiv'};
 
     // Step 5: Re-subscribe filtered by tourId
-    const _reoQ2 = db.collection('projects').doc(currentProjectId).collection('trees').where('tourId','==',currentTourId);
+    const _reoQ2 = db.collection('projects').doc(currentProjectId).collection('trees')/* alle laden, client-seitig filtern */;
     unsubTrees = _reoQ2.onSnapshot(snap => {
       if(pauseSnapshot) return;
       trees = snap.docs.map(d=>({id:d.id,...d.data()}));
@@ -1102,19 +1117,18 @@ async function saveReport(id){
   const firestoreUpdates={...updates, history: firebase.firestore.FieldValue.arrayUnion(histEntry)};
   const offlineUpdates={...updates, history:[...(tree.history||[]),histEntry]};
 
-  // Update local state immediately — UI responds at once
+  // Update local state + close sheet immediately (optimistic UI)
   Object.assign(tree, updates);
   renderMarkers(); renderList(''); updateProgress();
+  closeSheet();
+  toast(status==='bewaessert'?'✓ Bewässert gemeldet':'✕ Nicht bewässert gemeldet');
 
   if(!isOnline){
     addToOfflineQueue(id, offlineUpdates);
-    closeSheet();
     toast('📦 Offline gespeichert — wird synchronisiert wenn Netz verfügbar');
   } else {
-    try{
-      await updateDoc(doc(db,'projects',currentProjectId,'trees',id), firestoreUpdates);
-      closeSheet();
-      toast(status==='bewaessert'?'✓ Bewässert gemeldet':'✕ Nicht bewässert gemeldet');
+    // Firestore write in background — UI already updated
+    updateDoc(doc(db,'projects',currentProjectId,'trees',id), firestoreUpdates).then(()=>{
       setTimeout(()=>{
         const nextIdx=getNextIdx();
         if(nextIdx!==-1){
@@ -1123,11 +1137,10 @@ async function saveReport(id){
           if(next&&next.lat&&next.lng) map.panTo([next.lat,next.lng],{animate:true,duration:0.8});
         }
       },800);
-    }catch(e){
-      addToOfflineQueue(id, historyUpdates);
-      closeSheet();
+    }).catch(e=>{
+      addToOfflineQueue(id, offlineUpdates);
       toast('📦 Offline gespeichert — wird später synchronisiert');
-    }
+    });
   }
 }
 
@@ -1364,6 +1377,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // Map controls
   const btnRecalc = document.getElementById('btn-recalc');
   if(btnRecalc) btnRecalc.addEventListener('click', recalcFromGPS);
+
+  const btnToggleRoute = document.getElementById('btn-toggle-route');
+  if(btnToggleRoute) btnToggleRoute.addEventListener('click', toggleRouteVisibility);
   const pill = document.getElementById('map-progress-pill');
   if(pill) pill.addEventListener('click', goToNextTree);
 
@@ -1392,4 +1408,39 @@ document.addEventListener('DOMContentLoaded', () => {
   if(btnMarkAll) btnMarkAll.addEventListener('click', markAllDone);
   const btnFinish = document.getElementById('btn-show-finish');
   if(btnFinish) btnFinish.addEventListener('click', showFinishConfirm);
+});
+
+// ─── ROUTE TOGGLE ─────────────────────────────────────────────
+let _routeVisible = true;
+function toggleRouteVisibility(){
+  _routeVisible = !_routeVisible;
+  const btn = document.getElementById('btn-toggle-route');
+  if(_routeVisible){
+    // Route wieder einblenden
+    drawRoute();
+    if(btn){ btn.style.background='var(--surface)'; btn.style.color='var(--green)'; btn.style.borderColor='var(--green)'; }
+  } else {
+    // Route ausblenden
+    if(routeLayer){
+      if(Array.isArray(routeLayer)) routeLayer.forEach(l=>map.removeLayer(l));
+      else map.removeLayer(routeLayer);
+      routeLayer=null;
+    }
+    if(depotMarker){ map.removeLayer(depotMarker); depotMarker=null; }
+    if(btn){ btn.style.background='var(--surface2)'; btn.style.color='var(--text3)'; btn.style.borderColor='var(--border)'; }
+  }
+}
+
+// Expose functions used in inline onclick handlers (static + dynamically generated)
+Object.assign(window, {
+  selectStatus, closeSheet, saveReport,
+  closeFinishSheet, finishTour, reopenTour,
+  showFinishConfirm, markAllDone,
+  switchTab,
+  confirmMarkAllDone, closeBulkSheet,
+  doLogin, doLogout,
+  onLoginProjectChange, onLoginTourChange,
+  recalcFromGPS, goToNextTree,
+  dialogNeuStarten, dialogFortsetzen,
+  closeResumeDialog,
 });

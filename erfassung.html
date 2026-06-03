@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<!-- erfassung v1.0 -->
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Baumbewässerung — Erfassung</title>
+<link rel="preconnect" href="https://unpkg.com">
+<link rel="preconnect" href="https://www.gstatic.com">
+<meta name="theme-color" content="#1e40af">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+:root{
+  --bg:#f5f3ee;--surface:#fff;--surface2:#f0ede6;--border:#ddd9d0;
+  --text:#1a1917;--text2:#6b6760;--text3:#9c9890;
+  --blue:#1e40af;--blue-light:#eff6ff;--blue-mid:#3b82f6;
+  --green:#2d6a4f;--green-light:#e8f5ee;
+  --red:#991b1b;--red-light:#fee2e2;
+  --amber:#b45309;
+  --radius:12px;--radius-sm:8px;
+  --shadow:0 1px 3px rgba(0,0,0,.08);
+  --shadow-md:0 4px 16px rgba(0,0,0,.12);
+  --safe-bottom:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);touch-action:pan-x pan-y;}
+/* Nur Karten dürfen pinch-zoomen — Leaflet setzt touch-action:none selbst */
+#map-neu,#map-koord,#map-uebersicht{touch-action:none;}
+/* Alle anderen Bereiche explizit sperren */
+.app-header,.mode-tabs,.mode-content,.koord-list-wrap,.koord-map-header,
+.sheet-body,.sheet-footer,.sheet-header,#form-sheet,
+button,input,select{touch-action:manipulation;}
+
+.screen{position:fixed;inset:0;display:none;flex-direction:column;}
+.screen.active{display:flex;}
+
+/* LOGIN */
+#screen-login{align-items:center;justify-content:center;padding:24px;background:var(--bg);}
+.login-card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow-md);width:100%;max-width:380px;padding:28px 24px;}
+.login-brand{display:flex;align-items:center;gap:10px;font-size:20px;font-weight:700;color:var(--blue);margin-bottom:4px;}
+.login-sub{font-size:13px;color:var(--text3);margin-bottom:24px;}
+.form-group{margin-bottom:16px;}
+.form-label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);margin-bottom:6px;}
+.form-control{width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-family:inherit;font-size:16px;background:var(--bg);color:var(--text);outline:none;transition:border-color .15s;}
+.form-control:focus{border-color:var(--blue-mid);}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:13px 20px;border-radius:var(--radius-sm);font-family:inherit;font-size:15px;font-weight:600;cursor:pointer;border:none;transition:all .15s;width:100%;}
+.btn-primary{background:var(--blue);color:#fff;}
+.btn-primary:active{background:#1e3a8a;}
+.btn-secondary{background:var(--surface);color:var(--text);border:1.5px solid var(--border);}
+.btn-sm{padding:8px 14px;font-size:13px;width:auto;}
+.btn-green{background:var(--green);color:#fff;}
+
+/* APP */
+#screen-app{flex-direction:column;background:var(--bg);}
+
+/* HEADER */
+.app-header{background:var(--surface);border-bottom:1px solid var(--border);padding:8px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0;z-index:200;}
+.header-title{flex:1;min-width:0;}
+.header-title-text{font-size:14px;font-weight:700;color:var(--blue);}
+.header-sub{font-size:11px;color:var(--text3);}
+
+/* MODE TABS */
+.mode-tabs{display:flex;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;}
+.mode-tab{flex:1;padding:10px;text-align:center;font-size:13px;font-weight:600;color:var(--text3);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;}
+.mode-tab.active{color:var(--blue);border-bottom-color:var(--blue);}
+
+/* CONTENT */
+.mode-content{flex:1;overflow:hidden;display:none;flex-direction:column;position:relative;}
+.mode-content.active{display:flex;}
+
+/* CROSSHAIR */
+.crosshair{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1000;pointer-events:none;display:flex;flex-direction:column;align-items:center;gap:0;}
+.crosshair-ring{width:40px;height:40px;border:2.5px solid var(--blue);border-radius:50%;background:rgba(59,130,246,.1);display:flex;align-items:center;justify-content:center;}
+.crosshair-dot{width:6px;height:6px;border-radius:50%;background:var(--blue);}
+.crosshair-shadow{width:8px;height:4px;background:rgba(0,0,0,.2);border-radius:50%;margin-top:1px;}
+
+/* MAP */
+#map-neu, #map-koord{flex:1;width:100%;}
+
+/* FLOATING BUTTONS */
+.map-fab{position:absolute;z-index:1000;}
+.fab-gps{top:12px;right:12px;background:var(--surface);border:1.5px solid var(--border);border-radius:10px;padding:8px;cursor:pointer;box-shadow:var(--shadow-md);display:flex;align-items:center;justify-content:center;}
+.fab-confirm{bottom:20px;left:16px;right:16px;background:var(--blue);color:#fff;border:none;border-radius:var(--radius-sm);padding:14px;font-size:15px;font-weight:600;cursor:pointer;box-shadow:var(--shadow-md);display:flex;align-items:center;justify-content:center;gap:8px;}
+
+/* MODUS 2 — LISTE */
+#mode-koord{flex-direction:column;}
+.koord-list-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.list-toolbar{padding:10px 16px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;display:flex;gap:8px;}
+.list-search-wrap{position:relative;flex:1;}
+.list-search-wrap svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text3);}
+.list-search-wrap input{width:100%;padding:8px 10px 8px 34px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:16px;font-family:inherit;background:var(--bg);outline:none;}
+.koord-list{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;}
+.koord-item{padding:12px 16px;border-bottom:1px solid var(--border);background:var(--surface);cursor:pointer;display:flex;align-items:center;gap:12px;}
+.koord-item:active{background:var(--surface2);}
+.koord-item-num{font-size:11px;font-weight:700;color:var(--text3);font-family:monospace;min-width:36px;}
+.koord-item-info{flex:1;min-width:0;}
+.koord-item-name{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.koord-item-meta{font-size:11px;color:var(--text3);margin-top:2px;}
+.koord-item-badge{font-size:10px;padding:2px 7px;border-radius:10px;background:var(--amber-light, #fef3c7);color:var(--amber);font-weight:600;white-space:nowrap;flex-shrink:0;}
+
+/* MAP KOORD */
+#map-koord-wrap{flex:1;position:relative;display:none;}
+#map-koord-wrap.active{display:flex;flex-direction:column;}
+.koord-map-header{background:var(--surface);border-bottom:1px solid var(--border);padding:8px 14px;flex-shrink:0;display:flex;align-items:center;gap:10px;}
+.koord-map-tree-name{font-size:13px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+/* FORM SHEET */
+#form-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:2000;display:none;}
+#form-backdrop.open{display:block;}
+#form-sheet{position:fixed;left:0;right:0;bottom:0;z-index:2001;background:var(--surface);border-radius:20px 20px 0 0;max-height:92vh;display:flex;flex-direction:column;transform:translateY(100%);transition:transform .3s cubic-bezier(.4,0,.2,1);}
+#form-sheet.open{transform:translateY(0);}
+.sheet-handle{width:40px;height:4px;background:var(--border);border-radius:2px;margin:12px auto 0;}
+.sheet-header{padding:12px 20px 10px;border-bottom:1px solid var(--border);flex-shrink:0;}
+.sheet-title{font-size:16px;font-weight:700;}
+.sheet-sub{font-size:12px;color:var(--text3);margin-top:2px;}
+.sheet-body{overflow-y:auto;-webkit-overflow-scrolling:touch;flex:1;padding:16px 20px;}
+.sheet-footer{padding:12px 20px;padding-bottom:calc(12px + var(--safe-bottom));border-top:1px solid var(--border);display:flex;gap:8px;flex-shrink:0;}
+
+/* FORM FIELDS */
+.field-group{margin-bottom:14px;}
+.field-label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);margin-bottom:5px;}
+.field-input{width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-family:inherit;font-size:16px;background:var(--bg);outline:none;}
+.field-input:focus{border-color:var(--blue-mid);}
+.field-row-2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.field-coords{display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--blue-light);border:1.5px solid var(--blue-mid);border-radius:var(--radius-sm);font-size:13px;font-weight:600;color:var(--blue);}
+
+/* TOAST */
+.toast{position:fixed;bottom:calc(20px + var(--safe-bottom));left:16px;right:16px;background:var(--text);color:var(--bg);padding:12px 18px;border-radius:var(--radius-sm);font-size:14px;font-weight:500;z-index:9999;opacity:0;transition:opacity .2s;text-align:center;}
+.toast.show{opacity:1;}
+
+/* GPS marker */
+.gps-dot{width:14px;height:14px;border-radius:50%;background:#3b82f6;border:3px solid #fff;box-shadow:0 0 0 3px rgba(59,130,246,.3);}
+
+/* Empty state */
+.empty-state{padding:60px 20px;text-align:center;color:var(--text3);}
+.empty-state svg{margin-bottom:12px;opacity:.3;}
+.empty-state p{font-size:14px;}
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div id="screen-loading" style="position:fixed;inset:0;background:#f5f3ee;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99999;">
+  <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#1e40af" stroke-width="1.5" style="margin-bottom:14px;"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 6.9 8 11.7z"/></svg>
+  <div style="font-size:17px;font-weight:600;color:#1e40af;margin-bottom:6px;">Baumerfassung</div>
+  <div style="width:36px;height:36px;border:3px solid #eff6ff;border-top-color:#1e40af;border-radius:50%;animation:spin .8s linear infinite;margin-top:12px;"></div>
+  <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+</div>
+
+<!-- LOGIN -->
+<div class="screen" id="screen-login">
+  <div class="login-card">
+    <div class="login-brand">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 6.9 8 11.7z"/></svg>
+      Baumerfassung
+    </div>
+    <div class="login-sub">Vor-Ort-Erfassung</div>
+    <div class="form-group">
+      <label class="form-label">Projekt</label>
+      <select class="form-control" id="login-project"><option value="">Wird geladen…</option></select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Erfasser</label>
+      <select class="form-control" id="login-erfasser"><option value="">– Projekt wählen –</option></select>
+    </div>
+    <div id="login-error" style="color:var(--red);font-size:13px;margin-bottom:12px;display:none;"></div>
+    <button class="btn btn-primary" id="btn-login">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      Starten
+    </button>
+  </div>
+</div>
+
+<!-- APP -->
+<div class="screen" id="screen-app">
+
+  <!-- Header -->
+  <div class="app-header">
+    <div style="width:32px;height:32px;border-radius:8px;background:var(--blue-light);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 6.9 8 11.7z"/></svg>
+    </div>
+    <div class="header-title">
+      <div class="header-title-text" id="header-project">–</div>
+      <div class="header-sub" id="header-erfasser">–</div>
+    </div>
+    <div id="header-erfasst-count" style="font-size:12px;font-weight:700;color:#16a34a;background:#dcfce7;border-radius:20px;padding:3px 10px;white-space:nowrap;display:none;"></div>
+    <div id="network-badge" style="display:none;background:#991b1b;color:#fff;border-radius:20px;padding:4px 10px;font-size:11px;font-weight:600;align-items:center;gap:4px;white-space:nowrap;flex-shrink:0;">Offline</div>
+    <button class="btn btn-secondary btn-sm" id="btn-logout" style="padding:6px 10px;">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+    </button>
+  </div>
+
+  <!-- Mode Tabs -->
+  <div class="mode-tabs">
+    <div class="mode-tab active" id="tab-koord" style="font-size:11px;">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline;vertical-align:middle;margin-right:3px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+      Koordinaten
+    </div>
+    <div class="mode-tab" id="tab-neu" style="font-size:11px;">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline;vertical-align:middle;margin-right:3px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+      Neuer Baum
+    </div>
+    <div class="mode-tab" id="tab-uebersicht" style="font-size:11px;">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline;vertical-align:middle;margin-right:3px;"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+      Übersicht
+    </div>
+  </div>
+
+  <!-- MODUS 2: Koordinaten nacherfassen -->
+  <div class="mode-content active" id="mode-koord">
+    <!-- Liste -->
+    <div class="koord-list-wrap" id="koord-list-wrap">
+      <div class="list-toolbar">
+        <div class="list-search-wrap">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input type="text" id="koord-search" placeholder="Name, Baumart, Stadtteil, Baumnr…">
+        </div>
+      </div>
+      <div style="padding:6px 16px;background:var(--surface2);border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);" id="koord-count"></div>
+      <div class="koord-list" id="koord-list"></div>
+    </div>
+
+    <!-- Karte für Koordinaten-Erfassung -->
+    <div id="map-koord-wrap">
+      <div class="koord-map-header">
+        <button id="btn-back-list" style="border:none;background:none;cursor:pointer;padding:0;display:flex;align-items:center;gap:5px;color:var(--blue);font-size:13px;font-weight:600;flex-shrink:0;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+          Liste
+        </button>
+        <div class="koord-map-tree-name" id="koord-tree-name">–</div>
+      </div>
+      <div style="flex:1;position:relative;">
+        <div id="map-koord" style="height:100%;width:100%;"></div>
+        <div class="crosshair">
+          <div class="crosshair-ring"><div class="crosshair-dot"></div></div>
+          <div class="crosshair-shadow"></div>
+        </div>
+        <button class="map-fab fab-gps" id="btn-gps-koord" style="z-index:1001;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8" stroke-dasharray="2 4"/></svg>
+        </button>
+      </div>
+      <button id="btn-save-koord" style="flex-shrink:0;background:var(--green);color:#fff;border:none;padding:14px;font-size:15px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding-bottom:calc(14px + var(--safe-bottom));">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+        Position speichern
+      </button>
+    </div>
+  </div>
+
+  <!-- MODUS 1: Neuer Baum -->
+  <div class="mode-content" id="mode-neu" style="position:relative;">
+    <div style="flex:1;position:relative;">
+      <div id="map-neu" style="height:100%;width:100%;"></div>
+      <div class="crosshair">
+        <div class="crosshair-ring"><div class="crosshair-dot"></div></div>
+        <div class="crosshair-shadow"></div>
+      </div>
+      <button class="map-fab fab-gps" id="btn-gps-neu" style="z-index:1001;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8" stroke-dasharray="2 4"/></svg>
+      </button>
+      <div style="position:absolute;top:12px;left:12px;z-index:1001;background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:6px 12px;font-size:11px;color:var(--text2);box-shadow:var(--shadow);pointer-events:none;" id="neu-coords">Karte verschieben…</div>
+    </div>
+    <!-- Button außerhalb des Map-Containers → Leaflet fängt keine Events ab -->
+    <button id="btn-erfassen" style="flex-shrink:0;background:var(--blue);color:#fff;border:none;padding:14px;font-size:15px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding-bottom:calc(14px + var(--safe-bottom));">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 6.9 8 11.7z"/></svg>
+      Hier erfassen
+    </button>
+  </div>
+
+  <!-- MODUS 3: Übersicht erfasste Bäume -->
+  <div class="mode-content" id="mode-uebersicht" style="position:relative;">
+    <div style="flex:1;position:relative;">
+      <div id="map-uebersicht" style="height:100%;width:100%;"></div>
+      <!-- Info-Pill -->
+      <div id="uebersicht-pill" style="position:absolute;top:10px;left:10px;z-index:1000;background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;color:#16a34a;box-shadow:var(--shadow);display:flex;align-items:center;gap:6px;">
+        <div style="width:10px;height:10px;border-radius:50%;background:#16a34a;flex-shrink:0;"></div>
+        <span id="uebersicht-label">Lade…</span>
+      </div>
+      <button class="map-fab fab-gps" id="btn-gps-uebersicht" style="z-index:1001;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8" stroke-dasharray="2 4"/></svg>
+      </button>
+      <!-- Legende -->
+      <div style="position:absolute;bottom:16px;left:12px;z-index:1001;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px 12px;font-size:11px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:5px;">
+        <div style="display:flex;align-items:center;gap:6px;"><div style="width:12px;height:12px;border-radius:50%;background:#16a34a;"></div><span>Neu erfasst</span></div>
+        <div style="display:flex;align-items:center;gap:6px;"><div style="width:12px;height:12px;border-radius:50%;background:#1e40af;"></div><span>Koordinate gesetzt</span></div>
+      </div>
+      <!-- Reset Button -->
+      <button id="btn-reset-uebersicht" style="position:absolute;bottom:16px;right:12px;z-index:1001;background:#991b1b;color:#fff;border:none;border-radius:10px;padding:8px 14px;font-size:12px;font-weight:600;cursor:pointer;box-shadow:var(--shadow-md);display:flex;align-items:center;gap:5px;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+        Karte leeren
+      </button>
+    </div>
+  </div>
+
+</div>
+
+<!-- FORM SHEET (Neuer Baum) -->
+<div id="form-backdrop"></div>
+<div id="form-sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header">
+    <div class="sheet-title">Neuer Baum</div>
+    <div class="sheet-sub" id="form-coords-display">–</div>
+  </div>
+  <div class="sheet-body">
+    <div class="field-group">
+      <label class="field-label">Anlage / Straße *</label>
+      <input class="field-input" id="f-name" placeholder="z.B. Stadtpark">
+    </div>
+    <div class="field-row-2">
+      <div class="field-group">
+        <label class="field-label">Stadtteil</label>
+        <input class="field-input" id="f-stadtteil" placeholder="z.B. Mitte">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Baumnr.</label>
+        <input class="field-input" id="f-baumnr" placeholder="z.B. 123">
+      </div>
+    </div>
+    <div class="field-group">
+      <label class="field-label">Baumart</label>
+      <input class="field-input" id="f-art" placeholder="z.B. Quercus robur">
+    </div>
+    <div class="field-row-2">
+      <div class="field-group">
+        <label class="field-label">Pflanzjahr</label>
+        <input class="field-input" id="f-pflanzjahr" placeholder="z.B. 2023" type="text" inputmode="numeric">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Pflanzzeitpunkt</label>
+        <input class="field-input" id="f-pflanzzeitpunkt" placeholder="z.B. 15.03.2023">
+      </div>
+    </div>
+    <div class="field-row-2">
+      <div class="field-group">
+        <label class="field-label">Zustand</label>
+        <select class="field-input" id="f-zustand">
+          <option value="gut">Gut</option>
+          <option value="mittel" selected>Mittel</option>
+          <option value="schlecht">Schlecht</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Wasserbedarf</label>
+        <select class="field-input" id="f-wasser">
+          <option value="gering">Gering</option>
+          <option value="mittel" selected>Mittel</option>
+          <option value="hoch">Hoch</option>
+        </select>
+      </div>
+    </div>
+    <div class="field-group">
+      <label class="field-label">Notiz</label>
+      <input class="field-input" id="f-notiz" placeholder="Freitext…">
+    </div>
+  </div>
+  <div class="sheet-footer">
+    <button class="btn btn-secondary" style="flex:1;" id="btn-form-cancel">Abbrechen</button>
+    <button class="btn btn-primary" style="flex:2;background:var(--blue);" id="btn-form-save">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+      Speichern
+    </button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script type="module" src="/src/erfassung.js"></script>
+</body>
+</html>

@@ -5,7 +5,8 @@ Web-App zur Planung und Dokumentation der kommunalen Baumbewässerung im Stadtge
 Zwei Frontends: Desktop-Planer (`index.html`) und mobile Fahrer-App (`mobil.html`).
 
 ## Architektur
-- **Reines Frontend** – kein Build-System, kein npm. Alles in einzelnen HTML-Dateien mit inline CSS und JS.
+- **Build:** Vite – `npm run dev` (localhost:5173) · `npm run build` (→ dist/)
+- **Hosting:** Firebase Hosting (`dist/` wird deployed) – **nur auf explizite Aufforderung deployen**
 - **Backend:** Google Firebase Firestore (Echtzeit-Datenbank, compat SDK v10.12.0)
 - **Karten:** Leaflet 1.9.4 + OpenStreetMap Tiles
 - **Routing:** OpenRouteService API (ORS, optionaler API-Key)
@@ -30,6 +31,7 @@ projects/{projectId}
 |---|---|
 | `index.html` | Desktop-Planer (v7.3): Karte, Bäume, Touren, Controlling, Verwaltung |
 | `mobil.html` | Fahrer-App (v-35): Login → Tour → Map/Liste → Abschluss |
+| `erfassung.html` | Erfassungs-App (v1.0): Vor-Ort-Baumerfassung, 2 Modi |
 
 ## Desktop (`index.html`) – Views
 - **Karte** – Leaflet-Karte, Baum-Marker, Lasso-Auswahl, Tour-Routen
@@ -45,8 +47,19 @@ projects/{projectId}
 - **Detail-Sheet** – Status setzen (bewässert/nicht), Grund-Chips, Props bearbeiten
 - **Tour-Abschluss** – Batch-Writes in Firestore, Fortschrittsanzeige
 
+## Selbstkontrolle via Browser
+Nach Änderungen immer per **Claude in Chrome Extension** prüfen:
+1. Dev-Server läuft (`npm run dev` → localhost:5174)
+2. `mcp__Claude_in_Chrome__list_connected_browsers` → Browser verbunden?
+3. `mcp__Claude_in_Chrome__tabs_context_mcp` → Tab holen
+4. `mcp__Claude_in_Chrome__navigate` → URL öffnen
+5. `mcp__Claude_in_Chrome__computer` (action: screenshot) → visuell prüfen
+- Desktop: `http://localhost:5174/index.html`
+- Mobil: `http://localhost:5174/mobil.html`
+
 ## Entwicklungshinweise für Claude
-- Kein Build-Schritt – Änderungen direkt in die HTML-Datei, kein Transpiling.
+- JS-Logik liegt in `src/desktop.js` (Desktop) und `src/mobile.js` (Fahrer-App) – nicht in den HTML-Dateien.
+- **Niemals `firebase deploy` ausführen** ohne explizite Aufforderung.
 - Firebase compat SDK (nicht modular) – `firebase.firestore()`, `db.collection()`, `db.batch()`.
 - Inline-CSS bevorzugen (Projekt-Konvention); keine externen CSS-Dateien anlegen.
 - Token sparsam: keine ausschweifenden Erklärungen, kein redundantes Code-Echo.

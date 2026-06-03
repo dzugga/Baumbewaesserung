@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<!-- einsatzleiter v1.0 -->
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Baumbewässerung — Einsatzleiter</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link rel="preconnect" href="https://www.gstatic.com">
+<meta name="theme-color" content="#1e40af">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+:root{
+  --bg:#f5f3ee;--surface:#fff;--surface2:#f0ede6;--border:#ddd9d0;
+  --text:#1a1917;--text2:#6b6760;--text3:#9c9890;
+  --blue:#1e40af;--blue-light:#eff6ff;--blue-mid:#3b82f6;
+  --green:#16a34a;--green-dark:#15803d;--green-light:#dcfce7;
+  --red:#991b1b;--red-mid:#dc2626;--red-light:#fee2e2;
+  --amber:#b45309;
+  --radius:14px;--radius-sm:9px;
+  --shadow:0 1px 3px rgba(0,0,0,.08);
+  --shadow-md:0 4px 16px rgba(0,0,0,.12);
+  --safe-bottom:env(safe-area-inset-bottom,0px);
+  --safe-top:env(safe-area-inset-top,0px);
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);}
+body{overflow:hidden;}
+
+.screen{position:fixed;inset:0;display:none;flex-direction:column;}
+.screen.active{display:flex;}
+
+/* LOADING */
+#screen-loading{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99999;}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* LOGIN */
+#screen-login{align-items:center;justify-content:center;padding:24px;background:var(--bg);}
+.login-card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow-md);width:100%;max-width:400px;padding:28px 24px;}
+.login-brand{display:flex;align-items:center;gap:10px;font-size:20px;font-weight:700;color:var(--blue);margin-bottom:4px;}
+.login-sub{font-size:13px;color:var(--text3);margin-bottom:24px;}
+.form-group{margin-bottom:16px;}
+.form-label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);margin-bottom:6px;}
+.form-control{width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-family:inherit;font-size:16px;background:var(--bg);color:var(--text);outline:none;transition:border-color .15s;}
+.form-control:focus{border-color:var(--blue-mid);}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:13px 20px;border-radius:var(--radius-sm);font-family:inherit;font-size:15px;font-weight:600;cursor:pointer;border:none;transition:all .15s;width:100%;}
+.btn-primary{background:var(--blue);color:#fff;}
+.btn-primary:active{background:#1e3a8a;}
+.btn-secondary{background:var(--surface);color:var(--text);border:1.5px solid var(--border);}
+
+/* APP */
+#screen-app{flex-direction:column;background:var(--bg);}
+
+/* HEADER */
+.app-header{background:var(--surface);border-bottom:1px solid var(--border);padding:calc(8px + var(--safe-top)) 16px 8px;display:flex;align-items:center;gap:10px;flex-shrink:0;z-index:200;}
+.header-icon{width:34px;height:34px;border-radius:9px;background:var(--blue-light);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.header-title{flex:1;min-width:0;}
+.header-title-text{font-size:15px;font-weight:700;color:var(--blue);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.header-sub{font-size:11px;color:var(--text3);}
+.header-btn{flex-shrink:0;background:var(--surface);border:1.5px solid var(--border);border-radius:9px;padding:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text2);}
+.header-btn:active{background:var(--surface2);}
+
+/* TIME FILTER */
+.timefilter{background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;display:flex;gap:6px;padding:8px 12px;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+.tf-chip{flex-shrink:0;padding:8px 16px;border-radius:20px;border:1.5px solid var(--border);background:var(--bg);color:var(--text2);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all .15s;}
+.tf-chip.active{background:var(--blue);border-color:var(--blue);color:#fff;}
+.tf-custom{display:none;gap:8px;padding:0 12px 10px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;align-items:flex-end;}
+.tf-custom.show{display:flex;}
+.tf-custom .form-group{flex:1;margin:0;}
+.tf-custom .form-label{margin-bottom:3px;}
+.tf-custom .form-control{padding:9px 10px;font-size:14px;}
+
+/* CONTENT */
+.content{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px 12px calc(20px + var(--safe-bottom));}
+.range-label{font-size:12px;color:var(--text3);text-align:center;margin-bottom:12px;}
+
+/* KPI TILES */
+.kpi-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px;}
+.kpi-tile{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 16px;}
+.kpi-tile.wide{grid-column:1 / -1;}
+.kpi-val{font-size:30px;font-weight:800;line-height:1;letter-spacing:-.02em;}
+.kpi-lbl{font-size:13px;font-weight:600;color:var(--text);margin-top:6px;}
+.kpi-sub{font-size:11px;color:var(--text3);margin-top:2px;}
+
+/* CARD */
+.card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;margin-bottom:14px;}
+.card-title{font-size:14px;font-weight:700;color:var(--text);margin-bottom:14px;display:flex;align-items:center;gap:8px;}
+.card-title .pct{margin-left:auto;font-size:13px;font-weight:700;color:var(--green-dark);}
+
+/* TOUR PROGRESS */
+.tour-row{margin-bottom:16px;}
+.tour-row:last-child{margin-bottom:0;}
+.tour-head{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+.tour-dot{width:11px;height:11px;border-radius:50%;flex-shrink:0;}
+.tour-name{font-size:13px;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.tour-pct{font-size:12px;font-weight:700;color:var(--text2);flex-shrink:0;}
+.tour-bar{height:14px;border-radius:7px;background:var(--surface2);overflow:hidden;display:flex;}
+.tour-bar .seg{height:100%;transition:width .4s;}
+.tour-meta{display:flex;gap:12px;font-size:11px;color:var(--text3);margin-top:5px;}
+.tour-meta b{font-weight:700;}
+
+/* TIMELINE */
+.chart-wrap{position:relative;height:200px;}
+
+/* REASONS */
+.reason-row{margin-bottom:11px;}
+.reason-row:last-child{margin-bottom:0;}
+.reason-head{display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;}
+.reason-head span:first-child{color:var(--text2);}
+.reason-head b{font-weight:700;color:var(--red);}
+.reason-bar{height:7px;background:var(--surface2);border-radius:4px;overflow:hidden;}
+.reason-bar .fill{height:100%;background:var(--red-mid);border-radius:4px;transition:width .4s;}
+
+.empty{font-size:13px;color:var(--text3);text-align:center;padding:20px 0;}
+.legend{display:flex;gap:14px;font-size:11px;color:var(--text2);margin-top:12px;flex-wrap:wrap;}
+.legend span{display:flex;align-items:center;gap:5px;}
+.legend i{width:11px;height:11px;border-radius:3px;display:inline-block;}
+
+/* TOAST */
+.toast{position:fixed;bottom:calc(20px + var(--safe-bottom));left:16px;right:16px;background:var(--text);color:var(--bg);padding:12px 18px;border-radius:var(--radius-sm);font-size:14px;font-weight:500;z-index:9999;opacity:0;transition:opacity .2s;text-align:center;pointer-events:none;}
+.toast.show{opacity:1;}
+
+/* Desktop / breite Tablets: 2-spaltiges Dashboard */
+@media (min-width:760px){
+  .content{max-width:1100px;margin:0 auto;width:100%;}
+  .kpi-grid{grid-template-columns:repeat(5,1fr);}
+  .kpi-tile.wide{grid-column:auto;}
+  .dash-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start;}
+  .dash-cols .card{margin-bottom:0;}
+  .chart-wrap{height:240px;}
+}
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div id="screen-loading">
+  <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#1e40af" stroke-width="1.5" style="margin-bottom:14px;"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 6.9 8 11.7z"/></svg>
+  <div style="font-size:17px;font-weight:600;color:#1e40af;margin-bottom:6px;">Einsatzleitung</div>
+  <div style="width:36px;height:36px;border:3px solid #eff6ff;border-top-color:#1e40af;border-radius:50%;animation:spin .8s linear infinite;margin-top:12px;"></div>
+</div>
+
+<!-- LOGIN -->
+<div class="screen" id="screen-login">
+  <div class="login-card">
+    <div class="login-brand">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 6.9 8 11.7z"/></svg>
+      Einsatzleitung
+    </div>
+    <div class="login-sub">Lagebild Baumbewässerung</div>
+    <div class="form-group">
+      <label class="form-label">Projekt</label>
+      <select class="form-control" id="login-project"><option value="">Wird geladen…</option></select>
+    </div>
+    <div id="login-error" style="color:var(--red);font-size:13px;margin-bottom:12px;display:none;"></div>
+    <button class="btn btn-primary" id="btn-login">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      Lagebild öffnen
+    </button>
+  </div>
+</div>
+
+<!-- APP -->
+<div class="screen" id="screen-app">
+
+  <!-- Header -->
+  <div class="app-header">
+    <div class="header-icon">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 6.9 8 11.7z"/></svg>
+    </div>
+    <div class="header-title">
+      <div class="header-title-text" id="header-project">–</div>
+      <div class="header-sub" id="header-updated">–</div>
+    </div>
+    <button class="header-btn" id="btn-refresh" title="Aktualisieren">
+      <svg id="refresh-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+    </button>
+    <button class="header-btn" id="btn-logout" title="Projekt wechseln">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+    </button>
+  </div>
+
+  <!-- Zeitfilter -->
+  <div class="timefilter" id="timefilter">
+    <div class="tf-chip" data-period="today">Heute</div>
+    <div class="tf-chip" data-period="week">Woche</div>
+    <div class="tf-chip active" data-period="month">Monat</div>
+    <div class="tf-chip" data-period="all">Gesamt</div>
+    <div class="tf-chip" data-period="custom">Zeitraum…</div>
+  </div>
+  <div class="tf-custom" id="tf-custom">
+    <div class="form-group"><label class="form-label">Von</label><input type="date" class="form-control" id="date-from"></div>
+    <div class="form-group"><label class="form-label">Bis</label><input type="date" class="form-control" id="date-to"></div>
+  </div>
+
+  <!-- Inhalt -->
+  <div class="content">
+    <div class="range-label" id="range-label">–</div>
+
+    <!-- KPI Tiles -->
+    <div class="kpi-grid" id="kpi-grid"></div>
+
+    <div class="dash-cols">
+      <!-- Fortschritt je Tour -->
+      <div class="card">
+        <div class="card-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="7"/><rect x="12" y="6" width="3" height="11"/><rect x="17" y="13" width="3" height="4"/></svg>
+          Fortschritt je Tour
+        </div>
+        <div id="tour-progress"></div>
+        <div class="legend">
+          <span><i style="background:var(--green)"></i>Bewässert</span>
+          <span><i style="background:var(--red-mid)"></i>Nicht bewässert</span>
+          <span><i style="background:var(--surface2);border:1px solid var(--border)"></i>Offen</span>
+        </div>
+      </div>
+
+      <!-- Gründe -->
+      <div class="card">
+        <div class="card-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          Gründe „nicht bewässert"
+        </div>
+        <div id="reasons"></div>
+      </div>
+    </div>
+
+    <!-- Verlauf -->
+    <div class="card">
+      <div class="card-title">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+        Verlauf
+      </div>
+      <div class="chart-wrap"><canvas id="timeline-chart"></canvas></div>
+    </div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script type="module" src="/src/einsatzleiter.js"></script>
+</body>
+</html>

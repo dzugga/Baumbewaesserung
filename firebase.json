@@ -1,0 +1,20 @@
+{
+  "hosting": {
+    "public": "dist",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/mobil",
+        "destination": "/mobil.html"
+      },
+      {
+        "source": "/einsatzleiter",
+        "destination": "/einsatzleiter.html"
+      }
+    ]
+  }
+}

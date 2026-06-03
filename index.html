@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Baumbewässerung</title>
+<title>Infa Auftragsbearbeitung</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -213,7 +213,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 <div id="project-screen">
   <div class="ps-brand">
     <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22V12"/><path d="M12 12C12 12 7 9 7 5a5 5 0 0 1 10 0c0 4-5 7-5 7z"/><path d="M5 22c0-3.5 3-6 7-6s7 2.5 7 6"/></svg>
-    Baumbewässerung
+    Infa Auftragsbearbeitung
   </div>
   <div class="ps-sub">Projekt / Stadt auswählen oder neu erstellen</div>
   <div class="ps-card">
@@ -237,7 +237,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 <div class="topbar">
   <div class="topbar-brand">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22V12"/><path d="M12 12C12 12 7 9 7 5a5 5 0 0 1 10 0c0 4-5 7-5 7z"/></svg>
-    Baumbewässerung
+    Infa Auftragsbearbeitung
   </div>
   <div class="project-switcher" onclick="showProjectScreen()" title="Projekt wechseln">
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
@@ -475,16 +475,16 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <div class="modal-body">
       <div id="modal-coord-info" style="background:var(--green-light);border-radius:var(--radius-sm);padding:8px 12px;font-size:12px;color:var(--green);margin-bottom:12px;display:none;"></div>
       <div class="form-section">Stammdaten</div>
-      <div class="form-group"><label class="form-label">Anlage / Straße *</label><input class="form-control" id="f-name" placeholder="z.B. Berliner Platz 23"></div>
+      <div class="form-group"><label class="form-label" id="label-f-name">Anlage / Straße *</label><input class="form-control" id="f-name" placeholder="z.B. Berliner Platz 23"></div>
       <div class="form-row">
-        <div class="form-group"><label class="form-label">Stadtteil</label><input class="form-control" id="f-stadtteil" placeholder="z.B. Innenstadt"></div>
-        <div class="form-group"><label class="form-label">Baumnummer</label><input class="form-control" id="f-baumnr" placeholder="z.B. 118-0044-6028"></div>
+        <div class="form-group"><label class="form-label" id="label-f-stadtteil">Stadtteil</label><input class="form-control" id="f-stadtteil" placeholder="z.B. Innenstadt"></div>
+        <div class="form-group"><label class="form-label" id="label-f-baumnr">Objektnummer</label><input class="form-control" id="f-baumnr" placeholder="z.B. 118-0044-6028"></div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label class="form-label">Baumart</label><input class="form-control" id="f-art" placeholder="z.B. Quercus robur"></div>
-        <div class="form-group"><label class="form-label">Pflanzjahr</label><input class="form-control" id="f-pflanzjahr" placeholder="z.B. 2025/2026"></div>
+        <div class="form-group"><label class="form-label" id="label-f-art">Typ / Art</label><input class="form-control" id="f-art" placeholder="z.B. Quercus robur"></div>
+        <div class="form-group"><label class="form-label" id="label-f-pflanzjahr">Jahr</label><input class="form-control" id="f-pflanzjahr" placeholder="z.B. 2025/2026"></div>
       </div>
-      <div class="form-group"><label class="form-label">Pflanzzeitpunkt</label><input class="form-control" id="f-pflanzzeitpunkt" placeholder="z.B. 17.03.2026 13:29"></div>
+      <div class="form-group"><label class="form-label" id="label-f-pflanzzeitpunkt">Zeitpunkt</label><input class="form-control" id="f-pflanzzeitpunkt" placeholder="z.B. 17.03.2026 13:29"></div>
       <div class="form-section">Standort</div>
       <div class="form-row">
         <div class="form-group"><label class="form-label">Breitengrad (Lat)</label><input class="form-control" id="f-lat" type="number" step="0.000001" placeholder="51.050407"></div>
@@ -493,10 +493,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       <div class="coord-hint">Tipp: Fenster schließen → auf Karte klicken für genaue Platzierung</div>
       <div class="form-section" style="margin-top:10px;">Pflege</div>
       <div class="form-row">
-        <div class="form-group"><label class="form-label">Wasserbedarf</label>
+        <div class="form-group"><label class="form-label" id="label-f-wasser">Priorität</label>
           <select class="form-control" id="f-wasser"><option value="gering">Gering</option><option value="mittel" selected>Mittel</option><option value="hoch">Hoch</option></select>
         </div>
-        <div class="form-group"><label class="form-label">Zustand</label>
+        <div class="form-group"><label class="form-label" id="label-f-zustand">Zustand</label>
           <select class="form-control" id="f-zustand"><option value="gut">Gut</option><option value="mittel" selected>Mittel</option><option value="schlecht">Schlecht</option></select>
         </div>
       </div>
@@ -535,47 +535,61 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 
 <!-- VERWALTUNG fullscreen overlay -->
 <div id="view-verwaltung" style="display:none;position:fixed;top:54px;left:0;right:0;bottom:0;z-index:1500;background:var(--bg);overflow-y:auto;">
-  <div style="max-width:900px;margin:0 auto;padding:20px;">
+  <div style="max-width:1100px;margin:0 auto;padding:14px 20px;display:flex;flex-direction:column;gap:10px;">
 
-    <!-- Fahrer pro Tour -->
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:20px;">
-      <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+    <!-- Fahrer pro Tour — Grid -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+      <div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;">
+        <span style="font-size:12px;font-weight:700;">Fahrer</span>
+        <span style="font-size:11px;color:var(--text3);">Pro Tour — nur diese erscheinen in der mobilen App</span>
+      </div>
+      <div id="driver-mgmt-list"></div>
+    </div>
+
+    <!-- Feldbezeichnungen -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:0;">
+      <div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
         <div>
-          <div style="font-size:14px;font-weight:600;">Fahrer</div>
-          <div style="font-size:12px;color:var(--text3);margin-top:2px;">Pro Tour mehrere Fahrer hinterlegen — nur diese erscheinen in der mobilen App</div>
+          <span style="font-size:12px;font-weight:700;">Feldbezeichnungen</span>
+          <span style="font-size:11px;color:var(--text3);margin-left:6px;">Anzeigenamen der Felder anpassen</span>
+        </div>
+        <button class="btn btn-primary" style="padding:4px 10px;font-size:12px;" onclick="saveFieldLabels()">Speichern</button>
+      </div>
+      <div id="fl-grid-container"></div>
+    </div>
+
+    <!-- Gründe + Erfasser nebeneinander -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+
+      <!-- Gründe -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+        <div style="padding:8px 14px;border-bottom:1px solid var(--border);">
+          <span style="font-size:12px;font-weight:700;">Gründe: Nicht bewässert</span>
+          <span style="font-size:11px;color:var(--text3);margin-left:6px;">Stehen dem Fahrer in der App zur Auswahl</span>
+        </div>
+        <div style="padding:8px 12px;">
+          <div id="reasons-mgmt-list" style="margin-bottom:8px;"></div>
+          <div style="display:flex;gap:6px;">
+            <input class="form-control" id="new-reason-mgmt" placeholder="Neuen Grund eingeben…" style="flex:1;padding:5px 8px;font-size:12px;" onkeydown="if(event.key==='Enter')addReasonMgmt()">
+            <button class="btn btn-primary" style="padding:5px 10px;font-size:12px;white-space:nowrap;" onclick="addReasonMgmt()">+ Hinzufügen</button>
+          </div>
         </div>
       </div>
-      <div id="driver-mgmt-list" style="padding:16px 20px;display:flex;flex-direction:column;gap:16px;"></div>
-    </div>
 
-    <!-- Gründe Nicht-Bewässerung -->
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
-      <div style="padding:14px 20px;border-bottom:1px solid var(--border);">
-        <div style="font-size:14px;font-weight:600;">Gründe: Nicht bewässert</div>
-        <div style="font-size:12px;color:var(--text3);margin-top:2px;">Diese Gründe stehen dem Fahrer in der mobilen App zur Auswahl</div>
-      </div>
-      <div style="padding:16px 20px;">
-        <div id="reasons-mgmt-list" style="margin-bottom:12px;"></div>
-        <div style="display:flex;gap:8px;">
-          <input class="form-control" id="new-reason-mgmt" placeholder="Neuen Grund eingeben…" style="flex:1;" onkeydown="if(event.key==='Enter')addReasonMgmt()">
-          <button class="btn btn-primary" style="white-space:nowrap;" onclick="addReasonMgmt()">+ Hinzufügen</button>
+      <!-- Erfasser -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+        <div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;">
+          <span style="font-size:12px;font-weight:700;">Erfasser</span>
+          <span style="font-size:11px;color:var(--text3);">Mitarbeiter für die Baumerfassung</span>
+        </div>
+        <div id="erfasser-list" style="padding:4px 0;min-height:32px;"></div>
+        <div style="padding:6px 12px 10px;display:flex;gap:6px;">
+          <input class="form-control" id="new-erfasser-input" placeholder="Name des Erfassers…" style="flex:1;padding:5px 8px;font-size:12px;" onkeydown="if(event.key==='Enter')addErfasser()">
+          <button class="btn btn-primary" style="padding:5px 10px;font-size:12px;white-space:nowrap;" onclick="addErfasser()">+ Hinzufügen</button>
         </div>
       </div>
-    </div>
 
-    <!-- Erfasser -->
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
-      <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;">
-        <span style="font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;">Erfasser</span>
-        <span style="font-size:11px;color:var(--text3);">Mitarbeiter für die Baumerfassung</span>
-      </div>
-      <div id="erfasser-list" style="padding:8px 0;min-height:40px;"></div>
-      <div style="padding:8px 16px 12px;display:flex;gap:8px;">
-        <input class="form-control" id="new-erfasser-input" placeholder="Name des Erfassers…" style="flex:1;" onkeydown="if(event.key==='Enter')addErfasser()">
-        <button class="btn btn-primary" style="white-space:nowrap;" onclick="addErfasser()">+ Hinzufügen</button>
-      </div>
     </div>
-
   </div>
 </div>
 
@@ -721,7 +735,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         onfocus="this.style.borderColor='var(--green-mid)'" onblur="this.style.borderColor='var(--border)'">
     </div>
     <span id="baeume-search-count" style="font-size:12px;color:var(--text3);white-space:nowrap;"></span>
-    <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px;" onclick="document.getElementById('baeume-search').value='';filterBaeumeTable('')">✕</button>
+    <button id="btn-filter-nogps" class="btn btn-secondary" style="padding:5px 10px;font-size:12px;white-space:nowrap;" onclick="toggleFilterNoGps(this)">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline;vertical-align:middle;margin-right:3px;"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55M5 12.55a10.94 10.94 0 0 1 5.17-2.39M10.71 5.05A16 16 0 0 1 22.56 9M1.42 9a15.91 15.91 0 0 1 4.7-2.88M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg>
+      Ohne GPS
+    </button>
+    <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px;" onclick="document.getElementById('baeume-search').value='';_baeumeNoGpsFilter=false;updateBtnFilterNoGps();filterBaeumeTable('')">✕</button>
   </div>
   <div id="baeume-table-wrap" style="flex:1;overflow:auto;display:flex;flex-direction:column;"></div>
 </div>

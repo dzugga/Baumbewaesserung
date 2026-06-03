@@ -21,6 +21,7 @@
   },
   "homepage": "https://github.com/dzugga/Baumbewaesserung#readme",
   "devDependencies": {
+    "firebase-tools": "^15.19.0",
     "vite": "^8.0.16"
   }
 }
