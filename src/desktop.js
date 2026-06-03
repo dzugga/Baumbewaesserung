@@ -118,9 +118,14 @@ let depotMarker = null;
 
 // ─── MAP ──────────────────────────────────────────────────────
 const L = window.L;
-const map = L.map('map',{zoomControl:false,attributionControl:false}).setView([52.279,8.047],13);
-L.control.attribution({position:'bottomleft',prefix:false}).addAttribution('© OpenStreetMap').addTo(map);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+const map = L.map('map',{zoomControl:false,attributionControl:true}).setView([52.279,8.047],13);
+map.attributionControl.setPosition('bottomleft').setPrefix(false);
+// Basis-Ebenen: Karte (OSM) + Satellit (Esri World Imagery, kein API-Key)
+const baseOSM = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+  {maxZoom:19, attribution:'© OpenStreetMap'}).addTo(map);
+const baseSat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+  {maxZoom:19, attribution:'© Esri, Maxar, Earthstar Geographics'});
+L.control.layers({'Karte':baseOSM,'Satellit':baseSat}, null, {position:'topright', collapsed:false}).addTo(map);
 L.control.zoom({position:'bottomleft'}).addTo(map);
 
 map.on('mousemove',e=>{
