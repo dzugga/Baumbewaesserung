@@ -68,7 +68,7 @@ async function syncQueue() {
         await db.collection('projects').doc(entry.projectId).collection('trees').add(entry.data);
       } else if (entry.type === 'updateCoords') {
         await db.collection('projects').doc(entry.projectId).collection('trees').doc(entry.treeId)
-          .update(entry.data);
+          .set(entry.data, { merge: true });
       }
     } catch(e) { failed.push(entry); }
   }
@@ -379,6 +379,26 @@ function doLogout() {
   location.reload();
 }
 
+// Lokalen Cache leeren + frisch neu laden (behebt hängende/veraltete Zustände)
+async function hardReload() {
+  if (!confirm('App neu laden und lokalen Cache leeren?\nHolt die aktuellen Daten frisch vom Server. (Nicht synchronisierte Offline-Änderungen können dabei verloren gehen.)')) return;
+  toast('Cache wird geleert…');
+  try {
+    localStorage.removeItem(CACHE_KEY); // Baum-Cache (Queue bleibt erhalten)
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+    if (window.caches) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+    // Firestore-Offline-Cache (IndexedDB) leeren — entfernt hängende Writes
+    try { await db.terminate(); await db.clearPersistence(); } catch (e) { console.warn('clearPersistence:', e); }
+  } catch (e) { console.warn('hardReload:', e); }
+  location.reload(true);
+}
+
 // ─── MODUS 2: KOORDINATEN NACHERFASSEN ───────────────────────
 function renderKoordList(q) {
   const lower = q.toLowerCase();
@@ -437,39 +457,61 @@ function closeKoordMap() {
   selectedTree = null;
 }
 
+// Optimistische lokale Übernahme (Baum aus „ohne Koordinaten"-Liste nehmen)
+function applyCoordLocally(treeId, lat, lng) {
+  const t = treesOhneKoords.find(x => x.id === treeId) || allTrees.find(x => x.id === treeId) || { id: treeId };
+  allTrees = allTrees.map(x => x.id === treeId ? { ...x, lat, lng } : x);
+  treesOhneKoords = treesOhneKoords.filter(x => x.id !== treeId);
+  if (!_koordiniertData.some(x => x.id === treeId)) {
+    const k = { ...t, lat, lng };
+    _koordiniertData.push(k);
+    if (mapUebersicht) addKoordMarker(k, mapUebersicht, koordiniertMarkers);
+  }
+  koordiniertCount = _koordiniertData.length;
+  updateUebersichtLabel();
+  renderKoordList(document.getElementById('koord-search')?.value || '');
+}
+
 async function saveKoordPosition() {
   if (!selectedTree) return;
   const center = mapKoord.getCenter();
   const lat = parseFloat(center.lat.toFixed(7));
   const lng = parseFloat(center.lng.toFixed(7));
-
+  const treeId = selectedTree.id;
   const coordUpdate = { lat, lng, koordiniertVon: currentErfasser };
+  const ref = db.collection('projects').doc(currentProjectId).collection('trees').doc(treeId);
 
-  // UI sofort aktualisieren (optimistic — funktioniert auch offline)
-  selectedTree.lat = lat;
-  selectedTree.lng = lng;
-  allTrees = allTrees.map(t => t.id === selectedTree.id ? { ...t, lat, lng } : t);
-  treesOhneKoords = treesOhneKoords.filter(t => t.id !== selectedTree.id);
-  const koordiniert = { ...selectedTree, lat, lng };
-  _koordiniertData.push(koordiniert);
-  if (mapUebersicht) addKoordMarker(koordiniert, mapUebersicht, koordiniertMarkers);
-  koordiniertCount++;
-  updateUebersichtLabel();
   closeKoordMap();
-  renderKoordList(document.getElementById('koord-search').value);
-  toast(`✓ Koordinaten gespeichert — ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
 
-  // Firestore schreiben (im Hintergrund, offline-sicher)
+  // Offline: in Queue, lokal übernehmen, klar als „ausstehend" kennzeichnen
   if (!isOnline) {
-    addToQueue({ type: 'updateCoords', projectId: currentProjectId, treeId: selectedTree.id, data: coordUpdate });
-    toast(`📦 Offline — wird synchronisiert`);
-  } else {
-    db.collection('projects').doc(currentProjectId)
-      .collection('trees').doc(selectedTree.id).update(coordUpdate)
-      .catch(e => {
-        addToQueue({ type: 'updateCoords', projectId: currentProjectId, treeId: selectedTree.id, data: coordUpdate });
-        console.warn('Koordinaten-Save fehlgeschlagen, in Queue:', e);
-      });
+    addToQueue({ type: 'updateCoords', projectId: currentProjectId, treeId, data: coordUpdate });
+    applyCoordLocally(treeId, lat, lng);
+    toast('📦 Offline gespeichert — wird synchronisiert sobald online');
+    return;
+  }
+
+  toast('Speichern…');
+  try {
+    // set+merge ist robust (scheitert nicht an Doc-Edgecases)
+    await ref.set(coordUpdate, { merge: true });
+    // ENTSCHEIDEND: auf Server-Bestätigung warten (max. 10s). Ein Write, der
+    // nur im Geräte-Cache liegt, gilt NICHT als Erfolg.
+    const synced = await Promise.race([
+      db.waitForPendingWrites().then(() => true),
+      new Promise(r => setTimeout(() => r(false), 10000)),
+    ]);
+    if (synced) {
+      applyCoordLocally(treeId, lat, lng);
+      toast(`✓ Gespeichert & synchronisiert — ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+    } else {
+      // Nicht bestätigt → Baum BLEIBT in der Liste, klare Warnung
+      toast('⚠ Nicht synchronisiert — Verbindung prüfen und erneut speichern. Baum bleibt in der Liste.');
+    }
+  } catch (e) {
+    addToQueue({ type: 'updateCoords', projectId: currentProjectId, treeId, data: coordUpdate });
+    console.warn('Koordinaten-Save fehlgeschlagen:', e);
+    toast(`⚠ Fehler: ${e.code || e.message} — in Warteschlange, Baum bleibt in der Liste`);
   }
 }
 
@@ -579,6 +621,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('login-project').addEventListener('change', onProjectChange);
   document.getElementById('btn-login').addEventListener('click', doLogin);
   document.getElementById('btn-logout').addEventListener('click', doLogout);
+  document.getElementById('btn-reload')?.addEventListener('click', hardReload);
 
   // Mode tabs
   document.getElementById('tab-koord').addEventListener('click', () => switchMode('koord'));
