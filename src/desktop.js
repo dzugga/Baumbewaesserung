@@ -247,6 +247,7 @@ function subscribeToProject(){
     refreshMarkers();renderList();
     if(currentView==='baeume')renderBaeumeTable();
     setSyncState('ok','Synchronisiert');
+    autoMigrateTourIds(); // tourId → tourIds[] still im Hintergrund
   });
 }
 
@@ -2016,9 +2017,32 @@ async function migrateTourIds(){
   notify(`✓ Migration abgeschlossen — ${migrated} Objekte aktualisiert`);
 }
 
+// Automatische Hintergrund-Migration: tourId → tourIds[] (still, idempotent)
+let _migratingTourIds=false;
+async function autoMigrateTourIds(){
+  if(!currentProjectId || _migratingTourIds) return;
+  const pending=trees.filter(t=>!Array.isArray(t.tourIds));
+  if(pending.length===0) return;
+  _migratingTourIds=true;
+  try{
+    const BATCH=400;
+    for(let i=0;i<pending.length;i+=BATCH){
+      const batch=db.batch();
+      pending.slice(i,i+BATCH).forEach(tree=>{
+        const ids=tree.tourId?[tree.tourId]:[];
+        batch.update(doc(db,'projects',currentProjectId,'trees',tree.id),{tourIds:ids});
+        tree.tourIds=ids;
+      });
+      await batch.commit();
+    }
+    console.log(`tourIds-Migration (auto): ${pending.length} Objekte aktualisiert`);
+  }catch(e){ console.warn('Auto-Migration fehlgeschlagen, erneuter Versuch beim nächsten Laden:',e); }
+  finally{ _migratingTourIds=false; }
+}
+
 async function initVerwaltung(){
-  // Migration-Banner anzeigen wenn noch Objekte ohne tourIds existieren
-  const needsMigration=trees.some(t=>!Array.isArray(t.tourIds));
+  // Migration läuft automatisch im Hintergrund → Banner nicht mehr nötig
+  const needsMigration=false;
   let migBanner=document.getElementById('migration-banner');
   if(!migBanner){
     migBanner=document.createElement('div');
