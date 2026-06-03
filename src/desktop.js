@@ -1017,13 +1017,15 @@ function openDetail(id){
 
     <div class="form-section">Touren (Mehrfachauswahl)</div>
     <div style="padding:6px 0 4px;">
-      <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px;" id="inline-tour-chips">
-        ${tours.map(t=>`<span class="badge" style="cursor:pointer;user-select:none;padding:4px 10px;border-radius:20px;font-size:12px;
-          background:${currentTourIds.includes(t.id)?t.color+'22':'var(--surface2)'};
-          color:${currentTourIds.includes(t.id)?t.color:'var(--text3)'};
-          border:1.5px solid ${currentTourIds.includes(t.id)?t.color:'var(--border)'};
-          font-weight:${currentTourIds.includes(t.id)?'700':'400'};"
-          data-tourid="${t.id}">${t.name}${currentTourIds.includes(t.id)?' ✓':''}</span>`).join('')}
+      <div id="inline-tour-chips" style="max-height:170px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:8px;">
+        ${tours.length===0?'<div style="padding:10px;font-size:12px;color:var(--text3);">Keine Touren angelegt</div>':tours.map(t=>{
+          const sel=currentTourIds.includes(t.id);
+          return `<label data-tourid="${t.id}" style="display:flex;align-items:center;gap:9px;padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px;background:${sel?t.color+'14':'transparent'};">
+            <input type="checkbox"${sel?' checked':''} style="width:15px;height:15px;flex-shrink:0;cursor:pointer;accent-color:${t.color};">
+            <span style="width:11px;height:11px;border-radius:50%;background:${t.color};flex-shrink:0;"></span>
+            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${t.name}</span>
+          </label>`;
+        }).join('')}
       </div>
       <button class="btn btn-primary" style="padding:5px 12px;font-size:12px;width:100%;" onclick="saveInlineFields('${id}')">Touren speichern</button>
     </div>
@@ -1043,19 +1045,12 @@ function openDetail(id){
   const _vb = document.getElementById('panel-body-verlauf');
   if(_vb) _vb._treeId = id;
   document.getElementById('detail-panel').classList.add('open');
-  // Chip-Toggle für Tourenauswahl
-  document.getElementById('inline-tour-chips')?.addEventListener('click',e=>{
-    const chip=e.target.closest('[data-tourid]');
-    if(!chip)return;
-    const tid=chip.dataset.tourid;
-    const tour=tours.find(t=>t.id===tid);
-    if(!tour)return;
-    const active=chip.style.fontWeight==='700';
-    chip.style.background=active?'var(--surface2)':tour.color+'22';
-    chip.style.color=active?'var(--text3)':tour.color;
-    chip.style.borderColor=active?'var(--border)':tour.color;
-    chip.style.fontWeight=active?'400':'700';
-    chip.textContent=tour.name+(active?'':' ✓');
+  // Tourenauswahl: Zeilen-Highlight bei Checkbox-Änderung
+  document.getElementById('inline-tour-chips')?.addEventListener('change',e=>{
+    const cb=e.target.closest('input[type=checkbox]');if(!cb)return;
+    const label=cb.closest('[data-tourid]');
+    const tour=tours.find(t=>t.id===label?.dataset.tourid);
+    if(label&&tour) label.style.background=cb.checked?tour.color+'14':'transparent';
   });
 }
 
@@ -1142,9 +1137,9 @@ function closePanel(){
 async function saveInlineFields(id){
   const wasser=document.getElementById('inline-wasser')?.value;
   const zustand=document.getElementById('inline-zustand')?.value;
-  // Touren aus Chip-Auswahl lesen
-  const chips=document.querySelectorAll('#inline-tour-chips [data-tourid]');
-  const selectedTourIds=[...chips].filter(c=>c.style.fontWeight==='700').map(c=>c.dataset.tourid);
+  // Touren aus Checkbox-Auswahl lesen
+  const rows=document.querySelectorAll('#inline-tour-chips [data-tourid]');
+  const selectedTourIds=[...rows].filter(r=>r.querySelector('input[type=checkbox]')?.checked).map(r=>r.dataset.tourid);
   const updates={};
   if(wasser)updates.wasser=wasser;
   if(zustand)updates.zustand=zustand;
