@@ -3689,11 +3689,15 @@ function renderDashboard(){
   const meldungen=bew.length+nicht.length;
   const pct=meldungen>0?Math.round(bew.length/meldungen*100):0;
   const aktiveFahrer=new Set(reported.map(r=>r.lastDriver).filter(Boolean)).size;
+  const aktive=trees.filter(isActive);
+  // Offen = Summe der offenen je Tour (exakt wie "Fortschritt je Tour"); nicht verplante zählen hier nicht
+  const offen=dashTourStats(reported).reduce((s,x)=>s+x.offen,0);
   const grid=document.getElementById('dash-kpi-grid');
   if(grid) grid.innerHTML=[
-    {val:trees.filter(isActive).length,lbl:'Objekte gesamt',sub:'im Projekt',color:'var(--text)'},
+    {val:aktive.length,lbl:'Objekte gesamt',sub:'im Projekt',color:'var(--text)'},
     {val:bew.length,lbl:'Bewässert',sub:`${pct}% der Meldungen`,color:'var(--green)'},
     {val:nicht.length,lbl:'Nicht bewässert',sub:'im Zeitraum',color:'var(--red)'},
+    {val:offen,lbl:'Offen',sub:'offen in Touren',color:'var(--text2)'},
     {val:meldungen,lbl:'Meldungen',sub:'gesamt im Zeitraum',color:'var(--blue)'},
     {val:aktiveFahrer,lbl:'Aktive Fahrer',sub:'im Zeitraum',color:'var(--amber)'},
   ].map(k=>`<div class="dsh-tile"><div class="dsh-val" style="color:${k.color};">${k.val}</div><div class="dsh-lbl">${k.lbl}</div><div class="dsh-sub">${k.sub}</div></div>`).join('');
@@ -3705,18 +3709,24 @@ function renderDashboard(){
   if(u) u.textContent='Stand: '+new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
 }
 
-function dashRenderTourProgress(reported){
-  const el=document.getElementById('dash-tour-progress'); if(!el)return;
-  if(tours.length===0){ el.innerHTML='<div class="dsh-empty">Keine Touren angelegt</div>'; return; }
+// Pro-Tour-Statistik (geteilte Quelle für KPI "Offen" und "Fortschritt je Tour")
+function dashTourStats(reported){
   const tourIdsByTreeId={}; trees.forEach(x=>{ tourIdsByTreeId[x.id]=getTreeTourIds(x); });
   const repTourIds=(r)=>{ if(r._tourId)return[r._tourId]; const live=tourIdsByTreeId[r.id]; if(live&&live.length)return live; return getTreeTourIds(r); };
-  el.innerHTML=tours.map(t=>{
+  return tours.map(t=>{
     const total=trees.filter(x=>treeInTour(x,t.id)&&isActive(x)).length;
     const rep=reported.filter(r=>repTourIds(r).includes(t.id));
     const bewIds=new Set(rep.filter(r=>r.lastStatus==='bewaessert').map(r=>r.id));
     const nichtIds=new Set(rep.filter(r=>r.lastStatus==='nicht'&&!bewIds.has(r.id)).map(r=>r.id));
-    const bewN=bewIds.size,nichtN=nichtIds.size;
-    const offen=Math.max(0,total-bewN-nichtN);
+    const bewN=bewIds.size, nichtN=nichtIds.size;
+    return {t, total, bewN, nichtN, offen:Math.max(0,total-bewN-nichtN)};
+  });
+}
+
+function dashRenderTourProgress(reported){
+  const el=document.getElementById('dash-tour-progress'); if(!el)return;
+  if(tours.length===0){ el.innerHTML='<div class="dsh-empty">Keine Touren angelegt</div>'; return; }
+  el.innerHTML=dashTourStats(reported).map(({t,total,bewN,nichtN,offen})=>{
     const base=Math.max(total,bewN+nichtN,1);
     const bewW=bewN/base*100,nichtW=nichtN/base*100,offenW=offen/base*100;
     const pct=total>0?Math.round(bewN/total*100):(bewN+nichtN>0?Math.round(bewN/(bewN+nichtN)*100):0);
@@ -3736,7 +3746,7 @@ function dashRenderTourProgress(reported){
         <span><b style="color:var(--green);">${bewN}</b> bew.</span>
         <span><b style="color:var(--red);">${nichtN}</b> nicht</span>
         <span><b>${offen}</b> offen</span>
-        <span style="margin-left:auto;">${total} Bäume</span>
+        <span style="margin-left:auto;">${total} Objekte</span>
       </div>
     </div>`;
   }).join('');

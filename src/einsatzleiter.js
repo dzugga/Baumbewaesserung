@@ -140,12 +140,16 @@ function render(){
   const meldungen=bew.length+nicht.length;
   const pct=meldungen>0?Math.round(bew.length/meldungen*100):0;
   const aktiveFahrer=new Set(reported.map(r=>r.lastDriver).filter(Boolean)).size;
+  const aktive=trees.filter(t=>t.aktiv!==false);
+  // Offen = Summe der offenen je Tour (exakt wie "Fortschritt je Tour"); nicht verplante zählen hier nicht
+  const offen=tourStats(reported).reduce((s,x)=>s+x.offen,0);
 
   // KPI-Kacheln
   document.getElementById('kpi-grid').innerHTML=[
-    {val:trees.filter(t=>t.aktiv!==false).length, lbl:'Objekte gesamt', sub:'im Projekt', color:'var(--text)'},
+    {val:aktive.length, lbl:'Objekte gesamt', sub:'im Projekt', color:'var(--text)'},
     {val:bew.length, lbl:'Bewässert', sub:`${pct}% der Meldungen`, color:'var(--green-dark)'},
     {val:nicht.length, lbl:'Nicht bewässert', sub:'im Zeitraum', color:'var(--red)'},
+    {val:offen, lbl:'Offen', sub:'offen in Touren', color:'var(--text2)'},
     {val:meldungen, lbl:'Meldungen', sub:'gesamt im Zeitraum', color:'var(--blue)'},
     {val:aktiveFahrer, lbl:'Aktive Fahrer', sub:'im Zeitraum', color:'var(--amber)'},
   ].map(k=>`<div class="kpi-tile">
@@ -163,28 +167,33 @@ function render(){
   if(u) u.textContent='Stand: '+new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
 }
 
-function renderTourProgress(reported){
-  const el=document.getElementById('tour-progress');
-  if(tours.length===0){ el.innerHTML='<div class="empty">Keine Touren angelegt</div>'; return; }
-
-  // Tour-Zuordnung der Meldungen über die Baum-ID aus den Live-Bäumen auflösen
-  // (tourHistory-Snapshots tragen die Zuordnung nicht zuverlässig).
+// Pro-Tour-Statistik (geteilte Quelle für KPI "Offen" und "Fortschritt je Tour").
+// Tour-Zuordnung der Meldungen über die Baum-ID auflösen (tourHistory-Snapshots
+// tragen die Zuordnung nicht zuverlässig).
+function tourStats(reported){
   const tourIdsByTreeId={};
   trees.forEach(x=>{ tourIdsByTreeId[x.id]=getTreeTourIds(x); });
   const repTourIds=(r)=>{
-    if(r._tourId) return [r._tourId];          // autoritativ: aus tourHistory-Kopf
-    const live=tourIdsByTreeId[r.id];          // Fallback: aktuelle Zuordnung des Baums
+    if(r._tourId) return [r._tourId];
+    const live=tourIdsByTreeId[r.id];
     if(live&&live.length) return live;
     return getTreeTourIds(r);
   };
-
-  el.innerHTML=tours.map(t=>{
+  return tours.map(t=>{
     const total=trees.filter(x=>treeInTour(x,t.id)&&x.aktiv!==false).length;
     const rep=reported.filter(r=>repTourIds(r).includes(t.id));
     const bewIds=new Set(rep.filter(r=>r.lastStatus==='bewaessert').map(r=>r.id));
     const nichtIds=new Set(rep.filter(r=>r.lastStatus==='nicht' && !bewIds.has(r.id)).map(r=>r.id));
     const bewN=bewIds.size, nichtN=nichtIds.size;
-    const offen=Math.max(0, total-bewN-nichtN);
+    return {t, total, bewN, nichtN, offen:Math.max(0, total-bewN-nichtN)};
+  });
+}
+
+function renderTourProgress(reported){
+  const el=document.getElementById('tour-progress');
+  if(tours.length===0){ el.innerHTML='<div class="empty">Keine Touren angelegt</div>'; return; }
+
+  el.innerHTML=tourStats(reported).map(({t,total,bewN,nichtN,offen})=>{
     const base=Math.max(total, bewN+nichtN, 1);
     const bewW=bewN/base*100, nichtW=nichtN/base*100, offenW=offen/base*100;
     const pct=total>0?Math.round(bewN/total*100):(bewN+nichtN>0?Math.round(bewN/(bewN+nichtN)*100):0);
