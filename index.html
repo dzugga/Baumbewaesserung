@@ -50,7 +50,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 @keyframes ctrl-spin{to{transform:rotate(360deg)}}
 
 /* ── TOPBAR ─────────────────────────────────── */
-.topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:54px;display:flex;align-items:center;gap:16px;flex-shrink:0;z-index:100}
+.topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:54px;display:flex;align-items:center;gap:16px;flex-shrink:0;position:relative;z-index:6000}
 .topbar-brand{display:flex;align-items:center;gap:9px;font-size:15px;font-weight:600;color:var(--green);white-space:nowrap}
 .project-switcher{display:flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;font-size:13px;font-weight:500;color:var(--text2);background:var(--surface2);transition:all .15s;white-space:nowrap;max-width:200px}
 .project-switcher:hover{border-color:var(--green-mid);color:var(--green)}
