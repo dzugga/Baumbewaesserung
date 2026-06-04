@@ -1,3 +1,6 @@
+// App-Version – hier zentral pflegen (wird im Einstellungen-Panel angezeigt)
+const APP_VERSION = '1.0';
+
 function initializeApp(cfg){ return firebase.initializeApp(cfg); }
 function getFirestore(app){ return firebase.firestore(app); }
 function collection(db,...segs){ let r=db; for(let i=0;i<segs.length;i++) r=(i%2===0)?r.collection(segs[i]):r.doc(segs[i]); return r; }
@@ -3417,3 +3420,5 @@ Object.assign(window,{
 });
 
 initProjectScreen();
+
+(()=>{ const el=document.getElementById('app-version'); if(el) el.textContent=`Version ${APP_VERSION}`; })();
