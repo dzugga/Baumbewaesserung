@@ -249,6 +249,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <button class="nav-btn" onclick="switchView('baeume')">Objekte</button>
     <button class="nav-btn" onclick="switchView('touren')">Touren</button>
     <button class="nav-btn" onclick="switchView('controlling')">Controlling</button>
+    <button class="nav-btn" onclick="switchView('dashboard')">Dashboard</button>
     <button class="nav-btn" onclick="switchView('verwaltung')">Verwaltung</button>
   </nav>
   <div class="topbar-right">
@@ -647,12 +648,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       <button class="btn btn-secondary" style="padding:4px 10px;font-size:12px;" onclick="refreshControlling()" title="Daten aktualisieren">
         <svg id="ctrl-refresh-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
       </button>
-      <select id="ctrl-auto-refresh" class="form-control" style="width:auto;padding:4px 8px;font-size:12px;" onchange="setAutoRefresh(this.value)">
-        <option value="0">Kein Auto-Refresh</option>
-        <option value="30">Alle 30 Sek.</option>
-        <option value="60" selected>Alle 60 Sek.</option>
-        <option value="300">Alle 5 Min.</option>
-      </select>
       <button class="btn btn-secondary" style="padding:4px 12px;font-size:12px;" onclick="exportCtrlCSV()">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         CSV Export
@@ -726,6 +721,126 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       </div>
       <div id="ctrl-history-list" style="padding:8px 0;">
         <div style="padding:16px 20px;font-size:13px;color:var(--text3);">Auf "Laden" klicken um die Tourhistorie zu laden.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- DASHBOARD fullscreen overlay (Live-Lagebild wie Einsatzleiter) -->
+<style>
+#view-dashboard{--dsh-red-mid:#dc2626;}
+.dsh-content{flex:1;overflow-y:auto;padding:20px;}
+.dsh-wrap{max-width:1200px;margin:0 auto;}
+.dsh-range{font-size:12px;color:var(--text3);text-align:center;margin-bottom:14px;}
+.dsh-kpi-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px;}
+.dsh-tile{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 16px;}
+.dsh-val{font-size:28px;font-weight:800;line-height:1;font-family:'DM Mono',monospace;letter-spacing:-.02em;}
+.dsh-lbl{font-size:13px;font-weight:600;color:var(--text);margin-top:6px;}
+.dsh-sub{font-size:11px;color:var(--text3);margin-top:2px;}
+.dsh-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start;margin-bottom:14px;}
+.dsh-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;margin-bottom:14px;}
+.dsh-cols .dsh-card{margin-bottom:0;}
+.dsh-card-title{font-size:14px;font-weight:700;color:var(--text);margin-bottom:14px;display:flex;align-items:center;gap:8px;}
+.dsh-card-title .pct{margin-left:auto;}
+.dsh-tour-row{margin-bottom:16px;}
+.dsh-tour-row:last-child{margin-bottom:0;}
+.dsh-tour-head{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+.dsh-dot{width:11px;height:11px;border-radius:50%;flex-shrink:0;}
+.dsh-tour-name{font-size:13px;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dsh-tour-pct{font-size:12px;font-weight:700;color:var(--text2);flex-shrink:0;}
+.dsh-bar{height:14px;border-radius:7px;background:var(--surface2);overflow:hidden;display:flex;}
+.dsh-bar .seg{height:100%;transition:width .4s;}
+.dsh-tour-meta{display:flex;gap:12px;font-size:11px;color:var(--text3);margin-top:5px;}
+.dsh-tour-meta b{font-weight:700;}
+.dsh-reason-row{margin-bottom:11px;}
+.dsh-reason-row:last-child{margin-bottom:0;}
+.dsh-reason-head{display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;}
+.dsh-reason-head span:first-child{color:var(--text2);}
+.dsh-reason-head b{font-weight:700;color:var(--red);}
+.dsh-reason-bar{height:7px;background:var(--surface2);border-radius:4px;overflow:hidden;}
+.dsh-reason-bar .fill{height:100%;background:var(--dsh-red-mid);border-radius:4px;transition:width .4s;}
+.dsh-chart-wrap{position:relative;height:240px;}
+.dsh-map-wrap{position:relative;height:360px;border-radius:var(--radius-sm);overflow:hidden;border:1px solid var(--border);}
+#dash-nicht-map{height:100%;width:100%;background:var(--surface2);}
+.dsh-map-empty{position:absolute;inset:0;z-index:500;display:none;align-items:center;justify-content:center;background:rgba(245,243,238,.85);font-size:13px;color:var(--text3);text-align:center;padding:0 24px;pointer-events:none;}
+.dsh-map-empty.show{display:flex;}
+.dsh-map-note{font-size:11px;color:var(--text3);margin-top:8px;}
+.dsh-empty{font-size:13px;color:var(--text3);text-align:center;padding:20px 0;}
+.dsh-legend{display:flex;gap:14px;font-size:11px;color:var(--text2);margin-top:12px;flex-wrap:wrap;}
+.dsh-legend span{display:flex;align-items:center;gap:5px;}
+.dsh-legend i{width:11px;height:11px;border-radius:3px;display:inline-block;}
+.dsh-period-btn{padding:4px 12px;font-size:12px;border:1px solid var(--border);background:var(--surface);border-radius:var(--radius-sm);cursor:pointer;color:var(--text2);font-weight:600;font-family:inherit;}
+.dsh-period-btn.active{background:var(--green-light);color:var(--green);border-color:var(--green-mid);}
+@keyframes dsh-spin{to{transform:rotate(360deg)}}
+@media (max-width:860px){.dsh-kpi-grid{grid-template-columns:repeat(2,1fr);}.dsh-cols{grid-template-columns:1fr;}}
+</style>
+<div id="view-dashboard" style="display:none;position:fixed;top:54px;left:0;right:0;bottom:0;z-index:1500;background:var(--bg);flex-direction:column;overflow:hidden;">
+  <!-- Toolbar -->
+  <div style="background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;gap:12px;flex-shrink:0;flex-wrap:wrap;">
+    <span style="font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;">Dashboard</span>
+    <div style="display:flex;gap:4px;flex-wrap:wrap;">
+      <button class="dsh-period-btn" data-period="today" onclick="dashSetPeriod('today',this)">Heute</button>
+      <button class="dsh-period-btn" data-period="week" onclick="dashSetPeriod('week',this)">Diese Woche</button>
+      <button class="dsh-period-btn active" data-period="month" onclick="dashSetPeriod('month',this)">Dieser Monat</button>
+      <button class="dsh-period-btn" data-period="all" onclick="dashSetPeriod('all',this)">Gesamt</button>
+      <button class="dsh-period-btn" data-period="custom" onclick="dashSetPeriod('custom',this)">Benutzerdefiniert</button>
+    </div>
+    <div id="dash-custom-dates" style="display:none;align-items:center;gap:6px;">
+      <input type="date" id="dash-date-from" class="form-control" style="padding:4px 8px;font-size:12px;width:auto;" onchange="renderDashboard()">
+      <span style="font-size:12px;color:var(--text3);">bis</span>
+      <input type="date" id="dash-date-to" class="form-control" style="padding:4px 8px;font-size:12px;width:auto;" onchange="renderDashboard()">
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-left:auto;">
+      <span id="dash-updated" style="font-size:11px;color:var(--text3);white-space:nowrap;"></span>
+      <button class="btn btn-secondary" style="padding:4px 10px;font-size:12px;" onclick="refreshDashboard()" title="Daten aktualisieren">
+        <svg id="dash-refresh-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+      </button>
+    </div>
+  </div>
+  <!-- Content -->
+  <div class="dsh-content">
+    <div class="dsh-wrap">
+      <div class="dsh-range" id="dash-range-label">–</div>
+      <div class="dsh-kpi-grid" id="dash-kpi-grid"></div>
+      <div class="dsh-cols">
+        <div class="dsh-card">
+          <div class="dsh-card-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="7"/><rect x="12" y="6" width="3" height="11"/><rect x="17" y="13" width="3" height="4"/></svg>
+            Fortschritt je Tour
+          </div>
+          <div id="dash-tour-progress"></div>
+          <div class="dsh-legend">
+            <span><i style="background:var(--green)"></i>Bewässert</span>
+            <span><i style="background:var(--dsh-red-mid)"></i>Nicht bewässert</span>
+            <span><i style="background:var(--surface2);border:1px solid var(--border)"></i>Offen</span>
+          </div>
+        </div>
+        <div class="dsh-card">
+          <div class="dsh-card-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            Gründe „nicht bewässert"
+          </div>
+          <div id="dash-reasons"></div>
+        </div>
+      </div>
+      <div class="dsh-card">
+        <div class="dsh-card-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          Nicht bewässert — Karte
+          <span class="pct" id="dash-map-count" style="color:var(--red);font-weight:700;"></span>
+        </div>
+        <div class="dsh-map-wrap">
+          <div id="dash-nicht-map"></div>
+          <div class="dsh-map-empty" id="dash-map-empty">Keine nicht-bewässerten Bäume im Zeitraum 🎉</div>
+        </div>
+        <div class="dsh-map-note" id="dash-map-note"></div>
+      </div>
+      <div class="dsh-card">
+        <div class="dsh-card-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+          Verlauf
+        </div>
+        <div class="dsh-chart-wrap"><canvas id="dash-timeline-chart"></canvas></div>
       </div>
     </div>
   </div>

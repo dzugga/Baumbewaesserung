@@ -1727,10 +1727,12 @@ function switchView(v){
   const baeume=document.getElementById('view-baeume');
   const touren=document.getElementById('view-touren');
   const controlling=document.getElementById('view-controlling');
+  const dashboard=document.getElementById('view-dashboard');
   const verwaltung=document.getElementById('view-verwaltung');
   if(baeume) baeume.style.display=v==='baeume'?'flex':'none';
   if(touren) touren.style.display=v==='touren'?'block':'none';
   if(controlling) controlling.style.display=v==='controlling'?'flex':'none';
+  if(dashboard) dashboard.style.display=v==='dashboard'?'flex':'none';
   if(verwaltung) verwaltung.style.display=v==='verwaltung'?'block':'none';
   // Karte: always visible underneath, just hidden by overlays
   if(v==='karte') setTimeout(()=>map.invalidateSize(),10);
@@ -1742,18 +1744,11 @@ function switchView(v){
     else renderTourenGrid();
   }
   if(v==='controlling'){
+    // Lädt tourHistory einmalig beim Öffnen; Aktualisieren danach nur per Button.
     initControlling();
-    // Start auto-refresh timer
-    clearInterval(ctrlRefreshTimer);
-    if(ctrlRefreshInterval>0){
-      ctrlRefreshTimer=setInterval(()=>refreshControlling(true), ctrlRefreshInterval*1000);
-    }
     updateCtrlLastUpdated();
-  } else {
-    // Stop timer when leaving controlling
-    clearInterval(ctrlRefreshTimer);
-    ctrlRefreshTimer=null;
   }
+  if(v==='dashboard') initDashboard(); // einmaliges Laden; danach nur per Refresh-Button
   if(v==='verwaltung') initVerwaltung();
 }
 
@@ -2317,28 +2312,12 @@ async function loadTourHistoryForControlling(){
 }
 
 // ─── CONTROLLING ─────────────────────────────────────────────
-let ctrlRefreshTimer=null;
-let ctrlRefreshInterval=60; // seconds
-
-function setAutoRefresh(seconds){
-  ctrlRefreshInterval=parseInt(seconds)||0;
-  clearInterval(ctrlRefreshTimer);
-  ctrlRefreshTimer=null;
-  if(ctrlRefreshInterval>0 && currentView==='controlling'){
-    ctrlRefreshTimer=setInterval(()=>{
-      refreshControlling(true); // silent=true
-    }, ctrlRefreshInterval*1000);
-  }
-  updateCtrlLastUpdated();
-}
-
 async function refreshControlling(silent=false){
-  // Spin the refresh icon
+  // Manuelles Aktualisieren: tourHistory frisch aus Firestore laden + neu rendern
   const icon=document.getElementById('ctrl-refresh-icon');
   if(icon) icon.style.animation='spin .7s linear infinite';
 
-  // Re-render with latest data
-  renderControlling();
+  await loadTourHistoryForControlling();
   updateCtrlLastUpdated();
 
   if(icon) setTimeout(()=>icon.style.animation='',700);
@@ -2351,10 +2330,6 @@ function updateCtrlLastUpdated(){
   const now=new Date();
   const t=now.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
   el.textContent=`Letzte Aktualisierung: ${t}`;
-  // Show next refresh countdown
-  if(ctrlRefreshInterval>0 && ctrlRefreshTimer){
-    el.textContent+=` · Auto: ${ctrlRefreshInterval}s`;
-  }
 }
 
 // ─── CONTROLLING ─────────────────────────────────────────────
@@ -3401,8 +3376,258 @@ async function removeErfasser(name){
   loadErfasser();
 }
 
+// ─── DASHBOARD (Live-Lagebild, identisch zur Einsatzleiter-App) ──
+let dashPeriod='month';
+let dashTimelineChart=null;
+let dashNichtMap=null;
+let dashNichtLayer=null;
+let dashTourHistory=[];
+let dashTourHistoryLoaded=false;
+
+function dashGetDateRange(){
+  const now=new Date();
+  const today=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+  if(dashPeriod==='today') return {from:today,to:new Date(today.getTime()+86400000-1)};
+  if(dashPeriod==='week'){ const mon=new Date(today); mon.setDate(today.getDate()-((today.getDay()+6)%7)); return {from:mon,to:new Date(mon.getTime()+7*86400000-1)}; }
+  if(dashPeriod==='month') return {from:new Date(now.getFullYear(),now.getMonth(),1),to:new Date(now.getFullYear(),now.getMonth()+1,0,23,59,59)};
+  if(dashPeriod==='all') return {from:new Date(0),to:new Date(now.getTime())};
+  const f=document.getElementById('dash-date-from')?.value;
+  const t=document.getElementById('dash-date-to')?.value;
+  return {from:f?new Date(f+'T00:00:00'):new Date(0),to:t?new Date(t+'T23:59:59'):new Date()};
+}
+function dashDayStr(dateStr){ if(!dateStr)return null; return typeof dateStr==='string'?dateStr.slice(0,10):new Date(dateStr).toISOString().slice(0,10); }
+function dashInRange(dateStr){ const ds=dashDayStr(dateStr); if(!ds)return false; const d=new Date(ds+'T12:00:00'); const {from,to}=dashGetDateRange(); return d>=from&&d<=to; }
+function dashFmtDE(d){ return d.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'}); }
+
+function dashBuildReported(){
+  const out=[]; const seen=new Set();
+  if(dashTourHistoryLoaded){
+    dashTourHistory.forEach(h=>{
+      if(!dashInRange(h.date))return;
+      (h.trees||[]).forEach(tree=>{
+        if(!tree.lastStatus||tree.lastStatus==='offen')return;
+        const at=tree.lastReportAt||h.date;
+        out.push({...tree,lastReportAt:at,_tourId:h.tourId});
+        seen.add((tree.id||'')+'|'+dashDayStr(at));
+      });
+    });
+  } else {
+    trees.forEach(tree=>{
+      (tree.history||[]).forEach(h=>{
+        if(!h.date||!dashInRange(h.date))return;
+        if(!h.status||h.status==='offen')return;
+        out.push({...tree,lastStatus:h.status,lastReason:h.reason||null,lastDriver:h.driver||null,lastReportAt:h.date});
+        seen.add((tree.id||'')+'|'+dashDayStr(h.date));
+      });
+    });
+  }
+  trees.forEach(tree=>{
+    if(!tree.lastStatus||tree.lastStatus==='offen'||!tree.lastReportAt)return;
+    const d=dashDayStr(tree.lastReportAt);
+    if(!dashInRange(d))return;
+    const key=(tree.id||'')+'|'+d;
+    if(seen.has(key))return;
+    seen.add(key); out.push({...tree});
+  });
+  return out;
+}
+
+function renderDashboard(){
+  if(!currentProjectId){ const g=document.getElementById('dash-kpi-grid'); if(g) g.innerHTML='<div style="padding:20px;color:var(--text3);">Bitte zuerst ein Projekt öffnen.</div>'; return; }
+  const {from,to}=dashGetDateRange();
+  const reported=dashBuildReported();
+  const rl=document.getElementById('dash-range-label');
+  if(rl) rl.textContent = dashPeriod==='all'?'Gesamter Zeitraum':`${dashFmtDE(from)} – ${dashFmtDE(to)}`;
+  const bew=reported.filter(r=>r.lastStatus==='bewaessert');
+  const nicht=reported.filter(r=>r.lastStatus==='nicht');
+  const meldungen=bew.length+nicht.length;
+  const pct=meldungen>0?Math.round(bew.length/meldungen*100):0;
+  const aktiveFahrer=new Set(reported.map(r=>r.lastDriver).filter(Boolean)).size;
+  const grid=document.getElementById('dash-kpi-grid');
+  if(grid) grid.innerHTML=[
+    {val:trees.filter(isActive).length,lbl:'Bäume gesamt',sub:'im Projekt',color:'var(--text)'},
+    {val:bew.length,lbl:'Bewässert',sub:`${pct}% der Meldungen`,color:'var(--green)'},
+    {val:nicht.length,lbl:'Nicht bewässert',sub:'im Zeitraum',color:'var(--red)'},
+    {val:meldungen,lbl:'Meldungen',sub:'gesamt im Zeitraum',color:'var(--blue)'},
+    {val:aktiveFahrer,lbl:'Aktive Fahrer',sub:'im Zeitraum',color:'var(--amber)'},
+  ].map(k=>`<div class="dsh-tile"><div class="dsh-val" style="color:${k.color};">${k.val}</div><div class="dsh-lbl">${k.lbl}</div><div class="dsh-sub">${k.sub}</div></div>`).join('');
+  dashRenderTourProgress(reported);
+  dashRenderReasons(nicht);
+  dashRenderNichtMap(nicht);
+  dashRenderTimeline(reported,from,to);
+  const u=document.getElementById('dash-updated');
+  if(u) u.textContent='Stand: '+new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
+}
+
+function dashRenderTourProgress(reported){
+  const el=document.getElementById('dash-tour-progress'); if(!el)return;
+  if(tours.length===0){ el.innerHTML='<div class="dsh-empty">Keine Touren angelegt</div>'; return; }
+  const tourIdsByTreeId={}; trees.forEach(x=>{ tourIdsByTreeId[x.id]=getTreeTourIds(x); });
+  const repTourIds=(r)=>{ if(r._tourId)return[r._tourId]; const live=tourIdsByTreeId[r.id]; if(live&&live.length)return live; return getTreeTourIds(r); };
+  el.innerHTML=tours.map(t=>{
+    const total=trees.filter(x=>treeInTour(x,t.id)&&isActive(x)).length;
+    const rep=reported.filter(r=>repTourIds(r).includes(t.id));
+    const bewIds=new Set(rep.filter(r=>r.lastStatus==='bewaessert').map(r=>r.id));
+    const nichtIds=new Set(rep.filter(r=>r.lastStatus==='nicht'&&!bewIds.has(r.id)).map(r=>r.id));
+    const bewN=bewIds.size,nichtN=nichtIds.size;
+    const offen=Math.max(0,total-bewN-nichtN);
+    const base=Math.max(total,bewN+nichtN,1);
+    const bewW=bewN/base*100,nichtW=nichtN/base*100,offenW=offen/base*100;
+    const pct=total>0?Math.round(bewN/total*100):(bewN+nichtN>0?Math.round(bewN/(bewN+nichtN)*100):0);
+    const color=t.color||TOUR_COLORS[0];
+    return `<div class="dsh-tour-row">
+      <div class="dsh-tour-head">
+        <span class="dsh-dot" style="background:${color};"></span>
+        <span class="dsh-tour-name">${t.name||'Tour'}</span>
+        <span class="dsh-tour-pct">${pct}%</span>
+      </div>
+      <div class="dsh-bar">
+        <div class="seg" style="width:${bewW}%;background:var(--green);"></div>
+        <div class="seg" style="width:${nichtW}%;background:var(--dsh-red-mid);"></div>
+        <div class="seg" style="width:${offenW}%;background:transparent;"></div>
+      </div>
+      <div class="dsh-tour-meta">
+        <span><b style="color:var(--green);">${bewN}</b> bew.</span>
+        <span><b style="color:var(--red);">${nichtN}</b> nicht</span>
+        <span><b>${offen}</b> offen</span>
+        <span style="margin-left:auto;">${total} Bäume</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function dashRenderReasons(nichtTrees){
+  const el=document.getElementById('dash-reasons'); if(!el)return;
+  const map={};
+  nichtTrees.forEach(t=>{ const r=t.lastReason||'Kein Grund angegeben'; map[r]=(map[r]||0)+1; });
+  const sorted=Object.entries(map).sort((a,b)=>b[1]-a[1]);
+  if(sorted.length===0){ el.innerHTML='<div class="dsh-empty">Keine Ausfälle im Zeitraum 🎉</div>'; return; }
+  const max=sorted[0][1];
+  el.innerHTML=sorted.map(([reason,cnt])=>`
+    <div class="dsh-reason-row">
+      <div class="dsh-reason-head"><span>${reason}</span><b>${cnt}</b></div>
+      <div class="dsh-reason-bar"><div class="fill" style="width:${Math.round(cnt/max*100)}%;"></div></div>
+    </div>`).join('');
+}
+
+function dashNichtIcon(){
+  return window.L.divIcon({ className:'',
+    html:'<div style="width:18px;height:18px;border-radius:50%;background:#dc2626;border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);"></div>',
+    iconSize:[18,18], iconAnchor:[9,9] });
+}
+
+function dashRenderNichtMap(nichtReports){
+  const L=window.L; const wrap=document.getElementById('dash-nicht-map');
+  if(!L||!wrap)return;
+  if(!dashNichtMap){
+    dashNichtMap=L.map('dash-nicht-map',{zoomControl:true,attributionControl:false}).setView([50.0,8.42],12);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(dashNichtMap);
+    dashNichtLayer=L.layerGroup().addTo(dashNichtMap);
+    setTimeout(()=>dashNichtMap.invalidateSize(),200);
+  }
+  dashNichtLayer.clearLayers();
+  const byId={};
+  nichtReports.forEach(r=>{ const k=r.id||(r.lat+','+r.lng); if(!byId[k]||(r.lastReportAt||'')>(byId[k].lastReportAt||'')) byId[k]=r; });
+  const uniq=Object.values(byId);
+  const withCoords=uniq.filter(r=>r.lat&&r.lng);
+  const ohne=uniq.length-withCoords.length;
+  const countEl=document.getElementById('dash-map-count'); if(countEl) countEl.textContent=uniq.length>0?`${uniq.length} Bäume`:'';
+  const noteEl=document.getElementById('dash-map-note'); if(noteEl) noteEl.textContent=ohne>0?`${ohne} ohne Koordinaten (nicht auf der Karte)`:'';
+  const emptyEl=document.getElementById('dash-map-empty'); if(emptyEl) emptyEl.classList.toggle('show', uniq.length===0);
+  const pts=[];
+  withCoords.forEach(r=>{
+    const d=r.lastReportAt?new Date(r.lastReportAt).toLocaleDateString('de-DE'):'–';
+    const meta=[r.stadtteil,r.baumnr].filter(Boolean).join(' · ');
+    const popup=`<b>${r.name||'Baum'}</b>`+(meta?`<br>${meta}`:'')+(r.art?`<br><i>${r.art}</i>`:'')+
+      `<br>Grund: <b style="color:#dc2626;">${r.lastReason||'nicht angegeben'}</b>`+
+      (r.lastNote?`<br>Notiz: ${r.lastNote}`:'')+(r.lastDriver?`<br>Fahrer: ${r.lastDriver}`:'')+`<br>${d}`;
+    L.marker([r.lat,r.lng],{icon:dashNichtIcon()}).bindPopup(popup).addTo(dashNichtLayer);
+    pts.push([r.lat,r.lng]);
+  });
+  if(pts.length>0) dashNichtMap.fitBounds(L.latLngBounds(pts),{padding:[40,40],maxZoom:16});
+  setTimeout(()=>dashNichtMap.invalidateSize(),100);
+}
+
+function dashRenderTimeline(reported, from, to){
+  const canvas=document.getElementById('dash-timeline-chart');
+  if(!canvas||!window.Chart)return;
+  let start=from,end=to;
+  if(dashPeriod==='all'){
+    const dates=reported.map(r=>dashDayStr(r.lastReportAt)).filter(Boolean).sort();
+    start=dates.length?new Date(dates[0]+'T00:00:00'):new Date(to.getTime()-30*86400000);
+    end=new Date();
+  }
+  const spanDays=Math.round((end-start)/86400000)+1;
+  const monthly=spanDays>92;
+  const buckets={}; const order=[];
+  const pad=n=>String(n).padStart(2,'0');
+  const keyOf=(d)=> monthly?`${d.getFullYear()}-${pad(d.getMonth()+1)}`:`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  const cur=new Date(start.getFullYear(),start.getMonth(),monthly?1:start.getDate());
+  let guard=0;
+  while(cur<=end&&guard++<2000){
+    const k=keyOf(cur);
+    if(!(k in buckets)){ buckets[k]={bew:0,nicht:0}; order.push(k); }
+    if(monthly) cur.setMonth(cur.getMonth()+1); else cur.setDate(cur.getDate()+1);
+  }
+  reported.forEach(r=>{
+    if(!r.lastReportAt)return;
+    const rd=new Date(r.lastReportAt); if(isNaN(rd))return;
+    const k=keyOf(rd); if(!buckets[k])return;
+    if(r.lastStatus==='bewaessert') buckets[k].bew++;
+    else if(r.lastStatus==='nicht') buckets[k].nicht++;
+  });
+  const labels=order.map(k=>{ if(monthly){ const[y,m]=k.split('-'); return `${m}/${y.slice(2)}`; } const d=new Date(k+'T12:00:00'); return `${d.getDate()}.${d.getMonth()+1}.`; });
+  if(dashTimelineChart) dashTimelineChart.destroy();
+  dashTimelineChart=new Chart(canvas,{
+    type:'line',
+    data:{ labels, datasets:[
+      {label:'Bewässert', data:order.map(k=>buckets[k].bew), borderColor:'#16a34a', backgroundColor:'rgba(22,163,74,.12)', fill:true, tension:.3, pointRadius:labels.length>40?0:3, borderWidth:2},
+      {label:'Nicht bewässert', data:order.map(k=>buckets[k].nicht), borderColor:'#dc2626', backgroundColor:'rgba(220,38,38,.08)', fill:true, tension:.3, pointRadius:labels.length>40?0:3, borderWidth:2},
+    ]},
+    options:{ responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{legend:{position:'bottom',labels:{font:{size:11},padding:12,boxWidth:14}}},
+      scales:{ x:{ticks:{font:{size:10},maxRotation:0,autoSkip:true,maxTicksLimit:12}, grid:{display:false}},
+               y:{beginAtZero:true,ticks:{font:{size:11},precision:0}}}
+    }
+  });
+}
+
+async function loadDashTourHistory(){
+  if(!currentProjectId)return;
+  try{
+    const snap=await getDocs(collection(db,'projects',currentProjectId,'tourHistory'));
+    dashTourHistory=snap.docs.map(d=>({id:d.id,...d.data()}));
+    dashTourHistoryLoaded=true;
+    if(currentView==='dashboard') renderDashboard();
+  }catch(e){ console.warn('dashboard tourHistory:',e); }
+}
+
+function dashSetPeriod(p,el){
+  dashPeriod=p;
+  document.querySelectorAll('.dsh-period-btn').forEach(b=>b.classList.remove('active'));
+  if(el) el.classList.add('active');
+  const cd=document.getElementById('dash-custom-dates'); if(cd) cd.style.display=p==='custom'?'flex':'none';
+  if(p!=='custom') renderDashboard();
+}
+
+async function refreshDashboard(){
+  const icon=document.getElementById('dash-refresh-icon'); if(icon) icon.style.animation='dsh-spin .7s linear infinite';
+  await loadDashTourHistory();
+  renderDashboard();
+  if(icon) setTimeout(()=>icon.style.animation='',700);
+}
+
+function initDashboard(){
+  dashTourHistoryLoaded=false;
+  renderDashboard();        // sofort mit Live-Daten (tree.history/lastStatus)
+  loadDashTourHistory();    // dann autoritativ aus tourHistory nachladen
+  setTimeout(()=>{ if(dashNichtMap) dashNichtMap.invalidateSize(); },200);
+}
+
 Object.assign(window,{
-  saveInlineFields,filterDetailTable,filterBaeumeTable,saveHistoryEdits,deleteHistoryEntry,refreshControlling,setAutoRefresh,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
+  dashSetPeriod,renderDashboard,refreshDashboard,
+  saveInlineFields,filterDetailTable,filterBaeumeTable,saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,
   createProject,openProject,showProjectScreen,
   switchView,openDetail,closePanel,logWatering,
