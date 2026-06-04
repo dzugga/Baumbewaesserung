@@ -1957,11 +1957,13 @@ function switchView(v){
   const touren=document.getElementById('view-touren');
   const controlling=document.getElementById('view-controlling');
   const dashboard=document.getElementById('view-dashboard');
+  const ki=document.getElementById('view-ki');
   const verwaltung=document.getElementById('view-verwaltung');
   if(baeume) baeume.style.display=v==='baeume'?'flex':'none';
   if(touren) touren.style.display=v==='touren'?'block':'none';
   if(controlling) controlling.style.display=v==='controlling'?'flex':'none';
   if(dashboard) dashboard.style.display=v==='dashboard'?'flex':'none';
+  if(ki) ki.style.display=v==='ki'?'flex':'none';
   if(verwaltung) verwaltung.style.display=v==='verwaltung'?'block':'none';
   // Karte: always visible underneath, just hidden by overlays
   if(v==='karte') setTimeout(()=>map.invalidateSize(),10);
@@ -1978,6 +1980,7 @@ function switchView(v){
     updateCtrlLastUpdated();
   }
   if(v==='dashboard') initDashboard(); // einmaliges Laden; danach nur per Refresh-Button
+  if(v==='ki') renderKi();
   if(v==='verwaltung') initVerwaltung();
 }
 
@@ -3863,7 +3866,94 @@ function initDashboard(){
   setTimeout(()=>{ if(dashNichtMap) dashNichtMap.invalidateSize(); },200);
 }
 
+// ─── KI-AUSWERTUNG (Prompt-Bibliothek) ───────────────────────
+function buildKiContext(){
+  if(!currentProjectId) return 'Kein Projekt geöffnet.';
+  const active=trees.filter(isActive);
+  const cntZ=k=>active.filter(t=>t.zustand===k).length;
+  const grp=(arr,key,top)=>{ const m={}; arr.forEach(t=>{const v=key(t)||'—';m[v]=(m[v]||0)+1;}); let e=Object.entries(m).sort((a,b)=>b[1]-a[1]); if(top)e=e.slice(0,top); return e.map(([k,n])=>`${k}: ${n}`).join(', '); };
+  const bew=active.filter(t=>t.lastStatus==='bewaessert').length;
+  const nicht=active.filter(t=>t.lastStatus==='nicht').length;
+  const offen=active.filter(t=>!t.lastStatus||t.lastStatus==='offen').length;
+  const gruende=grp(active.filter(t=>t.lastStatus==='nicht'), t=>t.lastReason)||'keine';
+  const tourStr=tours.map(t=>{ const c=active.filter(x=>treeInTour(x,t.id)).length; const rt=tourRoutes[t.id]; return `${t.name}: ${c} Objekte${rt?`, ${rt.km.toFixed(1)} km`:''}`; }).join(' | ')||'keine';
+  return [
+    `Projekt: ${currentProjectData?.name||currentProjectId}`,
+    `Objekte gesamt (aktiv): ${active.length}`,
+    `Zustand: gut ${cntZ('gut')}, mittel ${cntZ('mittel')}, schlecht ${cntZ('schlecht')}`,
+    `Letzter Status: bewässert ${bew}, nicht bewässert ${nicht}, offen ${offen}`,
+    `Gründe „nicht bewässert": ${gruende}`,
+    `Objekte je Stadtteil: ${grp(active,t=>t.stadtteil)}`,
+    `Top-Baumarten: ${grp(active,t=>t.art,8)}`,
+    `Pflanzjahre: ${grp(active,t=>t.pflanzjahr,8)}`,
+    `Touren (${tours.length}): ${tourStr}`,
+  ].join('\n');
+}
+
+const KI_PROMPTS=[
+  {id:'ausfall',icon:'⚠️',title:'Ausfallanalyse',desc:'Warum werden Objekte nicht versorgt? Muster & Maßnahmen.',
+   build:c=>`Du bist Experte für kommunales Grünflächen- und Baumbewässerungsmanagement. Analysiere die folgenden Daten. Finde Muster bei den nicht bewässerten Objekten (Gründe, Stadtteile, Touren), nenne die 3 wichtigsten Ursachen und konkrete, umsetzbare Maßnahmen zur Reduzierung der Ausfälle.\n\nDaten:\n${c}`},
+  {id:'touren',icon:'🚐',title:'Tour-Effizienz',desc:'Ineffiziente Touren erkennen, Objekte sinnvoll umverteilen.',
+   build:c=>`Analysiere die Touren hinsichtlich Effizienz (Anzahl Objekte je Tour, Streckenlänge). Identifiziere unausgewogene oder ineffiziente Touren und schlage eine bessere Aufteilung der Objekte vor, um den Fahraufwand zu minimieren. Begründe kurz.\n\nDaten:\n${c}`},
+  {id:'risiko',icon:'🌡️',title:'Zustands-Risiko',desc:'Objekte/Stadtteile mit schlechtem Zustand priorisieren.',
+   build:c=>`Bewerte das Risiko für Trockenstress. Welche Stadtteile oder Objektgruppen mit schlechtem Zustand und geringer Bewässerung sind besonders gefährdet? Erstelle eine priorisierte Handlungsliste für die kommende Woche.\n\nDaten:\n${c}`},
+  {id:'abdeckung',icon:'🗺️',title:'Abdeckungs-Lücken',desc:'Wo fehlt Versorgung? Abdeckungsgrad je Gebiet.',
+   build:c=>`Ermittle Versorgungslücken: Welche Objekte/Stadtteile sind „offen" (keine Meldung)? Wie hoch ist der Abdeckungsgrad je Stadtteil und Tour? Wo besteht der größte Handlungsbedarf?\n\nDaten:\n${c}`},
+  {id:'jung',icon:'🌱',title:'Jungbaum-Check',desc:'Werden frisch gepflanzte Objekte ausreichend versorgt?',
+   build:c=>`Jung gepflanzte Bäume benötigen besonders viel Wasser. Prüfe anhand der Pflanzjahre, ob die jüngsten Objekte ausreichend bewässert werden, und gib konkrete Empfehlungen für deren Pflege.\n\nDaten:\n${c}`},
+  {id:'bericht',icon:'📋',title:'Management-Bericht',desc:'Kompakter Wochenbericht für die Amtsleitung.',
+   build:c=>`Erstelle einen prägnanten Management-Wochenbericht (max. 1 Seite) zur Baumbewässerung: aktuelle Lage, Fortschritt, Ausfälle, Risiken und 3 Empfehlungen. Sachlicher Ton, für die Amtsleitung.\n\nDaten:\n${c}`},
+  {id:'frei',icon:'💬',title:'Eigene Frage',desc:'Freie Frage an die KI – Projektdaten als Kontext.',
+   build:c=>`Beantworte die folgende Frage zur Baumbewässerung anhand der Daten.\n\nFRAGE: [hier deine Frage eintragen]\n\nDaten:\n${c}`},
+];
+
+function renderKi(){
+  const grid=document.getElementById('ki-grid'); if(!grid) return;
+  grid.innerHTML=KI_PROMPTS.map(p=>`<button class="ki-card" onclick="openKiPrompt('${p.id}')">
+    <div class="ki-ic">${p.icon}</div>
+    <div class="ki-tt">${p.title}</div>
+    <div class="ki-dd">${p.desc}</div>
+  </button>`).join('');
+}
+
+function openKiPrompt(id){
+  const p=KI_PROMPTS.find(x=>x.id===id); if(!p) return;
+  if(!currentProjectId){ notify('Bitte zuerst ein Projekt öffnen'); return; }
+  const text=p.build(buildKiContext());
+  const modal=document.createElement('div');
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;';
+  const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  modal.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);width:780px;max-width:96vw;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;">
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;">
+      <span style="font-size:20px;">${p.icon}</span>
+      <div style="flex:1;min-width:0;"><div style="font-size:15px;font-weight:700;">${p.title}</div><div style="font-size:12px;color:var(--text3);">${p.desc}</div></div>
+      <button id="ki-close" style="border:none;background:none;cursor:pointer;color:var(--text2);font-size:22px;line-height:1;">×</button>
+    </div>
+    <div style="padding:14px 20px;overflow:auto;">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:6px;">Prompt (editierbar) – kopieren und in deinen KI-Dienst einfügen:</div>
+      <textarea id="ki-text" style="width:100%;height:320px;font-family:'DM Mono',monospace;font-size:12px;line-height:1.5;border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;resize:vertical;background:var(--bg);color:var(--text);outline:none;">${esc(text)}</textarea>
+      <div style="font-size:11px;color:var(--amber);margin-top:8px;">⚠ Die Projektdaten sind im Prompt enthalten. Beim Einfügen in einen externen KI-Dienst verlassen sie die App.</div>
+    </div>
+    <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
+      <button id="ki-copy" class="btn btn-primary">📋 Prompt kopieren</button>
+      <a href="https://chatgpt.com/" target="_blank" rel="noopener" class="btn btn-secondary">ChatGPT öffnen ↗</a>
+      <a href="https://claude.ai/new" target="_blank" rel="noopener" class="btn btn-secondary">Claude öffnen ↗</a>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+  const close=()=>modal.remove();
+  modal.querySelector('#ki-close').onclick=close;
+  modal.addEventListener('click',e=>{ if(e.target===modal) close(); });
+  modal.querySelector('#ki-copy').onclick=()=>{
+    const ta=modal.querySelector('#ki-text');
+    const ok=()=>notify('Prompt kopiert');
+    if(navigator.clipboard?.writeText) navigator.clipboard.writeText(ta.value).then(ok).catch(()=>{ta.select();document.execCommand('copy');ok();});
+    else { ta.select(); document.execCommand('copy'); ok(); }
+  };
+}
+
 Object.assign(window,{
+  openKiPrompt,renderKi,
   dashSetPeriod,renderDashboard,refreshDashboard,
   saveInlineFields,filterDetailTable,filterBaeumeTable,saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,
