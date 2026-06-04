@@ -1233,6 +1233,51 @@ const CACHE_KEY = 'bwt_offline_trees';
 const QUEUE_KEY = 'bwt_offline_queue';
 let isOnline = navigator.onLine;
 let syncInProgress = false;
+let _queueLen = 0;
+
+// IndexedDB key-value store — ersetzt localStorage (von Edge Tracking Prevention blockiert)
+const IDB_NAME = 'bwt_offline', IDB_STORE = 'kv';
+let _idbPromise = null;
+function idbOpen(){
+  if(_idbPromise) return _idbPromise;
+  _idbPromise = new Promise((resolve,reject)=>{
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = ()=>req.result.createObjectStore(IDB_STORE);
+    req.onsuccess = ()=>resolve(req.result);
+    req.onerror = ()=>reject(req.error);
+  });
+  return _idbPromise;
+}
+async function idbGet(key){
+  const db = await idbOpen();
+  return new Promise((resolve,reject)=>{
+    const req = db.transaction(IDB_STORE,'readonly').objectStore(IDB_STORE).get(key);
+    req.onsuccess = ()=>resolve(req.result);
+    req.onerror = ()=>reject(req.error);
+  });
+}
+async function idbSet(key,val){
+  const db = await idbOpen();
+  return new Promise((resolve,reject)=>{
+    const tx = db.transaction(IDB_STORE,'readwrite');
+    tx.objectStore(IDB_STORE).put(val,key);
+    tx.oncomplete = ()=>resolve();
+    tx.onerror = ()=>reject(tx.error);
+  });
+}
+
+// Einmalige Migration alter localStorage-Daten → IndexedDB + Badge-Init
+async function initOfflineStore(){
+  try {
+    const lsQueue = localStorage.getItem(QUEUE_KEY);
+    if(lsQueue){ try{ await idbSet(QUEUE_KEY, JSON.parse(lsQueue)); }catch(e){} localStorage.removeItem(QUEUE_KEY); }
+    const lsCache = localStorage.getItem(CACHE_KEY);
+    if(lsCache){ try{ await idbSet(CACHE_KEY, JSON.parse(lsCache)); }catch(e){} localStorage.removeItem(CACHE_KEY); }
+  } catch(e){}
+  _queueLen = (await getOfflineQueue()).length;
+  updateNetworkBadge();
+}
+initOfflineStore();
 
 // Network status monitoring
 window.addEventListener('online', ()=>{
@@ -1253,55 +1298,47 @@ function updateNetworkBadge(){
     badge.style.display = 'none';
   } else {
     badge.style.display = 'flex';
-    const q = getOfflineQueue();
-    badge.textContent = q.length > 0 ? `Offline · ${q.length} ausstehend` : 'Offline';
+    badge.textContent = _queueLen > 0 ? `Offline · ${_queueLen} ausstehend` : 'Offline';
   }
 }
 
 // ── Local tree cache ──────────────────────────────────────────
-function cacheTreesLocally(projectId, tourId, treesData){
+async function cacheTreesLocally(projectId, tourId, treesData){
   try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify({
-      projectId, tourId,
-      trees: treesData,
-      cachedAt: new Date().toISOString()
-    }));
+    await idbSet(CACHE_KEY, { projectId, tourId, trees: treesData, cachedAt: new Date().toISOString() });
   } catch(e){ console.warn('Cache write failed:', e); }
 }
 
-function loadCachedTrees(projectId, tourId){
+async function loadCachedTrees(projectId, tourId){
   try {
-    const raw = localStorage.getItem(CACHE_KEY);
-    if(!raw) return null;
-    const data = JSON.parse(raw);
-    if(data.projectId === projectId && data.tourId === tourId){
-      return data.trees;
-    }
+    const data = await idbGet(CACHE_KEY);
+    if(data && data.projectId === projectId && data.tourId === tourId) return data.trees;
   } catch(e){}
   return null;
 }
 
 // ── Offline queue ─────────────────────────────────────────────
-function getOfflineQueue(){
-  try { return JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]'); }
+async function getOfflineQueue(){
+  try { return (await idbGet(QUEUE_KEY)) || []; }
   catch(e){ return []; }
 }
 
-function addToOfflineQueue(treeId, updates){
-  const q = getOfflineQueue();
+async function addToOfflineQueue(treeId, updates){
+  const q = await getOfflineQueue();
   // Replace existing entry for same tree (latest wins)
   const idx = q.findIndex(e=>e.treeId===treeId);
   const entry = { treeId, updates, projectId: currentProjectId, queuedAt: new Date().toISOString() };
   if(idx>=0) q[idx] = entry;
   else q.push(entry);
-  localStorage.setItem(QUEUE_KEY, JSON.stringify(q));
+  await idbSet(QUEUE_KEY, q);
+  _queueLen = q.length;
   updateNetworkBadge();
 }
 
 
 async function syncOfflineQueue(){
   if(syncInProgress || !isOnline) return;
-  const q = getOfflineQueue();
+  const q = await getOfflineQueue();
   if(q.length === 0) return;
 
   syncInProgress = true;
@@ -1324,7 +1361,8 @@ async function syncOfflineQueue(){
     }
   }
 
-  localStorage.setItem(QUEUE_KEY, JSON.stringify(failed));
+  await idbSet(QUEUE_KEY, failed);
+  _queueLen = failed.length;
   syncInProgress = false;
 
   if(synced > 0){
