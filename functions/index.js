@@ -13,7 +13,8 @@ exports.geminiAnalyse = onRequest(
     const model = (req.body && req.body.model) || 'gemini-2.5-flash';
     if (!prompt) { res.status(400).json({ error: 'prompt fehlt' }); return; }
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY.value()}`;
+      const key = (GEMINI_KEY.value() || '').trim();
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
       const r = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
