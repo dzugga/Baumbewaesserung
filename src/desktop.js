@@ -128,9 +128,6 @@ const baseSat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/service
 L.control.layers({'Karte':baseOSM,'Satellit':baseSat}, null, {position:'topleft', collapsed:false}).addTo(map);
 L.control.zoom({position:'bottomleft'}).addTo(map);
 
-map.on('mousemove',e=>{
-  document.getElementById('map-coords').textContent=`${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`;
-});
 map.on('click',e=>{
   if(placingTree){ cancelMode(); openAddTree(e.latlng.lat,e.latlng.lng); }
   else if(placingDepot){
