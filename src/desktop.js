@@ -664,6 +664,11 @@ function updateRouteInfoBar(){
 
 // ─── MARKERS ──────────────────────────────────────────────────
 function getRouteNum(treeId){
+  // Bei angezeigter Tour deren Reihenfolge bevorzugen (Objekt kann mehreren Touren angehören)
+  if(activeTourOnMap && tourOrder[activeTourOnMap]){
+    const idx=tourOrder[activeTourOnMap].indexOf(treeId);
+    if(idx!==-1) return idx+1;
+  }
   for(const [,order] of Object.entries(tourOrder)){
     const idx=order.indexOf(treeId);
     if(idx!==-1)return idx+1;
@@ -673,7 +678,10 @@ function getRouteNum(treeId){
 
 function makeMarker(tree){
   const treeTourIds=getTreeTourIds(tree);
-  const tour=primaryTour(tree);
+  // Bei angezeigter Tour deren Farbe verwenden, wenn das Objekt zu ihr gehört
+  const tour=(activeTourOnMap && treeTourIds.includes(activeTourOnMap))
+    ? tours.find(t=>t.id===activeTourOnMap)
+    : primaryTour(tree);
   const color=tour?tour.color:'#6b6760';
   const num=getRouteNum(tree.id);
   const isHighlighted=selectedTreeId===tree.id;
@@ -957,7 +965,8 @@ function renderList(){
   } else {
     list.innerHTML=filtered.map(tree=>{
       const treeTours=getTreeTourIds(tree).map(id=>tours.find(t=>t.id===id)).filter(Boolean);
-      const primaryT=treeTours[0]||null;
+      // Bei angezeigter Tour deren Farbe bevorzugen
+      const primaryT=(activeTourOnMap&&treeTours.find(t=>t.id===activeTourOnMap))||treeTours[0]||null;
       const color=primaryT?.color||null;
       const zBadge={gut:'badge-ok',mittel:'badge-warn',schlecht:'badge-crit'}[tree.zustand]||'badge-gray';
       const bg=color?color+'22':'#f0ede6';
