@@ -128,7 +128,51 @@ const baseOSM = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
   {maxZoom:19, attribution:'© OpenStreetMap'}).addTo(map);
 const baseSat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
   {maxZoom:19, attribution:'© Esri, Maxar, Earthstar Geographics'});
-L.control.layers({'Karte':baseOSM,'Satellit':baseSat}, null, {position:'topleft', collapsed:false}).addTo(map);
+
+// ── WMS-Kartenebenen (vom Nutzer verwaltbar, in localStorage) ──
+const WMS_STORE_KEY='wms_layers_v1';
+const WMS_DEFAULTS=[
+  {id:'he-dop20', name:'Luftbild Hessen (DOP20)',
+   url:'https://www.gds-srv.hessen.de/cgi-bin/lika-services/de-viewer/access/ogc-free-images.ows',
+   layers:'he_dop20_rgb', type:'base', format:'image/png', version:'1.3.0', transparent:false, maxZoom:20,
+   attribution:'Geobasisdaten © HVBG Hessen'},
+  {id:'he-alkis', name:'Liegenschaftskataster',
+   url:'https://inspire-hessen.de/ows/services/org.2.d66ec21e-39e7-45c4-bf68-438e8baea882_wms',
+   layers:'CP.CadastralParcel', type:'overlay', format:'image/png', version:'1.1.1', transparent:true, maxZoom:20,
+   attribution:'Geobasisdaten © HVBG Hessen'},
+];
+function getWmsLayers(){
+  try{ const raw=localStorage.getItem(WMS_STORE_KEY); if(raw) return JSON.parse(raw); }catch(e){}
+  saveWmsLayers(WMS_DEFAULTS); return WMS_DEFAULTS.map(x=>({...x}));
+}
+function saveWmsLayers(arr){ try{ localStorage.setItem(WMS_STORE_KEY, JSON.stringify(arr)); }catch(e){} }
+function buildWmsLayer(cfg){
+  return L.tileLayer.wms(cfg.url, {
+    layers:cfg.layers, format:cfg.format||'image/png', version:cfg.version||'1.3.0',
+    transparent:!!cfg.transparent, maxZoom:cfg.maxZoom||20, attribution:cfg.attribution||''});
+}
+
+let layerControl=null;
+let wmsLayerInstances={}; // id -> aktuelle Leaflet-Ebene
+function rebuildLayerControl(){
+  // aktive Custom-Ebenen merken, dann alle entfernen
+  const active=new Set();
+  Object.entries(wmsLayerInstances).forEach(([id,lyr])=>{ if(map.hasLayer(lyr)) active.add(id); map.removeLayer(lyr); });
+  wmsLayerInstances={};
+  if(layerControl){ map.removeControl(layerControl); layerControl=null; }
+  const bases={'Karte':baseOSM,'Satellit':baseSat};
+  const overlays={};
+  let customBaseActive=false;
+  getWmsLayers().forEach(c=>{
+    const lyr=buildWmsLayer(c); wmsLayerInstances[c.id]=lyr;
+    if(c.type==='overlay'){ overlays[c.name]=lyr; if(active.has(c.id)) lyr.addTo(map); }
+    else { bases[c.name]=lyr; if(active.has(c.id)){ lyr.addTo(map); customBaseActive=true; } }
+  });
+  if(customBaseActive){ map.removeLayer(baseOSM); map.removeLayer(baseSat); }
+  else if(!map.hasLayer(baseOSM)&&!map.hasLayer(baseSat)){ baseOSM.addTo(map); } // Standard: Karte
+  layerControl=L.control.layers(bases, overlays, {position:'topleft', collapsed:true}).addTo(map);
+}
+rebuildLayerControl();
 L.control.zoom({position:'bottomleft'}).addTo(map);
 
 map.on('click',e=>{
@@ -1678,11 +1722,43 @@ function openSettings(){
   el.style.color=depot?.lat?'var(--green)':'var(--text3)';
   document.getElementById('geocode-result').style.display='none';
   document.getElementById('geocode-error').style.display='none';
+  renderWmsList();
   document.getElementById('settings-panel').classList.add('open');
 }
 function closeSettings(){
   // Restore route bar
   updateRouteInfoBar(); document.getElementById('settings-panel').classList.remove('open'); }
+
+// ── WMS-Verwaltung (Einstellungen) ──
+function renderWmsList(){
+  const el=document.getElementById('wms-list'); if(!el) return;
+  const list=getWmsLayers();
+  if(!list.length){ el.innerHTML='<div style="font-size:12px;color:var(--text3);">Noch keine WMS-Ebenen.</div>'; return; }
+  el.innerHTML=list.map(l=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:6px;background:var(--surface);">
+    <span style="flex:1;min-width:0;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${l.name}</span>
+    <span style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;flex-shrink:0;">${l.type==='overlay'?'Overlay':'Basis'}</span>
+    <button onclick="deleteWmsLayer('${l.id}')" title="Löschen" style="border:none;background:none;cursor:pointer;color:var(--red);padding:2px 4px;flex-shrink:0;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+    </button>
+  </div>`).join('');
+}
+function addWmsLayer(){
+  const v=id=>document.getElementById(id)?.value.trim()||'';
+  const name=v('wms-add-name'), url=v('wms-add-url'), layers=v('wms-add-layers'),
+        type=v('wms-add-type')||'overlay', version=v('wms-add-version')||'1.3.0';
+  if(!name||!url||!layers){ notify('Name, URL und Layer-Name sind erforderlich'); return; }
+  const list=getWmsLayers();
+  list.push({ id:(window.crypto?.randomUUID?crypto.randomUUID():'w'+Date.now()),
+    name, url, layers, type, format:'image/png', version, transparent:type==='overlay', maxZoom:20, attribution:'' });
+  saveWmsLayers(list); rebuildLayerControl(); renderWmsList();
+  ['wms-add-name','wms-add-url','wms-add-layers'].forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
+  notify('WMS-Ebene hinzugefügt');
+}
+function deleteWmsLayer(id){
+  saveWmsLayers(getWmsLayers().filter(l=>l.id!==id));
+  rebuildLayerControl(); renderWmsList();
+  notify('WMS-Ebene gelöscht');
+}
 
 async function geocodeDepot(){
   const addr=document.getElementById('s-depot-addr').value.trim();if(!addr)return;
@@ -3638,6 +3714,7 @@ Object.assign(window,{
   startPlacement,cancelMode,setDepotOnMap,
   startAssignMode,setAssignTour,cancelAssign,assignTreeToTour,
   openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,
+  addWmsLayer,deleteWmsLayer,renderWmsList,
   setFilter,pickColor,renderList,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,
   startGpsPlacement,toggleFilterNoGps,updateBtnFilterNoGps,

@@ -437,6 +437,41 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
             </select>
           </div>
           </div>
+          <div class="form-section" style="margin-top:18px;">Kartenebenen (WMS)</div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:8px;">Eigene WMS-Dienste als Basiskarte oder Overlay. Erscheinen im Layer-Umschalter (Karte oben links).</div>
+          <div id="wms-list" style="margin-bottom:10px;"></div>
+          <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;background:var(--surface2);">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin-bottom:8px;">Neue Ebene hinzufügen</div>
+            <div class="form-group" style="margin-bottom:8px;">
+              <label class="form-label">Name</label>
+              <input class="form-control" id="wms-add-name" placeholder="z.B. Bodenkarte Hessen">
+            </div>
+            <div class="form-group" style="margin-bottom:8px;">
+              <label class="form-label">WMS-URL (ohne Parameter)</label>
+              <input class="form-control" id="wms-add-url" placeholder="https://…/ows">
+            </div>
+            <div class="form-row" style="display:flex;gap:8px;">
+              <div class="form-group" style="flex:1;margin-bottom:8px;">
+                <label class="form-label">Layer-Name(n)</label>
+                <input class="form-control" id="wms-add-layers" placeholder="z.B. he_dop20_rgb">
+              </div>
+              <div class="form-group" style="margin-bottom:8px;">
+                <label class="form-label">Typ</label>
+                <select class="form-control" id="wms-add-type" style="width:auto;">
+                  <option value="overlay">Overlay</option>
+                  <option value="base">Basiskarte</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom:8px;">
+                <label class="form-label">Version</label>
+                <select class="form-control" id="wms-add-version" style="width:auto;">
+                  <option value="1.3.0">1.3.0</option>
+                  <option value="1.1.1">1.1.1</option>
+                </select>
+              </div>
+            </div>
+            <button class="btn btn-primary" style="width:100%;" onclick="addWmsLayer()">+ WMS-Ebene hinzufügen</button>
+          </div>
           <div class="form-section" style="margin-top:18px;">Projekt</div>
           <div class="form-group">
             <label class="form-label">Projektname</label>
