@@ -3572,7 +3572,7 @@ function renderDashboard(){
   const aktiveFahrer=new Set(reported.map(r=>r.lastDriver).filter(Boolean)).size;
   const grid=document.getElementById('dash-kpi-grid');
   if(grid) grid.innerHTML=[
-    {val:trees.filter(isActive).length,lbl:'Bäume gesamt',sub:'im Projekt',color:'var(--text)'},
+    {val:trees.filter(isActive).length,lbl:'Objekte gesamt',sub:'im Projekt',color:'var(--text)'},
     {val:bew.length,lbl:'Bewässert',sub:`${pct}% der Meldungen`,color:'var(--green)'},
     {val:nicht.length,lbl:'Nicht bewässert',sub:'im Zeitraum',color:'var(--red)'},
     {val:meldungen,lbl:'Meldungen',sub:'gesamt im Zeitraum',color:'var(--blue)'},

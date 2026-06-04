@@ -143,7 +143,7 @@ function render(){
 
   // KPI-Kacheln
   document.getElementById('kpi-grid').innerHTML=[
-    {val:trees.length, lbl:'Bäume gesamt', sub:'im Projekt', color:'var(--text)'},
+    {val:trees.filter(t=>t.aktiv!==false).length, lbl:'Objekte gesamt', sub:'im Projekt', color:'var(--text)'},
     {val:bew.length, lbl:'Bewässert', sub:`${pct}% der Meldungen`, color:'var(--green-dark)'},
     {val:nicht.length, lbl:'Nicht bewässert', sub:'im Zeitraum', color:'var(--red)'},
     {val:meldungen, lbl:'Meldungen', sub:'gesamt im Zeitraum', color:'var(--blue)'},
@@ -179,7 +179,7 @@ function renderTourProgress(reported){
   };
 
   el.innerHTML=tours.map(t=>{
-    const total=trees.filter(x=>treeInTour(x,t.id)).length;
+    const total=trees.filter(x=>treeInTour(x,t.id)&&x.aktiv!==false).length;
     const rep=reported.filter(r=>repTourIds(r).includes(t.id));
     const bewIds=new Set(rep.filter(r=>r.lastStatus==='bewaessert').map(r=>r.id));
     const nichtIds=new Set(rep.filter(r=>r.lastStatus==='nicht' && !bewIds.has(r.id)).map(r=>r.id));
@@ -204,7 +204,7 @@ function renderTourProgress(reported){
         <span><b style="color:var(--green-dark);">${bewN}</b> bew.</span>
         <span><b style="color:var(--red);">${nichtN}</b> nicht</span>
         <span><b>${offen}</b> offen</span>
-        <span style="margin-left:auto;">${total} Bäume</span>
+        <span style="margin-left:auto;">${total} Objekte</span>
       </div>
     </div>`;
   }).join('');
@@ -255,7 +255,7 @@ function renderNichtMap(nichtReports){
   const ohne=uniq.length-withCoords.length;
 
   const countEl=document.getElementById('map-count');
-  if(countEl) countEl.textContent=uniq.length>0?`${uniq.length} Bäume`:'';
+  if(countEl) countEl.textContent=uniq.length>0?`${uniq.length} Objekte`:'';
   const noteEl=document.getElementById('map-note');
   if(noteEl) noteEl.textContent=ohne>0?`${ohne} ohne Koordinaten (nicht auf der Karte)`:'';
   const emptyEl=document.getElementById('map-empty');
@@ -265,7 +265,7 @@ function renderNichtMap(nichtReports){
   withCoords.forEach(r=>{
     const d=r.lastReportAt?new Date(r.lastReportAt).toLocaleDateString('de-DE'):'–';
     const meta=[r.stadtteil,r.baumnr].filter(Boolean).join(' · ');
-    const popup=`<b>${r.name||'Baum'}</b>`+
+    const popup=`<b>${r.name||'Objekt'}</b>`+
       (meta?`<br>${meta}`:'')+
       (r.art?`<br><i>${r.art}</i>`:'')+
       `<br>Grund: <b style="color:#dc2626;">${r.lastReason||'nicht angegeben'}</b>`+
