@@ -1577,10 +1577,10 @@ function showTourConflictDialog(tree, currentTour, otherTourIds){
       <div style="font-size:13px;font-weight:600;color:${color};">${title}</div>
       <div style="font-size:11px;color:var(--text3);margin-top:2px;">${desc}</div></button>`;
     modal.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);width:460px;max-width:92vw;overflow:hidden;">
-      <div style="padding:18px 20px 12px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;color:var(--amber);">⚠ Baum bereits verplant</div>
+      <div style="padding:18px 20px 12px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;color:var(--amber);">⚠ Objekt bereits verplant</div>
       <div style="padding:16px 20px;font-size:13px;color:var(--text2);line-height:1.6;">
-        Der ausgewählte Baum <b style="color:var(--text);">${tree.name||''}</b> ist bereits ${plural?'den Touren':'der Tour'} ${namesStr} zugeordnet.<br><br>
-        Möchten Sie den Baum in die Tour <b style="color:var(--text);">„${curName}"</b> übernehmen?
+        Das ausgewählte Objekt <b style="color:var(--text);">${tree.name||''}</b> ist bereits ${plural?'den Touren':'der Tour'} ${namesStr} zugeordnet.<br><br>
+        Möchten Sie das Objekt in die Tour <b style="color:var(--text);">„${curName}"</b> übernehmen?
       </div>
       <div style="padding:0 20px 18px;display:flex;flex-direction:column;gap:8px;">
         ${opt('tc-move','Übernehmen und aus bisheriger Tour entfernen',`Wird „${curName}" zugeordnet und aus ${namesStr} entfernt.`,'var(--green)')}
