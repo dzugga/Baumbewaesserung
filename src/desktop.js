@@ -326,6 +326,18 @@ function getDepotMode(){ return currentProjectData?.depotMode||'round'; }
 // Routen-Optimierung: 'nn' = bisherige Variante (Luftlinie, Nearest-Neighbor)
 //                     'matrix' = echte ORS-Fahrzeiten-Matrix + 2-opt
 function getRouteOptMode(){ return localStorage.getItem('bwt_route_opt')||'nn'; }
+// KI-Analyse-Modus: 'off' | 'manual' (Prompts kopieren) | 'auto' (Gemini) | 'both'
+function getKiMode(){ return localStorage.getItem('bwt_ki_mode')||'manual'; }
+function setKiMode(m){ localStorage.setItem('bwt_ki_mode', m); applyKiNavVisibility(); renderKiConfig(); }
+function kiHasManual(){ const m=getKiMode(); return m==='manual'||m==='both'; }
+function kiHasAuto(){ const m=getKiMode(); return m==='auto'||m==='both'; }
+// KI-Analysen-Reiter ein-/ausblenden je nach Modus
+function applyKiNavVisibility(){
+  const off=getKiMode()==='off';
+  const btn=document.querySelector('.nav-dropdown button[onclick="switchView(\'ki\')"]');
+  if(btn) btn.style.display=off?'none':'';
+  if(off && currentView==='ki') switchView('karte');
+}
 
 async function saveProjectDepot(depot){
   currentProjectData.depot=depot;
@@ -1963,12 +1975,14 @@ function switchView(v){
   const controlling=document.getElementById('view-controlling');
   const dashboard=document.getElementById('view-dashboard');
   const ki=document.getElementById('view-ki');
+  const kiconfig=document.getElementById('view-kiconfig');
   const verwaltung=document.getElementById('view-verwaltung');
   if(baeume) baeume.style.display=v==='baeume'?'flex':'none';
   if(touren) touren.style.display=v==='touren'?'block':'none';
   if(controlling) controlling.style.display=v==='controlling'?'flex':'none';
   if(dashboard) dashboard.style.display=v==='dashboard'?'flex':'none';
   if(ki) ki.style.display=v==='ki'?'flex':'none';
+  if(kiconfig) kiconfig.style.display=v==='kiconfig'?'flex':'none';
   if(verwaltung) verwaltung.style.display=v==='verwaltung'?'block':'none';
   // Karte: always visible underneath, just hidden by overlays
   if(v==='karte') setTimeout(()=>map.invalidateSize(),10);
@@ -1986,6 +2000,7 @@ function switchView(v){
   }
   if(v==='dashboard') initDashboard(); // einmaliges Laden; danach nur per Refresh-Button
   if(v==='ki') renderKi();
+  if(v==='kiconfig') renderKiConfig();
   if(v==='verwaltung') initVerwaltung();
 }
 
@@ -3935,40 +3950,83 @@ function openKiPrompt(id){
   const p=KI_PROMPTS.find(x=>x.id===id); if(!p) return;
   if(!currentProjectId){ notify('Bitte zuerst ein Projekt öffnen'); return; }
   const text=p.build(buildKiContext());
+  const esc=s=>(''+s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const auto=kiHasAuto(), manual=kiHasManual();
   const modal=document.createElement('div');
   modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;';
-  const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  modal.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);width:780px;max-width:96vw;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;">
+  const footer=[
+    auto?`<button id="ki-gemini" class="btn btn-primary">🤖 Mit Gemini auswerten</button>`:'',
+    manual?`<button id="ki-copy" class="btn ${auto?'btn-secondary':'btn-primary'}">📋 Prompt kopieren</button>`:'',
+    manual?`<a href="https://chatgpt.com/" target="_blank" rel="noopener" class="btn btn-secondary">ChatGPT ↗</a>`:'',
+    manual?`<a href="https://claude.ai/new" target="_blank" rel="noopener" class="btn btn-secondary">Claude ↗</a>`:'',
+  ].filter(Boolean).join('');
+  modal.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);width:820px;max-width:96vw;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;">
     <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;">
       <span style="font-size:20px;">${p.icon}</span>
       <div style="flex:1;min-width:0;"><div style="font-size:15px;font-weight:700;">${p.title}</div><div style="font-size:12px;color:var(--text3);">${p.desc}</div></div>
       <button id="ki-close" style="border:none;background:none;cursor:pointer;color:var(--text2);font-size:22px;line-height:1;">×</button>
     </div>
     <div style="padding:14px 20px;overflow:auto;">
-      <div style="font-size:11px;color:var(--text3);margin-bottom:6px;">Prompt (editierbar) – kopieren und in deinen KI-Dienst einfügen:</div>
-      <textarea id="ki-text" style="width:100%;height:320px;font-family:'DM Mono',monospace;font-size:12px;line-height:1.5;border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;resize:vertical;background:var(--bg);color:var(--text);outline:none;">${esc(text)}</textarea>
-      <div style="font-size:11px;color:var(--amber);margin-top:8px;">⚠ Die Projektdaten sind im Prompt enthalten. Beim Einfügen in einen externen KI-Dienst verlassen sie die App.</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:6px;">Prompt (editierbar)${auto?' – „Mit Gemini auswerten" oder ':' – '}kopieren und in einen KI-Dienst einfügen:</div>
+      <textarea id="ki-text" style="width:100%;height:${auto?'220px':'320px'};font-family:'DM Mono',monospace;font-size:12px;line-height:1.5;border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;resize:vertical;background:var(--bg);color:var(--text);outline:none;">${esc(text)}</textarea>
+      <div style="font-size:11px;color:var(--amber);margin-top:8px;">⚠ Die Projektdaten sind im Prompt enthalten.${auto?' Bei „Mit Gemini auswerten" werden sie über die Cloud Function an Google Gemini gesendet.':' Beim Einfügen in einen externen KI-Dienst verlassen sie die App.'}</div>
+      <div id="ki-result" style="display:none;margin-top:14px;"></div>
     </div>
-    <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
-      <button id="ki-copy" class="btn btn-primary">📋 Prompt kopieren</button>
-      <a href="https://chatgpt.com/" target="_blank" rel="noopener" class="btn btn-secondary">ChatGPT öffnen ↗</a>
-      <a href="https://claude.ai/new" target="_blank" rel="noopener" class="btn btn-secondary">Claude öffnen ↗</a>
-    </div>
+    <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">${footer}</div>
   </div>`;
   document.body.appendChild(modal);
   const close=()=>modal.remove();
   modal.querySelector('#ki-close').onclick=close;
   modal.addEventListener('click',e=>{ if(e.target===modal) close(); });
-  modal.querySelector('#ki-copy').onclick=()=>{
+  const copyBtn=modal.querySelector('#ki-copy');
+  if(copyBtn) copyBtn.onclick=()=>{
     const ta=modal.querySelector('#ki-text');
     const ok=()=>notify('Prompt kopiert');
     if(navigator.clipboard?.writeText) navigator.clipboard.writeText(ta.value).then(ok).catch(()=>{ta.select();document.execCommand('copy');ok();});
     else { ta.select(); document.execCommand('copy'); ok(); }
   };
+  const gemBtn=modal.querySelector('#ki-gemini');
+  if(gemBtn) gemBtn.onclick=async ()=>{
+    const res=modal.querySelector('#ki-result');
+    const promptText=modal.querySelector('#ki-text').value;
+    const old=gemBtn.textContent; gemBtn.disabled=true; gemBtn.textContent='⏳ Gemini denkt…';
+    res.style.display='block'; res.innerHTML='<div style="color:var(--text3);font-size:12px;">Antwort wird generiert…</div>';
+    try{
+      const r=await fetch('/api/gemini',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:promptText})});
+      let data={}; try{ data=await r.json(); }catch(_){}
+      if(!r.ok){
+        const det=data.detail?(' – '+esc(typeof data.detail==='string'?data.detail:JSON.stringify(data.detail))):'';
+        res.innerHTML=`<div style="color:var(--red);font-size:12px;">Fehler (${r.status}): ${esc(data.error||'unbekannt')}${det}</div>`;
+      } else {
+        const ans=data.text||'(leere Antwort)';
+        res.innerHTML=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span style="font-size:11px;font-weight:700;color:var(--green);">🤖 GEMINI-ANTWORT</span><button id="ki-ans-copy" class="btn btn-secondary" style="padding:2px 8px;font-size:11px;margin-left:auto;">Antwort kopieren</button></div>
+          <div style="white-space:pre-wrap;font-size:13px;line-height:1.55;background:var(--green-light);border:1px solid var(--green-mid);border-radius:var(--radius-sm);padding:12px;max-height:340px;overflow:auto;">${esc(ans)}</div>`;
+        const ac=res.querySelector('#ki-ans-copy'); if(ac) ac.onclick=()=>{ navigator.clipboard?.writeText(ans); notify('Antwort kopiert'); };
+      }
+    }catch(e){
+      res.innerHTML=`<div style="color:var(--red);font-size:12px;">Netzwerkfehler: ${esc(String(e))}<br>Läuft die Cloud Function bereits? (Lokal über Vite ist „/api/gemini" nicht verfügbar – nur auf der deployten Seite.)</div>`;
+    }
+    gemBtn.disabled=false; gemBtn.textContent=old;
+  };
+}
+
+function renderKiConfig(){
+  const el=document.getElementById('kiconfig-options'); if(!el) return;
+  const cur=getKiMode();
+  const opts=[
+    {v:'off',t:'Aus',d:'KI-Analyse ist für Nutzer komplett ausgeblendet (kein Reiter „KI-Analysen").'},
+    {v:'manual',t:'Manuell – Prompts kopieren',d:'Fertige Prompts zum Kopieren in ChatGPT/Claude. Kein Server, kein Key nötig.'},
+    {v:'auto',t:'Automatisch – Gemini',d:'Antwort direkt in der App über die Cloud Function. Voraussetzung: Function deployt + Gemini-Key als Secret gesetzt.'},
+    {v:'both',t:'Beide',d:'Nutzer kann den Prompt kopieren ODER direkt mit Gemini auswerten lassen.'},
+  ];
+  el.innerHTML=opts.map(o=>`<button onclick="setKiMode('${o.v}')" style="display:block;width:100%;text-align:left;padding:12px 14px;border:2px solid ${cur===o.v?'var(--green)':'var(--border)'};border-radius:var(--radius-sm);background:${cur===o.v?'var(--green-light)':'var(--surface)'};cursor:pointer;font-family:inherit;margin-bottom:8px;transition:all .12s;">
+    <div style="font-size:14px;font-weight:700;color:${cur===o.v?'var(--green)':'var(--text)'};">${cur===o.v?'● ':'○ '}${o.t}</div>
+    <div style="font-size:12px;color:var(--text3);margin-top:3px;">${o.d}</div>
+  </button>`).join('');
 }
 
 Object.assign(window,{
-  openKiPrompt,renderKi,
+  openKiPrompt,renderKi,setKiMode,renderKiConfig,
   dashSetPeriod,renderDashboard,refreshDashboard,
   saveInlineFields,filterDetailTable,filterBaeumeTable,saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,
@@ -3991,3 +4049,5 @@ Object.assign(window,{
 initProjectScreen();
 
 (()=>{ const el=document.getElementById('app-version'); if(el) el.textContent=`Version ${APP_VERSION}`; })();
+
+applyKiNavVisibility(); // KI-Reiter je nach Einstellung ein-/ausblenden

@@ -1,4 +1,8 @@
 {
+  "functions": {
+    "source": "functions",
+    "runtime": "nodejs22"
+  },
   "hosting": {
     "public": "dist",
     "ignore": [
@@ -7,6 +11,10 @@
       "**/node_modules/**"
     ],
     "rewrites": [
+      {
+        "source": "/api/gemini",
+        "function": "geminiAnalyse"
+      },
       {
         "source": "/mobil",
         "destination": "/mobil.html"
