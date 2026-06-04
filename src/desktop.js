@@ -3301,81 +3301,72 @@ async function applyLasso(){
   lassoPoints=[];
   if(selected.length===0){notify('Keine Objekte im Lasso-Bereich');return;}
 
-  // Split into conflict (already in another tour) vs clean
+  // Konflikte (bereits in anderer Tour) vs. frei/bereits in Ziel-Tour
   const conflicts=selected.filter(t=>getTreeTourIds(t).length>0&&!treeInTour(t,tourId));
   const clean=selected.filter(t=>getTreeTourIds(t).length===0||treeInTour(t,tourId));
 
-  let toAssign=[...clean];
-
+  // Bei Konflikten: gleicher Hinweisdialog wie beim Einzelklick (3 Optionen)
+  let mode='add'; // 'add' = zusätzlich zuordnen | 'move' = aus bisherigen Touren entfernen
   if(conflicts.length>0){
-    const confirmed=await showLassoConflictDialog(conflicts,tour?.name||'');
-    if(confirmed) toAssign=[...toAssign,...conflicts];
+    const choice=await showLassoConflictDialog(conflicts,tour?.name||'');
+    if(choice==='cancel'){ notify('Abgebrochen — keine Änderungen'); return; }
+    mode=choice;
   }
 
-  if(toAssign.length===0){notify('Keine Objekte zugewiesen');return;}
+  const targets=[...clean,...conflicts];
+  if(targets.length===0){notify('Keine Objekte zugewiesen');return;}
 
-  setSyncState('syncing',`${toAssign.length} Objekte werden zugewiesen…`);
-  for(const tree of toAssign){
-    const newIds=[...new Set([...getTreeTourIds(tree),tourId])];
+  const conflictSet=new Set(conflicts.map(t=>t.id));
+  setSyncState('syncing',`${targets.length} Objekte werden zugewiesen…`);
+  for(const tree of targets){
+    const newIds=(mode==='move'&&conflictSet.has(tree.id))
+      ? [tourId]                                              // aus bisherigen Touren entfernen
+      : [...new Set([...getTreeTourIds(tree),tourId])];       // zusätzlich zuordnen
     await setTreeTourIds(tree.id,newIds);
   }
+  routeCache={};
+  rebuildAssignPills();
   setSyncState('ok','Synchronisiert');
-  notify(`✓ ${toAssign.length} Objekte → ${tour?.name||'Tour'}`);
+  notify(`✓ ${targets.length} Objekte → ${tour?.name||'Tour'}`);
 }
 
 // cancelLasso merged into cancelAssign
 
 // ─── CONFLICT DIALOGS ────────────────────────────────────────
-function showConflictDialog(treeName, fromTour, toTour){
-  return new Promise(resolve=>{
-    // Use custom modal instead of browser confirm for better UX
-    const existing=document.getElementById('conflict-modal');
-    if(existing)existing.remove();
-    const modal=document.createElement('div');
-    modal.id='conflict-modal';
-    modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;';
-    modal.innerHTML=`<div style="background:#fff;border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);width:380px;max-width:90vw;overflow:hidden;">
-      <div style="padding:18px 20px 10px;border-bottom:1px solid #ddd9d0;">
-        <div style="font-size:15px;font-weight:600;color:#1a1917;">Baum bereits verplant</div>
-      </div>
-      <div style="padding:16px 20px;font-size:13px;color:#6b6760;line-height:1.6;">
-        <b style="color:#1a1917;">${treeName}</b> ist bereits der Tour <b style="color:#1a1917;">${fromTour}</b> zugewiesen.<br>
-        Trotzdem zu <b style="color:#1a1917;">${toTour}</b> verschieben?
-      </div>
-      <div style="padding:12px 20px;border-top:1px solid #ddd9d0;display:flex;gap:8px;justify-content:flex-end;">
-        <button onclick="document.getElementById('conflict-modal').remove();window._conflictResolve(false);" style="padding:7px 14px;border:1px solid #c8c3b8;border-radius:6px;background:#fff;cursor:pointer;font-size:13px;">Überspringen</button>
-        <button onclick="document.getElementById('conflict-modal').remove();window._conflictResolve(true);" style="padding:7px 14px;border:none;border-radius:6px;background:#2d6a4f;color:#fff;cursor:pointer;font-size:13px;font-weight:500;">Trotzdem zuweisen</button>
-      </div>
-    </div>`;
-    window._conflictResolve=resolve;
-    document.body.appendChild(modal);
-  });
-}
-
+// Lasso-Variante des Konflikt-Dialogs – gleiche Optik & Optionen wie beim
+// Einzelklick (showTourConflictDialog), angewandt auf mehrere Objekte.
+// Liefert: 'move' (aus bisherigen entfernen) | 'add' (zusätzlich) | 'cancel'
 function showLassoConflictDialog(conflicts, toTour){
   return new Promise(resolve=>{
-    const existing=document.getElementById('conflict-modal');
-    if(existing)existing.remove();
+    const existing=document.getElementById('conflict-modal'); if(existing) existing.remove();
+    const names=conflicts.slice(0,4).map(t=>t.name).filter(Boolean).join(', ')+(conflicts.length>4?` +${conflicts.length-4} weitere`:'');
+    const curName=toTour||'aktuelle Tour';
+    const n=conflicts.length;
     const modal=document.createElement('div');
     modal.id='conflict-modal';
     modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;';
-    const names=conflicts.slice(0,3).map(t=>t.name).join(', ')+(conflicts.length>3?` +${conflicts.length-3} weitere`:'');
-    modal.innerHTML=`<div style="background:#fff;border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);width:400px;max-width:90vw;overflow:hidden;">
-      <div style="padding:18px 20px 10px;border-bottom:1px solid #ddd9d0;">
-        <div style="font-size:15px;font-weight:600;color:#1a1917;">${conflicts.length} Objekte bereits verplant</div>
+    const done=v=>{ modal.remove(); resolve(v); };
+    const opt=(id,title,desc,color)=>`<button id="${id}" style="display:block;width:100%;text-align:left;padding:11px 13px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);cursor:pointer;font-family:inherit;transition:background .12s;" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='var(--surface)'">
+      <div style="font-size:13px;font-weight:600;color:${color};">${title}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px;">${desc}</div></button>`;
+    modal.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);width:460px;max-width:92vw;overflow:hidden;">
+      <div style="padding:18px 20px 12px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;color:var(--amber);">⚠ ${n} Objekte bereits verplant</div>
+      <div style="padding:16px 20px;font-size:13px;color:var(--text2);line-height:1.6;">
+        ${n} der ausgewählten Objekte sind bereits anderen Touren zugeordnet:<br>
+        <b style="color:var(--text);">${names}</b><br><br>
+        Möchten Sie diese in die Tour <b style="color:var(--text);">„${curName}"</b> übernehmen?
       </div>
-      <div style="padding:16px 20px;font-size:13px;color:#6b6760;line-height:1.6;">
-        Folgende Objekte sind bereits anderen Touren zugewiesen:<br>
-        <b style="color:#1a1917;">${names}</b><br><br>
-        Sollen diese trotzdem zu <b style="color:#1a1917;">${toTour}</b> verschoben werden?
-      </div>
-      <div style="padding:12px 20px;border-top:1px solid #ddd9d0;display:flex;gap:8px;justify-content:flex-end;">
-        <button onclick="document.getElementById('conflict-modal').remove();window._conflictResolve(false);" style="padding:7px 14px;border:1px solid #c8c3b8;border-radius:6px;background:#fff;cursor:pointer;font-size:13px;">Nur freie zuweisen</button>
-        <button onclick="document.getElementById('conflict-modal').remove();window._conflictResolve(true);" style="padding:7px 14px;border:none;border-radius:6px;background:#2d6a4f;color:#fff;cursor:pointer;font-size:13px;font-weight:500;">Alle zuweisen</button>
+      <div style="padding:0 20px 18px;display:flex;flex-direction:column;gap:8px;">
+        ${opt('lc-move','Übernehmen und aus bisheriger Tour entfernen',`Werden „${curName}" zugeordnet und aus ihren bisherigen Touren entfernt.`,'var(--green)')}
+        ${opt('lc-add','Zusätzlich zur aktuellen Tour zuordnen',`Bleiben in ihren bisherigen Touren und werden zusätzlich „${curName}" zugeordnet.`,'var(--text)')}
+        ${opt('lc-cancel','Abbrechen','Es werden keine Änderungen vorgenommen.','var(--text2)')}
       </div>
     </div>`;
-    window._conflictResolve=resolve;
     document.body.appendChild(modal);
+    modal.querySelector('#lc-move').onclick=()=>done('move');
+    modal.querySelector('#lc-add').onclick=()=>done('add');
+    modal.querySelector('#lc-cancel').onclick=()=>done('cancel');
+    modal.addEventListener('click',e=>{ if(e.target===modal) done('cancel'); });
   });
 }
 
