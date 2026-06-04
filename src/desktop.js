@@ -1562,16 +1562,63 @@ function cancelAssign(){
   map.getContainer().style.cursor='';
 }
 
+// Hinweisdialog, wenn ein Baum bereits anderen Touren zugeordnet ist.
+// Liefert: 'move' (aus bisherigen entfernen) | 'add' (zusätzlich) | 'cancel'
+function showTourConflictDialog(tree, currentTour, otherTourIds){
+  return new Promise(resolve=>{
+    const otherNames=otherTourIds.map(id=>tours.find(t=>t.id===id)?.name||'Tour');
+    const namesStr=otherNames.map(n=>`„${n}"`).join(', ');
+    const curName=currentTour?.name||'aktuelle Tour';
+    const plural=otherNames.length>1;
+    const modal=document.createElement('div');
+    modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;';
+    const done=v=>{ modal.remove(); resolve(v); };
+    const opt=(id,title,desc,color)=>`<button id="${id}" style="display:block;width:100%;text-align:left;padding:11px 13px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);cursor:pointer;font-family:inherit;transition:background .12s;" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='var(--surface)'">
+      <div style="font-size:13px;font-weight:600;color:${color};">${title}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px;">${desc}</div></button>`;
+    modal.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);width:460px;max-width:92vw;overflow:hidden;">
+      <div style="padding:18px 20px 12px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;color:var(--amber);">⚠ Baum bereits verplant</div>
+      <div style="padding:16px 20px;font-size:13px;color:var(--text2);line-height:1.6;">
+        Der ausgewählte Baum <b style="color:var(--text);">${tree.name||''}</b> ist bereits ${plural?'den Touren':'der Tour'} ${namesStr} zugeordnet.<br><br>
+        Möchten Sie den Baum in die Tour <b style="color:var(--text);">„${curName}"</b> übernehmen?
+      </div>
+      <div style="padding:0 20px 18px;display:flex;flex-direction:column;gap:8px;">
+        ${opt('tc-move','Übernehmen und aus bisheriger Tour entfernen',`Wird „${curName}" zugeordnet und aus ${namesStr} entfernt.`,'var(--green)')}
+        ${opt('tc-add','Zusätzlich zur aktuellen Tour zuordnen',`Bleibt in ${namesStr} und wird zusätzlich „${curName}" zugeordnet.`,'var(--text)')}
+        ${opt('tc-cancel','Abbrechen','Es werden keine Änderungen vorgenommen.','var(--text2)')}
+      </div>
+    </div>`;
+    document.body.appendChild(modal);
+    modal.querySelector('#tc-move').onclick=()=>done('move');
+    modal.querySelector('#tc-add').onclick=()=>done('add');
+    modal.querySelector('#tc-cancel').onclick=()=>done('cancel');
+    modal.addEventListener('click',e=>{ if(e.target===modal) done('cancel'); });
+  });
+}
+
 async function assignTreeToTour(treeId,tourId,skipConflictCheck=false){
   const tree=trees.find(t=>t.id===treeId);
   const tour=tours.find(t=>t.id===tourId);
   if(!tree)return;
 
-  // Conflict check: already in a different tour?
   const currentIds=getTreeTourIds(tree);
+  // Bereits in dieser Tour?
   if(currentIds.includes(tourId)){
     notify(`${tree.name} ist bereits in ${tour?.name||'Tour'}`);
     return;
+  }
+  // Bereits anderen Tour(en) zugeordnet → Hinweisdialog
+  const otherIds=currentIds.filter(id=>id!==tourId);
+  if(otherIds.length>0 && !skipConflictCheck){
+    const choice=await showTourConflictDialog(tree, tour, otherIds);
+    if(choice==='cancel') return;
+    if(choice==='move'){
+      await setTreeTourIds(treeId, [tourId]); // aus bisherigen Touren entfernen
+      notify(`${tree.name} → ${tour?.name||'Tour'} (aus bisheriger Tour entfernt)`);
+      routeCache={}; rebuildAssignPills();
+      return;
+    }
+    // choice==='add' → additiv (unten)
   }
   const newIds=[...currentIds, tourId];
   await setTreeTourIds(treeId, newIds);
