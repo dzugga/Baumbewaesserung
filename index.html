@@ -911,6 +911,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <button class="btn btn-primary" onclick="openTourModal()">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>Neue Tour
     </button>
+    <div style="position:relative;flex:1;max-width:320px;">
+      <svg style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text3);" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input id="touren-search" type="text" placeholder="Tour suchen…" oninput="filterTourenGrid(this.value)"
+        style="width:100%;padding:7px 12px 7px 32px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--bg);outline:none;"
+        onfocus="this.style.borderColor='var(--green-mid)'" onblur="this.style.borderColor='var(--border)'">
+    </div>
     <button class="btn btn-secondary" onclick="calculateAllRoutes()" style="margin-left:auto;">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>Alle Routen berechnen
     </button>

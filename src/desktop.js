@@ -2036,6 +2036,9 @@ function renderBaeumeTableWith(treeList){
   };
 }
 
+let _tourenSearch='';
+function filterTourenGrid(q){ _tourenSearch=q||''; renderTourenGrid(); }
+
 function renderTourenGrid(){
   const grid=document.getElementById('touren-grid');
   const countEl=document.getElementById('touren-count');
@@ -2048,9 +2051,17 @@ function renderTourenGrid(){
     if(countEl)countEl.textContent='Touren';
     return;
   }
-  if(countEl)countEl.textContent=`${tours.length} Touren`;
 
-  grid.innerHTML=tours.map(tour=>{
+  const q=(_tourenSearch||'').trim().toLowerCase();
+  const list=q ? tours.filter(t=>(t.name||'').toLowerCase().includes(q)||(t.desc||'').toLowerCase().includes(q)) : tours;
+  if(countEl)countEl.textContent=q?`${list.length} von ${tours.length} Touren`:`${tours.length} Touren`;
+
+  if(list.length===0){
+    grid.innerHTML=`<tr><td colspan="7" style="padding:40px;text-align:center;color:var(--text3);">Keine Tour gefunden für „${_tourenSearch}"</td></tr>`;
+    return;
+  }
+
+  grid.innerHTML=list.map(tour=>{
     const treesInTour=trees.filter(t=>treeInTour(t,tour.id));
     const cnt=treesInTour.length;
     const gut=treesInTour.filter(t=>t.zustand==='gut').length;
@@ -3760,7 +3771,7 @@ Object.assign(window,{
   switchView,openDetail,closePanel,logWatering,
   openAddTree,openEditTree,closeTreeModal,saveTree,deleteTree,
   archiveTree,reactivateTree,archiveTreeFromModal,reactivateTreeFromModal,deleteTreeFromModal,toggleShowInactive,showTreeOnMapFromModal,
-  openTourModal,closeTourModal,saveTour,deleteTour,
+  openTourModal,closeTourModal,saveTour,deleteTour,filterTourenGrid,
   focusTour,focusTourAndSwitch,
   startPlacement,cancelMode,setDepotOnMap,
   startAssignMode,setAssignTour,cancelAssign,assignTreeToTour,
