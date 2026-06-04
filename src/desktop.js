@@ -323,6 +323,9 @@ function fmtTotalTime(driveSec,treeCount){
 }
 
 function getDepotMode(){ return currentProjectData?.depotMode||'round'; }
+// Routen-Optimierung: 'nn' = bisherige Variante (Luftlinie, Nearest-Neighbor)
+//                     'matrix' = echte ORS-Fahrzeiten-Matrix + 2-opt
+function getRouteOptMode(){ return localStorage.getItem('bwt_route_opt')||'nn'; }
 
 async function saveProjectDepot(depot){
   currentProjectData.depot=depot;
@@ -447,6 +450,87 @@ function nearestNeighborTSP(pts,startLat,startLng){
   return result;
 }
 
+// ─── Reihenfolge-Optimierung (Option B: ORS-Matrix + 2-opt) ──────────
+// Echte Fahrzeiten-Matrix von ORS holen (NxN, Sekunden). Limit: 50 Orte.
+async function fetchOrsMatrix(coords){
+  const key=getOrsKey(); if(!key) return null;
+  if(coords.length>50) return null; // ORS-Free: max 50×50
+  try{
+    const res=await fetch('https://api.openrouteservice.org/v2/matrix/driving-car',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':key},
+      body:JSON.stringify({locations:coords, metrics:['duration']})
+    });
+    if(!res.ok){ console.warn('ORS matrix error:',res.status, await res.text()); return null; }
+    const data=await res.json();
+    return data.durations||null;
+  }catch(e){ console.warn('ORS matrix failed:',e); return null; }
+}
+
+// Greedy Nearest-Neighbor anhand einer Kostenmatrix, Start bei startIdx
+function nnFromMatrix(pts, matrix, startIdx=0){
+  const n=pts.length, visited=new Array(n).fill(false);
+  let cur=startIdx; visited[cur]=true; const order=[pts[cur]];
+  for(let step=1;step<n;step++){
+    let best=-1,bd=Infinity;
+    for(let j=0;j<n;j++){ if(visited[j])continue; const d=matrix[cur][j]; if(d<bd){bd=d;best=j;} }
+    if(best<0)break; visited[best]=true; order.push(pts[best]); cur=best;
+  }
+  return order;
+}
+
+// 2-opt-Verbesserung. cost(a,b) liefert Kosten zwischen zwei Punkten.
+// fixedStart: erstes Element (Depot) bleibt fix. returnToStart: Rundtour zurück zum Start.
+function twoOpt(order, cost, fixedStart, returnToStart){
+  let best=order.slice();
+  const tourLen=arr=>{
+    let s=0;
+    for(let i=0;i<arr.length-1;i++) s+=cost(arr[i],arr[i+1]);
+    if(returnToStart && arr.length>1) s+=cost(arr[arr.length-1],arr[0]);
+    return s;
+  };
+  let bestLen=tourLen(best), improved=true, guard=0;
+  const start=fixedStart?1:0;
+  while(improved && guard++<60){
+    improved=false;
+    for(let i=start;i<best.length-1;i++){
+      for(let k=i+1;k<best.length;k++){
+        const cand=best.slice(0,i).concat(best.slice(i,k+1).reverse(), best.slice(k+1));
+        const len=tourLen(cand);
+        if(len+1e-6<bestLen){ best=cand; bestLen=len; improved=true; }
+      }
+    }
+  }
+  return best;
+}
+
+// Liefert die optimierte Reihenfolge der Bäume (ohne Depot) je nach Einstellung.
+async function computeTreeOrder(trs, depot){
+  const mode=getRouteOptMode();
+  const roundTrip = !!depot && getDepotMode()==='round';
+  if(mode==='matrix' && getOrsKey() && trs.length>=2){
+    const pts = depot ? [{id:'__depot__',lat:depot.lat,lng:depot.lng}, ...trs] : trs.slice();
+    const matrix = await fetchOrsMatrix(pts.map(p=>[p.lng,p.lat]));
+    if(matrix){
+      const idx=new Map(pts.map((p,i)=>[p,i]));
+      const cost=(a,b)=>matrix[idx.get(a)][idx.get(b)];
+      const seed=nnFromMatrix(pts, matrix, 0);
+      const opt=twoOpt(seed, cost, !!depot, roundTrip);
+      return opt.filter(p=>p.id!=='__depot__');
+    }
+    notify('ORS-Matrix nicht verfügbar (>50 Stopps oder Limit) — Luftlinie genutzt');
+  }
+  // Fallback / bisherige Variante: Nearest-Neighbor (Luftlinie)
+  let ordered=nearestNeighborTSP(trs, depot?.lat, depot?.lng);
+  if(mode==='matrix'){
+    // Im Matrix-Modus wenigstens 2-opt auf Luftlinie als Fallback
+    const arr = depot ? [{id:'__depot__',lat:depot.lat,lng:depot.lng}, ...ordered] : ordered.slice();
+    const cost=(a,b)=>haversine(a.lat,a.lng,b.lat,b.lng);
+    ordered=twoOpt(arr, cost, !!depot, roundTrip).filter(p=>p.id!=='__depot__');
+  }
+  return ordered;
+}
+
 async function fetchOrsRoute(coords){
   const key=getOrsKey();if(!key)return null;
   const CHUNK=48; // ORS max is 50, use 48 to be safe with overlap
@@ -568,7 +652,7 @@ async function calculateAndSaveRoute(tourId){
   document.getElementById('route-info-bar').classList.add('visible');
 
   const depot=getDepot();
-  const ordered=nearestNeighborTSP(trs,depot?.lat,depot?.lng);
+  const ordered=await computeTreeOrder(trs, depot);
   tourOrder[tourId]=ordered.map(t=>t.id);
 
   const treePart=ordered.map(t=>[t.lng,t.lat]);
@@ -1774,6 +1858,7 @@ function openSettings(){
   document.getElementById('s-depot-lat').value=depot?.lat||'';
   document.getElementById('s-depot-lng').value=depot?.lng||'';
   document.getElementById('s-depot-mode').value=getDepotMode();
+  const _ro=document.getElementById('s-route-opt'); if(_ro) _ro.value=getRouteOptMode();
   const _routeOn = getRoutePlanningEnabled();
   const _rtBtn = document.getElementById('s-toggle-route');
   if(_rtBtn){ _rtBtn.style.background = _routeOn ? '#2d6a4f' : '#d1d5db'; }
