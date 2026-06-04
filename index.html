@@ -59,6 +59,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .nav-btn{padding:5px 13px;border:none;background:none;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;color:var(--text2);cursor:pointer;border-radius:var(--radius-sm);transition:background .15s,color .15s}
 .nav-btn:hover{background:var(--surface2);color:var(--text)}
 .nav-btn.active{background:var(--green-light);color:var(--green)}
+.nav-parent{display:inline-flex;align-items:center}
+.nav-group{position:relative;display:inline-block}
+.nav-dropdown{position:absolute;top:calc(100% + 2px);left:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);box-shadow:var(--shadow-md);display:none;flex-direction:column;min-width:200px;z-index:5000;padding:4px}
+.nav-group:hover .nav-dropdown{display:flex}
+.nav-dropdown button{text-align:left;padding:8px 12px;border:none;background:none;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;color:var(--text);cursor:pointer;border-radius:6px;white-space:nowrap}
+.nav-dropdown button:hover{background:var(--surface2)}
+.nav-dropdown button.active{background:var(--green-light);color:var(--green)}
 .topbar-right{margin-left:auto;display:flex;gap:8px;align-items:center}
 .btn{display:inline-flex;align-items:center;gap:6px;padding:6px 13px;border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;cursor:pointer;border:1px solid transparent;transition:all .15s;white-space:nowrap}
 .btn-primary{background:var(--green);color:#fff;border-color:var(--green)}
@@ -245,13 +252,27 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="flex-shrink:0"><path d="M6 9l6 6 6-6"/></svg>
   </div>
   <nav class="topbar-nav">
-    <button class="nav-btn active" onclick="switchView('karte')">Karte</button>
-    <button class="nav-btn" onclick="switchView('baeume')">Objekte</button>
-    <button class="nav-btn" onclick="switchView('touren')">Touren</button>
-    <button class="nav-btn" onclick="switchView('controlling')">Controlling</button>
+    <button class="nav-btn active" onclick="switchView('karte')">Planung</button>
     <button class="nav-btn" onclick="switchView('dashboard')">Dashboard</button>
-    <button class="nav-btn" onclick="switchView('ki')">KI-Auswertung</button>
-    <button class="nav-btn" onclick="switchView('verwaltung')">Verwaltung</button>
+    <div class="nav-group">
+      <button class="nav-btn nav-parent" type="button">Auswertung
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-left:2px;"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <div class="nav-dropdown">
+        <button onclick="switchView('controlling')">Controlling</button>
+        <button onclick="switchView('ki')">KI-Analysen</button>
+      </div>
+    </div>
+    <div class="nav-group">
+      <button class="nav-btn nav-parent" type="button">Verwaltung
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-left:2px;"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <div class="nav-dropdown">
+        <button onclick="switchView('baeume')">Objekte</button>
+        <button onclick="switchView('touren')">Touren</button>
+        <button onclick="switchView('verwaltung')">Fahrer &amp; Gründe</button>
+      </div>
+    </div>
   </nav>
   <div class="topbar-right">
     <div class="sync-indicator" id="app-sync" style="margin-right:4px;">

@@ -1950,8 +1950,13 @@ async function applySettings(){
 function switchView(v){
   currentView=v;
   // Nav buttons
-  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
-  document.querySelector(`.nav-btn[onclick="switchView('${v}')"]`).classList.add('active');
+  document.querySelectorAll('.nav-btn, .nav-dropdown button').forEach(b=>b.classList.remove('active'));
+  const navEl=document.querySelector(`[onclick="switchView('${v}')"]`);
+  if(navEl){
+    navEl.classList.add('active');
+    const grp=navEl.closest('.nav-group');
+    if(grp) grp.querySelector('.nav-parent')?.classList.add('active'); // Eltern-Menü hervorheben
+  }
   // Show/hide fullscreen overlays
   const baeume=document.getElementById('view-baeume');
   const touren=document.getElementById('view-touren');
