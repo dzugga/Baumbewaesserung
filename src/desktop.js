@@ -557,6 +557,7 @@ async function loadSavedRoutes(){
 
 // Manually triggered: recalculate + save route for one tour via ORS
 async function calculateAndSaveRoute(tourId){
+  if(!getRoutePlanningEnabled()){ notify('Reihenfolgeplanung ist deaktiviert'); return; }
   const tour=tours.find(t=>t.id===tourId);if(!tour)return;
   const trs=trees.filter(t=>treeInTour(t,tourId)&&t.lat&&t.lng);
   if(trs.length<1){notify('Keine Objekte in dieser Tour');return;}
@@ -618,6 +619,7 @@ async function calculateAndSaveRoute(tourId){
 
 // Calculate all tours at once
 async function calculateAllRoutes(){
+  if(!getRoutePlanningEnabled()){ notify('Reihenfolgeplanung ist deaktiviert'); return; }
   for(const tour of tours){
     await calculateAndSaveRoute(tour.id);
   }
@@ -868,14 +870,14 @@ function renderLegend(){
   // Route berechnen button — compact
   if(activeTourOnMap){
     html+=`<div style="padding:4px 8px 8px;">
-      <button data-action="calc-active" style="width:100%;padding:5px 10px;font-size:11px;font-weight:600;background:var(--green);color:#fff;border:none;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;">
+      <button data-action="calc-active"${rpDisAttr()} style="width:100%;padding:5px 10px;font-size:11px;font-weight:600;background:var(--green);color:#fff;border:none;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;${rpDisStyle()}">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
         Route berechnen
       </button>
     </div>`;
   } else {
     html+=`<div style="padding:4px 8px 8px;">
-      <button data-action="calc-all" style="width:100%;padding:5px 10px;font-size:11px;font-weight:600;background:var(--surface2);color:var(--text2);border:1px solid var(--border);border-radius:6px;cursor:pointer;">
+      <button data-action="calc-all"${rpDisAttr()} style="width:100%;padding:5px 10px;font-size:11px;font-weight:600;background:var(--surface2);color:var(--text2);border:1px solid var(--border);border-radius:6px;cursor:pointer;${rpDisStyle()}">
         Alle Routen berechnen
       </button>
     </div>`;
@@ -1731,6 +1733,9 @@ function getRoutePlanningEnabled(){
   const v = localStorage.getItem('bwt_route_planning');
   return v === null ? true : v === 'true';
 }
+// Routen-Berechnen-Buttons deaktivieren, wenn Reihenfolgeplanung aus ist
+function rpDisAttr(){ return getRoutePlanningEnabled() ? '' : ' disabled title="Reihenfolgeplanung ist deaktiviert"'; }
+function rpDisStyle(){ return getRoutePlanningEnabled() ? '' : 'opacity:.45;cursor:not-allowed;'; }
 
 function toggleRoutePlanning(){
   const newVal = !getRoutePlanningEnabled();
@@ -1755,6 +1760,9 @@ function toggleRoutePlanning(){
   } else {
     loadSavedRoutes();
   }
+  // Button-Zustände (aktiv/inaktiv) aktualisieren
+  renderLegend();
+  if(document.getElementById('touren-grid')) renderTourenGrid();
 }
 
 function openSettings(){
@@ -2092,7 +2100,7 @@ function renderTourenGrid(){
       <td style="padding:10px 16px;">
         <div style="display:flex;gap:5px;justify-content:flex-end;align-items:center;">
           <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" data-action="karte" data-tid="${tour.id}">Karte</button>
-          <button class="btn btn-primary" style="padding:3px 9px;font-size:11px;" data-action="route" data-tid="${tour.id}">Route</button>
+          <button class="btn btn-primary" style="padding:3px 9px;font-size:11px;${rpDisStyle()}" data-action="route" data-tid="${tour.id}"${rpDisAttr()}>Route</button>
           <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" data-action="edit" data-tid="${tour.id}">✎</button>
           <button class="btn btn-danger" style="padding:3px 9px;font-size:11px;" data-action="delete" data-tid="${tour.id}">✕</button>
         </div>
@@ -2108,6 +2116,10 @@ function renderTourenGrid(){
     else if(action==='edit')openTourModal(tid);
     else if(action==='delete')deleteTour(tid);
   };
+
+  // "Alle Routen berechnen"-Toolbar-Button je nach Reihenfolgeplanung
+  const allBtn=document.getElementById('btn-calc-all-toolbar');
+  if(allBtn){ const off=!getRoutePlanningEnabled(); allBtn.disabled=off; allBtn.style.opacity=off?'0.45':''; allBtn.style.cursor=off?'not-allowed':''; allBtn.title=off?'Reihenfolgeplanung ist deaktiviert':''; }
 }
 
 async function focusTourAndSwitch(id){ switchView('karte');setTimeout(()=>focusTour(id),80); }
@@ -3465,7 +3477,10 @@ map.on('contextmenu',e=>{
   ctxPendingLat=e.latlng.lat;ctxPendingLng=e.latlng.lng;
   const menu=document.getElementById('ctx-menu');
   const calcItem=document.getElementById('ctx-calc-active');
-  if(activeTourOnMap){
+  const calcAll=document.getElementById('ctx-calc-all');
+  const rpOn=getRoutePlanningEnabled();
+  if(calcAll) calcAll.style.display=rpOn?'flex':'none'; // ohne Reihenfolgeplanung keine Routenberechnung
+  if(activeTourOnMap && rpOn){
     const t=tours.find(x=>x.id===activeTourOnMap);
     calcItem.style.display='flex';
     calcItem.innerHTML=`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>Route berechnen: ${t?.name||''}`;
