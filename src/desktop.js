@@ -716,7 +716,7 @@ function makeMarker(tree){
     iconSize:[sz,sz], iconAnchor:[sz/2,sz/2]
   });
   return L.marker([tree.lat,tree.lng],{icon,zIndexOffset:isHighlighted?500:0}).addTo(map)
-    .on('click',()=>{ if(assignMode&&!lassoDrawing) assignTreeToTour(tree.id,assignTourId); else if(!assignMode) openDetail(tree.id); })
+    .on('click',()=>{ if(assignMode&&!lassoDrawing) assignTreeToTour(tree.id,assignTourId); else if(!assignMode) selectTree(tree.id,false); })
     .on('contextmenu', e=>showTreeTourContextMenu(tree, e));
 }
 
@@ -1000,7 +1000,7 @@ function renderList(){
   document.getElementById('list-count').textContent=`${filtered.length} Objekte`;
 }
 
-function selectTree(id){
+function selectTree(id, pan=true){
   const prev=selectedTreeId;
   selectedTreeId=id;
 
@@ -1019,8 +1019,8 @@ function selectTree(id){
   const wasOnMap = currentView==='karte';
   if(!wasOnMap) switchView('karte');
 
-  if(tree.lat&&tree.lng){
-    // Always pan — delay only if we just switched views (map needs to render first)
+  if(pan && tree.lat&&tree.lng){
+    // Pan/zentrieren (beim Listen-Klick); beim Karten-Klick nicht nötig
     setTimeout(()=>{
       map.invalidateSize();
       map.panTo([tree.lat,tree.lng],{animate:true,duration:0.5});
