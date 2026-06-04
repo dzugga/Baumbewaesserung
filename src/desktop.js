@@ -30,7 +30,11 @@ const app = initializeApp(firebaseConfig);
 const db  = getFirestore(app);
 
 // ─── CONSTANTS ────────────────────────────────────────────────
-const TOUR_COLORS=['#2d6a4f','#1e40af','#7c3aed','#be123c','#b45309','#0e7490','#064e3b','#b91c1c'];
+const TOUR_COLORS=[
+  '#2d6a4f','#1e40af','#7c3aed','#be123c','#b45309','#0e7490','#064e3b','#b91c1c',
+  '#c2410c','#4d7c0f','#15803d','#0f766e','#1d4ed8','#4338ca','#6d28d9','#a21caf',
+  '#be185d','#9f1239','#1e3a8a','#166534','#92400e','#155e75','#5b21b6','#374151'
+];
 
 // ─── n:m TOUR-HILFSFUNKTIONEN ─────────────────────────────────
 // Rückwärtskompatibel: liest tourIds[] oder fällt auf altes tourId zurück
