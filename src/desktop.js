@@ -1877,7 +1877,7 @@ function openSettings(){
   if(_rtKnob) _rtKnob.style.transform = _routeOn ? 'translateX(16px)' : 'translateX(0)';
   const _rtSub = document.getElementById('s-routing-sub');
   if(_rtSub){ _rtSub.style.opacity = _routeOn ? '1' : '0.4'; _rtSub.style.pointerEvents = _routeOn ? '' : 'none'; }
-  document.getElementById('s-project-name').value=currentProjectData?.name||'';
+  // Projektname wird unter Verwaltung → Projekte verwaltet
   document.getElementById('s-bew-duration').value=getBewDuration();
   loadReasons();
   renderDriverAssignment();
@@ -1996,9 +1996,9 @@ async function applySettings(){
   const lng=parseFloat(document.getElementById('s-depot-lng').value)||null;
   const addr=document.getElementById('s-depot-addr').value.trim();
   const updates={
-    orsKey:getOrsKey(), // API-Key wird im Menü „INFA-Admin → Allgemein“ verwaltet
+    orsKey:getOrsKey(),
     depotMode:document.getElementById('s-depot-mode').value,
-    name:document.getElementById('s-project-name').value.trim()||currentProjectData.name,
+    name:currentProjectData?.name||'', // Projektname wird unter Verwaltung → Projekte verwaltet
   };
   if(lat&&lng) updates.depot={lat,lng,address:addr||`${lat.toFixed(5)}, ${lng.toFixed(5)}`};
   await saveProjectSettings(updates);
@@ -2007,6 +2007,50 @@ async function applySettings(){
   closeSettings();renderDepotMarker();
   await loadSavedRoutes();
   notify('Einstellungen gespeichert — Route neu berechnen wenn gewünscht');
+}
+
+// Projekte – eigenes Menü unter „Verwaltung"
+function openProjekte(){
+  if(!currentProjectId){ notify('Kein Projekt geöffnet'); return; }
+  const m=document.createElement('div');
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;';
+  m.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:460px;max-width:94vw;overflow:hidden;">
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;display:flex;justify-content:space-between;align-items:center;">
+      Projekte<button id="prj-x" style="border:none;background:none;cursor:pointer;font-size:20px;line-height:1;color:var(--text3);">×</button>
+    </div>
+    <div style="padding:18px 20px;">
+      <div class="form-section" style="margin-top:0;">Projekt</div>
+      <div class="form-group">
+        <label class="form-label">Projektname</label>
+        <input class="form-control" id="prj-name" value="${currentProjectData?.name||''}">
+      </div>
+      <div style="margin-top:12px;padding:10px;background:var(--green-light);border-radius:var(--radius-sm);font-size:12px;color:var(--green);">
+        📱 Mobile App URL:<br>
+        <a href="mobil.html" target="_blank" style="color:var(--green);font-weight:600;">mobil.html</a>
+        &nbsp;·&nbsp;
+        <span style="cursor:pointer;text-decoration:underline;color:var(--green);" id="prj-fahrer-link">Fahrer &amp; Gründe verwalten →</span>
+      </div>
+      <button class="btn btn-danger" id="prj-del" style="width:100%;margin-top:16px;">Projekt löschen</button>
+    </div>
+    <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
+      <button id="prj-cancel" class="btn btn-secondary">Abbrechen</button>
+      <button id="prj-save" class="btn btn-primary">Speichern</button>
+    </div>
+  </div>`;
+  document.body.appendChild(m);
+  const close=()=>m.remove();
+  m.querySelector('#prj-x').onclick=close;
+  m.querySelector('#prj-cancel').onclick=close;
+  m.addEventListener('click',e=>{ if(e.target===m) close(); });
+  m.querySelector('#prj-fahrer-link').onclick=()=>{ close(); switchView('verwaltung'); };
+  m.querySelector('#prj-del').onclick=()=>{ close(); confirmDeleteProject(); };
+  m.querySelector('#prj-save').onclick=async()=>{
+    const name=m.querySelector('#prj-name').value.trim();
+    if(!name){ notify('Projektname darf nicht leer sein'); return; }
+    await saveProjectSettings({name});
+    document.getElementById('active-project-name').textContent=name;
+    close(); notify('Projektname gespeichert');
+  };
 }
 
 // ─── VIEWS ────────────────────────────────────────────────────
@@ -4631,7 +4675,7 @@ Object.assign(window,{
   focusTour,focusTourAndSwitch,
   startPlacement,cancelMode,setDepotOnMap,
   startAssignMode,setAssignTour,cancelAssign,assignTreeToTour,
-  openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,
+  openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,
   addWmsLayer,deleteWmsLayer,renderWmsList,
   setFilter,pickColor,renderList,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,
