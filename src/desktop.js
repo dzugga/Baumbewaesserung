@@ -1865,7 +1865,6 @@ function openSettings(){
   // Hide bottom route bar to avoid overlap
   document.getElementById('route-info-bar')?.classList.remove('visible');
   const depot=getDepot();
-  document.getElementById('s-apikey').value=getOrsKey();
   document.getElementById('s-depot-addr').value=depot?.address||'';
   document.getElementById('s-depot-lat').value=depot?.lat||'';
   document.getElementById('s-depot-lng').value=depot?.lng||'';
@@ -1893,6 +1892,58 @@ function openSettings(){
 function closeSettings(){
   // Restore route bar
   updateRouteInfoBar(); document.getElementById('settings-panel').classList.remove('open'); }
+
+// Import (Excel) – eigenes Menü unter „Verwaltung“
+function openImport(){
+  const m=document.createElement('div');
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;';
+  m.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:440px;max-width:94vw;overflow:hidden;">
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;display:flex;justify-content:space-between;align-items:center;">Import<button id="imp-x" style="border:none;background:none;cursor:pointer;font-size:20px;line-height:1;color:var(--text3);">×</button></div>
+    <div style="padding:18px 20px;">
+      <button class="btn btn-secondary" id="imp-btn" style="width:100%;margin-bottom:8px;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Import (Excel)
+      </button>
+      <div style="font-size:11px;color:var(--text3);line-height:1.6;">A=Anlage/Str. · B=Stadtteil · C=Baumart · D=Baumnr. · E=Pflanzjahr · F=Pflanzzeitpunkt · G=Bemerkung · H=Lat · I=Lng</div>
+    </div></div>`;
+  document.body.appendChild(m);
+  const close=()=>m.remove();
+  m.querySelector('#imp-x').onclick=close;
+  m.addEventListener('click',e=>{ if(e.target===m) close(); });
+  m.querySelector('#imp-btn').onclick=()=>{ close(); document.getElementById('excel-import-input').click(); };
+}
+
+// Allgemein (ORS API-Key) – eigenes Menü unter „INFA-Admin“
+function openAllgemein(){
+  const m=document.createElement('div');
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;';
+  m.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:460px;max-width:94vw;overflow:hidden;">
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;display:flex;justify-content:space-between;align-items:center;">Allgemein<button id="alg-x" style="border:none;background:none;cursor:pointer;font-size:20px;line-height:1;color:var(--text3);">×</button></div>
+    <div style="padding:18px 20px;">
+      <div class="form-section" style="margin-top:0;">ORS API-Key (Straßen-Routing)</div>
+      <div class="form-group">
+        <label class="form-label">API-Key</label>
+        <input class="form-control" id="alg-apikey" placeholder="ors_…">
+        <div style="margin-top:6px;font-size:11px;color:var(--text3);">Kostenlos: <a href="https://openrouteservice.org/dev/#/signup" target="_blank" style="color:var(--green);">openrouteservice.org</a></div>
+      </div>
+    </div>
+    <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
+      <button id="alg-cancel" class="btn btn-secondary">Abbrechen</button>
+      <button id="alg-save" class="btn btn-primary">Speichern</button>
+    </div></div>`;
+  document.body.appendChild(m);
+  m.querySelector('#alg-apikey').value=getOrsKey();
+  const close=()=>m.remove();
+  m.querySelector('#alg-x').onclick=close;
+  m.querySelector('#alg-cancel').onclick=close;
+  m.addEventListener('click',e=>{ if(e.target===m) close(); });
+  m.querySelector('#alg-save').onclick=async()=>{
+    const key=m.querySelector('#alg-apikey').value.trim();
+    localStorage.setItem('bwt_ors_key', key);
+    if(currentProjectId){ try{ await saveProjectSettings({orsKey:key}); }catch(e){} }
+    close(); notify('API-Key gespeichert');
+  };
+}
 
 // ── WMS-Verwaltung (Einstellungen) ──
 function renderWmsList(){
@@ -1945,7 +1996,7 @@ async function applySettings(){
   const lng=parseFloat(document.getElementById('s-depot-lng').value)||null;
   const addr=document.getElementById('s-depot-addr').value.trim();
   const updates={
-    orsKey:document.getElementById('s-apikey').value.trim(),
+    orsKey:getOrsKey(), // API-Key wird im Menü „INFA-Admin → Allgemein“ verwaltet
     depotMode:document.getElementById('s-depot-mode').value,
     name:document.getElementById('s-project-name').value.trim()||currentProjectData.name,
   };
@@ -1976,6 +2027,7 @@ function switchView(v){
   const dashboard=document.getElementById('view-dashboard');
   const ki=document.getElementById('view-ki');
   const kiconfig=document.getElementById('view-kiconfig');
+  const disposition=document.getElementById('view-disposition');
   const verwaltung=document.getElementById('view-verwaltung');
   if(baeume) baeume.style.display=v==='baeume'?'flex':'none';
   if(touren) touren.style.display=v==='touren'?'block':'none';
@@ -1983,7 +2035,11 @@ function switchView(v){
   if(dashboard) dashboard.style.display=v==='dashboard'?'flex':'none';
   if(ki) ki.style.display=v==='ki'?'flex':'none';
   if(kiconfig) kiconfig.style.display=v==='kiconfig'?'flex':'none';
+  if(disposition) disposition.style.display=v==='disposition'?'flex':'none';
   if(verwaltung) verwaltung.style.display=v==='verwaltung'?'block':'none';
+  // „Planen“-Button nur im manuellen Planungs-Modus (Karte) zeigen
+  const planenBtn=document.getElementById('btn-planen');
+  if(planenBtn) planenBtn.style.display=v==='karte'?'':'none';
   // Karte: always visible underneath, just hidden by overlays
   if(v==='karte') setTimeout(()=>map.invalidateSize(),10);
   if(v==='baeume') renderBaeumeTable();
@@ -2001,6 +2057,7 @@ function switchView(v){
   if(v==='dashboard') initDashboard(); // einmaliges Laden; danach nur per Refresh-Button
   if(v==='ki') renderKi();
   if(v==='kiconfig') renderKiConfig();
+  if(v==='disposition') initDispo();
   if(v==='verwaltung') initVerwaltung();
 }
 
@@ -3896,6 +3953,541 @@ function initDashboard(){
   setTimeout(()=>{ if(dashNichtMap) dashNichtMap.invalidateSize(); },200);
 }
 
+// ─── DISPOSITION (Papierkorb-Tagesplanung, MVP) ──────────────
+// Alles lokal (localStorage) – verändert keine echten Projektdaten.
+const DISPO_CFG_KEY='dispo_config', DISPO_BINS_KEY='dispo_bins', DISPO_RES_KEY='dispo_resources';
+let dispoMap=null, dispoLayer=null, dispoPickCleanup=null, dispoMarkers={};
+let dispoVisible=null; // null = alle Fahrzeuge sichtbar; sonst Set sichtbarer Ressourcen-IDs
+function dispoResVisible(id){ return !dispoVisible || dispoVisible.has(id); }
+function dispoFocusVehicle(id){ // Klick auf Fahrzeug: isolieren – erneuter Klick: wieder alle
+  if(dispoVisible && dispoVisible.size===1 && dispoVisible.has(id)) dispoVisible=null;
+  else dispoVisible=new Set([id]);
+  dispoRenderResults(); dispoRenderMap();
+}
+function dispoToggleVehicle(id){ // 👁 additiv ein-/ausblenden
+  const ids=(window.__dispoPlan?window.__dispoPlan.R:[]).map(r=>r.id);
+  if(!dispoVisible) dispoVisible=new Set(ids);
+  if(dispoVisible.has(id)) dispoVisible.delete(id); else dispoVisible.add(id);
+  if(dispoVisible.size>=ids.length) dispoVisible=null;
+  dispoRenderResults(); dispoRenderMap();
+}
+function dispoShowAllVehicles(){ dispoVisible=null; dispoRenderResults(); dispoRenderMap(); }
+
+function dispoGetConfig(){
+  const d={kritisch:80, planbar:50, aus:50, emptyMin:3, reservePct:10, speedKmh:25, binCount:40};
+  try{ return {...d, ...(JSON.parse(localStorage.getItem(DISPO_CFG_KEY)||'{}'))}; }catch(e){ return d; }
+}
+function dispoSetConfig(c){ localStorage.setItem(DISPO_CFG_KEY, JSON.stringify(c)); }
+function dispoGetBins(){ try{ return JSON.parse(localStorage.getItem(DISPO_BINS_KEY)||'[]'); }catch(e){ return []; } }
+function dispoSetBins(a){ localStorage.setItem(DISPO_BINS_KEY, JSON.stringify(a)); }
+function dispoDefaultDepot(){
+  const d=getDepot(); if(d?.lat) return {lat:d.lat, lng:d.lng, adresse:d.address||'Betriebshof'};
+  const pts=(dispoGetBins().length?dispoGetBins():trees.filter(t=>t.lat&&t.lng));
+  if(pts.length){ const la=pts.reduce((s,p)=>s+p.lat,0)/pts.length, lo=pts.reduce((s,p)=>s+p.lng,0)/pts.length; return {lat:la, lng:lo, adresse:'Zentrum'}; }
+  return {lat:50.0, lng:8.42, adresse:'Betriebshof'};
+}
+function dispoGetResources(){
+  try{ const r=JSON.parse(localStorage.getItem(DISPO_RES_KEY)||'null'); if(r) return r; }catch(e){}
+  const def=[
+    {id:'r1', name:'Fahrzeug 1', arbeitszeitMin:420, depot:null, maxBins:0}, // depot null = Standard-Betriebshof, maxBins 0 = unbegrenzt
+    {id:'r2', name:'Fahrzeug 2', arbeitszeitMin:420, depot:null, maxBins:0},
+  ];
+  dispoSetResources(def); return def;
+}
+function dispoSetResources(a){ localStorage.setItem(DISPO_RES_KEY, JSON.stringify(a)); }
+// depot null/leer oder == Projekt-Betriebshof → Standard
+function dispoIsStandardDepot(d){ if(!d||d.lat==null) return true; const dp=dispoDefaultDepot(); return Math.abs(d.lat-dp.lat)<1e-5 && Math.abs(d.lng-dp.lng)<1e-5; }
+function dispoResolveDepot(r){ return (r.depot&&r.depot.lat!=null)?r.depot:dispoDefaultDepot(); }
+
+function dispoSimulate(){
+  const cfg=dispoGetConfig();
+  const src=trees.filter(t=>t.lat&&t.lng);
+  if(src.length<5){ notify('Keine Standorte verfügbar – bitte Projekt mit Objekten öffnen'); return; }
+  const shuffled=[...src].sort(()=>Math.random()-0.5).slice(0, Math.min(cfg.binCount, src.length));
+  const bins=shuffled.map((t,i)=>({
+    id:'pk'+i, name:'Papierkorb '+(i+1), stadtteil:t.stadtteil||'', lat:t.lat, lng:t.lng,
+    fuellstand:Math.floor(Math.random()*101),
+    fillRate:5+Math.floor(Math.random()*26), // %/Tag (simuliert)
+  }));
+  dispoSetBins(bins);
+  window.__dispoPlan=null;
+  dispoRenderResults(); dispoRenderMap();
+  notify(`${bins.length} Papierkörbe simuliert`);
+}
+
+function dispoTravelMin(a,b,speed){ return haversine(a.lat,a.lng,b.lat,b.lng)/speed*60; }
+function dispoNNOrder(depot, list, speed){
+  const rem=[...list], out=[]; let cur=depot;
+  while(rem.length){
+    let bi=0,bd=Infinity;
+    rem.forEach((p,i)=>{ const d=dispoTravelMin(cur,p,speed); if(d<bd){bd=d;bi=i;} });
+    cur=rem[bi]; out.push(cur); rem.splice(bi,1);
+  }
+  return out;
+}
+
+// ORS-Matrix (Fahrzeit + Strecke) – wie im Planung-Reiter, max 50 Punkte
+async function dispoOrsMatrix(coords){
+  const key=getOrsKey(); if(!key) return null; if(coords.length>50) return null;
+  try{
+    const res=await fetch('https://api.openrouteservice.org/v2/matrix/driving-car',{
+      method:'POST', headers:{'Content-Type':'application/json','Authorization':key},
+      body:JSON.stringify({locations:coords, metrics:['duration','distance'], units:'m'})
+    });
+    if(!res.ok){ console.warn('dispo matrix error:',res.status); return null; }
+    const d=await res.json();
+    return {dur:d.durations, dist:d.distances};
+  }catch(e){ console.warn('dispo matrix failed:',e); return null; }
+}
+
+// Reihenfolge + Zeit einer Ressourcen-Tour: ORS-Matrix+2-opt (Einstellung „Optimiert"),
+// sonst Luftlinie/Nearest-Neighbor.
+async function dispoOptimizeRoute(r, speed, empty){
+  if(getRouteOptMode()==='matrix' && getOrsKey() && r.route.length>=1 && r.route.length<=49){
+    const pts=[r.depot, ...r.route];
+    const M=await dispoOrsMatrix(pts.map(p=>[p.lng,p.lat]));
+    if(M&&M.dur){
+      const idx=new Map(pts.map((p,i)=>[p,i]));
+      const cost=(a,b)=>M.dur[idx.get(a)][idx.get(b)];
+      const seed=nnFromMatrix(pts, M.dur, 0);
+      const opt=twoOpt(seed, cost, true, true); // Depot fix, Rundtour
+      r.route=opt.filter(p=>p!==r.depot);
+      const seq=[r.depot, ...r.route, r.depot];
+      let durS=0, distM=0;
+      for(let i=0;i<seq.length-1;i++){ const a=idx.get(seq[i]), b=idx.get(seq[i+1]); durS+=M.dur[a][b]; if(M.dist) distM+=M.dist[a][b]; }
+      r.minFahrt=Math.round(durS/60); r.km=distM/1000; r.minLeerung=r.route.length*empty; r.minGesamt=r.minFahrt+r.minLeerung; r._ors=true;
+      // Echte Straßen-Geometrie für die Karte (wie im Planung-Reiter)
+      r.geo=await fetchOrsRoute(seq.map(p=>[p.lng,p.lat]));
+      return;
+    }
+  }
+  // Fallback Luftlinie
+  r.route=dispoNNOrder(r.depot, r.route, speed);
+  let drive=0,km=0,prev=r.depot;
+  r.route.forEach(s=>{ drive+=dispoTravelMin(prev,s,speed); km+=haversine(prev.lat,prev.lng,s.lat,s.lng); prev=s; });
+  if(r.route.length){ drive+=dispoTravelMin(prev,r.depot,speed); km+=haversine(prev.lat,prev.lng,r.depot.lat,r.depot.lng); }
+  r.minFahrt=Math.round(drive); r.minLeerung=r.route.length*empty; r.minGesamt=Math.round(drive)+r.route.length*empty; r.km=km; r._ors=false; r.geo=null;
+}
+
+async function dispoPlan(){
+  const cfg=dispoGetConfig();
+  const bins=dispoGetBins();
+  const resources=dispoGetResources();
+  if(!bins.length){ notify('Keine Papierkörbe – zuerst „Füllstände simulieren"'); return; }
+  if(!resources.length){ notify('Keine Ressourcen – in Einstellungen anlegen'); return; }
+  const speed=cfg.speedKmh||25, empty=cfg.emptyMin||3, ROAD=1.3; // Umwegfaktor (Luftlinie→Straße) für Budget
+  const begr={}; const cand=[];
+  bins.forEach(b=>{
+    if(b.fuellstand>=cfg.kritisch) cand.push({...b,_muss:true,_score:b.fuellstand+1000});
+    else if(b.fuellstand>=cfg.planbar) cand.push({...b,_muss:false,_score:b.fuellstand});
+    else begr[b.id]={status:'ausgelassen', grund:`${b.fuellstand}% unter Schwelle ${cfg.aus}%`};
+  });
+  cand.sort((a,b)=> (b._muss-a._muss) || (b._score-a._score));
+  const R=resources.map(r=>{ const depot=dispoResolveDepot(r); return {...r, depot, route:[], cur:depot, t:0, budget:(r.arbeitszeitMin||420)*(1-(cfg.reservePct||10)/100)}; });
+  // Zuordnung (Luftlinie × Umwegfaktor als konservative Schätzung)
+  cand.forEach(c=>{
+    let best=null, bestCost=Infinity;
+    R.forEach(r=>{
+      const cap=r.maxBins>0?r.maxBins:Infinity;
+      if(r.route.length>=cap) return; // max. Körbe je Tour erreicht
+      const add=dispoTravelMin(r.cur,c,speed)*ROAD, ret=dispoTravelMin(c,r.depot,speed)*ROAD;
+      if(r.t+add+empty+ret<=r.budget && add<bestCost){ best=r; bestCost=add; }
+    });
+    if(best){ best.route.push(c); best.t+=bestCost+empty; best.cur=c;
+      begr[c.id]={status:'eingeplant', grund:c._muss?`kritisch ≥${cfg.kritisch}%`:'planbar, effizient erreichbar', resourceId:best.id};
+    } else {
+      const allCapped=R.length>0 && R.every(r=>r.maxBins>0 && r.route.length>=r.maxBins);
+      begr[c.id]={status:'verschoben', grund: allCapped?'Max. Körbe je Tour erreicht':(c._muss?'Kapazität erschöpft (kritisch!)':'Tageskapazität erschöpft')};
+    }
+  });
+  setSyncState('syncing','Tagesplanung wird berechnet…');
+  // Reihenfolge + Zeit je Ressource (ORS „Optimiert" oder Luftlinie)
+  for(const r of R){ await dispoOptimizeRoute(r, speed, empty); }
+  const usedOrs=R.some(r=>r._ors);
+  setSyncState('ok','Synchronisiert');
+  window.__dispoPlan={R, begr, cfg, ts:new Date(), usedOrs};
+  dispoVisible=null; // bei neuer Planung alle Fahrzeuge zeigen
+  dispoRenderResults(); dispoRenderMap();
+  notify('Tagesplanung erstellt');
+}
+
+function dispoFmtH(min){ const h=Math.floor(min/60), m=Math.round(min%60); return h>0?`${h}h ${m}min`:`${m} min`; }
+function dispoResColor(i){ return TOUR_COLORS[i%TOUR_COLORS.length]; }
+
+function dispoToggle(id, head){
+  const el=document.getElementById(id); if(!el) return;
+  const open=getComputedStyle(el).display==='none';
+  el.style.display=open?'block':'none';
+  const chev=head.querySelector('.dispo-chev'); if(chev) chev.textContent=open?'▾':'▸';
+}
+const DISPO_BADGE={eingeplant:'background:#dcfce7;color:#15803d;', verschoben:'background:#fef3c7;color:#b45309;', ausgelassen:'background:#f0ede6;color:#6b6760;'};
+function dispoProg(b){ return b.fillRate?` · voll in ~${Math.max(0,Math.ceil((100-b.fuellstand)/b.fillRate))} T`:''; }
+function dispoRow(b,v,idx,opts){
+  opts=opts||{};
+  const plan=window.__dispoPlan;
+  const assignSel=(opts.assign && plan && plan.R && plan.R.length)
+    ? `<select onchange="if(this.value){dispoAssign('${b.id}',this.value);}" style="flex-basis:100%;margin-top:4px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text2);">
+        <option value="">＋ einer Ressource zuteilen…</option>
+        ${plan.R.map(r=>`<option value="${r.id}">${r.name}</option>`).join('')}
+      </select>`
+    : '';
+  const removeBtn=opts.remove
+    ? `<button onclick="event.stopPropagation();dispoUnassign('${b.id}')" title="Aus Tour entfernen" style="flex-shrink:0;border:none;background:none;color:var(--text3);cursor:pointer;font-size:13px;line-height:1;padding:2px 4px;">✕</button>`
+    : '';
+  return `<div class="dispo-list-row" data-bin="${b.id}" onclick="dispoFocusPoint('${b.id}',event)" style="cursor:pointer;">
+    ${idx!=null?`<span style="flex-shrink:0;min-width:18px;height:18px;border-radius:9px;background:var(--surface2);color:var(--text2);font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;">${idx}</span>`:''}
+    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${b.name} <b>${b.fuellstand}%</b></span>
+    <span class="dispo-badge" style="${DISPO_BADGE[v.status]||''}">${v.status}${v._manual?' ✋':''}</span>
+    ${removeBtn}
+    <span style="flex-basis:100%;font-size:11px;color:var(--text3);">${v.grund}${dispoProg(b)}</span>
+    ${assignSel}
+  </div>`;
+}
+
+async function dispoAssign(binId, resId){
+  const plan=window.__dispoPlan; if(!plan) return;
+  const b=dispoGetBins().find(x=>x.id===binId);
+  const r=plan.R.find(x=>x.id===resId);
+  if(!b||!r) return;
+  const cfg=plan.cfg, speed=cfg.speedKmh||25, empty=cfg.emptyMin||3;
+  plan.R.forEach(x=>{ x.route=x.route.filter(s=>s.id!==binId); });
+  r.route.push({...b});
+  setSyncState('syncing','Route wird neu berechnet…');
+  await dispoOptimizeRoute(r, speed, empty);
+  setSyncState('ok','Synchronisiert');
+  plan.begr[binId]={status:'eingeplant', grund:'manuell zugeteilt', resourceId:resId, _manual:true};
+  plan.usedOrs=plan.R.some(x=>x._ors);
+  dispoRenderResults(); dispoRenderMap();
+  const budget=(r.arbeitszeitMin||420)*(1-(cfg.reservePct||10)/100);
+  const overCap=r.maxBins>0 && r.route.length>r.maxBins;
+  notify(overCap?`Zugeteilt – ${r.name} über Max. Körbe (${r.maxBins})`:r.minGesamt>budget?`Zugeteilt – ${r.name} überschreitet jetzt das Zeitbudget`:`Zu ${r.name} zugeteilt`);
+}
+
+function dispoConfirm(title, msg, okLabel){
+  return new Promise(resolve=>{
+    const m=document.createElement('div');
+    m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+    m.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:380px;max-width:92vw;overflow:hidden;">
+      <div style="padding:16px 20px 6px;font-size:15px;font-weight:700;">${title}</div>
+      <div style="padding:0 20px 16px;font-size:13px;color:var(--text2);line-height:1.6;">${msg}</div>
+      <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
+        <button id="dc-no" class="btn btn-secondary">Abbrechen</button>
+        <button id="dc-yes" class="btn btn-danger">${okLabel||'Entfernen'}</button>
+      </div></div>`;
+    document.body.appendChild(m);
+    const done=v=>{ m.remove(); resolve(v); };
+    m.querySelector('#dc-no').onclick=()=>done(false);
+    m.querySelector('#dc-yes').onclick=()=>done(true);
+    m.addEventListener('click',e=>{ if(e.target===m) done(false); });
+  });
+}
+
+async function dispoUnassign(binId){
+  const plan=window.__dispoPlan; if(!plan) return;
+  const cfg=plan.cfg, speed=cfg.speedKmh||25, empty=cfg.emptyMin||3;
+  const b0=dispoGetBins().find(x=>x.id===binId);
+  const ok=await dispoConfirm('Korb aus Tour entfernen?', `„${b0?b0.name:'Papierkorb'}" wirklich aus der Tour entfernen? Er wandert zurück nach „Nicht eingeplant".`);
+  if(!ok) return;
+  let affected=null;
+  plan.R.forEach(r=>{ if(r.route.some(s=>s.id===binId)){ r.route=r.route.filter(s=>s.id!==binId); affected=r; } });
+  if(!affected) return;
+  const b=dispoGetBins().find(x=>x.id===binId);
+  plan.begr[binId]= b && b.fuellstand>=cfg.planbar
+    ? {status:'verschoben', grund:'manuell entfernt'}
+    : {status:'ausgelassen', grund:'manuell entfernt'};
+  setSyncState('syncing','Route wird neu berechnet…');
+  await dispoOptimizeRoute(affected, speed, empty);
+  setSyncState('ok','Synchronisiert');
+  plan.usedOrs=plan.R.some(x=>x._ors);
+  dispoRenderResults(); dispoRenderMap();
+  notify('Aus Tour entfernt');
+}
+
+function dispoRenderResults(){
+  const bins=dispoGetBins();
+  const plan=window.__dispoPlan;
+  const kpiEl=document.getElementById('dispo-kpis');
+  const resEl=document.getElementById('dispo-resources');
+  const listEl=document.getElementById('dispo-list');
+  const secEl=document.getElementById('dispo-list-sec');
+  if(!kpiEl) return;
+  const cfg=dispoGetConfig();
+  if(!plan){
+    const krit=bins.filter(b=>b.fuellstand>=cfg.kritisch).length;
+    kpiEl.innerHTML=`<div class="dispo-kpi"><div class="v">${bins.length}</div><div class="l">Papierkörbe</div></div>
+      <div class="dispo-kpi"><div class="v" style="color:var(--red);">${krit}</div><div class="l">kritisch</div></div>
+      <div class="dispo-kpi"><div class="v">–</div><div class="l">geplant</div></div>`;
+    resEl.innerHTML='<div class="dispo-empty">Noch nicht geplant. „Tag automatisch planen" klicken.</div>';
+    listEl.innerHTML=''; if(secEl) secEl.style.display='none';
+    return;
+  }
+  const vals=Object.values(plan.begr);
+  const geplant=vals.filter(v=>v.status==='eingeplant').length;
+  const verschoben=vals.filter(v=>v.status==='verschoben').length;
+  const ausgelassen=vals.filter(v=>v.status==='ausgelassen').length;
+  const orsNote=plan.usedOrs?'Routen: <b>Optimiert (ORS-Fahrstrecken)</b>':'Routen: Schnell (Luftlinie)';
+  kpiEl.innerHTML=`<div class="dispo-kpi"><div class="v" style="color:var(--green);">${geplant}</div><div class="l">geplant</div></div>
+    <div class="dispo-kpi"><div class="v" style="color:var(--amber);">${verschoben}</div><div class="l">verschoben</div></div>
+    <div class="dispo-kpi"><div class="v" style="color:var(--text3);">${ausgelassen}</div><div class="l">ausgelassen</div></div>
+    <div style="grid-column:1/-1;font-size:11px;color:var(--text3);margin-top:2px;">${orsNote}</div>`;
+
+  const binById={}; bins.forEach(b=>binById[b.id]=b);
+
+  // Ressourcen-Karten mit aufklappbarer Begründungsliste je Tour
+  const filterBar = dispoVisible ? `<button onclick="dispoShowAllVehicles()" class="btn btn-secondary" style="width:100%;margin-bottom:8px;font-size:12px;padding:6px;">👁 Alle Fahrzeuge anzeigen</button>` : '';
+  resEl.innerHTML=filterBar+plan.R.map((r,i)=>{
+    const budget=(r.arbeitszeitMin||420)*(1-(plan.cfg.reservePct||10)/100);
+    const pct=budget>0?Math.min(100,Math.round(r.minGesamt/budget*100)):0;
+    const id='dres'+i;
+    const binsOfR=r.route.map((s,idx)=>({b:binById[s.id]||s, v:plan.begr[s.id], idx:idx+1})).filter(x=>x.v);
+    const vis=dispoResVisible(r.id);
+    const isolated=dispoVisible && dispoVisible.size===1 && dispoVisible.has(r.id);
+    return `<div class="dispo-res" style="${vis?'':'opacity:.5;'}${isolated?`box-shadow:inset 3px 0 0 ${dispoResColor(i)};`:''}">
+      <div class="dispo-res-head" style="cursor:pointer;" onclick="dispoFocusVehicle('${r.id}')" title="${isolated?'Klick: alle Fahrzeuge zeigen':'Klick: nur diese Route zeigen'}">
+        <span class="dispo-res-dot" style="background:${dispoResColor(i)};${vis?'':'opacity:.4;'}"></span>${r.name}
+        <span style="margin-left:auto;font-size:11px;color:var(--text3);display:flex;align-items:center;gap:6px;">
+          <button onclick="event.stopPropagation();dispoToggleVehicle('${r.id}')" title="Auf Karte ein-/ausblenden" style="border:none;background:none;cursor:pointer;font-size:13px;line-height:1;padding:0;">${vis?'👁':'🙈'}</button>
+          ${r.route.length} Körbe
+          <span class="dispo-chev" onclick="event.stopPropagation();dispoToggle('${id}',this.parentElement.parentElement)" style="cursor:pointer;padding:0 2px;">▸</span>
+        </span>
+      </div>
+      <div class="dispo-bar"><div class="fill" style="width:${pct}%;background:${pct>=100?'var(--red)':dispoResColor(i)};"></div></div>
+      <div class="dispo-res-meta">Auslastung ${dispoFmtH(r.minGesamt)} / ${dispoFmtH(Math.round(budget))}${r.maxBins>0?` · ${r.route.length}/${r.maxBins} Körbe`:''}</div>
+      <table class="dispo-leistung">
+        <tr class="h"><th>Leistung</th><th>Strecke</th><th>Dauer</th></tr>
+        <tr><td>Fahrt</td><td>${r.km.toFixed(1)} km</td><td>${dispoFmtH(r.minFahrt)}</td></tr>
+        <tr><td>Leerung</td><td>–</td><td>${dispoFmtH(r.minLeerung)}</td></tr>
+        <tr class="g"><td>Gesamt</td><td>${r.km.toFixed(1)} km</td><td>${dispoFmtH(r.minGesamt)}</td></tr>
+      </table>
+      <div id="${id}" style="display:none;margin-top:8px;border-top:1px dashed var(--border);padding-top:4px;">
+        ${binsOfR.length? binsOfR.map(x=>dispoRow(x.b,x.v,x.idx,{remove:true})).join('') : '<div class="dispo-empty">Keine Körbe</div>'}
+      </div>
+    </div>`;
+  }).join('');
+
+  // Nicht eingeplant (verschoben + ausgelassen)
+  const order={verschoben:0, ausgelassen:1};
+  const notPlanned=Object.entries(plan.begr).map(([id,v])=>({b:binById[id], v})).filter(x=>x.b && x.v.status!=='eingeplant')
+    .sort((a,b)=> (order[a.v.status]-order[b.v.status]) || (b.b.fuellstand-a.b.fuellstand));
+  if(secEl) secEl.style.display='';
+  listEl.innerHTML = notPlanned.length
+    ? notPlanned.map(x=>dispoRow(x.b,x.v,null,{assign:true})).join('')
+    : '<div class="dispo-empty">Alle relevanten Körbe eingeplant 🎉</div>';
+}
+
+function dispoFocusPoint(id, ev){
+  if(ev && ev.target.closest('select,button')) return;
+  const m=dispoMarkers[id]; if(!m||!dispoMap) return;
+  dispoMap.setView(m.getLatLng(), Math.max(dispoMap.getZoom(),16), {animate:true});
+  m.openPopup();
+}
+
+function dispoFocusBin(id){
+  const row=document.querySelector(`.dispo-list-row[data-bin="${id}"]`);
+  if(!row) return;
+  const coll=row.closest('[id^="dres"]');
+  if(coll && getComputedStyle(coll).display==='none'){
+    coll.style.display='block';
+    const chev=coll.parentElement.querySelector('.dispo-chev'); if(chev) chev.textContent='▾';
+  }
+  row.scrollIntoView({behavior:'smooth',block:'center'});
+  const prev=row.style.background;
+  row.style.transition='background .25s';
+  row.style.background='rgba(34,197,94,.28)';
+  setTimeout(()=>{ row.style.background=prev||''; }, 1300);
+}
+
+// Betriebshöfe zeichnen: gleiche Standorte zu EINEM Marker gruppieren,
+// Namen als dauerhaftes Label, eigene Höfe per Popup auf Standard zurücksetzbar.
+function dispoDrawDepots(L, plan, pts){
+  const stdName=dispoDefaultDepot().adresse||'Betriebshof';
+  const list = (plan
+    ? plan.R.map((r,i)=>({id:r.id, name:r.name, depot:r.depot, std:dispoIsStandardDepot(r.depot), col:dispoResColor(i)}))
+    : dispoGetResources().map((r,i)=>({id:r.id, name:r.name, depot:dispoResolveDepot(r), std:dispoIsStandardDepot(r.depot), col:dispoResColor(i)})))
+    .filter(it=>dispoResVisible(it.id)); // nur sichtbare Fahrzeuge
+  const groups={};
+  list.forEach(it=>{ const k=it.depot.lat.toFixed(5)+','+it.depot.lng.toFixed(5); (groups[k]||(groups[k]={depot:it.depot, items:[]})).items.push(it); });
+  Object.values(groups).forEach(g=>{
+    const allStd=g.items.every(it=>it.std);
+    const col=allStd?'#475569':g.items.find(it=>!it.std).col;
+    const label=allStd?stdName:(g.depot.adresse||'Eigener Hof');
+    const pop=`<b>${allStd?'Standard-Betriebshof':'Betriebshof'}</b><br><span style="font-size:11px;color:#666;">${label}</span><div style="margin-top:6px;border-top:1px solid #eee;padding-top:6px;font-size:12px;">`
+      + g.items.map(it=>`<div style="display:flex;align-items:center;gap:6px;margin:2px 0;"><span style="width:9px;height:9px;border-radius:3px;background:${it.col};flex-shrink:0;"></span>${it.name}: ${it.std?'<i>Standard</i>':'Eigener Hof'}${it.std?'':` <button onclick="dispoResetDepot('${it.id}')" style="margin-left:auto;border:none;background:#fee2e2;color:#b91c1c;border-radius:5px;padding:2px 7px;cursor:pointer;font-size:11px;">✕ Standard</button>`}</div>`).join('')
+      + `</div>`;
+    const html=`<div style="display:flex;align-items:center;gap:5px;white-space:nowrap;">`
+      + `<div style="width:22px;height:22px;border-radius:5px;background:${col};border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;">🏢</div>`
+      + `<span style="background:rgba(255,255,255,.92);border:1px solid #cbd5e1;color:#1f2937;font-size:11px;font-weight:600;padding:2px 6px;border-radius:5px;box-shadow:0 1px 3px rgba(0,0,0,.2);">${label}</span></div>`;
+    const m=L.marker([g.depot.lat,g.depot.lng],{icon:L.divIcon({className:'',html,iconSize:[22,22],iconAnchor:[11,11]})}).addTo(dispoLayer);
+    m.bindPopup(pop);
+    if(pts) pts.push([g.depot.lat,g.depot.lng]);
+  });
+}
+
+function dispoResetDepot(id){
+  const res=dispoGetResources(); const t=res.find(x=>x.id===id); if(!t) return;
+  t.depot=null; dispoSetResources(res);
+  window.__dispoPlan=null; dispoRenderResults(); dispoRenderMap();
+  notify('Betriebshof auf Standard zurückgesetzt');
+}
+
+function dispoRenderMap(){
+  const L=window.L, wrap=document.getElementById('dispo-map'); if(!L||!wrap) return;
+  if(!dispoMap){
+    dispoMap=L.map('dispo-map',{zoomControl:true,attributionControl:false}).setView([50.0,8.42],12);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(dispoMap);
+    dispoLayer=L.layerGroup().addTo(dispoMap);
+    setTimeout(()=>dispoMap.invalidateSize(),150);
+  }
+  dispoLayer.clearLayers();
+  dispoMarkers={};
+  const bins=dispoGetBins(), cfg=dispoGetConfig(), plan=window.__dispoPlan;
+  const pts=[];
+  const filtered=plan && dispoVisible; // Sichtbarkeitsfilter aktiv?
+  // Welche Körbe gehören zu sichtbaren Touren?
+  let visBinIds=null;
+  if(filtered){ visBinIds=new Set(); plan.R.forEach(r=>{ if(dispoResVisible(r.id)) r.route.forEach(s=>visBinIds.add(s.id)); }); }
+  // Routen (nur sichtbare Fahrzeuge)
+  if(plan){
+    plan.R.forEach((r,i)=>{
+      if(!dispoResVisible(r.id)) return;
+      const col=dispoResColor(i);
+      if(r.geo?.features?.[0]){
+        L.geoJSON(r.geo,{style:{color:col,weight:4,opacity:.8}}).addTo(dispoLayer); // echte Straßenroute
+      } else if(r.route.length){
+        const line=[[r.depot.lat,r.depot.lng], ...r.route.map(s=>[s.lat,s.lng]), [r.depot.lat,r.depot.lng]];
+        L.polyline(line,{color:col,weight:3,opacity:.6,dashArray:'6 4'}).addTo(dispoLayer); // Fallback Luftlinie
+      }
+    });
+  }
+  dispoDrawDepots(L, plan, pts); // Betriebshöfe: gruppiert, benannt, entfernbar (nur sichtbare)
+  bins.forEach(b=>{
+    let col='#9c9890';
+    if(plan){ const st=plan.begr[b.id]?.status; col= st==='eingeplant'?'#16a34a': st==='verschoben'?'#b45309':'#9c9890'; }
+    else { col= b.fuellstand>=cfg.kritisch?'#dc2626': b.fuellstand>=cfg.planbar?'#f59e0b':'#9c9890'; }
+    // Bei aktivem Filter: Körbe fremder/ausgeblendeter Touren gedämpft darstellen
+    const dim = filtered && plan.begr[b.id]?.status==='eingeplant' && !visBinIds.has(b.id);
+    const m=L.circleMarker([b.lat,b.lng],{radius:dim?4:7,color:'#fff',weight:1.5,fillColor:col,fillOpacity:dim?0.25:0.95}).addTo(dispoLayer);
+    m.bindPopup(`<b>${b.name}</b><br>Füllstand: <b>${b.fuellstand}%</b>${b.fillRate?`<br>~voll in ${Math.max(0,Math.ceil((100-b.fuellstand)/b.fillRate))} Tagen`:''}${plan?`<br>Status: ${plan.begr[b.id]?.status||'-'}`:''}`);
+    m.on('click',()=>dispoFocusBin(b.id));
+    dispoMarkers[b.id]=m;
+    if(!filtered || !dim) pts.push([b.lat,b.lng]); // Zoom nur auf sichtbare Elemente
+  });
+  if(pts.length) dispoMap.fitBounds(L.latLngBounds(pts),{padding:[40,40],maxZoom:15});
+  setTimeout(()=>dispoMap.invalidateSize(),100);
+}
+
+function dispoOpenSettings(){
+  const cfg=dispoGetConfig(); const res=dispoGetResources();
+  const stdName=dispoDefaultDepot().adresse||'Betriebshof';
+  const modal=document.createElement('div');
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;';
+  const rowHtml=(r,i)=>{
+    const std=dispoIsStandardDepot(r.depot);
+    const dAttr=std?'':JSON.stringify({lat:r.depot.lat,lng:r.depot.lng});
+    const hof=std?`Standard: ${stdName}`:`Eigener Hof (${r.depot.lat.toFixed(4)}, ${r.depot.lng.toFixed(4)})`;
+    return `<div class="ds-row" style="display:flex;gap:6px;align-items:center;margin-bottom:6px;" data-depot='${dAttr}'>
+      <input class="form-control ds-r-name" style="flex:1;min-width:0;padding:5px 8px;font-size:12px;" value="${r.name||('Fahrzeug '+(i+1))}">
+      <input class="form-control ds-r-time" type="number" style="width:56px;padding:5px 8px;font-size:12px;" value="${Math.round((r.arbeitszeitMin||420)/60*10)/10}"><span style="font-size:11px;color:var(--text3);">h</span>
+      <input class="form-control ds-r-max" type="number" min="0" title="Max. Körbe je Tour (0 = unbegrenzt)" style="width:56px;padding:5px 8px;font-size:12px;" value="${r.maxBins||0}">
+      <span class="ds-r-hof" style="flex:1;min-width:0;font-size:11px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${hof}</span>
+      <button class="btn btn-secondary ds-r-pick" style="padding:4px 8px;font-size:11px;white-space:nowrap;">📍 Karte</button>
+      <button class="btn btn-secondary ds-r-std" style="padding:4px 8px;font-size:11px;${std?'display:none;':''}">Standard</button>
+      <button class="btn btn-danger ds-r-del" style="padding:4px 8px;font-size:12px;">✕</button>
+    </div>`;
+  };
+  modal.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);width:680px;max-width:96vw;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;">
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;">Disposition – Einstellungen</div>
+    <div style="padding:16px 20px;overflow:auto;">
+      <div class="dispo-sec" style="margin-top:0;">Schwellen & Zeiten</div>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;">
+        <label style="font-size:12px;">Kritisch ab (%)<input id="ds-krit" type="number" class="form-control" value="${cfg.kritisch}" style="padding:6px 8px;"></label>
+        <label style="font-size:12px;">Planbar ab (%)<input id="ds-plan" type="number" class="form-control" value="${cfg.planbar}" style="padding:6px 8px;"></label>
+        <label style="font-size:12px;">Ø Leerungsdauer (min)<input id="ds-empty" type="number" class="form-control" value="${cfg.emptyMin}" style="padding:6px 8px;"></label>
+        <label style="font-size:12px;">Reservepuffer (%)<input id="ds-res" type="number" class="form-control" value="${cfg.reservePct}" style="padding:6px 8px;"></label>
+        <label style="font-size:12px;">Ø Tempo (km/h)<input id="ds-speed" type="number" class="form-control" value="${cfg.speedKmh}" style="padding:6px 8px;"></label>
+        <label style="font-size:12px;">Anzahl Körbe (Simulation)<input id="ds-count" type="number" class="form-control" value="${cfg.binCount}" style="padding:6px 8px;"></label>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px;">Hinweis: „Auslassen" = alles unter „Planbar ab".</div>
+      <div class="dispo-sec">Ressourcen <button id="ds-add" class="btn btn-secondary" style="padding:2px 8px;font-size:11px;margin-left:6px;">+ Ressource</button></div>
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text3);">
+        <span style="flex:1;">Name</span>
+        <span style="width:56px;text-align:center;">Arbeitsz.</span>
+        <span style="width:12px;"></span>
+        <span style="width:56px;text-align:center;">Max. Körbe</span>
+        <span style="flex:1;">Betriebshof</span>
+        <span style="width:175px;"></span>
+      </div>
+      <div id="ds-res-list">${res.map(rowHtml).join('')}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px;">Standard = Betriebshof aus dem Planung-Reiter. „📍 Karte" setzt einen eigenen Hof per Klick auf die Karte. <b>Max. Körbe</b> = höchstens so viele Körbe je Tour (0 = unbegrenzt).</div>
+    </div>
+    <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
+      <button id="ds-cancel" class="btn btn-secondary">Abbrechen</button>
+      <button id="ds-save" class="btn btn-primary">Speichern</button>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+  const close=()=>modal.remove();
+  modal.querySelector('#ds-cancel').onclick=close;
+  modal.addEventListener('click',e=>{ if(e.target===modal) close(); });
+  const listEl=modal.querySelector('#ds-res-list');
+  const num=(id,def)=>{ const v=parseFloat(modal.querySelector('#'+id).value); return isNaN(v)?def:v; };
+  function collectSave(){
+    const newCfg={...cfg, kritisch:num('ds-krit',80), planbar:num('ds-plan',50), aus:num('ds-plan',50), emptyMin:num('ds-empty',3), reservePct:num('ds-res',10), speedKmh:num('ds-speed',25), binCount:Math.round(num('ds-count',40))};
+    dispoSetConfig(newCfg);
+    const newRes=[...listEl.querySelectorAll('.ds-row')].map((row,i)=>{
+      let depot=null; const da=row.getAttribute('data-depot'); if(da){ try{ depot=JSON.parse(da); }catch(e){} }
+      return { id:'r'+(i+1), name:row.querySelector('.ds-r-name').value.trim()||('Fahrzeug '+(i+1)),
+        arbeitszeitMin:Math.round((parseFloat(row.querySelector('.ds-r-time').value)||7)*60),
+        maxBins:Math.max(0, Math.round(parseFloat(row.querySelector('.ds-r-max').value)||0)), depot };
+    });
+    dispoSetResources(newRes.length?newRes:dispoGetResources());
+  }
+  modal.querySelector('#ds-add').onclick=()=>{
+    const tmp=document.createElement('div');
+    tmp.innerHTML=rowHtml({name:'Fahrzeug '+(listEl.children.length+1), arbeitszeitMin:420, depot:null, maxBins:0}, listEl.children.length);
+    listEl.appendChild(tmp.firstElementChild);
+  };
+  listEl.onclick=e=>{
+    const row=e.target.closest('.ds-row'); if(!row) return;
+    if(e.target.closest('.ds-r-del')){ row.remove(); return; }
+    if(e.target.closest('.ds-r-std')){ row.setAttribute('data-depot',''); row.querySelector('.ds-r-hof').textContent='Standard: '+stdName; e.target.closest('.ds-r-std').style.display='none'; return; }
+    if(e.target.closest('.ds-r-pick')){ const idx=[...listEl.children].indexOf(row); collectSave(); close(); dispoPickDepot(idx); return; }
+  };
+  modal.querySelector('#ds-save').onclick=()=>{
+    collectSave(); close();
+    window.__dispoPlan=null; dispoRenderResults(); dispoRenderMap();
+    notify('Einstellungen gespeichert');
+  };
+}
+
+// Eigenen Betriebshof per Klick auf die Karte setzen
+function dispoPickDepot(i){
+  if(!dispoMap){ notify('Disposition-Karte nicht bereit'); return; }
+  if(dispoPickCleanup){ dispoPickCleanup(); } // evtl. laufende Auswahl beenden
+  const name=dispoGetResources()[i]?.name||'Ressource';
+  document.getElementById('dispo-pick-banner')?.remove();
+  const ban=document.createElement('div'); ban.id='dispo-pick-banner';
+  ban.style.cssText='position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:9000;background:var(--blue);color:#fff;padding:8px 14px;border-radius:8px;box-shadow:var(--shadow-md);font-size:13px;display:flex;align-items:center;gap:12px;';
+  ban.innerHTML=`🏢 Auf die Karte klicken: Betriebshof für „${name}" <button id="dpb-cancel" style="background:rgba(255,255,255,.25);border:none;color:#fff;border-radius:6px;padding:3px 8px;cursor:pointer;">Abbrechen</button>`;
+  document.body.appendChild(ban);
+  dispoMap.getContainer().style.cursor='crosshair';
+  const cleanup=()=>{ dispoMap.off('click',onClick); dispoMap.getContainer().style.cursor=''; ban.remove(); dispoPickCleanup=null; };
+  dispoPickCleanup=cleanup;
+  const onClick=(e)=>{
+    const r=dispoGetResources();
+    if(r[i]){ r[i].depot={lat:e.latlng.lat, lng:e.latlng.lng, adresse:'Eigener Hof'}; dispoSetResources(r); }
+    cleanup(); window.__dispoPlan=null; dispoRenderResults(); dispoRenderMap(); notify('Betriebshof gesetzt'); dispoOpenSettings();
+  };
+  dispoMap.on('click', onClick);
+  ban.querySelector('#dpb-cancel').onclick=()=>{ cleanup(); dispoOpenSettings(); };
+}
+
+function initDispo(){
+  dispoGetResources(); // Defaults sicherstellen
+  if(dispoGetBins().length===0) dispoSimulate(); else { dispoRenderResults(); dispoRenderMap(); }
+  setTimeout(()=>{ if(dispoMap) dispoMap.invalidateSize(); },200);
+}
+
 // ─── KI-AUSWERTUNG (Prompt-Bibliothek) ───────────────────────
 function buildKiContext(){
   if(!currentProjectId) return 'Kein Projekt geöffnet.';
@@ -4027,6 +4619,7 @@ function renderKiConfig(){
 
 Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,
+  dispoSimulate,dispoPlan,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
   dashSetPeriod,renderDashboard,refreshDashboard,
   saveInlineFields,filterDetailTable,filterBaeumeTable,saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,
@@ -4038,7 +4631,7 @@ Object.assign(window,{
   focusTour,focusTourAndSwitch,
   startPlacement,cancelMode,setDepotOnMap,
   startAssignMode,setAssignTour,cancelAssign,assignTreeToTour,
-  openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,
+  openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,
   addWmsLayer,deleteWmsLayer,renderWmsList,
   setFilter,pickColor,renderList,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,

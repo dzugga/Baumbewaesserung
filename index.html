@@ -252,7 +252,15 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="flex-shrink:0"><path d="M6 9l6 6 6-6"/></svg>
   </div>
   <nav class="topbar-nav">
-    <button class="nav-btn active" onclick="switchView('karte')">Planung</button>
+    <div class="nav-group">
+      <button class="nav-btn nav-parent active" type="button">Planung
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-left:2px;"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <div class="nav-dropdown">
+        <button class="active" onclick="switchView('karte')">Planung (manuell)</button>
+        <button onclick="switchView('disposition')">Planung (automatisiert nach Füllstand)</button>
+      </div>
+    </div>
     <button class="nav-btn" onclick="switchView('dashboard')">Dashboard</button>
     <div class="nav-group">
       <button class="nav-btn nav-parent" type="button">Auswertung
@@ -271,15 +279,24 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <button onclick="switchView('baeume')">Objekte</button>
         <button onclick="switchView('touren')">Touren</button>
         <button onclick="switchView('verwaltung')">Fahrer &amp; Gründe</button>
+        <button onclick="openImport()">Import</button>
+      </div>
+    </div>
+    <div class="nav-group">
+      <button class="nav-btn nav-parent" type="button">INFA-Admin
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-left:2px;"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <div class="nav-dropdown">
+        <button onclick="openAllgemein()">Allgemein</button>
         <button onclick="switchView('kiconfig')">KI-Analyse</button>
       </div>
     </div>
   </nav>
   <div class="topbar-right">
-    <div class="sync-indicator" id="app-sync" style="margin-right:4px;">
+    <div class="sync-indicator" id="app-sync" style="margin-left:24px;margin-right:14px;">
       <div class="sync-dot"></div><span id="app-sync-text">Bereit</span>
     </div>
-    <button class="btn btn-warn" onclick="startAssignMode()">
+    <button class="btn btn-warn" id="btn-planen" onclick="startAssignMode()">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>Planen
     </button>
 
@@ -395,18 +412,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
           <button class="panel-close" onclick="closeSettings()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
         </div>
         <div class="panel-body">
-          <div class="form-section">Import</div>
-          <button class="btn btn-secondary" style="width:100%;margin-bottom:6px;" onclick="document.getElementById('excel-import-input').click();closeSettings()">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            Import (Excel)
-          </button>
-          <div style="font-size:11px;color:var(--text3);margin-bottom:8px;">A=Anlage/Str. · B=Stadtteil · C=Baumart · D=Baumnr. · E=Pflanzjahr · F=Pflanzzeitpunkt · G=Bemerkung · H=Lat · I=Lng</div>
-          <div class="form-section">ORS API-Key (Straßen-Routing)</div>
-          <div class="form-group">
-            <label class="form-label">API-Key</label>
-            <input class="form-control" id="s-apikey" placeholder="ors_…">
-            <div style="margin-top:6px;font-size:11px;color:var(--text3);">Kostenlos: <a href="https://openrouteservice.org/dev/#/signup" target="_blank" style="color:var(--green);">openrouteservice.org</a></div>
-          </div>
           <div class="form-section">Betriebshof (Startpunkt)</div>
           <div class="form-group">
             <label class="form-label">Adresse</label>
@@ -908,6 +913,63 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         </div>
         <div class="dsh-chart-wrap"><canvas id="dash-timeline-chart"></canvas></div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- DISPOSITION (Papierkorb-Tagesplanung) fullscreen overlay -->
+<style>
+#view-disposition{flex-direction:column;}
+.dispo-toolbar{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;gap:10px;flex-shrink:0;flex-wrap:wrap;}
+.dispo-body{flex:1;display:flex;min-height:0;}
+#dispo-map{flex:1;min-width:0;background:var(--surface2);}
+.dispo-side{width:400px;flex-shrink:0;border-left:1px solid var(--border);background:var(--bg);overflow-y:auto;padding:14px;}
+.dispo-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;}
+.dispo-kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;text-align:center;}
+.dispo-kpi .v{font-size:20px;font-weight:800;font-family:'DM Mono',monospace;line-height:1;}
+.dispo-kpi .l{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin-top:3px;}
+.dispo-sec{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin:14px 0 6px;}
+.dispo-res{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;margin-bottom:8px;}
+.dispo-res-head{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;}
+.dispo-res-dot{width:11px;height:11px;border-radius:50%;flex-shrink:0;}
+.dispo-bar{height:8px;border-radius:4px;background:var(--surface2);overflow:hidden;margin:6px 0 4px;}
+.dispo-bar .fill{height:100%;background:var(--green);transition:width .3s;}
+.dispo-res-meta{font-size:11px;color:var(--text3);}
+.dispo-list-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:6px 4px;border-bottom:1px solid var(--border);font-size:12px;}
+.dispo-hof-tip{background:rgba(255,255,255,.92);border:1px solid var(--border);color:#1f2937;font-size:11px;font-weight:600;padding:2px 6px;border-radius:5px;box-shadow:0 1px 3px rgba(0,0,0,.2);}
+.dispo-hof-tip:before{display:none;}
+.dispo-leistung{width:100%;border-collapse:collapse;font-size:11px;margin-top:6px;color:var(--text2);}
+.dispo-leistung th,.dispo-leistung td{padding:2px 4px;text-align:right;}
+.dispo-leistung th:first-child,.dispo-leistung td:first-child{text-align:left;}
+.dispo-leistung tr.h th{color:var(--text3);font-weight:600;border-bottom:1px solid var(--border);}
+.dispo-leistung tr.g td{font-weight:700;border-top:1px solid var(--border);color:var(--text);}
+.dispo-badge{font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;white-space:nowrap;}
+.dispo-empty{font-size:12px;color:var(--text3);text-align:center;padding:24px 0;}
+.dispo-legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--text2);margin-left:auto;}
+.dispo-legend span{display:flex;align-items:center;gap:4px;}
+.dispo-legend i{width:10px;height:10px;border-radius:50%;display:inline-block;}
+@media(max-width:900px){.dispo-body{flex-direction:column;}.dispo-side{width:auto;border-left:none;border-top:1px solid var(--border);}#dispo-map{height:300px;flex:none;}}
+</style>
+<div id="view-disposition" style="display:none;position:fixed;top:54px;left:0;right:0;bottom:0;z-index:1500;background:var(--bg);flex-direction:column;overflow:hidden;">
+  <div class="dispo-toolbar">
+    <span style="font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;">Disposition – Papierkorb-Tagesplanung</span>
+    <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px;" onclick="dispoSimulate()" title="Füllstände neu simulieren">🔄 Füllstände simulieren</button>
+    <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px;" onclick="dispoOpenSettings()">⚙ Einstellungen</button>
+    <button class="btn btn-primary" style="padding:5px 12px;font-size:12px;" onclick="dispoPlan()">▶ Tag automatisch planen</button>
+    <span class="dispo-legend">
+      <span><i style="background:#16a34a"></i>geplant</span>
+      <span><i style="background:#b45309"></i>verschoben</span>
+      <span><i style="background:#9c9890"></i>ausgelassen</span>
+    </span>
+  </div>
+  <div class="dispo-body">
+    <div id="dispo-map"></div>
+    <div class="dispo-side">
+      <div class="dispo-kpis" id="dispo-kpis"></div>
+      <div class="dispo-sec">Ressourcen-Auslastung <span style="font-weight:400;text-transform:none;color:var(--text3);">(aufklappen für Begründung je Korb)</span></div>
+      <div id="dispo-resources"></div>
+      <div class="dispo-sec" id="dispo-list-sec" style="display:none;">Nicht eingeplant</div>
+      <div id="dispo-list"></div>
     </div>
   </div>
 </div>
