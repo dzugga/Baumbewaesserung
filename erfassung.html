@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Baumbewässerung — Erfassung</title>
+<title>INFA-Objekterfassung</title>
 <link rel="preconnect" href="https://unpkg.com">
 <link rel="preconnect" href="https://www.gstatic.com">
 <meta name="theme-color" content="#1e40af">
@@ -144,7 +144,7 @@ button,input,select{touch-action:manipulation;}
 <!-- LOADING -->
 <div id="screen-loading" style="position:fixed;inset:0;background:#f5f3ee;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99999;">
   <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#1e40af" stroke-width="1.5" style="margin-bottom:14px;"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 6.9 8 11.7z"/></svg>
-  <div style="font-size:17px;font-weight:600;color:#1e40af;margin-bottom:6px;">Baumerfassung</div>
+  <div style="font-size:17px;font-weight:600;color:#1e40af;margin-bottom:6px;">INFA-Objekterfassung</div>
   <div style="width:36px;height:36px;border:3px solid #eff6ff;border-top-color:#1e40af;border-radius:50%;animation:spin .8s linear infinite;margin-top:12px;"></div>
   <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
 </div>
@@ -154,7 +154,7 @@ button,input,select{touch-action:manipulation;}
   <div class="login-card">
     <div class="login-brand">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 6.9 8 11.7z"/></svg>
-      Baumerfassung
+      INFA-Objekterfassung
     </div>
     <div class="login-sub">Vor-Ort-Erfassung</div>
     <div class="form-group">
@@ -203,7 +203,7 @@ button,input,select{touch-action:manipulation;}
     </div>
     <div class="mode-tab" id="tab-neu" style="font-size:11px;">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline;vertical-align:middle;margin-right:3px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-      Neuer Baum
+      Neues Objekt
     </div>
     <div class="mode-tab" id="tab-uebersicht" style="font-size:11px;">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline;vertical-align:middle;margin-right:3px;"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
@@ -255,7 +255,7 @@ button,input,select{touch-action:manipulation;}
     </div>
   </div>
 
-  <!-- MODUS 1: Neuer Baum -->
+  <!-- MODUS 1: Neues Objekt -->
   <div class="mode-content" id="mode-neu" style="position:relative;">
     <div style="flex:1;position:relative;">
       <div id="map-neu" style="height:100%;width:100%;"></div>
@@ -308,12 +308,12 @@ button,input,select{touch-action:manipulation;}
 
 </div>
 
-<!-- FORM SHEET (Neuer Baum) -->
+<!-- FORM SHEET (Neues Objekt) -->
 <div id="form-backdrop"></div>
 <div id="form-sheet">
   <div class="sheet-handle"></div>
   <div class="sheet-header">
-    <div class="sheet-title">Neuer Baum</div>
+    <div class="sheet-title">Neues Objekt</div>
     <div class="sheet-sub" id="form-coords-display">–</div>
   </div>
   <div class="sheet-body">

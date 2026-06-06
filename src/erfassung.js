@@ -85,7 +85,7 @@ let allTrees = [];          // alle Bäume des Projekts
 let treesOhneKoords = [];   // Bäume ohne Koordinaten (Modus 2)
 let selectedTree = null;    // für Modus 2
 let activeMode = 'koord';   // 'koord' | 'neu'
-let formMode = 'new';       // 'new' (Neuer Baum) | 'edit' (Koordinaten-Reiter) | 'overview' (Übersicht: direkt speichern)
+let formMode = 'new';       // 'new' (Neues Objekt) | 'edit' (Koordinaten-Reiter) | 'overview' (Übersicht: direkt speichern)
 let overviewEditTree = null;
 let overviewEditMarker = null;
 let overviewEditType = 'erfasst';
@@ -618,7 +618,7 @@ async function saveKoordPosition() {
 // ─── MODUS 1: NEUER BAUM ─────────────────────────────────────
 function openFormSheet() {
   formMode = 'new';
-  document.querySelector('#form-sheet .sheet-title').textContent = 'Neuer Baum';
+  document.querySelector('#form-sheet .sheet-title').textContent = 'Neues Objekt';
   const center = mapNeu.getCenter();
   pendingCoords = { lat: parseFloat(center.lat.toFixed(7)), lng: parseFloat(center.lng.toFixed(7)) };
   document.getElementById('form-coords-display').textContent =
@@ -670,7 +670,7 @@ function collectFormEdits() {
 }
 
 // Eigenschaften des gewählten Baums bearbeiten (Koordinaten-Reiter) –
-// nutzt dieselbe Maske wie „Neuer Baum“.
+// nutzt dieselbe Maske wie „Neues Objekt“.
 function openKoordEditSheet() {
   if (!selectedTree) return;
   formMode = 'edit';
