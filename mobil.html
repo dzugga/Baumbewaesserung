@@ -84,7 +84,7 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
 
 /* ── MAP TAB ──────────────────────────────── */
 #map{flex:1;width:100%;}
-.map-overlay-top{position:absolute;top:8px;left:8px;right:8px;z-index:1000;pointer-events:none;display:flex;gap:6px;}
+.map-overlay-top{position:absolute;top:8px;left:8px;right:52px;z-index:1000;pointer-events:none;display:flex;flex-wrap:wrap;gap:6px;}
 .map-overlay-top>*{pointer-events:all;}
 .map-pill{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:6px 12px;font-size:12px;font-weight:500;color:var(--text2);box-shadow:var(--shadow);white-space:nowrap;}
 .map-pill.active{background:var(--green-light);color:var(--green);}
@@ -235,7 +235,6 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
   <div class="tab-content active" id="tab-map" style="position:relative;">
     <div id="map"></div>
     <div class="map-overlay-top">
-      <div class="map-pill" id="map-status">Karte lädt…</div>
       <button class="recalc-btn" id="btn-recalc">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline;vertical-align:middle;margin-right:4px;"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
         Route neu

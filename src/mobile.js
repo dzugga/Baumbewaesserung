@@ -93,11 +93,7 @@ function startGPS() {
     } else {
       gpsMarker.setLatLng(gpsLatLng);
     }
-    document.getElementById('map-status').textContent =
-      `GPS: ${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`;
-  }, err => {
-    document.getElementById('map-status').textContent = 'GPS nicht verfügbar';
-  }, {enableHighAccuracy: true, maximumAge: 5000});
+  }, err => {}, {enableHighAccuracy: true, maximumAge: 5000});
 }
 
 // ─── LOGIN ────────────────────────────────────────────────────
