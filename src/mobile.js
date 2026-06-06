@@ -689,7 +689,7 @@ async function finishTour() {
       banner.innerHTML = `
         <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5" style="margin-bottom:16px;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
         <div style="font-size:24px;font-weight:700;margin-bottom:8px;">Tour abgeschlossen!</div>
-        <div style="font-size:14px;opacity:.85;">${stats.bewaessert} bewässert · ${stats.nicht} nicht · ${stats.offen} offen</div>
+        <div style="font-size:14px;opacity:.85;">${stats.bewaessert} erledigt · ${stats.nicht} nicht · ${stats.offen} offen</div>
         <div style="font-size:13px;opacity:.7;margin-top:6px;">✓ Erfolgreich gespeichert</div>`;
       document.body.appendChild(banner);
       setTimeout(()=>banner.remove(), 3000);
