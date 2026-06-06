@@ -956,6 +956,11 @@ function renderList(q=''){
 
 // ─── SHEET ────────────────────────────────────────────────────
 function openSheet(id){
+  // Abgeschlossene Tour ist schreibgeschützt – Status-/Bearbeitungs-Sheet nicht öffnen
+  if(currentTour?.status==='abgeschlossen'){
+    toast('Tour abgeschlossen — keine Änderungen möglich');
+    return;
+  }
   selectedTreeId=id;
   const tree=trees.find(t=>t.id===id);
   if(!tree)return;
