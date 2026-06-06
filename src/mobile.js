@@ -445,20 +445,20 @@ function showFinishConfirm() {
         <div style="width:56px;height:56px;background:var(--amber-light);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;">
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
         </div>
-        <div style="font-size:18px;font-weight:700;color:var(--text);">Noch ${offen} Bäume offen</div>
+        <div style="font-size:18px;font-weight:700;color:var(--text);">Noch ${offen} Aufträge offen</div>
         <div style="font-size:13px;color:var(--text3);margin-top:6px;line-height:1.6;">
-          Alle Bäume müssen eine Rückmeldung haben, bevor die Tour abgeschlossen werden kann.<br>
-          Nutze <b>„Alle als bewässert markieren"</b> für eine Schnellerfassung.
+          Alle Aufträge müssen eine Rückmeldung haben, bevor die Tour abgeschlossen werden kann.<br>
+          Nutze <b>„Alle als erledigt markieren"</b> für eine Schnellerfassung.
         </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:20px;">
         <div style="background:var(--green-light);border-radius:10px;padding:12px;text-align:center;">
           <div style="font-size:22px;font-weight:700;color:#16a34a;">${bewaessert}</div>
-          <div style="font-size:11px;color:var(--text3);">Bewässert</div>
+          <div style="font-size:11px;color:var(--text3);">Erledigt</div>
         </div>
         <div style="background:var(--red-light);border-radius:10px;padding:12px;text-align:center;">
           <div style="font-size:22px;font-weight:700;color:#991b1b;">${nicht}</div>
-          <div style="font-size:11px;color:var(--text3);">Nicht bew.</div>
+          <div style="font-size:11px;color:var(--text3);">Nicht erledigt</div>
         </div>
         <div style="background:var(--amber-light);border-radius:10px;padding:12px;text-align:center;">
           <div style="font-size:22px;font-weight:700;color:var(--amber);">${offen}</div>
@@ -466,7 +466,7 @@ function showFinishConfirm() {
         </div>
       </div>
       <button onclick="closeFinishSheet();switchTab('list');" style="width:100%;padding:14px;background:var(--green);color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;margin-bottom:10px;">
-        Zur Liste — offene Bäume bearbeiten
+        Zur Liste — offene Aufträge bearbeiten
       </button>
       <button onclick="closeFinishSheet()" style="width:100%;padding:14px;background:var(--surface2);color:var(--text2);border:none;border-radius:12px;font-size:15px;cursor:pointer;">
         Schließen
@@ -483,11 +483,11 @@ function showFinishConfirm() {
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:20px;">
       <div style="background:var(--green-light);border-radius:10px;padding:12px;text-align:center;">
         <div style="font-size:24px;font-weight:700;color:#16a34a;">${bewaessert}</div>
-        <div style="font-size:11px;color:var(--text3);margin-top:2px;">Bewässert</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px;">Erledigt</div>
       </div>
       <div style="background:var(--red-light);border-radius:10px;padding:12px;text-align:center;">
         <div style="font-size:24px;font-weight:700;color:#991b1b;">${nicht}</div>
-        <div style="font-size:11px;color:var(--text3);margin-top:2px;">Nicht bew.</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px;">Nicht erledigt</div>
       </div>
       <div style="background:var(--amber-light);border-radius:10px;padding:12px;text-align:center;">
         <div style="font-size:24px;font-weight:700;color:var(--amber);">${offen}</div>
