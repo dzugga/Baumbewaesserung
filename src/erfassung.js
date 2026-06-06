@@ -85,6 +85,10 @@ let allTrees = [];          // alle Bäume des Projekts
 let treesOhneKoords = [];   // Bäume ohne Koordinaten (Modus 2)
 let selectedTree = null;    // für Modus 2
 let activeMode = 'koord';   // 'koord' | 'neu'
+let formMode = 'new';       // 'new' (Neuer Baum) | 'edit' (Koordinaten-Reiter) | 'overview' (Übersicht: direkt speichern)
+let overviewEditTree = null;
+let overviewEditMarker = null;
+let overviewEditType = 'erfasst';
 let mapNeu = null;
 let mapKoord = null;
 let gpsMarkerNeu = null;
@@ -93,6 +97,8 @@ let pendingCoords = null;   // {lat, lng} für Formular
 let erfassteMarkers = [];        // grüne Marker auf map-neu
 let erfassteMarkersUebersicht = []; // grüne Marker auf map-uebersicht
 let koordiniertMarkers = [];    // blaue Marker auf map-uebersicht
+let bestandMarkers = [];        // rote Marker (DB-Bestand) auf map-uebersicht
+let bestandShown = false;       // Bestandsobjekte aktuell eingeblendet?
 let erfassteCount = 0;
 let koordiniertCount = 0;
 let mapUebersicht = null;
@@ -113,6 +119,15 @@ function hideLoading() {
 // ─── ERFASSTE MARKER ──────────────────────────────────────────
 let _koordiniertData = [];
 
+// Tooltip-Inhalt für einen Baum je Marker-Typ
+function treeTooltipHtml(tree, type) {
+  const id = type === 'bestand' ? (tree.baumnr || '') : (tree.baumId || '');
+  let tag = '';
+  if (type === 'koord') tag = '<br><i style="color:#1e40af">Koordinate gesetzt</i>';
+  else if (type === 'bestand') tag = '<br><i style="color:#dc2626">Bestand</i>';
+  return `<b>${tree.name || '–'}</b><br><span style="font-family:monospace">${id}</span>${tag}`;
+}
+
 function makeKoordIcon() {
   return L.divIcon({
     className: '',
@@ -127,7 +142,8 @@ function addKoordMarker(tree, map, markerList) {
   if (!tree.lat || !tree.lng) return;
   const marker = L.marker([tree.lat, tree.lng], { icon: makeKoordIcon() })
     .addTo(map)
-    .bindTooltip(`<b>${tree.name || '–'}</b><br><span style="font-family:monospace">${tree.baumId || ''}</span><br><i style="color:#1e40af">Koordinate gesetzt</i>`, { direction: 'top', offset: [0,-16] });
+    .bindTooltip(treeTooltipHtml(tree, 'koord'), { direction: 'top', offset: [0,-16] });
+  if (map === mapUebersicht) marker.on('click', () => openOverviewEditSheet(tree, marker, 'koord'));
   markerList.push(marker);
 }
 
@@ -145,8 +161,71 @@ function addErfasstMarker(tree, map, markerList) {
   if (!tree.lat || !tree.lng) return;
   const marker = L.marker([tree.lat, tree.lng], { icon: makeErfasstIcon() })
     .addTo(map)
-    .bindTooltip(`<b>${tree.name || '–'}</b><br><span style="font-family:monospace">${tree.baumId || ''}</span>`, { direction: 'top', offset: [0, -16] });
+    .bindTooltip(treeTooltipHtml(tree, 'erfasst'), { direction: 'top', offset: [0, -16] });
+  if (map === mapUebersicht) marker.on('click', () => openOverviewEditSheet(tree, marker, 'erfasst'));
   markerList.push(marker);
+}
+
+// ─── BESTANDSOBJEKTE (DB) – rote Marker ───────────────────────
+function makeBestandIcon() {
+  return L.divIcon({
+    className: '',
+    html: `<div style="width:24px;height:24px;border-radius:50%;background:#dc2626;border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 6.9 8 11.7z"/></svg>
+    </div>`,
+    iconSize: [24, 24], iconAnchor: [12, 12]
+  });
+}
+
+function addBestandMarker(tree) {
+  if (!tree.lat || !tree.lng) return;
+  const marker = L.marker([tree.lat, tree.lng], { icon: makeBestandIcon() })
+    .addTo(mapUebersicht)
+    .bindTooltip(treeTooltipHtml(tree, 'bestand'), { direction: 'top', offset: [0, -14] });
+  marker.on('click', () => openOverviewEditSheet(tree, marker, 'bestand'));
+  bestandMarkers.push(marker);
+}
+
+function updateBestandBtn() {
+  const btn = document.getElementById('btn-bestand-toggle');
+  if (!btn) return;
+  const dot = btn.querySelector('.bestand-dot');
+  const lbl = btn.querySelector('.bestand-label');
+  if (dot) dot.style.opacity = bestandShown ? '1' : '.4';
+  if (lbl) lbl.textContent = bestandShown ? 'Bestandsobjekte ausblenden' : 'Bestandsobjekte anzeigen';
+  btn.style.color = bestandShown ? '#dc2626' : '#991b1b';
+  btn.style.background = bestandShown ? '#fef2f2' : 'var(--surface)';
+}
+
+function hideBestand() {
+  bestandMarkers.forEach(m => { try { mapUebersicht.removeLayer(m); } catch(e){} });
+  bestandMarkers.length = 0;
+  bestandShown = false;
+  updateBestandBtn();
+}
+
+async function toggleBestand() {
+  if (bestandShown) { hideBestand(); return; }
+  if (!mapUebersicht) return;
+  const btn = document.getElementById('btn-bestand-toggle');
+  if (btn) btn.disabled = true;
+  toast('Bestandsobjekte werden geladen…');
+  try {
+    const snap = await db.collection('projects').doc(currentProjectId).collection('trees').get();
+    // Session-Objekte ausschließen – sie bleiben grün/blau
+    const sessionIds = new Set([..._erfassteData.map(t => t.id), ..._koordiniertData.map(t => t.id)]);
+    const bestand = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .filter(t => !sessionIds.has(t.id) && t.lat && t.lng);
+    bestand.forEach(addBestandMarker);
+    bestandShown = true;
+    updateBestandBtn();
+    toast(`${bestand.length} Bestandsobjekte angezeigt`);
+  } catch(e) {
+    console.warn('toggleBestand:', e);
+    toast('Fehler beim Laden der Bestandsobjekte');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 function initMapUebersicht() {
@@ -230,6 +309,7 @@ function clearOverviewLocal() {
   }
   erfassteMarkersUebersicht.length = 0;
   koordiniertMarkers.length = 0;
+  if (mapUebersicht) hideBestand();
   _erfassteData.length = 0;
   _koordiniertData.length = 0;
   erfassteCount = 0;
@@ -493,6 +573,12 @@ async function saveKoordPosition() {
   const lng = parseFloat(center.lng.toFixed(7));
   const treeId = selectedTree.id;
   const coordUpdate = { lat, lng, koordiniertVon: currentErfasser };
+  // Im Koordinaten-Reiter bearbeitete Eigenschaften mitschreiben
+  if (selectedTree._edited) {
+    ['name','stadtteil','baumnr','art','pflanzjahr','pflanzzeitpunkt','zustand','wasser','notiz'].forEach(k => {
+      if (selectedTree[k] !== undefined) coordUpdate[k] = selectedTree[k];
+    });
+  }
   const ref = db.collection('projects').doc(currentProjectId).collection('trees').doc(treeId);
 
   closeKoordMap();
@@ -531,6 +617,8 @@ async function saveKoordPosition() {
 
 // ─── MODUS 1: NEUER BAUM ─────────────────────────────────────
 function openFormSheet() {
+  formMode = 'new';
+  document.querySelector('#form-sheet .sheet-title').textContent = 'Neuer Baum';
   const center = mapNeu.getCenter();
   pendingCoords = { lat: parseFloat(center.lat.toFixed(7)), lng: parseFloat(center.lng.toFixed(7)) };
   document.getElementById('form-coords-display').textContent =
@@ -550,6 +638,110 @@ function closeFormSheet() {
   document.getElementById('form-backdrop').classList.remove('open');
   document.getElementById('form-sheet').classList.remove('open');
   pendingCoords = null;
+  formMode = 'new';
+  overviewEditTree = null;
+  overviewEditMarker = null;
+}
+
+// Formularfelder aus einem Baum befüllen / auslesen (gemeinsam für alle Edit-Modi)
+function fillFormFromTree(t) {
+  document.getElementById('f-name').value = t.name || '';
+  document.getElementById('f-stadtteil').value = t.stadtteil || '';
+  document.getElementById('f-baumnr').value = t.baumnr || '';
+  document.getElementById('f-art').value = t.art || '';
+  document.getElementById('f-pflanzjahr').value = t.pflanzjahr || '';
+  document.getElementById('f-pflanzzeitpunkt').value = t.pflanzzeitpunkt || '';
+  document.getElementById('f-zustand').value = t.zustand || 'mittel';
+  document.getElementById('f-wasser').value = t.wasser || t.wasserbedarf || 'mittel';
+  document.getElementById('f-notiz').value = t.notiz || '';
+}
+function collectFormEdits() {
+  return {
+    name: document.getElementById('f-name').value.trim(),
+    stadtteil: document.getElementById('f-stadtteil').value,
+    baumnr: document.getElementById('f-baumnr').value,
+    art: document.getElementById('f-art').value,
+    pflanzjahr: document.getElementById('f-pflanzjahr').value,
+    pflanzzeitpunkt: document.getElementById('f-pflanzzeitpunkt').value,
+    zustand: document.getElementById('f-zustand').value,
+    wasser: document.getElementById('f-wasser').value,
+    notiz: document.getElementById('f-notiz').value,
+  };
+}
+
+// Eigenschaften des gewählten Baums bearbeiten (Koordinaten-Reiter) –
+// nutzt dieselbe Maske wie „Neuer Baum“.
+function openKoordEditSheet() {
+  if (!selectedTree) return;
+  formMode = 'edit';
+  document.querySelector('#form-sheet .sheet-title').textContent = 'Eigenschaften bearbeiten';
+  document.getElementById('form-coords-display').textContent = selectedTree.baumId || 'Eigenschaften';
+  fillFormFromTree(selectedTree);
+  document.getElementById('form-backdrop').classList.add('open');
+  document.getElementById('form-sheet').classList.add('open');
+  setTimeout(() => document.getElementById('f-name').focus(), 400);
+}
+
+// Bearbeitete Eigenschaften in den Speicher übernehmen (werden beim
+// „Position speichern“ zusammen mit der Koordinate persistiert).
+function saveKoordEdits() {
+  if (!selectedTree) { closeFormSheet(); return; }
+  const edits = collectFormEdits();
+  if (!edits.name) { toast('⚠ Bitte einen Namen eingeben'); return; }
+  Object.assign(selectedTree, edits, { _edited: true });
+  document.getElementById('koord-tree-name').textContent =
+    `${selectedTree.name || '–'}${selectedTree.baumnr ? ' · ' + selectedTree.baumnr : ''}`;
+  closeFormSheet();
+  toast('Eigenschaften übernommen — jetzt Position setzen & speichern');
+}
+
+// Eigenschaften nachträglich bearbeiten (Übersicht: Klick auf Marker) –
+// speichert direkt in die Datenbank.
+function openOverviewEditSheet(tree, marker, type) {
+  if (!tree) return;
+  formMode = 'overview';
+  overviewEditTree = tree;
+  overviewEditMarker = marker || null;
+  overviewEditType = type || 'erfasst';
+  document.querySelector('#form-sheet .sheet-title').textContent = 'Eigenschaften bearbeiten';
+  document.getElementById('form-coords-display').textContent =
+    (type === 'bestand' ? (tree.baumnr || '') : (tree.baumId || '')) || (tree.name || '');
+  fillFormFromTree(tree);
+  document.getElementById('form-backdrop').classList.add('open');
+  document.getElementById('form-sheet').classList.add('open');
+  setTimeout(() => document.getElementById('f-name').focus(), 400);
+}
+
+async function saveOverviewEdits() {
+  const tree = overviewEditTree, marker = overviewEditMarker, type = overviewEditType;
+  if (!tree) { closeFormSheet(); return; }
+  const edits = collectFormEdits();
+  if (!edits.name) { toast('⚠ Bitte einen Namen eingeben'); return; }
+  if (!tree.id) { toast('⚠ Objekt noch nicht synchronisiert — bitte später bearbeiten'); return; }
+  // In-Memory aktualisieren
+  Object.assign(tree, edits);
+  allTrees = allTrees.map(x => x.id === tree.id ? { ...x, ...edits } : x);
+  if (marker) marker.setTooltipContent(treeTooltipHtml(tree, type));
+  closeFormSheet();
+  // Direkt persistieren (Offline → Queue)
+  if (!isOnline) {
+    addToQueue({ type: 'updateCoords', projectId: currentProjectId, treeId: tree.id, data: edits });
+    toast('📦 Offline gespeichert — wird synchronisiert');
+    return;
+  }
+  toast('Speichern…');
+  try {
+    await db.collection('projects').doc(currentProjectId).collection('trees').doc(tree.id).set(edits, { merge: true });
+    const synced = await Promise.race([
+      db.waitForPendingWrites().then(() => true),
+      new Promise(r => setTimeout(() => r(false), 10000)),
+    ]);
+    toast(synced ? '✓ Eigenschaften gespeichert' : '⚠ Nicht synchronisiert — erneut versuchen');
+  } catch (e) {
+    addToQueue({ type: 'updateCoords', projectId: currentProjectId, treeId: tree.id, data: edits });
+    console.warn('Overview-Edit-Save:', e);
+    toast(`⚠ Fehler — in Warteschlange: ${e.code || e.message}`);
+  }
 }
 
 async function saveNewTree() {
@@ -593,10 +785,11 @@ async function saveNewTree() {
 
   try {
     if (!isOnline) throw new Error('offline');
-    await db.collection('projects').doc(currentProjectId).collection('trees').add({
+    const docRef = await db.collection('projects').doc(currentProjectId).collection('trees').add({
       ...data,
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
+    data.id = docRef.id; // id merken → nachträgliches Bearbeiten in der Übersicht möglich
     toast(`✓ ${name} gespeichert`);
   } catch (e) {
     addToQueue({ type: 'newTree', projectId: currentProjectId, data });
@@ -624,6 +817,8 @@ function switchMode(mode) {
       // Bestehende erfasste Marker laden
       loadErfassteMarkersUebersicht();
     }
+    // Bestandsobjekte beim Öffnen der Ansicht standardmäßig ausgeblendet
+    hideBestand();
     setTimeout(() => { if (mapUebersicht) mapUebersicht.invalidateSize(); }, 100);
     updateUebersichtLabel();
   }
@@ -645,6 +840,7 @@ document.addEventListener('DOMContentLoaded', () => {
     centerOnGPS(mapUebersicht, null, null);
   });
   document.getElementById('btn-reset-uebersicht').addEventListener('click', resetUebersicht);
+  document.getElementById('btn-bestand-toggle')?.addEventListener('click', toggleBestand);
 
   // Modus 2
   document.getElementById('koord-search').addEventListener('input', e => renderKoordList(e.target.value));
@@ -662,8 +858,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Form
   document.getElementById('btn-form-cancel').addEventListener('click', closeFormSheet);
-  document.getElementById('btn-form-save').addEventListener('click', saveNewTree);
+  document.getElementById('btn-form-save').addEventListener('click', () => {
+    if (formMode === 'overview') saveOverviewEdits();
+    else if (formMode === 'edit') saveKoordEdits();
+    else saveNewTree();
+  });
   document.getElementById('form-backdrop').addEventListener('click', closeFormSheet);
+  document.getElementById('btn-koord-edit')?.addEventListener('click', openKoordEditSheet);
 
   // Service Worker registrieren
   if ('serviceWorker' in navigator) {
