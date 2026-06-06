@@ -1243,7 +1243,7 @@ function renderVerlaufDesktop(id) {
   let html = `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:20px;">
     <div style="background:var(--green-light);border-radius:var(--radius-sm);padding:10px 0;text-align:center;">
       <div style="font-size:20px;font-weight:700;color:#16a34a;">${bew}</div>
-      <div style="font-size:11px;color:#16a34a;margin-top:2px;">Bewässert</div>
+      <div style="font-size:11px;color:#16a34a;margin-top:2px;">Erledigt</div>
     </div>
     <div style="background:var(--red-light);border-radius:var(--radius-sm);padding:10px 0;text-align:center;">
       <div style="font-size:20px;font-weight:700;color:#991b1b;">${nicht}</div>
@@ -1261,7 +1261,7 @@ function renderVerlaufDesktop(id) {
     history.forEach((e, i) => {
       const isNicht = e.status === 'nicht';
       const dot = isNicht ? 'background:#fee2e2;border:1.5px solid #991b1b;' : 'background:#dcfce7;border:1.5px solid #16a34a;';
-      const label = isNicht ? 'Nicht bewässert' : 'Bewässert';
+      const label = isNicht ? 'Nicht erledigt' : 'Erledigt';
       const color = isNicht ? '#991b1b' : '#16a34a';
       const date = (e.date||'').split('-').reverse().join('.');
       const sub = [e.driver||e.note, e.tourName, e.reason].filter(Boolean).join(' · ');
@@ -2838,7 +2838,7 @@ function renderControlling(){
   if(fTour) activeFilters.push(`Tour: ${tours.find(t=>t.id===fTour)?.name||fTour}`);
   if(fStadt) activeFilters.push(`Stadtteil: ${fStadt}`);
   if(fJahr) activeFilters.push(`Pflanzjahr: ${fJahr}`);
-  if(fStatus) activeFilters.push(`Status: ${{bewaessert:'✓ Bewässert',nicht:'✕ Nicht bewässert',offen:'○ Offen'}[fStatus]}`);
+  if(fStatus) activeFilters.push(`Status: ${{bewaessert:'✓ Erledigt',nicht:'✕ Nicht erledigt',offen:'○ Offen'}[fStatus]}`);
   if(fFahrer) activeFilters.push(`Fahrer: ${fFahrer}`);
   if(fBaumart) activeFilters.push(`Baumart: ${fBaumart}`);
   const summaryEl=document.getElementById('ctrl-filter-summary');
@@ -2942,8 +2942,8 @@ function renderControlling(){
   const kpiEl=document.getElementById('ctrl-kpis');
   if(kpiEl) kpiEl.innerHTML=[
     {val:filtered.length,lbl:'Gesamt',sub:'Objekte im Projekt',color:'var(--text)'},
-    {val:bewaessert.length,lbl:'Bewässert',sub:`${pct}% der Meldungen`,color:'#16a34a'},
-    {val:nicht.length,lbl:'Nicht bewässert',sub:'Einzelmeldungen',color:'var(--red)'},
+    {val:bewaessert.length,lbl:'Erledigt',sub:`${pct}% der Meldungen`,color:'#16a34a'},
+    {val:nicht.length,lbl:'Nicht erledigt',sub:'Einzelmeldungen',color:'var(--red)'},
     {val:totalReported,lbl:'Meldungen gesamt',sub:'im Zeitraum',color:'var(--text2)'},
     {val:activeFahrer,lbl:'Aktive Fahrer',sub:'im Zeitraum',color:'var(--blue)'},
   ].map(k=>`<div class="kpi-card">
@@ -2982,7 +2982,7 @@ function renderPieChart(bew,nicht){
   ctrlCharts['pie']=new Chart(canvas,{
     type:'doughnut',
     data:{
-      labels:['Bewässert','Nicht bewässert'],
+      labels:['Erledigt','Nicht erledigt'],
       datasets:[{data:[bew,nicht],backgroundColor:['#16a34a','#991b1b'],borderWidth:0,hoverOffset:6}]
     },
     options:{responsive:false,cutout:'65%',plugins:{
@@ -3010,8 +3010,8 @@ function renderBarChart(filtered,allReported){
     data:{
       labels,
       datasets:[
-        {label:'Bewässert',data:Object.values(tourMap).map(t=>t.bew),backgroundColor:'#16a34a',borderRadius:4},
-        {label:'Nicht bewässert',data:Object.values(tourMap).map(t=>t.nicht),backgroundColor:'#991b1b',borderRadius:4},
+        {label:'Erledigt',data:Object.values(tourMap).map(t=>t.bew),backgroundColor:'#16a34a',borderRadius:4},
+        {label:'Nicht erledigt',data:Object.values(tourMap).map(t=>t.nicht),backgroundColor:'#991b1b',borderRadius:4},
       ]
     },
     options:{responsive:false,plugins:{legend:{position:'bottom',labels:{font:{size:11},padding:8}}},
@@ -3040,7 +3040,7 @@ function renderTimelineChart(filtered,from,to){
   filtered.forEach(tree=>{
     (tree.history||[]).forEach(h=>{
       if(!h.date||!days[h.date])return;
-      if(h.note&&h.note.includes('Bewässert'))days[h.date].bew++;
+      if(h.note&&(h.note.includes('Bewässert')||h.note.includes('Erledigt')))days[h.date].bew++;
     });
   });
   const labels=Object.keys(days).map(d=>{const dt=new Date(d);return `${dt.getDate()}.${dt.getMonth()+1}.`;});
@@ -3049,8 +3049,8 @@ function renderTimelineChart(filtered,from,to){
     data:{
       labels,
       datasets:[
-        {label:'Bewässert',data:Object.values(days).map(d=>d.bew),borderColor:'#16a34a',backgroundColor:'rgba(22,163,74,.1)',fill:true,tension:.3,pointRadius:3},
-        {label:'Nicht bewässert',data:Object.values(days).map(d=>d.nicht),borderColor:'#991b1b',backgroundColor:'rgba(153,27,27,.07)',fill:true,tension:.3,pointRadius:3},
+        {label:'Erledigt',data:Object.values(days).map(d=>d.bew),borderColor:'#16a34a',backgroundColor:'rgba(22,163,74,.1)',fill:true,tension:.3,pointRadius:3},
+        {label:'Nicht erledigt',data:Object.values(days).map(d=>d.nicht),borderColor:'#991b1b',backgroundColor:'rgba(153,27,27,.07)',fill:true,tension:.3,pointRadius:3},
       ]
     },
     options:{responsive:false,plugins:{legend:{position:'bottom',labels:{font:{size:11}}}},
@@ -3075,8 +3075,8 @@ function renderStadtteilChart(filtered,allReported){
     data:{
       labels,
       datasets:[
-        {label:'Bewässert',data:labels.map(l=>map[l].bew),backgroundColor:'#16a34a',borderRadius:3},
-        {label:'Nicht bewässert',data:labels.map(l=>map[l].nicht),backgroundColor:'#991b1b',borderRadius:3},
+        {label:'Erledigt',data:labels.map(l=>map[l].bew),backgroundColor:'#16a34a',borderRadius:3},
+        {label:'Nicht erledigt',data:labels.map(l=>map[l].nicht),backgroundColor:'#991b1b',borderRadius:3},
       ]
     },
     options:{responsive:false,indexAxis:'y',plugins:{legend:{display:false}},
@@ -3126,9 +3126,9 @@ function renderDetailTable(reported,skipCache){
     const tour=tours.find(t=>t.id===tree.tourId);
     const st=tree.lastStatus;
     const stHtml=st==='bewaessert'
-      ?'<span style="color:#16a34a;font-weight:600;">✓ Bewässert</span>'
+      ?'<span style="color:#16a34a;font-weight:600;">✓ Erledigt</span>'
       :st==='nicht'
-      ?'<span style="color:var(--red);font-weight:600;">✕ Nicht bewässert</span>'
+      ?'<span style="color:var(--red);font-weight:600;">✕ Nicht erledigt</span>'
       :'<span style="color:var(--text3);">○ Offen</span>';
     // Format date + time — use stored string directly to avoid timezone issues
     let dateDisplay='–';
@@ -3251,15 +3251,15 @@ async function showHistoryDetail(histId){
   modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;';
 
   const statusOpts=['bewaessert','nicht'].map(s=>
-    `<option value="${s}">${s==='bewaessert'?'✓ Bewässert':'✕ Nicht bewässert'}</option>`
+    `<option value="${s}">${s==='bewaessert'?'✓ Erledigt':'✕ Nicht erledigt'}</option>`
   ).join('');
 
   const rows=h.trees.map((t,ti)=>{
     const st=t.lastStatus;
     const stSel=`<select data-ti="${ti}" class="hist-status-sel" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;background:var(--bg);">
       <option value="">○ Offen</option>
-      <option value="bewaessert"${st==='bewaessert'?' selected':''}>✓ Bewässert</option>
-      <option value="nicht"${st==='nicht'?' selected':''}>✕ Nicht bewässert</option>
+      <option value="bewaessert"${st==='bewaessert'?' selected':''}>✓ Erledigt</option>
+      <option value="nicht"${st==='nicht'?' selected':''}>✕ Nicht erledigt</option>
     </select>`;
     const reasonInp=`<input data-ri="${ti}" class="hist-reason-inp" value="${t.lastReason||''}" placeholder="Grund…" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;width:100%;background:var(--bg);">`;
     return `<tr style="border-top:1px solid var(--border);">
@@ -3275,7 +3275,7 @@ async function showHistoryDetail(histId){
     <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;">
       <div style="flex:1;">
         <div style="font-size:15px;font-weight:600;">${h.tourName} — ${h.date}</div>
-        <div style="font-size:12px;color:var(--text3);">Fahrer: ${h.closedBy||'–'} · ${h.stats?.bewaessert||0} bewässert · ${h.stats?.nicht||0} nicht</div>
+        <div style="font-size:12px;color:var(--text3);">Fahrer: ${h.closedBy||'–'} · ${h.stats?.bewaessert||0} erledigt · ${h.stats?.nicht||0} nicht erledigt</div>
       </div>
       <button id="hist-save-btn" onclick="saveHistoryEdits('${histId}')" style="padding:6px 14px;background:var(--green);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Speichern</button>
       <button id="hist-delete-btn" onclick="deleteHistoryEntry('${histId}')" style="padding:6px 14px;background:var(--red-light);color:var(--red);border:1px solid #fca5a5;border-radius:6px;font-size:13px;cursor:pointer;">Löschen</button>
@@ -3811,8 +3811,8 @@ function renderDashboard(){
   const grid=document.getElementById('dash-kpi-grid');
   if(grid) grid.innerHTML=[
     {val:aktive.length,lbl:'Objekte gesamt',sub:'im Projekt',color:'var(--text)'},
-    {val:bew.length,lbl:'Bewässert',sub:`${pct}% der Meldungen`,color:'var(--green)'},
-    {val:nicht.length,lbl:'Nicht bewässert',sub:'im Zeitraum',color:'var(--red)'},
+    {val:bew.length,lbl:'Erledigt',sub:`${pct}% der Meldungen`,color:'var(--green)'},
+    {val:nicht.length,lbl:'Nicht erledigt',sub:'im Zeitraum',color:'var(--red)'},
     {val:offen,lbl:'Offen',sub:'offen in Touren',color:'var(--text2)'},
     {val:meldungen,lbl:'Meldungen',sub:'gesamt im Zeitraum',color:'var(--blue)'},
     {val:aktiveFahrer,lbl:'Aktive Fahrer',sub:'im Zeitraum',color:'var(--amber)'},
@@ -3953,8 +3953,8 @@ function dashRenderTimeline(reported, from, to){
   dashTimelineChart=new Chart(canvas,{
     type:'line',
     data:{ labels, datasets:[
-      {label:'Bewässert', data:order.map(k=>buckets[k].bew), borderColor:'#16a34a', backgroundColor:'rgba(22,163,74,.12)', fill:true, tension:.3, pointRadius:labels.length>40?0:3, borderWidth:2},
-      {label:'Nicht bewässert', data:order.map(k=>buckets[k].nicht), borderColor:'#dc2626', backgroundColor:'rgba(220,38,38,.08)', fill:true, tension:.3, pointRadius:labels.length>40?0:3, borderWidth:2},
+      {label:'Erledigt', data:order.map(k=>buckets[k].bew), borderColor:'#16a34a', backgroundColor:'rgba(22,163,74,.12)', fill:true, tension:.3, pointRadius:labels.length>40?0:3, borderWidth:2},
+      {label:'Nicht erledigt', data:order.map(k=>buckets[k].nicht), borderColor:'#dc2626', backgroundColor:'rgba(220,38,38,.08)', fill:true, tension:.3, pointRadius:labels.length>40?0:3, borderWidth:2},
     ]},
     options:{ responsive:true, maintainAspectRatio:false,
       interaction:{mode:'index',intersect:false},

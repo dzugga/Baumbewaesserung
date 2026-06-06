@@ -147,8 +147,8 @@ function render(){
   // KPI-Kacheln
   document.getElementById('kpi-grid').innerHTML=[
     {val:aktive.length, lbl:'Objekte gesamt', sub:'im Projekt', color:'var(--text)'},
-    {val:bew.length, lbl:'Bewässert', sub:`${pct}% der Meldungen`, color:'var(--green-dark)'},
-    {val:nicht.length, lbl:'Nicht bewässert', sub:'im Zeitraum', color:'var(--red)'},
+    {val:bew.length, lbl:'Erledigt', sub:`${pct}% der Meldungen`, color:'var(--green-dark)'},
+    {val:nicht.length, lbl:'Nicht erledigt', sub:'im Zeitraum', color:'var(--red)'},
     {val:offen, lbl:'Offen', sub:'offen in Touren', color:'var(--text2)'},
     {val:meldungen, lbl:'Meldungen', sub:'gesamt im Zeitraum', color:'var(--blue)'},
     {val:aktiveFahrer, lbl:'Aktive Fahrer', sub:'im Zeitraum', color:'var(--amber)'},
@@ -333,9 +333,9 @@ function renderTimeline(reported, from, to){
   timelineChart=new Chart(canvas,{
     type:'line',
     data:{ labels, datasets:[
-      {label:'Bewässert', data:order.map(k=>buckets[k].bew), borderColor:'#16a34a',
+      {label:'Erledigt', data:order.map(k=>buckets[k].bew), borderColor:'#16a34a',
        backgroundColor:'rgba(22,163,74,.12)', fill:true, tension:.3, pointRadius:labels.length>40?0:3, borderWidth:2},
-      {label:'Nicht bewässert', data:order.map(k=>buckets[k].nicht), borderColor:'#dc2626',
+      {label:'Nicht erledigt', data:order.map(k=>buckets[k].nicht), borderColor:'#dc2626',
        backgroundColor:'rgba(220,38,38,.08)', fill:true, tension:.3, pointRadius:labels.length>40?0:3, borderWidth:2},
     ]},
     options:{ responsive:true, maintainAspectRatio:false,
