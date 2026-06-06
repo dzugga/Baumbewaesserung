@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Baumbewässerung — Fahrer</title>
+<title>INFA-LRM-Objekte — Fahrer</title>
 <!-- Preconnect to external servers for faster loading -->
 <link rel="preconnect" href="https://unpkg.com">
 <link rel="preconnect" href="https://www.gstatic.com">
@@ -170,7 +170,7 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
 <!-- INSTANT LOADING SCREEN (shows immediately, replaced by login) -->
 <div id="screen-loading" style="position:fixed;inset:0;background:#f5f3ee;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99999;">
   <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#2d6a4f" stroke-width="1.5" style="margin-bottom:16px;"><path d="M12 22V12"/><path d="M12 12C12 12 7 9 7 5a5 5 0 0 1 10 0c0 4-5 7-5 7z"/></svg>
-  <div style="font-size:18px;font-weight:600;color:#2d6a4f;margin-bottom:8px;">Baumbewässerung</div>
+  <div style="font-size:18px;font-weight:600;color:#2d6a4f;margin-bottom:8px;">INFA-LRM-Objekte</div>
   <div style="font-size:13px;color:#9c9890;margin-bottom:24px;">Fahrer-App</div>
   <div style="width:40px;height:40px;border:3px solid #e8f5ee;border-top-color:#2d6a4f;border-radius:50%;animation:spin .8s linear infinite;"></div>
   <div style="font-size:12px;color:#9c9890;margin-top:16px;" id="loading-status">Verbinde…</div>
@@ -179,7 +179,7 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
   <div class="login-card">
     <div class="login-brand">
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22V12"/><path d="M12 12C12 12 7 9 7 5a5 5 0 0 1 10 0c0 4-5 7-5 7z"/></svg>
-      Baumbewässerung
+      INFA-LRM-Objekte
     </div>
     <div class="login-sub">Fahrer-App</div>
     <div class="form-group">
@@ -267,7 +267,7 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
       <div style="display:flex;gap:8px;align-items:center;">
         <div class="list-search" style="flex:1;">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-          <input type="text" placeholder="Baum suchen…" oninput="renderList(this.value)" id="list-search-input">
+          <input type="text" placeholder="Suchen…" oninput="renderList(this.value)" id="list-search-input">
         </div>
         <button id="btn-mark-all-done" style="background:var(--green);color:#fff;border:none;border-radius:8px;padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0;">
           ✓✓ Alle erledigt
@@ -335,11 +335,11 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
   <div style="width:40px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 20px;"></div>
   <div style="text-align:center;margin-bottom:16px;">
     <div style="font-size:32px;margin-bottom:8px;">✓✓</div>
-    <div style="font-size:17px;font-weight:700;margin-bottom:6px;">Alle offenen Bäume als bewässert markieren?</div>
+    <div style="font-size:17px;font-weight:700;margin-bottom:6px;">Alle offenen Aufträge als erledigt markieren?</div>
     <div id="bulk-desc" style="font-size:13px;color:var(--text3);line-height:1.6;"></div>
   </div>
   <div style="background:var(--green-light);border-radius:10px;padding:12px 14px;margin-bottom:16px;font-size:12px;color:var(--green);line-height:1.6;">
-    💡 Bereits erfasste negative Rückmeldungen (nicht bewässert, Hindernis usw.) bleiben unverändert. Nur Bäume ohne bisherige Rückmeldung werden als bewässert markiert.
+    💡 Bereits erfasste negative Rückmeldungen (nicht erledigt, Hindernis usw.) bleiben unverändert. Nur Aufträge ohne bisherige Rückmeldung werden als erledigt markiert.
   </div>
   <button onclick="confirmMarkAllDone()" style="width:100%;padding:14px;background:var(--green);color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;margin-bottom:10px;cursor:pointer;">
     ✓ Bestätigen

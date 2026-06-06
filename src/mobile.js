@@ -380,7 +380,7 @@ function markAllDone(){
   }
   // Show confirm sheet
   document.getElementById('bulk-desc').textContent =
-    `${open.length} Bäume ohne Rückmeldung werden als „Bewässert" markiert. ` +
+    `${open.length} Aufträge ohne Rückmeldung werden als „Erledigt" markiert. ` +
     `${trees.filter(t=>t.lastStatus==='nicht').length} negative Rückmeldungen bleiben erhalten.`;
   document.getElementById('bulk-backdrop').style.display = 'block';
   document.getElementById('bulk-sheet').style.display = 'block';
