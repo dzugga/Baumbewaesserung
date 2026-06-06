@@ -979,15 +979,15 @@ function openSheet(id){
 
   document.getElementById('sheet-body').innerHTML=`
     <!-- Status -->
-    <div class="section-title">Bewässerungsstatus</div>
+    <div class="section-title">Status</div>
     <div class="status-btns">
       <div class="status-btn${statusVal==='bewaessert'?' selected-ok':''}" id="btn-ok" onclick="selectStatus('bewaessert')">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
-        Bewässert
+        Erledigt
       </div>
       <div class="status-btn${statusVal==='nicht'?' selected-nok':''}" id="btn-nok" onclick="selectStatus('nicht')">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg>
-        Nicht bewässert
+        Nicht erledigt
       </div>
     </div>
 
@@ -1010,7 +1010,7 @@ function openSheet(id){
         </select>
       </div>
       <div class="prop-group">
-        <label class="prop-label">Wasserbedarf</label>
+        <label class="prop-label">Bedarf</label>
         <select class="prop-input" id="p-wasser">
           <option value="gering"${tree.wasser==='gering'?' selected':''}>Gering</option>
           <option value="mittel"${(!tree.wasser||tree.wasser==='mittel')?' selected':''}>Mittel</option>
