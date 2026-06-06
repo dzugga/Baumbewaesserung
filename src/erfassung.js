@@ -499,9 +499,7 @@ function renderKoordList(q) {
   let list = treesOhneKoords.filter(t =>
     !q ||
     (t.name || '').toLowerCase().includes(lower) ||
-    (t.art || '').toLowerCase().includes(lower) ||
     (t.stadtteil || '').toLowerCase().includes(lower) ||
-    (t.baumnr || '').toLowerCase().includes(lower) ||
     (t.baumId || '').toLowerCase().includes(lower)
   );
 
