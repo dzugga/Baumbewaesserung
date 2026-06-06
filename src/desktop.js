@@ -3903,7 +3903,7 @@ function dashRenderNichtMap(nichtReports){
   const uniq=Object.values(byId);
   const withCoords=uniq.filter(r=>r.lat&&r.lng);
   const ohne=uniq.length-withCoords.length;
-  const countEl=document.getElementById('dash-map-count'); if(countEl) countEl.textContent=uniq.length>0?`${uniq.length} Bäume`:'';
+  const countEl=document.getElementById('dash-map-count'); if(countEl) countEl.textContent=uniq.length>0?`${uniq.length} Objekte`:'';
   const noteEl=document.getElementById('dash-map-note'); if(noteEl) noteEl.textContent=ohne>0?`${ohne} ohne Koordinaten (nicht auf der Karte)`:'';
   const emptyEl=document.getElementById('dash-map-empty'); if(emptyEl) emptyEl.classList.toggle('show', uniq.length===0);
   const pts=[];
