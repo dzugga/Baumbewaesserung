@@ -1126,7 +1126,7 @@ async function saveReport(id){
   Object.assign(tree, updates);
   renderMarkers(); renderList(''); updateProgress();
   closeSheet();
-  toast(status==='bewaessert'?'✓ Bewässert gemeldet':'✕ Nicht bewässert gemeldet');
+  toast(status==='bewaessert'?'✓ Erledigt gemeldet':'✕ Nicht erledigt gemeldet');
 
   if(!isOnline){
     addToOfflineQueue(id, offlineUpdates);
