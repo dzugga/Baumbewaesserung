@@ -1031,7 +1031,7 @@ function openSheet(id){
     <div class="field-row"><span class="field-key">Pflanzzeit</span><span class="field-val">${tree.pflanzzeitpunkt||'–'}</span></div>
     <div class="field-row"><span class="field-key">Koordinaten</span><span class="field-val" style="font-size:11px;font-family:monospace;">${tree.lat?tree.lat.toFixed(5)+', '+tree.lng.toFixed(5):'–'}</span></div>
     <div class="field-row"><span class="field-key">Route #</span><span class="field-val">#${idx+1}</span></div>
-    ${tree.lastStatus?`<div class="field-row"><span class="field-key">Letzte Meldung</span><span class="field-val">${tree.lastStatus==='bewaessert'?'✓ Bewässert':'✕ Nicht bewässert'}</span></div>`:''}
+    ${tree.lastStatus?`<div class="field-row"><span class="field-key">Letzte Meldung</span><span class="field-val">${tree.lastStatus==='bewaessert'?'✓ Erledigt':'✕ Nicht erledigt'}</span></div>`:''}
   `;
 
   // Reason chips click
