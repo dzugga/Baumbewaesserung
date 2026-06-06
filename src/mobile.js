@@ -1477,6 +1477,7 @@ Object.assign(window, {
   showFinishConfirm, markAllDone,
   switchTab,
   confirmMarkAllDone, closeBulkSheet,
+  renderList,
   doLogin, doLogout,
   onLoginProjectChange, onLoginTourChange,
   recalcFromGPS, goToNextTree,
