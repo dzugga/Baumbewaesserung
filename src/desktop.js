@@ -3370,8 +3370,8 @@ async function saveHistoryEdits(histId){
   if(changed.length>0){
     const ok=await uiConfirm(
       `<b>${changed.length} Korrektur(en)</b> in der Tour-Historie gespeichert.<br><br>`+
-      `Auch in die <b>Live-Ansicht & Karte</b> übernehmen (Baum-Status & Grund aktualisieren)?<br><br>`+
-      `<span style="color:var(--text2);font-size:12px;">Bäume mit einer neueren Meldung aus einer späteren Tour werden dabei nicht überschrieben.</span>`,
+      `Auch in die <b>Live-Ansicht & Karte</b> übernehmen (Objekt-Status & Grund aktualisieren)?<br><br>`+
+      `<span style="color:var(--text2);font-size:12px;">Objekte mit einer neueren Meldung aus einer späteren Tour werden dabei nicht überschrieben.</span>`,
       'In Live-Ansicht übernehmen');
     if(ok){
       let applied=0,skipped=0;
