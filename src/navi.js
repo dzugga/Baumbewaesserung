@@ -93,6 +93,7 @@ function startGPS() {
     } else {
       gpsMarker.setLatLng(gpsLatLng);
     }
+    if(naviActive) naviUpdate(gpsLatLng);
   }, err => {}, {enableHighAccuracy: true, maximumAge: 5000});
 }
 
@@ -927,6 +928,226 @@ function haversine(a,b,c,d){
   return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
 }
 
+// ═══ NAVI-MODUS (Turn-by-turn, Beta) ══════════════════════════════
+// Keyless via OSRM (öffentlicher Demo-Server). Deutsche Manöver-Texte,
+// Sprachausgabe (Web Speech), Wake-Lock, Off-Route-Reroute, Ankunft→Sheet.
+const NAVI_ARRIVE_M=35, NAVI_ADVANCE_M=25, NAVI_OFFROUTE_M=70, NAVI_OFFROUTE_HITS=3;
+let naviActive=false, naviSteps=[], naviGeom=[], naviTargetId=null, naviStepIdx=1,
+    naviSpokenIdx=-1, naviOffrouteHits=0, naviRerouting=false, naviLegLayer=null,
+    naviWakeLock=null, naviTotal={dist:0,dur:0};
+
+function naviInit(){
+  const ov=document.querySelector('.map-overlay-top');
+  if(ov && !document.getElementById('btn-navi')){
+    const b=document.createElement('button');
+    b.className='recalc-btn'; b.id='btn-navi';
+    b.style.cssText='background:#1d4ed8;color:#fff;border:none;';
+    b.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline;vertical-align:middle;margin-right:4px;"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>Navi';
+    b.onclick=naviStart;
+    ov.appendChild(b);
+  }
+  const tab=document.getElementById('tab-map');
+  if(tab && !document.getElementById('navi-banner')){
+    const d=document.createElement('div');
+    d.id='navi-banner';
+    d.style.cssText='position:absolute;top:0;left:0;right:0;z-index:1500;background:#1d4ed8;color:#fff;padding:14px 16px;display:none;box-shadow:0 2px 12px rgba(0,0,0,.3);';
+    d.innerHTML='<div style="display:flex;align-items:center;gap:14px;">'+
+      '<div id="navi-arrow" style="font-size:34px;line-height:1;width:42px;text-align:center;">↑</div>'+
+      '<div style="flex:1;min-width:0;">'+
+        '<div id="navi-dist" style="font-size:13px;opacity:.85;font-weight:600;">—</div>'+
+        '<div id="navi-instr" style="font-size:17px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">—</div>'+
+      '</div>'+
+      '<button id="navi-stop" style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:600;cursor:pointer;">Beenden</button>'+
+      '</div>'+
+      '<div id="navi-sub" style="font-size:12px;opacity:.8;margin-top:6px;">—</div>';
+    tab.appendChild(d);
+    document.getElementById('navi-stop').onclick=naviStop;
+  }
+}
+
+function naviPickTarget(){
+  for(const id of routeOrder){
+    const t=trees.find(x=>x.id===id);
+    if(t && !t.lastStatus && t.lat && t.lng) return t;
+  }
+  return null;
+}
+
+async function naviStart(){
+  if(currentTour?.status==='abgeschlossen'){toast('Tour abgeschlossen');return;}
+  if(!gpsLatLng){toast('GPS noch nicht verfügbar');return;}
+  const target=naviPickTarget();
+  if(!target){toast('Alle Objekte erledigt 🎉');return;}
+  naviTargetId=target.id;
+  toast('Navi wird berechnet…');
+  const ok=await naviFetchRoute(gpsLatLng,[target.lat,target.lng]);
+  if(!ok){toast('Route konnte nicht berechnet werden');return;}
+  naviActive=true; naviStepIdx=1; naviSpokenIdx=-1; naviOffrouteHits=0;
+  naviShowBanner(true);
+  await naviAcquireWake();
+  switchTab('map');
+  naviUpdate(gpsLatLng);
+  naviSpeakStep();
+}
+
+async function naviFetchRoute(from,to){
+  try{
+    const url=`https://router.project-osrm.org/route/v1/driving/${from[1]},${from[0]};${to[1]},${to[0]}?steps=true&overview=full&geometries=geojson`;
+    const r=await fetch(url); const j=await r.json();
+    if(!j.routes||!j.routes[0])return false;
+    const rt=j.routes[0];
+    naviGeom=rt.geometry.coordinates.map(c=>[c[1],c[0]]);
+    naviSteps=(rt.legs[0]?.steps||[]).map(s=>({
+      instr:osrmInstr(s),
+      loc:[s.maneuver.location[1],s.maneuver.location[0]],
+      type:s.maneuver.type, mod:s.maneuver.modifier||'',
+    }));
+    naviTotal={dist:rt.distance, dur:rt.duration};
+    naviDrawLeg();
+    return naviSteps.length>0;
+  }catch(e){ return false; }
+}
+
+function naviUpdate(latlng){
+  if(!naviActive)return;
+  const target=trees.find(t=>t.id===naviTargetId);
+  if(!target){naviStop();return;}
+  const distToTarget=haversine(latlng[0],latlng[1],target.lat,target.lng)*1000;
+  if(distToTarget<NAVI_ARRIVE_M){ naviArrive(); return; }
+  while(naviStepIdx<naviSteps.length-1){
+    const s=naviSteps[naviStepIdx];
+    const d=haversine(latlng[0],latlng[1],s.loc[0],s.loc[1])*1000;
+    if(d<NAVI_ADVANCE_M){ naviStepIdx++; naviSpeakStep(); } else break;
+  }
+  const nearest=naviNearestDist(latlng);
+  if(nearest>NAVI_OFFROUTE_M){
+    naviOffrouteHits++;
+    if(naviOffrouteHits>=NAVI_OFFROUTE_HITS && !naviRerouting) naviReroute();
+  } else naviOffrouteHits=0;
+  naviRenderBanner(latlng,distToTarget);
+}
+
+async function naviReroute(){
+  naviRerouting=true; naviOffrouteHits=0;
+  const target=trees.find(t=>t.id===naviTargetId);
+  if(target){
+    const ok=await naviFetchRoute(gpsLatLng,[target.lat,target.lng]);
+    if(ok){ naviStepIdx=1; naviSpokenIdx=-1; naviSpeakStep(); toast('Route neu berechnet'); }
+  }
+  naviRerouting=false;
+}
+
+function naviArrive(){
+  const t=trees.find(x=>x.id===naviTargetId);
+  speak('Ziel erreicht. '+(t?.name||''));
+  toast('Ziel erreicht');
+  const tid=naviTargetId;
+  naviActive=false; naviTargetId=null;
+  naviShowBanner(false); naviRemoveLeg(); naviReleaseWake();
+  setTimeout(()=>{ if(tid) openSheet(tid); },400); // Status melden
+}
+
+function naviStop(){
+  naviActive=false; naviTargetId=null;
+  naviShowBanner(false); naviRemoveLeg(); naviReleaseWake();
+  try{ speechSynthesis.cancel(); }catch(e){}
+}
+
+function naviSpeakStep(){
+  const s=naviSteps[naviStepIdx];
+  if(s && naviStepIdx!==naviSpokenIdx){ naviSpokenIdx=naviStepIdx; speak(s.instr); }
+}
+
+function naviRenderBanner(latlng,distToTarget){
+  const step=naviSteps[naviStepIdx]||naviSteps[naviSteps.length-1];
+  const dMan=step?haversine(latlng[0],latlng[1],step.loc[0],step.loc[1])*1000:0;
+  const target=trees.find(t=>t.id===naviTargetId);
+  const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  set('navi-instr', step?step.instr:'—');
+  set('navi-dist', fmtDist(dMan));
+  set('navi-arrow', naviArrow(step));
+  set('navi-sub', `${target?.name||'Ziel'} · noch ${fmtDist(distToTarget)}`);
+}
+
+function naviNearestDist(latlng){
+  let best=Infinity;
+  for(const p of naviGeom){ const d=haversine(latlng[0],latlng[1],p[0],p[1])*1000; if(d<best)best=d; }
+  return best;
+}
+
+function naviDrawLeg(){
+  naviRemoveLeg();
+  if(!naviGeom.length||!map)return;
+  naviLegLayer=L.polyline(naviGeom,{color:'#1d4ed8',weight:7,opacity:.9}).addTo(map);
+  try{ map.fitBounds(L.latLngBounds(naviGeom),{padding:[60,90]}); }catch(e){}
+}
+function naviRemoveLeg(){ if(naviLegLayer){ try{map.removeLayer(naviLegLayer);}catch(e){} naviLegLayer=null; } }
+function naviShowBanner(show){ const b=document.getElementById('navi-banner'); if(b)b.style.display=show?'block':'none'; }
+
+async function naviAcquireWake(){
+  try{ if('wakeLock' in navigator) naviWakeLock=await navigator.wakeLock.request('screen'); }catch(e){}
+}
+function naviReleaseWake(){ try{ naviWakeLock&&naviWakeLock.release(); }catch(e){} naviWakeLock=null; }
+document.addEventListener('visibilitychange',()=>{
+  if(naviActive && document.visibilityState==='visible' && !naviWakeLock) naviAcquireWake();
+});
+
+function speak(text){
+  try{
+    if(!('speechSynthesis' in window))return;
+    const u=new SpeechSynthesisUtterance(text);
+    u.lang='de-DE'; u.rate=1.0;
+    speechSynthesis.cancel(); speechSynthesis.speak(u);
+  }catch(e){}
+}
+
+function fmtDist(m){
+  if(m<20)return 'jetzt';
+  if(m<1000)return `${Math.round(m/10)*10} m`;
+  return `${(m/1000).toFixed(1).replace('.',',')} km`;
+}
+
+function naviArrow(step){
+  if(!step)return '↑';
+  if(step.type==='arrive')return '🏁';
+  if(step.type==='roundabout'||step.type==='rotary')return '↻';
+  const m=step.mod||'';
+  if(m.includes('uturn'))return '↩';
+  if(m==='left'||m==='sharp left')return '←';
+  if(m==='slight left')return '↖';
+  if(m==='right'||m==='sharp right')return '→';
+  if(m==='slight right')return '↗';
+  return '↑';
+}
+
+function osrmInstr(s){
+  const m=s.maneuver||{}, t=m.type, mod=m.modifier||'', name=s.name?` auf ${s.name}`:'';
+  const dir={'left':'links','slight left':'leicht links','sharp left':'scharf links',
+    'right':'rechts','slight right':'leicht rechts','sharp right':'scharf rechts',
+    'straight':'geradeaus','uturn':'wenden'}[mod]||'';
+  const cap=x=>x?x.charAt(0).toUpperCase()+x.slice(1):'';
+  switch(t){
+    case 'depart': return 'Losfahren'+name;
+    case 'turn': return (dir?`${cap(dir)} abbiegen`:'Abbiegen')+name;
+    case 'new name': return 'Weiter'+name;
+    case 'continue': return (dir&&dir!=='geradeaus'?`${cap(dir)} weiter`:'Geradeaus weiter')+name;
+    case 'merge': return 'Einfädeln'+name;
+    case 'on ramp': return 'Auffahrt nehmen'+name;
+    case 'off ramp': return 'Abfahrt nehmen'+name;
+    case 'fork': return (dir?`${cap(dir)} halten`:'Halten')+name;
+    case 'end of road': return (dir?`${cap(dir)} abbiegen`:'Abbiegen')+name;
+    case 'roundabout': case 'rotary': return `Im Kreisverkehr die ${m.exit||''}. Ausfahrt`+name;
+    case 'roundabout turn': return (dir?`Im Kreisverkehr ${dir}`:'Im Kreisverkehr')+name;
+    case 'arrive': return 'Ziel erreicht';
+    default: return (dir?cap(dir):'Weiter')+name;
+  }
+}
+// Beta-Test-Hooks (Sandbox): GPS simulieren / Status abfragen — Navi ohne echte Fahrt testen
+window.naviStart=naviStart;
+window.naviSimulateGps=(lat,lng)=>{ gpsLatLng=[lat,lng]; if(gpsMarker)gpsMarker.setLatLng(gpsLatLng); if(naviActive)naviUpdate(gpsLatLng); };
+window.naviDebug=()=>({active:naviActive,targetId:naviTargetId,stepIdx:naviStepIdx,steps:naviSteps.map(s=>s.instr),lastGeom:naviGeom[naviGeom.length-1],total:naviTotal});
+// ═══ ENDE NAVI-MODUS ══════════════════════════════════════════════
+
 // ─── LIST ──────────────────────────────────────────────────────
 function renderList(q=''){
   const el=document.getElementById('tree-list-mobile');
@@ -1419,6 +1640,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Map controls
   const btnRecalc = document.getElementById('btn-recalc');
   if(btnRecalc) btnRecalc.addEventListener('click', recalcFromGPS);
+  naviInit(); // Navi-Button + Banner injizieren
 
   const btnToggleRoute = document.getElementById('btn-toggle-route');
   if(btnToggleRoute) btnToggleRoute.addEventListener('click', toggleRouteVisibility);
