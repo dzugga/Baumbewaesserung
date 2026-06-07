@@ -43,6 +43,12 @@ const firebaseConfig = {
 const fbApp = initializeApp(firebaseConfig);
 const db = getFirestore(fbApp);
 
+// ─── NAVIGATIONS-/KARTEN-ENDPUNKTE ────────────────────────────
+// Für Self-Hosting nur diese zwei Konstanten umstellen (siehe docs/self-hosting.md).
+// OSRM-Basis ohne abschließenden Slash; Tile-URL als {z}/{x}/{y}-Template.
+const NAVI_OSRM_BASE = 'https://router.project-osrm.org';          // self-hosted z. B. 'https://route.infra.example.de'
+const NAVI_TILE_URL  = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'; // self-hosted z. B. 'https://tiles.infra.example.de/{z}/{x}/{y}.png'
+
 // ─── STATE ────────────────────────────────────────────────────
 let currentDriver = null;
 let currentProjectData = null;
@@ -71,7 +77,7 @@ function initMap(){
   try{ map = L.map('map', opts); }
   catch(e){ map = L.map('map', {zoomControl:false}); }
   map.setView([51.05, 13.73], 14);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  L.tileLayer(NAVI_TILE_URL, {
     attribution: '© <a href="https://openstreetmap.org">OSM</a>',
     maxZoom: 19,
     maxNativeZoom: 18,
@@ -873,7 +879,7 @@ async function naviStreetLine(stops){
     if(pts.length<2) return null;
     const withDepot=await getRouteWithDepot(pts);
     const coordStr=withDepot.map(p=>`${p[1]},${p[0]}`).join(';');
-    const url=`https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson`;
+    const url=`${NAVI_OSRM_BASE}/route/v1/driving/${coordStr}?overview=full&geometries=geojson`;
     const r=await fetch(url); const j=await r.json();
     if(j.routes&&j.routes[0]) return j.routes[0].geometry.coordinates.map(c=>[c[1],c[0]]);
   }catch(e){}
@@ -1047,7 +1053,7 @@ async function naviStart(){
 
 async function naviFetchRoute(from,to){
   try{
-    const url=`https://router.project-osrm.org/route/v1/driving/${from[1]},${from[0]};${to[1]},${to[0]}?steps=true&overview=full&geometries=geojson`;
+    const url=`${NAVI_OSRM_BASE}/route/v1/driving/${from[1]},${from[0]};${to[1]},${to[0]}?steps=true&overview=full&geometries=geojson`;
     const r=await fetch(url); const j=await r.json();
     if(!j.routes||!j.routes[0])return false;
     const rt=j.routes[0];
@@ -1296,7 +1302,7 @@ async function naviOverview(){
   const coordStr=pts.map(p=>`${p[1]},${p[0]}`).join(';');
   let legs=null, total={dist:0,dur:0};
   try{
-    const url=`https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=false`;
+    const url=`${NAVI_OSRM_BASE}/route/v1/driving/${coordStr}?overview=false`;
     const r=await fetch(url); const j=await r.json();
     if(j.routes&&j.routes[0]){ legs=j.routes[0].legs; total={dist:j.routes[0].distance,dur:j.routes[0].duration}; }
   }catch(e){}
