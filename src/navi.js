@@ -170,7 +170,7 @@ async function startBewässerungLogin(name, pid, tid) {
     currentTourId = tid;
     currentDriver = name;
     currentTour = tourSnap.exists ? {id:tid,...tourSnap.data()} : null;
-    trees = treesSnap.docs.map(d=>({id:d.id,...d.data()})).filter(t=>(t.tourIds||[t.tourId]).includes(tid));
+    trees = treesSnap.docs.map(d=>({id:d.id,...d.data()})).filter(t=>(t.tourIds||[t.tourId]).includes(tid) && t.aktiv!==false);
     routeOrder = trees.map(t=>t.id);
     reasons = reasonsSnap.docs.map(d=>({id:d.id,...d.data()}));
 
@@ -222,7 +222,7 @@ async function startBewässerungLogin(name, pid, tid) {
       if(pauseSnapshot)return;
       // Client-seitiger Filter: tourIds-Array oder altes tourId-Feld
       const all=snap.docs.map(d=>({id:d.id,...d.data()}));
-      trees=all.filter(t=>(t.tourIds||[t.tourId]).includes(tid));
+      trees=all.filter(t=>(t.tourIds||[t.tourId]).includes(tid) && t.aktiv!==false);
       routeOrder=routeOrder.filter(id=>trees.find(t=>t.id===id));
       trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
       cacheTreesLocally(pid,tid,trees);
@@ -251,7 +251,7 @@ async function startBewässerungLogin(name, pid, tid) {
 async function loadTrees() {
   const snap = await getDocs(collection(db,'projects',currentProjectId,'trees'));
   trees = snap.docs.map(d=>({id:d.id,...d.data()}))
-    .filter(t=>(t.tourIds||[t.tourId]).includes(currentTourId));
+    .filter(t=>(t.tourIds||[t.tourId]).includes(currentTourId) && t.aktiv!==false);
 }
 
 async function loadReasons() {
@@ -366,7 +366,7 @@ async function dialogNeuStarten(){
   unsubTrees = _reoQ1.onSnapshot(snap => {
     if(pauseSnapshot) return;
     const _all = snap.docs.map(d=>({id:d.id,...d.data()}));
-    trees = _all.filter(t=>(t.tourIds||[t.tourId]).includes(currentTourId));
+    trees = _all.filter(t=>(t.tourIds||[t.tourId]).includes(currentTourId) && t.aktiv!==false);
     routeOrder = routeOrder.filter(id=>trees.find(t=>t.id===id));
     trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
     renderMarkers();
@@ -757,7 +757,8 @@ async function reopenTour() {
     const _reoQ2 = db.collection('projects').doc(currentProjectId).collection('trees')/* alle laden, client-seitig filtern */;
     unsubTrees = _reoQ2.onSnapshot(snap => {
       if(pauseSnapshot) return;
-      trees = snap.docs.map(d=>({id:d.id,...d.data()}));
+      trees = snap.docs.map(d=>({id:d.id,...d.data()}))
+        .filter(t=>(t.tourIds||[t.tourId]).includes(currentTourId) && t.aktiv!==false);
       routeOrder = routeOrder.filter(id=>trees.find(t=>t.id===id));
       trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
       renderMarkers();
@@ -830,8 +831,9 @@ async function drawRoute(){
         routeOrder=[...done,...remaining];
         trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
       }
-      // Draw real street route from saved GeoJSON
-      if(data.geojsonStr){
+      // Saved GeoJSON nur nutzen, wenn die Route keine inaktiven/entfernten Objekte mehr enthält
+      const routeStale=(data.orderIds||[]).some(id=>!trees.find(t=>t.id===id));
+      if(data.geojsonStr && !routeStale){
         try{
           const geo=JSON.parse(data.geojsonStr);
           routeLayer=L.geoJSON(geo,{style:{color,weight:4,opacity:.85}}).addTo(map);
@@ -841,6 +843,16 @@ async function drawRoute(){
       }
     }
   }catch(e){}
+
+  // Route war veraltet (inaktive/entfernte Objekte) oder ohne GeoJSON:
+  // frische Straßenroute über die aktiven Stopps berechnen
+  const activeStops=routeOrder.map(id=>trees.find(t=>t.id===id)).filter(t=>t&&t.lat&&t.lng);
+  const street=await naviStreetLine(activeStops);
+  if(street && street.length>1){
+    routeLayer=L.polyline(street,{color,weight:4,opacity:.85}).addTo(map);
+    drawDepotMarker(null);
+    return;
+  }
 
   // Fallback: dashed polyline with depot if set
   const pts=routeOrder.map(id=>{
@@ -856,6 +868,20 @@ async function drawRoute(){
 }
 
 let depotMarker=null;
+
+// Frische straßenfolgende Linie über die aktiven Stopps (OSRM), inkl. Betriebshof
+async function naviStreetLine(stops){
+  try{
+    const pts=stops.map(s=>[s.lat,s.lng]).filter(p=>p[0]&&p[1]);
+    if(pts.length<2) return null;
+    const withDepot=await getRouteWithDepot(pts);
+    const coordStr=withDepot.map(p=>`${p[1]},${p[0]}`).join(';');
+    const url=`https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson`;
+    const r=await fetch(url); const j=await r.json();
+    if(j.routes&&j.routes[0]) return j.routes[0].geometry.coordinates.map(c=>[c[1],c[0]]);
+  }catch(e){}
+  return null;
+}
 
 async function getRouteWithDepot(pts){
   try{
