@@ -977,7 +977,8 @@ let naviActive=false, naviSteps=[], naviGeom=[], naviTargetId=null, naviStepIdx=
     naviWakeLock=null, naviTotal={dist:0,dur:0}, naviAutoNext=false, naviFollow=true,
     naviMuted=false, naviRotate=true, naviPrevPos=null, naviSpeechPrimed=false,
     naviLastHeading=null, naviLastSpeed=null,
-    naviCompassHeading=null, naviCompassOn=false, naviLastApplied=null;
+    naviCompassHeading=null, naviCompassOn=false, naviLastApplied=null,
+    naviFullRoute=true, naviFullGeom=null;
 
 function naviInit(){
   const ov=document.querySelector('.map-overlay-top');
@@ -1002,6 +1003,7 @@ function naviInit(){
       '</div>'+
       '<button id="navi-voice" title="Sprachansagen" style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:8px;padding:7px 9px;font-size:16px;line-height:1;cursor:pointer;">🔊</button>'+
       '<button id="navi-rot" title="Karte drehen" style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:8px;padding:7px 9px;font-size:16px;line-height:1;cursor:pointer;">🧭</button>'+
+      '<button id="navi-route" title="Route/Etappe" style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:8px;padding:7px 9px;font-size:16px;line-height:1;cursor:pointer;">🗺️</button>'+
       '<button id="navi-stop" style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:600;cursor:pointer;">Beenden</button>'+
       '</div>'+
       '<div id="navi-lanes" style="display:none;gap:5px;margin-top:8px;align-items:center;"></div>'+
@@ -1010,6 +1012,7 @@ function naviInit(){
     document.getElementById('navi-stop').onclick=naviStop;
     document.getElementById('navi-voice').onclick=naviToggleVoice;
     document.getElementById('navi-rot').onclick=naviToggleRotate;
+    document.getElementById('navi-route').onclick=naviToggleFullRoute;
     naviUpdateToggleUi();
   }
   // "Tour gesamt"-Button
@@ -1074,8 +1077,10 @@ async function naviStart(){
   toast('Navi wird berechnet…');
   const ok=await naviFetchRoute(gpsLatLng,[target.lat,target.lng]);
   if(!ok){toast('Route konnte nicht berechnet werden');return;}
+  if(naviFullRoute) await naviFetchFullRoute(); // ganze Restroute für Übersicht
   naviActive=true; naviStepIdx=1; naviPreIdx=-1; naviNowIdx=-1; naviOffrouteHits=0; naviFollow=true;
   naviShowBanner(true);
+  naviDrawDisplay(true); // Linie zeichnen + passend einrahmen
   await naviAcquireWake();
   switchTab('map');
   naviUpdate(gpsLatLng);
@@ -1101,9 +1106,22 @@ async function naviFetchRoute(from,to){
         : [],
     }));
     naviTotal={dist:rt.distance, dur:rt.duration};
-    naviDrawLeg();
     return naviSteps.length>0;
   }catch(e){ return false; }
+}
+
+// Ganze Restroute (GPS → alle verbleibenden Stopps in Reihenfolge) für die Übersichts-Anzeige
+async function naviFetchFullRoute(){
+  naviFullGeom=null;
+  const stops=routeOrder.map(id=>trees.find(t=>t.id===id)).filter(t=>t&&!t.lastStatus&&t.lat&&t.lng);
+  if(!stops.length || !gpsLatLng) return;
+  const pts=[gpsLatLng, ...stops.map(s=>[s.lat,s.lng])];
+  const coordStr=pts.map(p=>`${p[1]},${p[0]}`).join(';');
+  try{
+    const url=`${NAVI_OSRM_BASE}/route/v1/driving/${coordStr}?overview=full&geometries=geojson`;
+    const r=await fetch(url); const j=await r.json();
+    if(j.routes&&j.routes[0]) naviFullGeom=j.routes[0].geometry.coordinates.map(c=>[c[1],c[0]]);
+  }catch(e){}
 }
 
 function naviUpdate(latlng){
@@ -1127,7 +1145,12 @@ function naviUpdate(latlng){
   } else naviOffrouteHits=0;
   naviRenderBanner(latlng,distToTarget);
   // Karte mitführen (erst zentrieren) …
-  if(naviFollow && map){ try{ map.setView(latlng, Math.max(map.getZoom(),16), {animate:true,duration:.5}); }catch(e){} }
+  if(naviFollow && map){
+    try{
+      if(naviFullRoute) map.panTo(latlng, {animate:true,duration:.5}); // Übersicht: Zoom belassen, nur folgen
+      else map.setView(latlng, Math.max(map.getZoom(),16), {animate:true,duration:.5}); // Etappe: nah heranzoomen
+    }catch(e){}
+  }
   // … dann in Fahrtrichtung drehen (NACH setView, sonst kann es zurückgesetzt werden).
   // Reihenfolge der Richtungsquellen: Geräte-Kompass > GPS-heading > Bewegung.
   if(naviRotate && naviFollow && NAVI_ROTATE_OK && map.setBearing){
@@ -1160,7 +1183,7 @@ async function naviReroute(){
   const target=trees.find(t=>t.id===naviTargetId);
   if(target){
     const ok=await naviFetchRoute(gpsLatLng,[target.lat,target.lng]);
-    if(ok){ naviStepIdx=1; naviPreIdx=-1; naviNowIdx=-1; toast('Route neu berechnet'); naviVoice(gpsLatLng); }
+    if(ok){ naviStepIdx=1; naviPreIdx=-1; naviNowIdx=-1; if(naviFullRoute) await naviFetchFullRoute(); naviDrawDisplay(false); toast('Route neu berechnet'); naviVoice(gpsLatLng); }
   }
   naviRerouting=false;
 }
@@ -1187,6 +1210,13 @@ function naviToggleRotate(){
   else { naviStopCompass(); if(NAVI_ROTATE_OK && map && map.setBearing){ try{ map.setBearing(0); }catch(e){} } }
   naviUpdateToggleUi();
 }
+async function naviToggleFullRoute(){
+  naviFullRoute=!naviFullRoute;
+  if(naviFullRoute && naviActive) await naviFetchFullRoute();
+  naviDrawDisplay(true); // neu zeichnen + passend einrahmen
+  naviUpdateToggleUi();
+  toast(naviFullRoute?'Ganze Route':'Nur nächste Etappe');
+}
 function naviUpdateToggleUi(){
   const v=document.getElementById('navi-voice');
   if(v){ v.textContent=naviMuted?'🔇':'🔊'; v.style.opacity=naviMuted?'.45':'1'; }
@@ -1195,6 +1225,8 @@ function naviUpdateToggleUi(){
     if(!NAVI_ROTATE_OK){ r.style.display='none'; }
     else { r.style.opacity=naviRotate?'1':'.45'; r.title=naviRotate?'Karte dreht in Fahrtrichtung':'Norden oben'; }
   }
+  const rt=document.getElementById('navi-route');
+  if(rt){ rt.textContent=naviFullRoute?'🗺️':'📍'; rt.title=naviFullRoute?'Ganze Route — tippen für nächste Etappe':'Nächste Etappe — tippen für ganze Route'; }
 }
 
 function naviStop(){
@@ -1242,11 +1274,14 @@ function naviNearestDist(latlng){
   return best;
 }
 
-function naviDrawLeg(){
+// Zeichnet die hervorgehobene Linie je nach Modus: ganze Restroute oder nur nächste Etappe
+function naviDrawDisplay(fit){
   naviRemoveLeg();
-  if(!naviGeom.length||!map)return;
-  naviLegLayer=L.polyline(naviGeom,{color:'#1d4ed8',weight:7,opacity:.9}).addTo(map);
-  try{ map.fitBounds(L.latLngBounds(naviGeom),{padding:[60,90]}); }catch(e){}
+  if(!map) return;
+  const geom = (naviFullRoute && naviFullGeom && naviFullGeom.length>1) ? naviFullGeom : naviGeom;
+  if(!geom || geom.length<2) return;
+  naviLegLayer=L.polyline(geom,{color:'#1d4ed8',weight:6,opacity:.9}).addTo(map);
+  if(fit){ try{ map.fitBounds(L.latLngBounds(geom),{padding:[50,70]}); }catch(e){} }
 }
 function naviRemoveLeg(){ if(naviLegLayer){ try{map.removeLayer(naviLegLayer);}catch(e){} naviLegLayer=null; } }
 function naviShowBanner(show){ const b=document.getElementById('navi-banner'); if(b)b.style.display=show?'block':'none'; }
