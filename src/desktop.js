@@ -101,6 +101,8 @@ function applyFieldLabels() {
 // ─── STATE ────────────────────────────────────────────────────
 let currentProjectId = null;
 let currentProjectData = null;
+let _dataViewProject = null;      // Projekt, für das Controlling/Dashboard zuletzt aufgebaut wurde
+let _dataViewSyncQueued = false;  // Debounce für Neuaufbau beim Projektwechsel
 let tours = [];   // live from Firestore
 let trees = [];   // live from Firestore
 let unsubTours = null;
@@ -255,6 +257,8 @@ async function createProject(){
 
 async function openProject(projectId){
   currentProjectId=projectId;
+  window._tourHistoryCache=null;   // Historie des alten Projekts verwerfen
+  _dataViewProject=null;           // Controlling/Dashboard für neues Projekt neu aufbauen
   const snap=await getDoc(doc(db,'projects',projectId));
   currentProjectData={id:projectId,...snap.data()};
   document.getElementById('active-project-name').textContent=currentProjectData.name;
@@ -262,6 +266,23 @@ async function openProject(projectId){
   loadFieldLabels();
   // Subscribe to tours & trees
   subscribeToProject();
+}
+
+// Baut die aktive datengetriebene Ansicht (Controlling/Dashboard) nach einem
+// Projektwechsel neu auf, sobald die ersten trees/tours-Snapshots da sind.
+// Debounce, damit nicht jeder einzelne Snapshot einen Neuaufbau auslöst.
+function syncDataViewToProject(){
+  if(_dataViewProject===currentProjectId) return;
+  if(currentView!=='controlling' && currentView!=='dashboard') return;
+  if(_dataViewSyncQueued) return;
+  _dataViewSyncQueued=true;
+  setTimeout(()=>{
+    _dataViewSyncQueued=false;
+    if(_dataViewProject===currentProjectId) return;
+    _dataViewProject=currentProjectId;
+    if(currentView==='controlling') initControlling();
+    else if(currentView==='dashboard') initDashboard();
+  },60);
 }
 
 function showProjectScreen(){
@@ -286,6 +307,7 @@ function subscribeToProject(){
     renderFilters();renderList();renderLegend();
     if(currentView==='touren') renderTourenGrid();
     if(currentView==='verwaltung') renderDriverMgmt();
+    syncDataViewToProject();
     setSyncState('ok','Synchronisiert');
   });
 
@@ -294,6 +316,7 @@ function subscribeToProject(){
     trees=snap.docs.map(d=>({id:d.id,...d.data()}));
     refreshMarkers();renderList();
     if(currentView==='baeume')renderBaeumeTable();
+    syncDataViewToProject();
     setSyncState('ok','Synchronisiert');
     autoMigrateTourIds(); // tourId → tourIds[] still im Hintergrund
   });
@@ -2095,10 +2118,11 @@ function switchView(v){
   }
   if(v==='controlling'){
     // Lädt tourHistory einmalig beim Öffnen; Aktualisieren danach nur per Button.
+    _dataViewProject=currentProjectId;
     initControlling();
     updateCtrlLastUpdated();
   }
-  if(v==='dashboard') initDashboard(); // einmaliges Laden; danach nur per Refresh-Button
+  if(v==='dashboard'){ _dataViewProject=currentProjectId; initDashboard(); } // einmaliges Laden; danach nur per Refresh-Button
   if(v==='ki') renderKi();
   if(v==='kiconfig') renderKiConfig();
   if(v==='disposition') initDispo();
