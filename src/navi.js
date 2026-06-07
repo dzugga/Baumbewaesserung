@@ -976,7 +976,8 @@ let naviActive=false, naviSteps=[], naviGeom=[], naviTargetId=null, naviStepIdx=
     naviPreIdx=-1, naviNowIdx=-1, naviOffrouteHits=0, naviRerouting=false, naviLegLayer=null,
     naviWakeLock=null, naviTotal={dist:0,dur:0}, naviAutoNext=false, naviFollow=true,
     naviMuted=false, naviRotate=true, naviPrevPos=null, naviSpeechPrimed=false,
-    naviLastHeading=null, naviLastSpeed=null;
+    naviLastHeading=null, naviLastSpeed=null,
+    naviCompassHeading=null, naviCompassOn=false, naviLastApplied=null;
 
 function naviInit(){
   const ov=document.querySelector('.map-overlay-top');
@@ -1062,6 +1063,7 @@ function naviNearestOpenStop(latlng){
 
 async function naviStart(){
   naviPrimeSpeech(); // synchron in der Nutzer-Geste → entsperrt Sprachausgabe auf Mobile
+  if(naviRotate) naviRequestCompass(); // Kompass-Freigabe in der Nutzer-Geste anfragen (iOS)
   if(currentTour?.status==='abgeschlossen'){toast('Tour abgeschlossen');return;}
   if(!gpsLatLng){toast('GPS noch nicht verfügbar');return;}
   naviPrevPos=null;
@@ -1126,15 +1128,17 @@ function naviUpdate(latlng){
   naviRenderBanner(latlng,distToTarget);
   // Karte mitführen (erst zentrieren) …
   if(naviFollow && map){ try{ map.setView(latlng, Math.max(map.getZoom(),16), {animate:true,duration:.5}); }catch(e){} }
-  // … dann in Fahrtrichtung drehen (NACH setView, sonst kann es zurückgesetzt werden)
+  // … dann in Fahrtrichtung drehen (NACH setView, sonst kann es zurückgesetzt werden).
+  // Reihenfolge der Richtungsquellen: Geräte-Kompass > GPS-heading > Bewegung.
   if(naviRotate && naviFollow && NAVI_ROTATE_OK && map.setBearing){
     let brg=null;
-    if(typeof naviLastHeading==='number' && !isNaN(naviLastHeading) && (naviLastSpeed==null||naviLastSpeed>0.3)) brg=naviLastHeading;
+    if(typeof naviCompassHeading==='number') brg=naviCompassHeading;
+    else if(typeof naviLastHeading==='number' && !isNaN(naviLastHeading) && (naviLastSpeed==null||naviLastSpeed>0.3)) brg=naviLastHeading;
     else if(naviPrevPos){
       const moved=haversine(naviPrevPos[0],naviPrevPos[1],latlng[0],latlng[1])*1000;
       if(moved>6) brg=naviBearing(naviPrevPos,latlng);
     }
-    if(brg!=null){ try{ map.setBearing(brg); }catch(e){} }
+    if(brg!=null){ naviLastApplied=brg; try{ map.setBearing(brg); }catch(e){} }
   }
   naviPrevPos=latlng;
 }
@@ -1179,7 +1183,8 @@ function naviToggleVoice(){
 }
 function naviToggleRotate(){
   naviRotate=!naviRotate;
-  if(!naviRotate && NAVI_ROTATE_OK && map && map.setBearing){ try{ map.setBearing(0); }catch(e){} }
+  if(naviRotate){ naviRequestCompass(); }
+  else { naviStopCompass(); if(NAVI_ROTATE_OK && map && map.setBearing){ try{ map.setBearing(0); }catch(e){} } }
   naviUpdateToggleUi();
 }
 function naviUpdateToggleUi(){
@@ -1194,7 +1199,7 @@ function naviUpdateToggleUi(){
 
 function naviStop(){
   naviActive=false; naviTargetId=null; naviFollow=false; naviAutoNext=false; naviPrevPos=null;
-  naviShowBanner(false); naviRemoveLeg(); naviReleaseWake();
+  naviShowBanner(false); naviRemoveLeg(); naviReleaseWake(); naviStopCompass();
   if(NAVI_ROTATE_OK && map && map.setBearing){ try{ map.setBearing(0); }catch(e){} } // Norden wieder oben
   try{ speechSynthesis.cancel(); }catch(e){}
 }
@@ -1282,6 +1287,42 @@ function naviBearing(a,b){
   const y=Math.sin(dLon)*Math.cos(toR(b[0]));
   const x=Math.cos(toR(a[0]))*Math.sin(toR(b[0]))-Math.sin(toR(a[0]))*Math.cos(toR(b[0]))*Math.cos(dLon);
   return (toD(Math.atan2(y,x))+360)%360;
+}
+
+// Geräte-Kompass (iOS: webkitCompassHeading; Android: absolute alpha) für „Fahrtrichtung oben".
+// iOS verlangt eine Freigabe, die nur aus einer Nutzer-Geste angefragt werden darf.
+function naviOnOrientation(e){
+  let h=null;
+  if(typeof e.webkitCompassHeading==='number' && !isNaN(e.webkitCompassHeading)) h=e.webkitCompassHeading;
+  else if(e.absolute && typeof e.alpha==='number') h=(360-e.alpha)%360;
+  if(h==null) return;
+  naviCompassHeading=h;
+  // live drehen (gedrosselt: erst ab >2° Änderung)
+  if(naviActive && naviRotate && naviFollow && NAVI_ROTATE_OK && map && map.setBearing){
+    if(naviLastApplied==null || Math.abs(((h-naviLastApplied+540)%360)-180)>2){
+      naviLastApplied=h;
+      try{ map.setBearing(h); }catch(_){}
+    }
+  }
+}
+function naviRequestCompass(){
+  if(naviCompassOn) return;
+  const start=()=>{
+    naviCompassOn=true;
+    window.addEventListener('deviceorientationabsolute', naviOnOrientation, true);
+    window.addEventListener('deviceorientation', naviOnOrientation, true);
+  };
+  try{
+    if(typeof DeviceOrientationEvent!=='undefined' && typeof DeviceOrientationEvent.requestPermission==='function'){
+      DeviceOrientationEvent.requestPermission().then(p=>{ if(p==='granted') start(); }).catch(()=>{});
+    } else { start(); }
+  }catch(e){}
+}
+function naviStopCompass(){
+  if(!naviCompassOn) return;
+  window.removeEventListener('deviceorientationabsolute', naviOnOrientation, true);
+  window.removeEventListener('deviceorientation', naviOnOrientation, true);
+  naviCompassOn=false; naviCompassHeading=null; naviLastApplied=null;
 }
 
 function fmtDist(m){
