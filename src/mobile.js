@@ -615,11 +615,14 @@ async function finishTour() {
       tourId: currentTourId, tourName: currentTour?.name||'',
       tourColor: currentTour?.color||'',
       date: dateStr, closedAt: tsStr, closedBy: currentDriver, stats,
-      results: treesWithStatus.map(t=>({
+      // Kanonisches trees-Schema (von Controlling/Einsatzleiter/Detail direkt gelesen)
+      trees: treesWithStatus.map(t=>({
         id: t.id, baumnr: t.baumnr||'', name: t.name||'',
-        status: t.lastStatus, reason: t.lastReason||null,
-        note: t.lastNote||null, driver: t.lastDriver||null,
-        reportAt: t.lastReportAt||null,
+        stadtteil: t.stadtteil||null, art: t.art||null, pflanzjahr: t.pflanzjahr||null,
+        lat: t.lat??null, lng: t.lng??null,
+        lastStatus: t.lastStatus, lastReason: t.lastReason||null,
+        lastNote: t.lastNote||null, lastDriver: t.lastDriver||null,
+        lastReportAt: t.lastReportAt||null,
       })),
     };
 
