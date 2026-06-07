@@ -63,9 +63,14 @@ let routeLayer = null;
 
 // ─── MAP ──────────────────────────────────────────────────────
 let map = null;
+const NAVI_ROTATE_OK = !!(L.Map && L.Map.prototype && L.Map.prototype.setBearing);
 function initMap(){
   if(map) return;
-  map = L.map('map', {zoomControl: false}).setView([51.05, 13.73], 14);
+  const opts={zoomControl:false};
+  if(NAVI_ROTATE_OK){ opts.rotate=true; opts.bearing=0; opts.rotateControl=false; opts.touchRotate=false; opts.shiftKeyRotate=false; }
+  try{ map = L.map('map', opts); }
+  catch(e){ map = L.map('map', {zoomControl:false}); }
+  map.setView([51.05, 13.73], 14);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© <a href="https://openstreetmap.org">OSM</a>',
     maxZoom: 19,
@@ -93,7 +98,13 @@ function startGPS() {
     } else {
       gpsMarker.setLatLng(gpsLatLng);
     }
-    if(naviActive) naviUpdate(gpsLatLng);
+    if(naviActive){
+      const hd=pos.coords.heading;
+      if(naviFollow && NAVI_ROTATE_OK && map.setBearing && typeof hd==='number' && !isNaN(hd)){
+        try{ map.setBearing(hd); }catch(e){} // Fahrtrichtung nach oben
+      }
+      naviUpdate(gpsLatLng);
+    }
   }, err => {}, {enableHighAccuracy: true, maximumAge: 5000});
 }
 
@@ -959,9 +970,19 @@ function naviInit(){
       '</div>'+
       '<button id="navi-stop" style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:600;cursor:pointer;">Beenden</button>'+
       '</div>'+
+      '<div id="navi-lanes" style="display:none;gap:5px;margin-top:8px;align-items:center;"></div>'+
       '<div id="navi-sub" style="font-size:12px;opacity:.8;margin-top:6px;">—</div>';
     tab.appendChild(d);
     document.getElementById('navi-stop').onclick=naviStop;
+  }
+  // "Tour gesamt"-Button
+  if(ov && !document.getElementById('btn-tour-overview')){
+    const b=document.createElement('button');
+    b.className='recalc-btn'; b.id='btn-tour-overview';
+    b.style.cssText='background:var(--surface);color:#1d4ed8;border:1.5px solid #1d4ed8;';
+    b.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline;vertical-align:middle;margin-right:4px;"><path d="M9 18l6-6-6-6"/><path d="M3 6h4M3 12h4M3 18h4" /></svg>Tour gesamt';
+    b.onclick=naviOverview;
+    ov.appendChild(b);
   }
 }
 
@@ -1004,6 +1025,9 @@ async function naviFetchRoute(from,to){
       loc:[s.maneuver.location[1],s.maneuver.location[0]],
       type:s.maneuver.type, mod:s.maneuver.modifier||'',
       dist:s.distance||0, dur:s.duration||0,
+      lanes:(s.intersections||[]).slice(-1)[0]?.lanes
+        ? s.intersections.slice(-1)[0].lanes.map(l=>({valid:!!l.valid, ind:(l.indications||['none'])[0]}))
+        : [],
     }));
     naviTotal={dist:rt.distance, dur:rt.duration};
     naviDrawLeg();
@@ -1068,6 +1092,7 @@ function naviArrive(){
 function naviStop(){
   naviActive=false; naviTargetId=null; naviFollow=false; naviAutoNext=false;
   naviShowBanner(false); naviRemoveLeg(); naviReleaseWake();
+  if(NAVI_ROTATE_OK && map && map.setBearing){ try{ map.setBearing(0); }catch(e){} } // Norden wieder oben
   try{ speechSynthesis.cancel(); }catch(e){}
 }
 
@@ -1085,6 +1110,22 @@ function naviRenderBanner(latlng,distToTarget){
   const eta=new Date(Date.now()+remDur*1000).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
   const min=Math.max(1,Math.round(remDur/60));
   set('navi-sub', `${target?.name||'Ziel'} · noch ${fmtDist(remDist||distToTarget)} · ${min} min · an ${eta}`);
+  // Spurassistent: nur anzeigen, wenn das nächste Manöver nah ist und Spurdaten vorliegen
+  const lanesEl=document.getElementById('navi-lanes');
+  if(lanesEl){
+    if(step && step.lanes && step.lanes.length && dMan<260){
+      lanesEl.style.display='flex';
+      lanesEl.innerHTML=step.lanes.map(l=>
+        `<span style="font-size:20px;line-height:1;opacity:${l.valid?1:.35};">${naviLaneArrow(l.ind)}</span>`
+      ).join('');
+    } else { lanesEl.style.display='none'; }
+  }
+}
+
+function naviLaneArrow(ind){
+  const a={'left':'⬅','slight left':'↖','sharp left':'⬅','right':'➡','slight right':'↗',
+    'sharp right':'➡','straight':'⬆','through':'⬆','uturn':'↩','none':'⬆'};
+  return a[(ind||'').split(';')[0]]||'⬆';
 }
 
 function naviNearestDist(latlng){
@@ -1160,6 +1201,73 @@ function osrmInstr(s){
     default: return (dir?cap(dir):'Weiter')+name;
   }
 }
+// ─── TOUR-GESAMTÜBERSICHT ─────────────────────────────────────────
+async function naviOverview(){
+  if(!gpsLatLng){ toast('GPS noch nicht verfügbar'); return; }
+  const stops=routeOrder.map(id=>trees.find(t=>t.id===id)).filter(t=>t&&!t.lastStatus&&t.lat&&t.lng);
+  if(!stops.length){ toast('Alle Objekte erledigt 🎉'); return; }
+  toast('Tour-Übersicht wird berechnet…');
+  const pts=[gpsLatLng, ...stops.map(s=>[s.lat,s.lng])];
+  const coordStr=pts.map(p=>`${p[1]},${p[0]}`).join(';');
+  let legs=null, total={dist:0,dur:0};
+  try{
+    const url=`https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=false`;
+    const r=await fetch(url); const j=await r.json();
+    if(j.routes&&j.routes[0]){ legs=j.routes[0].legs; total={dist:j.routes[0].distance,dur:j.routes[0].duration}; }
+  }catch(e){}
+  naviShowOverview(stops, legs, total);
+}
+
+function naviShowOverview(stops, legs, total){
+  const old=document.getElementById('navi-ov'); if(old)old.remove();
+  let cum=0;
+  const rows=stops.map((s,i)=>{
+    if(legs && legs[i]) cum+=legs[i].duration;
+    const eta=new Date(Date.now()+cum*1000).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
+    const legKm=legs&&legs[i]?fmtDist(legs[i].distance):'–';
+    return `<div style="display:flex;align-items:center;gap:10px;padding:9px 4px;border-top:1px solid var(--border);">
+      <div style="width:24px;height:24px;border-radius:50%;background:#1d4ed822;color:#1d4ed8;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">${i+1}</div>
+      <div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${s.name||'Objekt'}</div>
+        <div style="font-size:11px;color:var(--text3);">${s.stadtteil||''} ${s.baumnr?'· '+s.baumnr:''}</div></div>
+      <div style="text-align:right;flex-shrink:0;"><div style="font-size:12px;font-weight:600;">${legs?'an '+eta:''}</div>
+        <div style="font-size:11px;color:var(--text3);">+${legKm}</div></div>
+    </div>`;
+  }).join('');
+  const totMin=Math.max(1,Math.round(total.dur/60));
+  const totEta=new Date(Date.now()+total.dur*1000).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
+  const m=document.createElement('div');
+  m.id='navi-ov';
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:3000;display:flex;align-items:flex-end;justify-content:center;';
+  m.innerHTML=`<div style="background:var(--surface);width:100%;max-width:560px;max-height:85vh;border-radius:18px 18px 0 0;display:flex;flex-direction:column;overflow:hidden;">
+    <div style="padding:16px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;">
+      <div style="flex:1;"><div style="font-size:16px;font-weight:700;">Tour-Übersicht</div>
+        <div style="font-size:12px;color:var(--text3);">${stops.length} offene Objekte${legs?` · ${fmtDist(total.dist)} · ${totMin} min · fertig ~${totEta}`:' · (Strecke offline)'}</div></div>
+      <button id="navi-ov-x" style="border:none;background:none;font-size:24px;color:var(--text2);cursor:pointer;line-height:1;">×</button>
+    </div>
+    <div style="overflow:auto;flex:1;padding:4px 16px 12px;">${rows}</div>
+    <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;">
+      <button id="navi-ov-gmaps" class="btn btn-secondary" style="flex:1;">In Google Maps</button>
+      <button id="navi-ov-start" class="btn btn-primary" style="flex:1;">Navi starten</button>
+    </div></div>`;
+  document.body.appendChild(m);
+  const close=()=>m.remove();
+  m.querySelector('#navi-ov-x').onclick=close;
+  m.onclick=e=>{ if(e.target===m)close(); };
+  m.querySelector('#navi-ov-gmaps').onclick=()=>{ naviGmapsTour(stops); };
+  m.querySelector('#navi-ov-start').onclick=()=>{ close(); naviStart(); };
+}
+
+function naviGmapsTour(stops){
+  const limited=stops.slice(0,10); // Google-URL: max ~10 Punkte
+  const dest=limited[limited.length-1];
+  const wps=limited.slice(0,-1).map(s=>`${s.lat},${s.lng}`).join('|');
+  if(stops.length>10) toast('Hinweis: Google Maps zeigt nur die ersten 10 Stopps');
+  const url=`https://www.google.com/maps/dir/?api=1&destination=${dest.lat},${dest.lng}`+
+    (wps?`&waypoints=${encodeURIComponent(wps)}`:'')+`&travelmode=driving`;
+  window.open(url,'_blank');
+}
+window.naviOverview=naviOverview;
+
 // Externe Navigation (Deeplink) — öffnet Google Maps (App oder Web, plattformübergreifend)
 window.naviExternal=(lat,lng)=>{
   window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`,'_blank');
@@ -1167,7 +1275,8 @@ window.naviExternal=(lat,lng)=>{
 // Beta-Test-Hooks (Sandbox): GPS simulieren / Status abfragen — Navi ohne echte Fahrt testen
 window.naviStart=naviStart;
 window.naviSimulateGps=(lat,lng)=>{ gpsLatLng=[lat,lng]; if(gpsMarker)gpsMarker.setLatLng(gpsLatLng); if(naviActive)naviUpdate(gpsLatLng); };
-window.naviDebug=()=>({active:naviActive,targetId:naviTargetId,stepIdx:naviStepIdx,steps:naviSteps.map(s=>s.instr),lastGeom:naviGeom[naviGeom.length-1],total:naviTotal});
+window.naviDebug=()=>({active:naviActive,targetId:naviTargetId,stepIdx:naviStepIdx,steps:naviSteps.map(s=>s.instr),lastGeom:naviGeom[naviGeom.length-1],total:naviTotal,rotateOk:NAVI_ROTATE_OK});
+window.naviSetBearing=(deg)=>{ if(map&&map.setBearing){ map.setBearing(deg); return 'ok '+deg; } return 'no rotate'; };
 // ═══ ENDE NAVI-MODUS ══════════════════════════════════════════════
 
 // ─── LIST ──────────────────────────────────────────────────────
