@@ -663,7 +663,7 @@ async function loadSavedRoutes(){
       drawSavedRoute(tour.id, routeSnap.data());
     } else {
       // No saved route yet — just compute order for numbering, no line drawn
-      const trs=trees.filter(t=>treeInTour(t,tour.id)&&t.lat&&t.lng);
+      const trs=trees.filter(t=>treeInTour(t,tour.id)&&t.lat&&t.lng&&t.aktiv!==false);
       if(trs.length>0){
         const depot=getDepot();
         const ordered=nearestNeighborTSP(trs,depot?.lat,depot?.lng);
@@ -679,7 +679,7 @@ async function loadSavedRoutes(){
 async function calculateAndSaveRoute(tourId){
   if(!getRoutePlanningEnabled()){ notify('Reihenfolgeplanung ist deaktiviert'); return; }
   const tour=tours.find(t=>t.id===tourId);if(!tour)return;
-  const trs=trees.filter(t=>treeInTour(t,tourId)&&t.lat&&t.lng);
+  const trs=trees.filter(t=>treeInTour(t,tourId)&&t.lat&&t.lng&&t.aktiv!==false);
   if(trs.length<1){notify('Keine Objekte in dieser Tour');return;}
 
   setSyncState('syncing','Route wird berechnet…');
