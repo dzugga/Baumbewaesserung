@@ -79,10 +79,26 @@ function inRange(dateStr){
 }
 function fmtDE(d){ return d.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric'}); }
 
+// Ältere tourHistory-Docs speichern die Baumliste als `results` (status/reason/driver/note)
+// statt als `trees` (lastStatus/lastReason/...). In einheitliches trees-Schema überführen.
+function normalizeHistory(h){
+  if(h && !Array.isArray(h.trees)){
+    h.trees = Array.isArray(h.results) ? h.results.map(r=>({
+      id:r.id, name:r.name, baumnr:r.baumnr, stadtteil:r.stadtteil, art:r.art,
+      lat:r.lat, lng:r.lng,
+      lastStatus:r.status||null, lastReason:r.reason||null,
+      lastDriver:r.driver||null, lastNote:r.note||null,
+      lastReportAt:r.reportAt||null,
+    })) : [];
+  }
+  return h;
+}
+
 // ─── MELDUNGEN AUFBAUEN (Quelle: tourHistory, Fallback: tree.history) ─
 function buildReported(){
   const out=[];
   const seen=new Set(); // BaumID|YYYY-MM-DD — verhindert Doppelzählung
+  const treeById={}; trees.forEach(t=>{ treeById[t.id]=t; });
   if(tourHistoryLoaded){
     // Historischer Bestand: abgeschlossene Touren (autoritativ, editierbar)
     tourHistory.forEach(h=>{
@@ -118,7 +134,9 @@ function buildReported(){
     seen.add(key);
     out.push({...tree});
   });
-  return out;
+  // Snapshots aus dem results-Schema haben keine Koordinaten/Stammdaten —
+  // aus dem Live-Baum (per ID) anreichern, damit die "Nicht erledigt"-Karte greift.
+  return out.map(r=>{ const lt=treeById[r.id]; return lt ? {...lt, ...r} : r; });
 }
 
 // ─── RENDER ───────────────────────────────────────────────────
@@ -352,7 +370,7 @@ async function loadTourHistory(){
   if(!currentProjectId) return;
   try{
     const snap=await db.collection('projects').doc(currentProjectId).collection('tourHistory').get();
-    tourHistory=snap.docs.map(d=>({id:d.id,...d.data()}));
+    tourHistory=snap.docs.map(d=>normalizeHistory({id:d.id,...d.data()}));
     tourHistoryLoaded=true;
     render();
   }catch(e){ console.warn('tourHistory:',e); }
