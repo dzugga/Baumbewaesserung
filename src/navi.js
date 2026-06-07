@@ -99,10 +99,7 @@ function startGPS() {
       gpsMarker.setLatLng(gpsLatLng);
     }
     if(naviActive){
-      const hd=pos.coords.heading;
-      if(naviFollow && NAVI_ROTATE_OK && map.setBearing && typeof hd==='number' && !isNaN(hd)){
-        try{ map.setBearing(hd); }catch(e){} // Fahrtrichtung nach oben
-      }
+      naviLastHeading=pos.coords.heading; naviLastSpeed=pos.coords.speed;
       naviUpdate(gpsLatLng);
     }
   }, err => {}, {enableHighAccuracy: true, maximumAge: 5000});
@@ -971,7 +968,9 @@ function haversine(a,b,c,d){
 const NAVI_ARRIVE_M=35, NAVI_ADVANCE_M=25, NAVI_OFFROUTE_M=70, NAVI_OFFROUTE_HITS=3;
 let naviActive=false, naviSteps=[], naviGeom=[], naviTargetId=null, naviStepIdx=1,
     naviPreIdx=-1, naviNowIdx=-1, naviOffrouteHits=0, naviRerouting=false, naviLegLayer=null,
-    naviWakeLock=null, naviTotal={dist:0,dur:0}, naviAutoNext=false, naviFollow=true;
+    naviWakeLock=null, naviTotal={dist:0,dur:0}, naviAutoNext=false, naviFollow=true,
+    naviMuted=false, naviRotate=true, naviPrevPos=null, naviSpeechPrimed=false,
+    naviLastHeading=null, naviLastSpeed=null;
 
 function naviInit(){
   const ov=document.querySelector('.map-overlay-top');
@@ -994,12 +993,17 @@ function naviInit(){
         '<div id="navi-dist" style="font-size:13px;opacity:.85;font-weight:600;">—</div>'+
         '<div id="navi-instr" style="font-size:17px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">—</div>'+
       '</div>'+
+      '<button id="navi-voice" title="Sprachansagen" style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:8px;padding:7px 9px;font-size:16px;line-height:1;cursor:pointer;">🔊</button>'+
+      '<button id="navi-rot" title="Karte drehen" style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:8px;padding:7px 9px;font-size:16px;line-height:1;cursor:pointer;">🧭</button>'+
       '<button id="navi-stop" style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:600;cursor:pointer;">Beenden</button>'+
       '</div>'+
       '<div id="navi-lanes" style="display:none;gap:5px;margin-top:8px;align-items:center;"></div>'+
       '<div id="navi-sub" style="font-size:12px;opacity:.8;margin-top:6px;">—</div>';
     tab.appendChild(d);
     document.getElementById('navi-stop').onclick=naviStop;
+    document.getElementById('navi-voice').onclick=naviToggleVoice;
+    document.getElementById('navi-rot').onclick=naviToggleRotate;
+    naviUpdateToggleUi();
   }
   // "Tour gesamt"-Button
   if(ov && !document.getElementById('btn-tour-overview')){
@@ -1021,8 +1025,10 @@ function naviPickTarget(){
 }
 
 async function naviStart(){
+  naviPrimeSpeech(); // synchron in der Nutzer-Geste → entsperrt Sprachausgabe auf Mobile
   if(currentTour?.status==='abgeschlossen'){toast('Tour abgeschlossen');return;}
   if(!gpsLatLng){toast('GPS noch nicht verfügbar');return;}
+  naviPrevPos=null;
   const target=naviPickTarget();
   if(!target){toast('Alle Objekte erledigt 🎉');return;}
   naviTargetId=target.id;
@@ -1079,6 +1085,17 @@ function naviUpdate(latlng){
     if(naviOffrouteHits>=NAVI_OFFROUTE_HITS && !naviRerouting) naviReroute();
   } else naviOffrouteHits=0;
   naviRenderBanner(latlng,distToTarget);
+  // Fahrtrichtung (Karten-Rotation): GPS-heading wenn vorhanden, sonst aus Bewegung
+  if(naviRotate && naviFollow && NAVI_ROTATE_OK && map.setBearing){
+    let brg=null;
+    if(typeof naviLastHeading==='number' && !isNaN(naviLastHeading) && (naviLastSpeed==null||naviLastSpeed>0.3)) brg=naviLastHeading;
+    else if(naviPrevPos){
+      const moved=haversine(naviPrevPos[0],naviPrevPos[1],latlng[0],latlng[1])*1000;
+      if(moved>6) brg=naviBearing(naviPrevPos,latlng);
+    }
+    if(brg!=null){ try{ map.setBearing(brg); }catch(e){} }
+  }
+  naviPrevPos=latlng;
   // Karte mitführen
   if(naviFollow && map){ try{ map.setView(latlng, Math.max(map.getZoom(),16), {animate:true,duration:.5}); }catch(e){} }
 }
@@ -1115,8 +1132,29 @@ function naviArrive(){
   setTimeout(()=>{ if(tid) openSheet(tid); },400); // Status melden → danach Auto-Weiter
 }
 
+function naviToggleVoice(){
+  naviMuted=!naviMuted;
+  if(!naviMuted){ naviPrimeSpeech(); speak('Sprachansagen an'); }
+  else { try{ speechSynthesis.cancel(); }catch(e){} }
+  naviUpdateToggleUi();
+}
+function naviToggleRotate(){
+  naviRotate=!naviRotate;
+  if(!naviRotate && NAVI_ROTATE_OK && map && map.setBearing){ try{ map.setBearing(0); }catch(e){} }
+  naviUpdateToggleUi();
+}
+function naviUpdateToggleUi(){
+  const v=document.getElementById('navi-voice');
+  if(v){ v.textContent=naviMuted?'🔇':'🔊'; v.style.opacity=naviMuted?'.45':'1'; }
+  const r=document.getElementById('navi-rot');
+  if(r){
+    if(!NAVI_ROTATE_OK){ r.style.display='none'; }
+    else { r.style.opacity=naviRotate?'1':'.45'; r.title=naviRotate?'Karte dreht in Fahrtrichtung':'Norden oben'; }
+  }
+}
+
 function naviStop(){
-  naviActive=false; naviTargetId=null; naviFollow=false; naviAutoNext=false;
+  naviActive=false; naviTargetId=null; naviFollow=false; naviAutoNext=false; naviPrevPos=null;
   naviShowBanner(false); naviRemoveLeg(); naviReleaseWake();
   if(NAVI_ROTATE_OK && map && map.setBearing){ try{ map.setBearing(0); }catch(e){} } // Norden wieder oben
   try{ speechSynthesis.cancel(); }catch(e){}
@@ -1179,11 +1217,32 @@ document.addEventListener('visibilitychange',()=>{
 
 function speak(text){
   try{
-    if(!('speechSynthesis' in window))return;
+    if(naviMuted || !('speechSynthesis' in window))return;
     const u=new SpeechSynthesisUtterance(text);
     u.lang='de-DE'; u.rate=1.0;
     speechSynthesis.cancel(); speechSynthesis.speak(u);
   }catch(e){}
+}
+
+// Mobile: Sprachausgabe muss einmal in einer Nutzer-Geste „entsperrt" werden,
+// sonst spielen spätere (aus GPS-Callbacks ausgelöste) Ansagen nicht ab.
+function naviPrimeSpeech(){
+  try{
+    if(naviSpeechPrimed || !('speechSynthesis' in window))return;
+    const u=new SpeechSynthesisUtterance(' ');
+    u.volume=0; u.lang='de-DE';
+    speechSynthesis.speak(u);
+    naviSpeechPrimed=true;
+  }catch(e){}
+}
+
+// Kompass-Bearing (0–360°) zwischen zwei [lat,lng]-Punkten
+function naviBearing(a,b){
+  const toR=d=>d*Math.PI/180, toD=r=>r*180/Math.PI;
+  const dLon=toR(b[1]-a[1]);
+  const y=Math.sin(dLon)*Math.cos(toR(b[0]));
+  const x=Math.cos(toR(a[0]))*Math.sin(toR(b[0]))-Math.sin(toR(a[0]))*Math.cos(toR(b[0]))*Math.cos(dLon);
+  return (toD(Math.atan2(y,x))+360)%360;
 }
 
 function fmtDist(m){
