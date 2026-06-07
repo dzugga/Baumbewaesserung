@@ -1001,18 +1001,24 @@ function naviInit(){
         '<div id="navi-dist" style="font-size:13px;opacity:.85;font-weight:600;">—</div>'+
         '<div id="navi-instr" style="font-size:17px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">—</div>'+
       '</div>'+
-      '<button id="navi-voice" title="Sprachansagen" style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:8px;padding:7px 9px;font-size:16px;line-height:1;cursor:pointer;">🔊</button>'+
-      '<button id="navi-rot" title="Karte drehen" style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:8px;padding:7px 9px;font-size:16px;line-height:1;cursor:pointer;">🧭</button>'+
-      '<button id="navi-route" title="Route/Etappe" style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:8px;padding:7px 9px;font-size:16px;line-height:1;cursor:pointer;">🗺️</button>'+
-      '<button id="navi-stop" style="background:rgba(255,255,255,.2);border:none;color:#fff;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:600;cursor:pointer;">Beenden</button>'+
       '</div>'+
       '<div id="navi-lanes" style="display:none;gap:5px;margin-top:8px;align-items:center;"></div>'+
       '<div id="navi-sub" style="font-size:12px;opacity:.8;margin-top:6px;">—</div>';
     tab.appendChild(d);
-    document.getElementById('navi-stop').onclick=naviStop;
+    // Bedienelemente als schwebende Runde-Buttons rechts auf der Karte → Banner bleibt frei für die Anweisung
+    const fabs=document.createElement('div');
+    fabs.id='navi-fabs';
+    fabs.style.cssText='position:absolute;right:10px;top:50%;transform:translateY(-50%);z-index:1600;display:none;flex-direction:column;gap:10px;';
+    const fab=(id,sym,bg,col)=>`<button id="${id}" style="width:46px;height:46px;border-radius:50%;border:none;background:${bg};box-shadow:0 2px 8px rgba(0,0,0,.3);font-size:20px;line-height:1;cursor:pointer;color:${col};">${sym}</button>`;
+    fabs.innerHTML=fab('navi-voice','🔊','rgba(255,255,255,.95)','#1d4ed8')+
+      fab('navi-rot','🧭','rgba(255,255,255,.95)','#1d4ed8')+
+      fab('navi-route','🗺️','rgba(255,255,255,.95)','#1d4ed8')+
+      fab('navi-end','✕','#dc2626','#fff');
+    tab.appendChild(fabs);
     document.getElementById('navi-voice').onclick=naviToggleVoice;
     document.getElementById('navi-rot').onclick=naviToggleRotate;
     document.getElementById('navi-route').onclick=naviToggleFullRoute;
+    document.getElementById('navi-end').onclick=naviStop;
     naviUpdateToggleUi();
   }
   // "Tour gesamt"-Button
@@ -1284,7 +1290,10 @@ function naviDrawDisplay(fit){
   if(fit){ try{ map.fitBounds(L.latLngBounds(geom),{padding:[50,70]}); }catch(e){} }
 }
 function naviRemoveLeg(){ if(naviLegLayer){ try{map.removeLayer(naviLegLayer);}catch(e){} naviLegLayer=null; } }
-function naviShowBanner(show){ const b=document.getElementById('navi-banner'); if(b)b.style.display=show?'block':'none'; }
+function naviShowBanner(show){
+  const b=document.getElementById('navi-banner'); if(b)b.style.display=show?'block':'none';
+  const f=document.getElementById('navi-fabs'); if(f)f.style.display=show?'flex':'none';
+}
 
 async function naviAcquireWake(){
   try{ if('wakeLock' in navigator) naviWakeLock=await navigator.wakeLock.request('screen'); }catch(e){}
