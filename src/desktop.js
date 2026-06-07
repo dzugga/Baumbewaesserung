@@ -103,6 +103,7 @@ let currentProjectId = null;
 let currentProjectData = null;
 let _dataViewProject = null;      // Projekt, für das Controlling/Dashboard zuletzt aufgebaut wurde
 let _dataViewSyncQueued = false;  // Debounce für Neuaufbau beim Projektwechsel
+let _histListProject = null;      // Projekt, für das die untere Historie-Liste geladen wurde
 let tours = [];   // live from Firestore
 let trees = [];   // live from Firestore
 let unsubTours = null;
@@ -2769,6 +2770,9 @@ function initControlling(){
   // Refresh tourHistory cache on every open
   window._tourHistoryCache=null;
   loadTourHistoryForControlling();
+  // Untere Historie-Liste bei Projektwechsel automatisch neu laden,
+  // falls sie für ein anderes Projekt bereits geladen war.
+  if(_histListProject && _histListProject!==currentProjectId) loadTourHistory();
   const prev=(id)=>document.getElementById(id)?.value||'';
 
   // Tours
@@ -3192,8 +3196,10 @@ async function loadTourHistory(){
   if(!currentProjectId)return;
   const el=document.getElementById('ctrl-history-list');
   el.innerHTML='<div style="padding:16px 20px;font-size:13px;color:var(--text3);">Lädt…</div>';
+  const loadingForProject=currentProjectId;
   try{
     const snap=await getDocs(collection(db,'projects',currentProjectId,'tourHistory'));
+    _histListProject=loadingForProject; // Liste spiegelt jetzt dieses Projekt
     if(snap.empty){
       el.innerHTML='<div style="padding:16px 20px;font-size:13px;color:var(--text3);">Noch keine abgeschlossenen Touren.</div>';
       return;
