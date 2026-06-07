@@ -2964,7 +2964,7 @@ function renderControlling(){
   const finalNichtCount=finalReported.filter(r=>r.lastStatus==='nicht').length;
   renderPieChart(finalBewCount,finalNichtCount);
   renderBarChart(filtered,finalReported);
-  renderTimelineChart(filtered,from,to);
+  renderTimelineChart(finalReported,from,to);
   renderStadtteilChart(filtered,finalReported);
   renderReasonsBar(finalReported.filter(r=>r.lastStatus==='nicht'));
   renderDetailTable(finalReported);
@@ -3020,7 +3020,7 @@ function renderBarChart(filtered,allReported){
   });
 }
 
-function renderTimelineChart(filtered,from,to){
+function renderTimelineChart(reported,from,to){
   destroyChart('timeline');
   const canvas=document.getElementById('ctrl-timeline');if(!canvas||!window.Chart)return;
   // Build daily buckets (lokale Datums-Keys, nicht UTC — sonst Off-by-one ggü. Report-Strings)
@@ -3031,21 +3031,15 @@ function renderTimelineChart(filtered,from,to){
     days[fmtLocal(cur)]={bew:0,nicht:0};
     cur.setDate(cur.getDate()+1);
   }
-  filtered.forEach(tree=>{
-    if(!tree.lastReportAt)return;
-    const d=tree.lastReportAt.slice?tree.lastReportAt.slice(0,10):tree.lastReportAt;
+  // Aus denselben Meldungen wie KPIs/Charts zählen (keine Doppelzählung über tree.history)
+  reported.forEach(r=>{
+    if(!r.lastReportAt)return;
+    const d=r.lastReportAt.slice?r.lastReportAt.slice(0,10):r.lastReportAt;
     if(!days[d])return;
-    if(tree.lastStatus==='bewaessert')days[d].bew++;
-    else if(tree.lastStatus==='nicht')days[d].nicht++;
+    if(r.lastStatus==='bewaessert')days[d].bew++;
+    else if(r.lastStatus==='nicht')days[d].nicht++;
   });
-  // Also scan history
-  filtered.forEach(tree=>{
-    (tree.history||[]).forEach(h=>{
-      if(!h.date||!days[h.date])return;
-      if(h.note&&(h.note.includes('Bewässert')||h.note.includes('Erledigt')))days[h.date].bew++;
-    });
-  });
-  const labels=Object.keys(days).map(d=>{const dt=new Date(d);return `${dt.getDate()}.${dt.getMonth()+1}.`;});
+  const labels=Object.keys(days).map(d=>{const dt=new Date(d+'T00:00:00');return `${dt.getDate()}.${dt.getMonth()+1}.`;});
   ctrlCharts['timeline']=new Chart(canvas,{
     type:'line',
     data:{
