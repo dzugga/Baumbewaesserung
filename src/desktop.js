@@ -2672,7 +2672,7 @@ async function loadTourHistoryForControlling(){
     const snap=await getDocs(collection(db,'projects',currentProjectId,'tourHistory'));
     window._tourHistoryCache={
       projectId:currentProjectId,
-      entries:snap.docs.map(d=>({id:d.id,...d.data()}))
+      entries:snap.docs.map(d=>normalizeHistory({id:d.id,...d.data()}))
     };
     // Re-render controlling with fresh data
     if(currentView==='controlling') renderControlling();
@@ -2719,7 +2719,8 @@ function getCtrlDateRange(){
   if(ctrlPeriod==='today'){
     return {from:today,to:new Date(today.getTime()+86400000-1)};
   } else if(ctrlPeriod==='week'){
-    const mon=new Date(today);mon.setDate(today.getDate()-today.getDay()+1);
+    const isoDow=(today.getDay()+6)%7; // Mo=0 … So=6
+    const mon=new Date(today);mon.setDate(today.getDate()-isoDow);
     return {from:mon,to:new Date(mon.getTime()+7*86400000-1)};
   } else if(ctrlPeriod==='month'){
     return {from:new Date(now.getFullYear(),now.getMonth(),1),
@@ -3022,11 +3023,12 @@ function renderBarChart(filtered,allReported){
 function renderTimelineChart(filtered,from,to){
   destroyChart('timeline');
   const canvas=document.getElementById('ctrl-timeline');if(!canvas||!window.Chart)return;
-  // Build daily buckets
+  // Build daily buckets (lokale Datums-Keys, nicht UTC — sonst Off-by-one ggü. Report-Strings)
+  const fmtLocal=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const days={};
   const cur=new Date(from);
   while(cur<=to){
-    days[cur.toISOString().slice(0,10)]={bew:0,nicht:0};
+    days[fmtLocal(cur)]={bew:0,nicht:0};
     cur.setDate(cur.getDate()+1);
   }
   filtered.forEach(tree=>{
@@ -3241,12 +3243,14 @@ let historyCache={};
 // Ältere tourHistory-Docs speichern die Baumliste als `results` (Felder status/reason/driver/note)
 // statt als `trees` (lastStatus/lastReason/...). In einheitliches trees-Schema überführen.
 function normalizeHistory(h){
-  if(!Array.isArray(h.trees)){
+  if(h&&!Array.isArray(h.trees)){
     h.trees=Array.isArray(h.results)?h.results.map(r=>({
       id:r.id, name:r.name, baumnr:r.baumnr,
-      stadtteil:r.stadtteil, art:r.art, zustand:r.zustand, wasser:r.wasser,
+      stadtteil:r.stadtteil, art:r.art, pflanzjahr:r.pflanzjahr,
+      zustand:r.zustand, wasser:r.wasser,
       lastStatus:r.status||null, lastReason:r.reason||null,
       lastDriver:r.driver||null, lastNote:r.note||null,
+      lastReportAt:r.reportAt||null,
     })):[];
   }
   return h;
