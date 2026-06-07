@@ -3306,10 +3306,30 @@ async function showHistoryDetail(histId){
   modal.onclick=e=>{if(e.target===modal)modal.remove();};
 }
 
+function uiConfirm(msg,okLabel='Übernehmen',okColor='var(--green)'){
+  return new Promise(resolve=>{
+    const m=document.createElement('div');
+    m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+    m.innerHTML=`<div style="background:var(--surface);border-radius:var(--radius);padding:24px;width:400px;max-width:92vw;box-shadow:var(--shadow-md);">
+      <div style="font-size:14px;color:var(--text);margin-bottom:20px;line-height:1.5;">${msg}</div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button id="uc-no" style="padding:7px 16px;border:1.5px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;font-weight:600;">Abbrechen</button>
+        <button id="uc-yes" style="padding:7px 16px;border:none;border-radius:6px;background:${okColor};color:#fff;cursor:pointer;font-weight:600;">${okLabel}</button>
+      </div></div>`;
+    document.body.appendChild(m);
+    const done=v=>{m.remove();resolve(v);};
+    m.querySelector('#uc-no').onclick=()=>done(false);
+    m.querySelector('#uc-yes').onclick=()=>done(true);
+    m.onclick=e=>{if(e.target===m)done(false);};
+  });
+}
+
 async function saveHistoryEdits(histId){
   const btn=document.getElementById('hist-save-btn');
   if(btn){btn.textContent='Speichert…';btn.disabled=true;}
   const h=normalizeHistory(historyCache[histId]);
+  // Ausgangswerte für Änderungs-Erkennung merken
+  const before=h.trees.map(t=>({status:t.lastStatus,reason:t.lastReason||null}));
   // Read edited values from modal
   document.querySelectorAll('.hist-status-sel').forEach(sel=>{
     const ti=parseInt(sel.dataset.ti);
@@ -3330,8 +3350,41 @@ async function saveHistoryEdits(histId){
   await setDoc(doc(db,'projects',currentProjectId,'tourHistory',histId),h);
   historyCache[histId]=h;
   window._tourHistoryCache=null; // invalidate controlling cache
-  notify('✓ Historie gespeichert');
   document.getElementById('history-modal')?.remove();
+
+  // Geänderte Bäume ermitteln (Status oder Grund)
+  const changed=[];
+  h.trees.forEach((t,i)=>{
+    if(before[i].status!==t.lastStatus || before[i].reason!==(t.lastReason||null)){
+      changed.push({id:t.id,name:t.name,newStatus:t.lastStatus,newReason:t.lastReason||null,snapReportAt:t.lastReportAt||null});
+    }
+  });
+
+  if(changed.length>0){
+    const ok=await uiConfirm(
+      `<b>${changed.length} Korrektur(en)</b> in der Tour-Historie gespeichert.<br><br>`+
+      `Auch in die <b>Live-Ansicht & Karte</b> übernehmen (Baum-Status & Grund aktualisieren)?<br><br>`+
+      `<span style="color:var(--text2);font-size:12px;">Bäume mit einer neueren Meldung aus einer späteren Tour werden dabei nicht überschrieben.</span>`,
+      'In Live-Ansicht übernehmen');
+    if(ok){
+      let applied=0,skipped=0;
+      for(const c of changed){
+        const live=trees.find(t=>t.id===c.id);
+        // Schutz: keine neuere Meldung überschreiben
+        if(live && live.lastReportAt && c.snapReportAt && live.lastReportAt>c.snapReportAt){ skipped++; continue; }
+        try{
+          await updateDoc(doc(db,'projects',currentProjectId,'trees',c.id),
+            {lastStatus:c.newStatus,lastReason:c.newReason});
+          applied++;
+        }catch(e){ skipped++; }
+      }
+      notify(`✓ ${applied} in Live-Ansicht übernommen`+(skipped?` · ${skipped} übersprungen (neuere Meldung)`:''));
+    } else {
+      notify('✓ Historie gespeichert (Live-Ansicht unverändert)');
+    }
+  } else {
+    notify('✓ Historie gespeichert');
+  }
   loadTourHistory(); // refresh list
 }
 
