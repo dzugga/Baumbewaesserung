@@ -3255,6 +3255,7 @@ async function showHistoryDetail(histId){
     const snap=await getDoc(doc(db,'projects',currentProjectId,'tourHistory',histId));
     historyCache[histId]={id:snap.id,...snap.data()};
   }
+  if(!reasons.length) await loadReasons(); // Gründe für Dropdown sicherstellen
   const h=normalizeHistory(historyCache[histId]);
   const existing=document.getElementById('history-modal');
   if(existing)existing.remove();
@@ -3273,7 +3274,13 @@ async function showHistoryDetail(histId){
       <option value="bewaessert"${st==='bewaessert'?' selected':''}>✓ Erledigt</option>
       <option value="nicht"${st==='nicht'?' selected':''}>✕ Nicht erledigt</option>
     </select>`;
-    const reasonInp=`<input data-ri="${ti}" class="hist-reason-inp" value="${t.lastReason||''}" placeholder="Grund…" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;width:100%;background:var(--bg);">`;
+    const escAttr=s=>String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+    const curReason=t.lastReason||'';
+    const reasonOpts=['<option value="">— kein Grund —</option>']
+      .concat(reasons.map(r=>`<option value="${escAttr(r.text)}"${r.text===curReason?' selected':''}>${escAttr(r.text)}</option>`));
+    if(curReason && !reasons.some(r=>r.text===curReason))
+      reasonOpts.push(`<option value="${escAttr(curReason)}" selected>${escAttr(curReason)} (alt)</option>`);
+    const reasonInp=`<select data-ri="${ti}" class="hist-reason-inp" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;width:100%;background:var(--bg);">${reasonOpts.join('')}</select>`;
     return `<tr style="border-top:1px solid var(--border);">
       <td style="padding:6px 10px;font-size:12px;font-weight:500;">${t.name||'–'}</td>
       <td style="padding:6px 10px;font-size:11px;color:var(--text2);">${t.baumnr||'–'}</td>
