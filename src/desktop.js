@@ -3238,12 +3238,26 @@ async function loadTourHistory(){
 // Cache loaded histories
 let historyCache={};
 
+// Ältere tourHistory-Docs speichern die Baumliste als `results` (Felder status/reason/driver/note)
+// statt als `trees` (lastStatus/lastReason/...). In einheitliches trees-Schema überführen.
+function normalizeHistory(h){
+  if(!Array.isArray(h.trees)){
+    h.trees=Array.isArray(h.results)?h.results.map(r=>({
+      id:r.id, name:r.name, baumnr:r.baumnr,
+      stadtteil:r.stadtteil, art:r.art, zustand:r.zustand, wasser:r.wasser,
+      lastStatus:r.status||null, lastReason:r.reason||null,
+      lastDriver:r.driver||null, lastNote:r.note||null,
+    })):[];
+  }
+  return h;
+}
+
 async function showHistoryDetail(histId){
   if(!historyCache[histId]){
     const snap=await getDoc(doc(db,'projects',currentProjectId,'tourHistory',histId));
     historyCache[histId]={id:snap.id,...snap.data()};
   }
-  const h=historyCache[histId];
+  const h=normalizeHistory(historyCache[histId]);
   const existing=document.getElementById('history-modal');
   if(existing)existing.remove();
   const modal=document.createElement('div');
@@ -3297,7 +3311,7 @@ async function showHistoryDetail(histId){
 async function saveHistoryEdits(histId){
   const btn=document.getElementById('hist-save-btn');
   if(btn){btn.textContent='Speichert…';btn.disabled=true;}
-  const h=historyCache[histId];
+  const h=normalizeHistory(historyCache[histId]);
   // Read edited values from modal
   document.querySelectorAll('.hist-status-sel').forEach(sel=>{
     const ti=parseInt(sel.dataset.ti);
@@ -3353,7 +3367,7 @@ async function exportHistoryCSV(histId){
     const snap=await getDoc(doc(db,'projects',currentProjectId,'tourHistory',histId));
     historyCache[histId]={id:snap.id,...snap.data()};
   }
-  const h=historyCache[histId];
+  const h=normalizeHistory(historyCache[histId]);
   const header='Tour;Datum;Fahrer;Anlage/Straße;Stadtteil;Baumart;Baumnr.;Status;Grund;Notiz;Zustand;Wasserbedarf';
   const rows=h.trees.map(t=>[
     h.tourName,h.date,t.lastDriver||'',t.name||'',t.stadtteil||'',t.art||'',t.baumnr||'',
