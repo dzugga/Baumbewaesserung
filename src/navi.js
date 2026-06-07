@@ -1022,12 +1022,29 @@ function naviInit(){
   }
 }
 
+// Nächstes Ziel = das dem aktuellen GPS am nächsten gelegene offene Objekt
+// (passt sich an, wenn der Fahrer woanders hinfährt). Fallback: erstes in Reihenfolge.
 function naviPickTarget(){
+  const open=naviNearestOpenStop(gpsLatLng);
+  if(open) return open.tree;
   for(const id of routeOrder){
     const t=trees.find(x=>x.id===id);
     if(t && !t.lastStatus && t.lat && t.lng) return t;
   }
   return null;
+}
+
+// Nächstgelegener offener (aktiver, mit Koordinaten) Stopp zum gegebenen Punkt
+function naviNearestOpenStop(latlng){
+  if(!latlng) return null;
+  let best=null,bd=Infinity;
+  for(const id of routeOrder){
+    const t=trees.find(x=>x.id===id);
+    if(!t || t.lastStatus || !t.lat || !t.lng) continue;
+    const d=haversine(latlng[0],latlng[1],t.lat,t.lng)*1000;
+    if(d<bd){ bd=d; best=t; }
+  }
+  return best?{tree:best,dist:bd}:null;
 }
 
 async function naviStart(){
@@ -1077,8 +1094,10 @@ function naviUpdate(latlng){
   if(!naviActive)return;
   const target=trees.find(t=>t.id===naviTargetId);
   if(!target){naviStop();return;}
+  // Ankunft an IRGENDEINEM offenen Stopp erkennen (Fahrer fährt evtl. woanders hin)
+  const near=naviNearestOpenStop(latlng);
+  if(near && near.dist<NAVI_ARRIVE_M){ naviTargetId=near.tree.id; naviArrive(); return; }
   const distToTarget=haversine(latlng[0],latlng[1],target.lat,target.lng)*1000;
-  if(distToTarget<NAVI_ARRIVE_M){ naviArrive(); return; }
   while(naviStepIdx<naviSteps.length-1){
     const s=naviSteps[naviStepIdx];
     const d=haversine(latlng[0],latlng[1],s.loc[0],s.loc[1])*1000;
@@ -1091,7 +1110,9 @@ function naviUpdate(latlng){
     if(naviOffrouteHits>=NAVI_OFFROUTE_HITS && !naviRerouting) naviReroute();
   } else naviOffrouteHits=0;
   naviRenderBanner(latlng,distToTarget);
-  // Fahrtrichtung (Karten-Rotation): GPS-heading wenn vorhanden, sonst aus Bewegung
+  // Karte mitführen (erst zentrieren) …
+  if(naviFollow && map){ try{ map.setView(latlng, Math.max(map.getZoom(),16), {animate:true,duration:.5}); }catch(e){} }
+  // … dann in Fahrtrichtung drehen (NACH setView, sonst kann es zurückgesetzt werden)
   if(naviRotate && naviFollow && NAVI_ROTATE_OK && map.setBearing){
     let brg=null;
     if(typeof naviLastHeading==='number' && !isNaN(naviLastHeading) && (naviLastSpeed==null||naviLastSpeed>0.3)) brg=naviLastHeading;
@@ -1102,8 +1123,6 @@ function naviUpdate(latlng){
     if(brg!=null){ try{ map.setBearing(brg); }catch(e){} }
   }
   naviPrevPos=latlng;
-  // Karte mitführen
-  if(naviFollow && map){ try{ map.setView(latlng, Math.max(map.getZoom(),16), {animate:true,duration:.5}); }catch(e){} }
 }
 
 // Sprachausgabe: Vorab-Ansage (in X m …) + Ansage am Manöver
