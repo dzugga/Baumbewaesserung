@@ -1034,6 +1034,19 @@ function naviPickTarget(){
   return null;
 }
 
+// Beim Navi-Start: Reihenfolge ab aktuellem Standort neu sortieren (Nearest-Neighbor),
+// damit die Reihenfolge-Nummern in Liste/Karte zur tatsächlichen Fahrreihenfolge passen.
+function naviReorderFromGPS(){
+  if(!gpsLatLng) return;
+  const remaining=trees.filter(t=>!t.lastStatus&&t.lat&&t.lng);
+  if(!remaining.length) return;
+  const done=trees.filter(t=>t.lastStatus);
+  const ordered=nearestNeighbor(remaining,gpsLatLng[0],gpsLatLng[1]);
+  routeOrder=[...done.map(t=>t.id),...ordered.map(t=>t.id)];
+  trees.forEach(t=>{ if(!routeOrder.includes(t.id)) routeOrder.push(t.id); });
+  renderMarkers(); renderList('');
+}
+
 // Nächstgelegener offener (aktiver, mit Koordinaten) Stopp zum gegebenen Punkt
 function naviNearestOpenStop(latlng){
   if(!latlng) return null;
@@ -1052,6 +1065,7 @@ async function naviStart(){
   if(currentTour?.status==='abgeschlossen'){toast('Tour abgeschlossen');return;}
   if(!gpsLatLng){toast('GPS noch nicht verfügbar');return;}
   naviPrevPos=null;
+  naviReorderFromGPS(); // Reihenfolge-Nummern an aktuellen Standort anpassen
   const target=naviPickTarget();
   if(!target){toast('Alle Objekte erledigt 🎉');return;}
   naviTargetId=target.id;
