@@ -933,8 +933,8 @@ function haversine(a,b,c,d){
 // Sprachausgabe (Web Speech), Wake-Lock, Off-Route-Reroute, Ankunft→Sheet.
 const NAVI_ARRIVE_M=35, NAVI_ADVANCE_M=25, NAVI_OFFROUTE_M=70, NAVI_OFFROUTE_HITS=3;
 let naviActive=false, naviSteps=[], naviGeom=[], naviTargetId=null, naviStepIdx=1,
-    naviSpokenIdx=-1, naviOffrouteHits=0, naviRerouting=false, naviLegLayer=null,
-    naviWakeLock=null, naviTotal={dist:0,dur:0};
+    naviPreIdx=-1, naviNowIdx=-1, naviOffrouteHits=0, naviRerouting=false, naviLegLayer=null,
+    naviWakeLock=null, naviTotal={dist:0,dur:0}, naviAutoNext=false, naviFollow=true;
 
 function naviInit(){
   const ov=document.querySelector('.map-overlay-top');
@@ -982,12 +982,14 @@ async function naviStart(){
   toast('Navi wird berechnet…');
   const ok=await naviFetchRoute(gpsLatLng,[target.lat,target.lng]);
   if(!ok){toast('Route konnte nicht berechnet werden');return;}
-  naviActive=true; naviStepIdx=1; naviSpokenIdx=-1; naviOffrouteHits=0;
+  naviActive=true; naviStepIdx=1; naviPreIdx=-1; naviNowIdx=-1; naviOffrouteHits=0; naviFollow=true;
   naviShowBanner(true);
   await naviAcquireWake();
   switchTab('map');
   naviUpdate(gpsLatLng);
-  naviSpeakStep();
+  // Erst-Ansage sofort, damit der Fahrer gleich etwas hört
+  const s0=naviSteps[naviStepIdx];
+  if(s0){ speak('Navigation gestartet. '+s0.instr); naviPreIdx=naviStepIdx; }
 }
 
 async function naviFetchRoute(from,to){
@@ -1001,6 +1003,7 @@ async function naviFetchRoute(from,to){
       instr:osrmInstr(s),
       loc:[s.maneuver.location[1],s.maneuver.location[0]],
       type:s.maneuver.type, mod:s.maneuver.modifier||'',
+      dist:s.distance||0, dur:s.duration||0,
     }));
     naviTotal={dist:rt.distance, dur:rt.duration};
     naviDrawLeg();
@@ -1017,14 +1020,29 @@ function naviUpdate(latlng){
   while(naviStepIdx<naviSteps.length-1){
     const s=naviSteps[naviStepIdx];
     const d=haversine(latlng[0],latlng[1],s.loc[0],s.loc[1])*1000;
-    if(d<NAVI_ADVANCE_M){ naviStepIdx++; naviSpeakStep(); } else break;
+    if(d<NAVI_ADVANCE_M){ naviStepIdx++; } else break;
   }
+  naviVoice(latlng);
   const nearest=naviNearestDist(latlng);
   if(nearest>NAVI_OFFROUTE_M){
     naviOffrouteHits++;
     if(naviOffrouteHits>=NAVI_OFFROUTE_HITS && !naviRerouting) naviReroute();
   } else naviOffrouteHits=0;
   naviRenderBanner(latlng,distToTarget);
+  // Karte mitführen
+  if(naviFollow && map){ try{ map.setView(latlng, Math.max(map.getZoom(),16), {animate:true,duration:.5}); }catch(e){} }
+}
+
+// Sprachausgabe: Vorab-Ansage (in X m …) + Ansage am Manöver
+function naviVoice(latlng){
+  const cur=naviSteps[naviStepIdx]; if(!cur)return;
+  const d=haversine(latlng[0],latlng[1],cur.loc[0],cur.loc[1])*1000;
+  if(d<=300 && d>90 && naviPreIdx!==naviStepIdx){
+    naviPreIdx=naviStepIdx; speak(`In ${Math.round(d/10)*10} Metern, ${cur.instr}`);
+  }
+  if(d<=90 && naviNowIdx!==naviStepIdx){
+    naviNowIdx=naviStepIdx; speak(cur.instr);
+  }
 }
 
 async function naviReroute(){
@@ -1032,7 +1050,7 @@ async function naviReroute(){
   const target=trees.find(t=>t.id===naviTargetId);
   if(target){
     const ok=await naviFetchRoute(gpsLatLng,[target.lat,target.lng]);
-    if(ok){ naviStepIdx=1; naviSpokenIdx=-1; naviSpeakStep(); toast('Route neu berechnet'); }
+    if(ok){ naviStepIdx=1; naviPreIdx=-1; naviNowIdx=-1; toast('Route neu berechnet'); naviVoice(gpsLatLng); }
   }
   naviRerouting=false;
 }
@@ -1042,20 +1060,15 @@ function naviArrive(){
   speak('Ziel erreicht. '+(t?.name||''));
   toast('Ziel erreicht');
   const tid=naviTargetId;
-  naviActive=false; naviTargetId=null;
+  naviActive=false; naviTargetId=null; naviFollow=false; naviAutoNext=true;
   naviShowBanner(false); naviRemoveLeg(); naviReleaseWake();
-  setTimeout(()=>{ if(tid) openSheet(tid); },400); // Status melden
+  setTimeout(()=>{ if(tid) openSheet(tid); },400); // Status melden → danach Auto-Weiter
 }
 
 function naviStop(){
-  naviActive=false; naviTargetId=null;
+  naviActive=false; naviTargetId=null; naviFollow=false; naviAutoNext=false;
   naviShowBanner(false); naviRemoveLeg(); naviReleaseWake();
   try{ speechSynthesis.cancel(); }catch(e){}
-}
-
-function naviSpeakStep(){
-  const s=naviSteps[naviStepIdx];
-  if(s && naviStepIdx!==naviSpokenIdx){ naviSpokenIdx=naviStepIdx; speak(s.instr); }
 }
 
 function naviRenderBanner(latlng,distToTarget){
@@ -1066,7 +1079,12 @@ function naviRenderBanner(latlng,distToTarget){
   set('navi-instr', step?step.instr:'—');
   set('navi-dist', fmtDist(dMan));
   set('navi-arrow', naviArrow(step));
-  set('navi-sub', `${target?.name||'Ziel'} · noch ${fmtDist(distToTarget)}`);
+  // Restzeit/ETA aus verbleibenden Schritten
+  let remDur=0, remDist=0;
+  for(let i=naviStepIdx;i<naviSteps.length;i++){ remDur+=naviSteps[i].dur||0; remDist+=naviSteps[i].dist||0; }
+  const eta=new Date(Date.now()+remDur*1000).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
+  const min=Math.max(1,Math.round(remDur/60));
+  set('navi-sub', `${target?.name||'Ziel'} · noch ${fmtDist(remDist||distToTarget)} · ${min} min · an ${eta}`);
 }
 
 function naviNearestDist(latlng){
@@ -1142,6 +1160,10 @@ function osrmInstr(s){
     default: return (dir?cap(dir):'Weiter')+name;
   }
 }
+// Externe Navigation (Deeplink) — öffnet Google Maps (App oder Web, plattformübergreifend)
+window.naviExternal=(lat,lng)=>{
+  window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`,'_blank');
+};
 // Beta-Test-Hooks (Sandbox): GPS simulieren / Status abfragen — Navi ohne echte Fahrt testen
 window.naviStart=naviStart;
 window.naviSimulateGps=(lat,lng)=>{ gpsLatLng=[lat,lng]; if(gpsMarker)gpsMarker.setLatLng(gpsLatLng); if(naviActive)naviUpdate(gpsLatLng); };
@@ -1198,6 +1220,10 @@ function openSheet(id){
     : '<div style="font-size:12px;color:var(--text3);padding:4px 0;">Keine Gründe hinterlegt — bitte in der Desktop-App unter Verwaltung einrichten.</div>';
 
   document.getElementById('sheet-body').innerHTML=`
+    ${tree.lat&&tree.lng?`<button class="btn btn-secondary" style="width:100%;margin-bottom:14px;display:flex;align-items:center;justify-content:center;gap:6px;" onclick="naviExternal(${tree.lat},${tree.lng})">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+      In Google Maps navigieren
+    </button>`:''}
     <!-- Status -->
     <div class="section-title">Status</div>
     <div class="status-btns">
@@ -1289,12 +1315,14 @@ function selectStatus(s){
 function closeSheet(){
   _sheetStatus=null;
   selectedTreeId=null;
+  naviAutoNext=false; // Abbrechen/Schließen ohne Speichern → kein Auto-Weiter
   document.getElementById('sheet-backdrop').classList.remove('open');
   document.getElementById('detail-sheet').classList.remove('open');
 }
 
 async function saveReport(id){
   const tree=trees.find(t=>t.id===id);if(!tree)return;
+  const wasNaviArrival=naviAutoNext; // vor closeSheet() merken
   const status=_sheetStatus||tree.lastStatus;
   const selectedChip=document.querySelector('.reason-chip.selected');
   const reason=selectedChip?selectedChip.dataset.reason:'';
@@ -1346,6 +1374,12 @@ async function saveReport(id){
   Object.assign(tree, updates);
   renderMarkers(); renderList(''); updateProgress();
   closeSheet();
+
+  // Auto-Weiter: nach Melden aus einer Navi-Ankunft direkt zum nächsten Objekt navigieren
+  if(wasNaviArrival){
+    if(naviPickTarget()){ toast('Weiter zum nächsten Objekt…'); setTimeout(()=>naviStart(),700); }
+    else { speak('Alle Objekte erledigt'); toast('Alle Objekte erledigt 🎉'); }
+  }
   toast(status==='bewaessert'?'✓ Erledigt gemeldet':'✕ Nicht erledigt gemeldet');
 
   if(!isOnline){
