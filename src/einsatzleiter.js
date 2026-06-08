@@ -189,17 +189,12 @@ function render(){
 // Tour-Zuordnung der Meldungen über die Baum-ID auflösen (tourHistory-Snapshots
 // tragen die Zuordnung nicht zuverlässig).
 function tourStats(reported){
-  const tourIdsByTreeId={};
-  trees.forEach(x=>{ tourIdsByTreeId[x.id]=getTreeTourIds(x); });
-  const repTourIds=(r)=>{
-    if(r._tourId) return [r._tourId];
-    const live=tourIdsByTreeId[r.id];
-    if(live&&live.length) return live;
-    return getTreeTourIds(r);
-  };
   return tours.map(t=>{
-    const total=trees.filter(x=>treeInTour(x,t.id)&&x.aktiv!==false).length;
-    const rep=reported.filter(r=>repTourIds(r).includes(t.id));
+    // Nur Meldungen zu aktuell AKTIVEN Tour-Objekten zählen -> Fortschritt nie >100%
+    // (bewässerte, danach deaktivierte/entfernte Objekte verzerren sonst den Zähler).
+    const activeIds=new Set(trees.filter(x=>treeInTour(x,t.id)&&x.aktiv!==false).map(x=>x.id));
+    const total=activeIds.size;
+    const rep=reported.filter(r=>activeIds.has(r.id));
     const bewIds=new Set(rep.filter(r=>r.lastStatus==='bewaessert').map(r=>r.id));
     const nichtIds=new Set(rep.filter(r=>r.lastStatus==='nicht' && !bewIds.has(r.id)).map(r=>r.id));
     const bewN=bewIds.size, nichtN=nichtIds.size;
