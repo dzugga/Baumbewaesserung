@@ -222,7 +222,7 @@ body{overflow:hidden;}
           <input id="tour-search" type="text" placeholder="Tour suchen…" oninput="filterTours(this.value)"
             style="margin-left:auto;padding:4px 9px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:inherit;background:var(--surface);width:130px;max-width:45%;outline:none;">
         </div>
-        <div id="tour-progress" style="max-height:500px;overflow-y:auto;"></div>
+        <div id="tour-progress" style="max-height:270px;overflow-y:auto;"></div>
         <div class="legend">
           <span><i style="background:var(--green)"></i>Erledigt</span>
           <span><i style="background:var(--red-mid)"></i>Nicht erledigt</span>
@@ -236,7 +236,7 @@ body{overflow:hidden;}
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
           Gründe „nicht erledigt"
         </div>
-        <div id="reasons"></div>
+        <div id="reasons" style="max-height:175px;overflow-y:auto;"></div>
       </div>
     </div>
 
