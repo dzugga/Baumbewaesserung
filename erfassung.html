@@ -127,7 +127,7 @@ button,input,select{touch-action:manipulation;}
 .field-coords{display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--blue-light);border:1.5px solid var(--blue-mid);border-radius:var(--radius-sm);font-size:13px;font-weight:600;color:var(--blue);}
 
 /* TOAST */
-.toast{position:fixed;bottom:calc(20px + var(--safe-bottom));left:16px;right:16px;background:var(--text);color:var(--bg);padding:12px 18px;border-radius:var(--radius-sm);font-size:14px;font-weight:500;z-index:9999;opacity:0;transition:opacity .2s;text-align:center;}
+.toast{position:fixed;bottom:calc(20px + var(--safe-bottom));left:16px;right:16px;background:var(--text);color:var(--bg);padding:12px 18px;border-radius:var(--radius-sm);font-size:14px;font-weight:500;z-index:9999;opacity:0;transition:opacity .2s;text-align:center;pointer-events:none;}
 .toast.show{opacity:1;}
 
 /* GPS marker */
