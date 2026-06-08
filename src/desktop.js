@@ -112,6 +112,9 @@ let unsubTrees = null;
 let currentView = 'karte';
 let selectedTreeId = null;
 let filterTour = 'all';
+// Eigenschaften-Filter (Planung). objFilterOnMap = optional auch Marker filtern.
+let objFilter = {stadtteil:'',art:'',pflanzjahr:'',zustand:'',wasser:'',status:''};
+let objFilterOnMap = false;
 let activeTourOnMap = null;
 let placingTree = false;
 let placingDepot = false;
@@ -853,21 +856,73 @@ function makeMarker(tree){
 function setMarkerVisibility(){
   trees.forEach(tree=>{
     const m=mapMarkers[tree.id];if(!m)return;
-    // filterTour='none' → only show trees without a tour
-    if(filterTour==='none'){
-      if(getTreeTourIds(tree).length===0) map.addLayer(m); else map.removeLayer(m);
-    } else if(activeTourOnMap){
-      if(treeInTour(tree,activeTourOnMap)) map.addLayer(m); else map.removeLayer(m);
-    } else {
-      map.addLayer(m);
-    }
+    let show;
+    if(filterTour==='none') show=getTreeTourIds(tree).length===0;       // nur Objekte ohne Tour
+    else if(activeTourOnMap) show=treeInTour(tree,activeTourOnMap);
+    else show=true;
+    // Optional: Eigenschaften-Filter auch auf der Karte anwenden
+    if(show && objFilterOnMap && !objMatchesPropFilter(tree)) show=false;
+    if(show) map.addLayer(m); else map.removeLayer(m);
   });
+}
+
+// ── Eigenschaften-Filter (Planung) ────────────────────────────
+function objMatchesPropFilter(t){
+  const f=objFilter;
+  if(f.stadtteil && (t.stadtteil||'')!==f.stadtteil) return false;
+  if(f.art && (t.art||'')!==f.art) return false;
+  if(f.pflanzjahr && (t.pflanzjahr??'').toString()!==f.pflanzjahr) return false;
+  if(f.zustand && (t.zustand||'')!==f.zustand) return false;
+  if(f.wasser && (t.wasser||'')!==f.wasser) return false;
+  if(f.status==='offen' && t.lastStatus) return false;
+  if(f.status==='bewaessert' && t.lastStatus!=='bewaessert') return false;
+  if(f.status==='nicht' && t.lastStatus!=='nicht') return false;
+  return true;
+}
+function objFilterActive(){ return Object.values(objFilter).some(Boolean); }
+function applyObjFilter(){ renderList(); setMarkerVisibility(); updateObjFilterCount(); }
+function resetObjFilter(){ objFilter={stadtteil:'',art:'',pflanzjahr:'',zustand:'',wasser:'',status:''}; renderObjFilterUI(); applyObjFilter(); }
+function updateObjFilterCount(){
+  const el=document.getElementById('obj-filter-count'); if(!el)return;
+  const act=trees.filter(isActive);
+  el.textContent = objFilterActive()? `${act.filter(objMatchesPropFilter).length}/${act.length}` : '';
+}
+function renderObjFilterUI(){
+  const el=document.getElementById('obj-filter'); if(!el)return;
+  const act=trees.filter(isActive);
+  const distinct=k=>[...new Set(act.map(t=>(t[k]??'').toString()).filter(Boolean))].sort();
+  const esc=s=>String(s).replace(/"/g,'&quot;').replace(/</g,'&lt;');
+  const opt=(vals,sel,all)=>`<option value="">${all}</option>`+vals.map(v=>`<option value="${esc(v)}"${v===sel?' selected':''}>${esc(v)}</option>`).join('');
+  const ss='padding:4px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);min-width:0;width:100%;font-family:inherit;';
+  el.innerHTML=`<div style="padding:8px 16px;border-bottom:1px solid var(--border);">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+      <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text3);">Filter</span>
+      <button onclick="resetObjFilter()" style="border:none;background:none;color:#1d4ed8;font-size:11px;cursor:pointer;padding:0;">zurücksetzen</button>
+      <span id="obj-filter-count" style="margin-left:auto;font-size:11px;color:var(--text3);"></span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;">
+      <select id="of-stadtteil" style="${ss}">${opt(distinct('stadtteil'),objFilter.stadtteil,'Alle Stadtteile')}</select>
+      <select id="of-art" style="${ss}">${opt(distinct('art'),objFilter.art,'Alle Typen')}</select>
+      <select id="of-pflanzjahr" style="${ss}">${opt(distinct('pflanzjahr'),objFilter.pflanzjahr,'Alle Jahre')}</select>
+      <select id="of-zustand" style="${ss}">${opt(['gut','mittel','schlecht'],objFilter.zustand,'Alle Zustände')}</select>
+      <select id="of-wasser" style="${ss}">${opt(['gering','mittel','hoch'],objFilter.wasser,'Alle Prioritäten')}</select>
+      <select id="of-status" style="${ss}"><option value="">Alle Status</option><option value="bewaessert"${objFilter.status==='bewaessert'?' selected':''}>✓ Erledigt</option><option value="nicht"${objFilter.status==='nicht'?' selected':''}>✕ Nicht erledigt</option><option value="offen"${objFilter.status==='offen'?' selected':''}>○ Offen</option></select>
+    </div>
+    <label style="display:flex;align-items:center;gap:6px;margin-top:7px;font-size:11px;cursor:pointer;color:var(--text2);">
+      <input type="checkbox" id="of-map"${objFilterOnMap?' checked':''}> Nur gefilterte auf der Karte zeigen
+    </label>
+  </div>`;
+  const wire={stadtteil:'of-stadtteil',art:'of-art',pflanzjahr:'of-pflanzjahr',zustand:'of-zustand',wasser:'of-wasser',status:'of-status'};
+  Object.entries(wire).forEach(([k,id])=>{ const s=document.getElementById(id); if(s) s.onchange=()=>{ objFilter[k]=s.value; applyObjFilter(); }; });
+  const mp=document.getElementById('of-map'); if(mp) mp.onchange=()=>{ objFilterOnMap=mp.checked; setMarkerVisibility(); };
+  updateObjFilterCount();
 }
 
 function refreshMarkers(){
   Object.values(mapMarkers).forEach(m=>map.removeLayer(m));mapMarkers={};
   trees.forEach(tree=>{ if(isActive(tree)&&tree.lat&&tree.lng) mapMarkers[tree.id]=makeMarker(tree); });
   setMarkerVisibility();
+  renderObjFilterUI();
   loadSavedRoutes();  // load from Firestore, never auto-recalculate
   renderDepotMarker();
   renderLegend();
@@ -1080,7 +1135,7 @@ function renderList(){
   let filtered=trees.filter(t=>{
     const mq=!q||t.name?.toLowerCase().includes(q)||(t.art||'').toLowerCase().includes(q);
     const mf=filterTour==='all'||treeInTour(t,filterTour)||(filterTour==='none'&&isActive(t)&&getTreeTourIds(t).length===0);
-    return mq&&mf;
+    return mq&&mf&&objMatchesPropFilter(t);
   });
   // Sort by route number when a tour is active
   if(activeTourOnMap&&tourOrder[activeTourOnMap]){
@@ -4877,7 +4932,7 @@ Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,
   dispoSimulate,dispoPlan,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
-  saveInlineFields,filterDetailTable,filterBaeumeTable,saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
+  saveInlineFields,filterDetailTable,filterBaeumeTable,saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,
   createProject,openProject,showProjectScreen,
   switchView,openDetail,closePanel,logWatering,
