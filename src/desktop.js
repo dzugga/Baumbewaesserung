@@ -894,27 +894,38 @@ function renderObjFilterUI(){
   const esc=s=>String(s).replace(/"/g,'&quot;').replace(/</g,'&lt;');
   const opt=(vals,sel,all)=>`<option value="">${all}</option>`+vals.map(v=>`<option value="${esc(v)}"${v===sel?' selected':''}>${esc(v)}</option>`).join('');
   const ss='padding:4px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);min-width:0;width:100%;font-family:inherit;';
+  const isOpen=el.dataset.open==='true';   // standardmäßig zugeklappt
+  const active=objFilterActive();
   el.innerHTML=`<div style="padding:8px 16px;border-bottom:1px solid var(--border);">
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+    <div data-action="toggle-objfilter" style="display:flex;align-items:center;gap:6px;cursor:pointer;${isOpen?'margin-bottom:6px;':''}">
       <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text3);">Filter</span>
-      <button onclick="resetObjFilter()" style="border:none;background:none;color:#1d4ed8;font-size:11px;cursor:pointer;padding:0;">zurücksetzen</button>
-      <span id="obj-filter-count" style="margin-left:auto;font-size:11px;color:var(--text3);"></span>
+      ${active?`<button data-action="reset-objfilter" style="border:none;background:none;color:#1d4ed8;font-size:11px;cursor:pointer;padding:0;">zurücksetzen</button>`:''}
+      <span id="obj-filter-count" style="margin-left:auto;font-size:11px;color:${active?'var(--green)':'var(--text3)'};font-weight:${active?'600':'400'};"></span>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="color:var(--text3);transition:transform .2s;transform:rotate(${isOpen?180:0}deg);flex-shrink:0;"><path d="M6 9l6 6 6-6"/></svg>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;">
-      <select id="of-stadtteil" style="${ss}">${opt(distinct('stadtteil'),objFilter.stadtteil,'Alle Stadtteile')}</select>
-      <select id="of-art" style="${ss}">${opt(distinct('art'),objFilter.art,'Alle Typen')}</select>
-      <select id="of-pflanzjahr" style="${ss}">${opt(distinct('pflanzjahr'),objFilter.pflanzjahr,'Alle Jahre')}</select>
-      <select id="of-zustand" style="${ss}">${opt(['gut','mittel','schlecht'],objFilter.zustand,'Alle Zustände')}</select>
-      <select id="of-wasser" style="${ss}">${opt(['gering','mittel','hoch'],objFilter.wasser,'Alle Prioritäten')}</select>
-      <select id="of-status" style="${ss}"><option value="">Alle Status</option><option value="bewaessert"${objFilter.status==='bewaessert'?' selected':''}>✓ Erledigt</option><option value="nicht"${objFilter.status==='nicht'?' selected':''}>✕ Nicht erledigt</option><option value="offen"${objFilter.status==='offen'?' selected':''}>○ Offen</option></select>
+    <div id="objfilter-body" style="display:${isOpen?'block':'none'};">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;">
+        <select id="of-stadtteil" style="${ss}">${opt(distinct('stadtteil'),objFilter.stadtteil,'Alle Stadtteile')}</select>
+        <select id="of-art" style="${ss}">${opt(distinct('art'),objFilter.art,'Alle Typen')}</select>
+        <select id="of-pflanzjahr" style="${ss}">${opt(distinct('pflanzjahr'),objFilter.pflanzjahr,'Alle Jahre')}</select>
+        <select id="of-zustand" style="${ss}">${opt(['gut','mittel','schlecht'],objFilter.zustand,'Alle Zustände')}</select>
+        <select id="of-wasser" style="${ss}">${opt(['gering','mittel','hoch'],objFilter.wasser,'Alle Prioritäten')}</select>
+        <select id="of-status" style="${ss}"><option value="">Alle Status</option><option value="bewaessert"${objFilter.status==='bewaessert'?' selected':''}>✓ Erledigt</option><option value="nicht"${objFilter.status==='nicht'?' selected':''}>✕ Nicht erledigt</option><option value="offen"${objFilter.status==='offen'?' selected':''}>○ Offen</option></select>
+      </div>
+      <label style="display:flex;align-items:center;gap:6px;margin-top:7px;font-size:11px;cursor:pointer;color:var(--text2);">
+        <input type="checkbox" id="of-map"${objFilterOnMap?' checked':''}> Nur gefilterte auf der Karte zeigen
+      </label>
     </div>
-    <label style="display:flex;align-items:center;gap:6px;margin-top:7px;font-size:11px;cursor:pointer;color:var(--text2);">
-      <input type="checkbox" id="of-map"${objFilterOnMap?' checked':''}> Nur gefilterte auf der Karte zeigen
-    </label>
   </div>`;
   const wire={stadtteil:'of-stadtteil',art:'of-art',pflanzjahr:'of-pflanzjahr',zustand:'of-zustand',wasser:'of-wasser',status:'of-status'};
   Object.entries(wire).forEach(([k,id])=>{ const s=document.getElementById(id); if(s) s.onchange=()=>{ objFilter[k]=s.value; applyObjFilter(); }; });
   const mp=document.getElementById('of-map'); if(mp) mp.onchange=()=>{ objFilterOnMap=mp.checked; setMarkerVisibility(); };
+  const hdr=el.querySelector('[data-action="toggle-objfilter"]');
+  if(hdr) hdr.onclick=e=>{
+    if(e.target.closest('[data-action="reset-objfilter"]')){ resetObjFilter(); return; }
+    el.dataset.open=isOpen?'false':'true';
+    renderObjFilterUI();
+  };
   updateObjFilterCount();
 }
 
@@ -996,10 +1007,18 @@ async function focusTour(tourId){
 }
 
 // ─── LEGEND ───────────────────────────────────────────────────
+let tourLegendQuery='';
+function applyTourLegendFilter(){
+  const q=(tourLegendQuery||'').trim().toLowerCase();
+  document.querySelectorAll('#tour-legend .legend-item[data-tourname]').forEach(row=>{
+    row.style.display = (!q || row.dataset.tourname.includes(q)) ? '' : 'none';
+  });
+}
 function renderLegend(){
   const el=document.getElementById('tour-legend');if(!el)return;
   if(tours.length===0){el.style.display='none';return;}
   el.style.display='block';
+  if(tours.length<8) tourLegendQuery='';
 
   const activeTour=tours.find(t=>t.id===activeTourOnMap);
 
@@ -1024,12 +1043,17 @@ function renderLegend(){
   // ── Collapsible body ─────────────────────────────────────────
   html+=`<div id="legend-body" style="display:${isOpen?'block':'none'};">`;
 
+  // Tour-Suchfeld — erst ab vielen Touren
+  if(tours.length>=8){
+    html+=`<div style="padding:2px 8px 6px;"><input id="tour-legend-search" type="text" placeholder="Tour suchen…" style="width:100%;padding:4px 8px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;box-sizing:border-box;"></div>`;
+  }
+
   // Tour rows — compact
   html+=`<div style="padding:0 8px 4px;">`;
   tours.forEach(t=>{
     const km=tourRoutes[t.id]?tourRoutes[t.id].km.toFixed(1):'–';
     const isActive=activeTourOnMap===t.id;
-    html+=`<div class="legend-item${isActive?' active-tour':''}" data-tourid="${t.id}" style="padding:3px 6px;margin-bottom:1px;">
+    html+=`<div class="legend-item${isActive?' active-tour':''}" data-tourid="${t.id}" data-tourname="${(t.name||'').toLowerCase().replace(/"/g,'&quot;')}" style="padding:3px 6px;margin-bottom:1px;">
       <div class="legend-line" style="background:${t.color};width:16px;height:3px;"></div>
       <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">${t.name}</span>
       <span class="legend-km" style="font-size:10px;">${km} km</span>
@@ -1068,6 +1092,15 @@ function renderLegend(){
   html+=`</div>`; // end legend-body
 
   el.innerHTML=html;
+
+  // Tour-Suche verdrahten
+  const ts=document.getElementById('tour-legend-search');
+  if(ts){
+    ts.value=tourLegendQuery;
+    ts.oninput=()=>{ tourLegendQuery=ts.value; applyTourLegendFilter(); };
+    ts.onclick=e=>e.stopPropagation();
+  }
+  applyTourLegendFilter();
 
   // Event delegation
   el.onclick=e=>{
