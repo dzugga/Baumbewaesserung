@@ -2631,38 +2631,120 @@ async function saveDriverAssignment(tourId,driver){
   notify('Fahrer zugewiesen');
 }
 
-// ─── EXCEL IMPORT ────────────────────────────────────────────
+// ─── EXCEL IMPORT (mit Vorschau/Koordinaten-Kontrolle) ───────
+let _importRows=[], _importSwap=false, _impMap=null, _impLayer=null;
+// Zahl robust parsen (auch Dezimal-Komma "52,28")
+function impNum(v){ if(v==null)return NaN; if(typeof v==='number')return v; return parseFloat(String(v).trim().replace(',','.')); }
+// Plausibel in Deutschland?
+function impInDE(la,lo){ return la>47&&la<55.5&&lo>5&&lo<16; }
+
 async function importExcel(input){
   if(!currentProjectId){notify('Bitte zuerst ein Projekt öffnen');return;}
   const file=input.files[0];if(!file)return;
   notify('Excel wird eingelesen…');
-  // Use SheetJS via CDN
   const XLSX=window.XLSX;
   if(!XLSX){notify('SheetJS nicht geladen');return;}
   const data=await file.arrayBuffer();
   const wb=XLSX.read(data,{type:'array'});
   const ws=wb.Sheets[wb.SheetNames[0]];
   const rows=XLSX.utils.sheet_to_json(ws,{header:1});
-  // Skip header row (row 0)
-  let imported=0,skipped=0;
+  input.value='';
+  const parsed=[];
   for(let i=1;i<rows.length;i++){
-    const row=rows[i];
-    if(!row||row.length<1)continue;
-    const lat=parseFloat(row[7]);
-    const lng=parseFloat(row[8]);
-    // Koordinaten optional — Objekte ohne GPS werden trotzdem importiert
+    const row=rows[i]; if(!row||row.length<1)continue;
+    const lat=impNum(row[7]), lng=impNum(row[8]);
+    parsed.push({
+      name:row[0]||'Unbekannt', stadtteil:row[1]||'', art:row[2]||'',
+      baumnr:row[3]?.toString()||'', pflanzjahr:row[4]?.toString()||'',
+      pflanzzeitpunkt:row[5]?.toString()||'', notiz:row[6]||'',
+      lat:isNaN(lat)?null:lat, lng:isNaN(lng)?null:lng,
+    });
+  }
+  if(!parsed.length){ notify('Keine Datenzeilen gefunden'); return; }
+  _importRows=parsed;
+  // Auto-Empfehlung: tauschen, wenn dadurch mehr Punkte in DE liegen
+  let normalIn=0, swapIn=0;
+  parsed.forEach(r=>{ if(r.lat!=null&&r.lng!=null){ if(impInDE(r.lat,r.lng))normalIn++; if(impInDE(r.lng,r.lat))swapIn++; } });
+  _importSwap = swapIn>normalIn;
+  showImportPreview();
+}
+
+function closeImportPreview(){
+  if(_impMap){ try{_impMap.remove();}catch(e){} _impMap=null; _impLayer=null; }
+  document.getElementById('import-preview-modal')?.remove();
+}
+
+function showImportPreview(){
+  closeImportPreview();
+  const m=document.createElement('div');
+  m.id='import-preview-modal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;';
+  m.innerHTML=`<div style="background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow-md);width:760px;max-width:96vw;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;">
+      <div style="flex:1;"><div style="font-size:15px;font-weight:700;">Import-Vorschau — Koordinaten prüfen</div>
+        <div id="imp-summary" style="font-size:12px;color:var(--text3);margin-top:2px;">–</div></div>
+      <button id="imp-x" style="border:none;background:none;font-size:22px;color:var(--text2);cursor:pointer;line-height:1;">×</button>
+    </div>
+    <div id="imp-warn" style="display:none;padding:8px 18px;background:var(--red-light);color:var(--red);font-size:12px;font-weight:600;"></div>
+    <div style="padding:10px 18px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border);">
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+        <input type="checkbox" id="imp-swap"> Längen-/Breitengrad tauschen (lat ↔ lng)
+      </label>
+      <span style="margin-left:auto;font-size:11px;color:var(--text3);">Blaue Punkte = Lage nach Import</span>
+    </div>
+    <div id="imp-map" style="flex:1;min-height:320px;"></div>
+    <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
+      <button id="imp-cancel" style="padding:8px 16px;border:1.5px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;font-weight:600;">Abbrechen</button>
+      <button id="imp-go" style="padding:8px 18px;border:none;border-radius:6px;background:var(--green);color:#fff;cursor:pointer;font-weight:700;">Importieren</button>
+    </div>
+  </div>`;
+  document.body.appendChild(m);
+  const sw=document.getElementById('imp-swap'); sw.checked=_importSwap;
+  sw.onchange=()=>{ _importSwap=sw.checked; renderImportPreview(); };
+  document.getElementById('imp-x').onclick=closeImportPreview;
+  document.getElementById('imp-cancel').onclick=closeImportPreview;
+  document.getElementById('imp-go').onclick=doImport;
+  m.onclick=e=>{ if(e.target===m)closeImportPreview(); };
+  // Karte initialisieren
+  try{
+    _impMap=L.map('imp-map',{zoomControl:true}).setView([51,9],5);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(_impMap);
+    _impLayer=L.layerGroup().addTo(_impMap);
+    setTimeout(()=>{ try{_impMap.invalidateSize();}catch(e){} renderImportPreview(); },200);
+  }catch(e){ renderImportPreview(); }
+}
+
+function renderImportPreview(){
+  const withC=_importRows.filter(r=>r.lat!=null&&r.lng!=null);
+  let inDE=0; const pts=[];
+  if(_impLayer) _impLayer.clearLayers();
+  withC.forEach(r=>{
+    const la=_importSwap?r.lng:r.lat, lo=_importSwap?r.lat:r.lng;
+    if(impInDE(la,lo)) inDE++;
+    if(_impLayer){ L.circleMarker([la,lo],{radius:4,color:'#1d4ed8',fillColor:'#1d4ed8',fillOpacity:.6,weight:1}).addTo(_impLayer); }
+    pts.push([la,lo]);
+  });
+  const out=withC.length-inDE;
+  const sum=document.getElementById('imp-summary');
+  if(sum) sum.textContent=`${_importRows.length} Zeilen · ${withC.length} mit Koordinaten · ${_importRows.length-withC.length} ohne · ${inDE} in Deutschland`;
+  const warn=document.getElementById('imp-warn');
+  if(warn){
+    if(out>0){ warn.style.display='block'; warn.textContent=`⚠ ${out} Objekt(e) liegen außerhalb Deutschlands — Koordinaten evtl. vertauscht. Schalter oben nutzen und Karte prüfen.`; }
+    else { warn.style.display='none'; }
+  }
+  if(_impMap && pts.length){ try{ _impMap.fitBounds(L.latLngBounds(pts),{padding:[30,30],maxZoom:15}); }catch(e){} }
+}
+
+async function doImport(){
+  const btn=document.getElementById('imp-go'); if(btn){ btn.textContent='Importiert…'; btn.disabled=true; }
+  let imported=0,skipped=0;
+  for(const r of _importRows){
+    const la=_importSwap?r.lng:r.lat, lo=_importSwap?r.lat:r.lng;
     const treeData={
-      name:row[0]||'Unbekannt',
-      stadtteil:row[1]||'',
-      art:row[2]||'',
-      baumnr:row[3]?.toString()||'',
-      pflanzjahr:row[4]?.toString()||'',
-      pflanzzeitpunkt:row[5]?.toString()||'',
-      notiz:row[6]||'',
-      lat:isNaN(lat)?null:lat,
-      lng:isNaN(lng)?null:lng,
-      wasser:'mittel',zustand:'mittel',
-      datum:'',tourId:'',tourIds:[],history:[],
+      name:r.name, stadtteil:r.stadtteil, art:r.art, baumnr:r.baumnr,
+      pflanzjahr:r.pflanzjahr, pflanzzeitpunkt:r.pflanzzeitpunkt, notiz:r.notiz,
+      lat:(la==null?null:la), lng:(lo==null?null:lo),
+      wasser:'mittel',zustand:'mittel', datum:'',tourId:'',tourIds:[],history:[],
     };
     try{
       const baumId=await getNextBaumId();
@@ -2670,9 +2752,8 @@ async function importExcel(input){
       imported++;
     }catch(e){skipped++;}
   }
-
-  input.value='';
-  notify(`✓ ${imported} Objekte importiert${skipped>0?' ('+skipped+' übersprungen)':''}`);
+  closeImportPreview();
+  notify(`✓ ${imported} Objekte importiert${skipped>0?' ('+skipped+' übersprungen)':''}${_importSwap?' · Koordinaten getauscht':''}`);
 }
 
 // ─── BAUM ID ──────────────────────────────────────────────────
