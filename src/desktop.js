@@ -2549,7 +2549,7 @@ function renderReasonsMgmt(){
   const el=document.getElementById('reasons-mgmt-list');if(!el)return;
   if(reasons.length===0){
     el.innerHTML='<div style="font-size:12px;color:var(--text3);padding:4px 0 8px;">Noch keine Gründe für dieses Projekt.</div>'+
-      '<button class="btn btn-secondary" style="font-size:12px;padding:5px 11px;" onclick="seedDefaultReasons()">+ Standard-Gründe (Bewässerung) hinzufügen</button>';
+      '<button class="btn btn-secondary" style="font-size:12px;padding:5px 11px;" onclick="seedDefaultReasons()">+ Standard-Gründe hinzufügen</button>';
     return;
   }
   el.innerHTML=reasons.map(r=>`
