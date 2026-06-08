@@ -306,6 +306,7 @@ function showProjectScreen(){
   if(unsubTours){unsubTours();unsubTours=null;}
   if(unsubTrees){unsubTrees();unsubTrees=null;}
   // clear map
+  if(simState.active) stopSimulation();
   Object.values(mapMarkers).forEach(m=>map.removeLayer(m));mapMarkers={};
   Object.values(tourRoutes).forEach(r=>map.removeLayer(r.layer));tourRoutes={};
   if(depotMarker){map.removeLayer(depotMarker);depotMarker=null;}
@@ -809,12 +810,12 @@ function updateRouteInfoBar(){
   const bar=document.getElementById('route-info-bar');
   const txt=document.getElementById('route-info-text');
   const sidePanel=document.getElementById('sidebar-route-info');
+  if(bar) bar.classList.remove('visible'); // schwebende Routen-Info-Leiste entfernt — Infos im Seitenpanel
   // Mehrere Touren ausgewählt → kompakte Summe
   if(activeTours.size>1){
     let km=0,dur=0; activeTours.forEach(tid=>{ if(tourRoutes[tid]){ km+=tourRoutes[tid].km; dur+=tourRoutes[tid].durationSec||0; } });
     const cnt=trees.filter(t=>treeInAnyActiveTour(t)&&t.lat&&t.lng).length;
     txt.textContent=`${activeTours.size} Touren · ${cnt} Objekte${km?` · Σ ${km.toFixed(1)} km${dur?' · '+fmtDuration(dur)+' Fahrt':''}`:''}`;
-    bar.classList.add('visible');
     if(sidePanel){
       document.getElementById('sidebar-route-tour-name').textContent=`${activeTours.size} Touren`;
       document.getElementById('sidebar-route-km').textContent=km?km.toFixed(1)+' km':'–';
@@ -833,7 +834,6 @@ function updateRouteInfoBar(){
     const _bewT=fmtBewTime(cnt);
     const _totT=fmtTotalTime(durationSec,cnt);
     txt.textContent=`${tour?.name||''} · ${cnt} Objekte · ${km.toFixed(1)} km · ${fmtDuration(durationSec)} Fahrt + ${_bewT} Bew. = ${_totT}${depot?' (inkl. Depot)':''}`;
-    bar.classList.add('visible');
     const bewTime=fmtBewTime(cnt);
     const totalTime=fmtTotalTime(durationSec,cnt);
     document.getElementById('sidebar-route-tour-name').textContent=tour?.name||'';
@@ -1034,6 +1034,7 @@ function zoomToUnplanned(){
   map.fitBounds(L.latLngBounds([[q(lats,0.05),q(lngs,0.05)],[q(lats,0.95),q(lngs,0.95)]]),{padding:[60,60],maxZoom:15});
 }
 async function applyTourSelection(fit){
+  if(simState.active) stopSimulation();
   syncActiveTour();
   filterTour = activeTours.size ? 'tour' : (showUnplanned ? 'none' : 'all');
 
@@ -1160,11 +1161,16 @@ function renderLegend(){
 
   // Route berechnen button — compact
   if(activeTours.size===1){
-    html+=`<div style="padding:4px 8px 8px;">
+    const onlyTid=[...activeTours][0];
+    html+=`<div style="padding:4px 8px 8px;display:flex;flex-direction:column;gap:6px;">
       <button data-action="calc-active"${rpDisAttr()} style="width:100%;padding:5px 10px;font-size:11px;font-weight:600;background:var(--green);color:#fff;border:none;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;${rpDisStyle()}">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
         Route berechnen
       </button>
+      ${tourRoutes[onlyTid]?`<button data-action="simulate" style="width:100%;padding:5px 10px;font-size:11px;font-weight:600;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        Abfahrt simulieren
+      </button>`:''}
     </div>`;
   } else if(activeTours.size>1){
     html+=`<div style="padding:4px 8px 8px;">
@@ -1215,8 +1221,194 @@ function renderLegend(){
       if(btn.dataset.action==='calc-active'&&activeTourOnMap)calculateAndSaveRoute(activeTourOnMap);
       else if(btn.dataset.action==='calc-selected'){ (async()=>{ for(const tid of [...activeTours]) await calculateAndSaveRoute(tid); })(); }
       else if(btn.dataset.action==='calc-all')calculateAllRoutes();
+      else if(btn.dataset.action==='simulate'){ const tid=[...activeTours][0]; if(tid) startSimulation(tid); }
     }
   };
+}
+
+// ─── ABFAHR-SIMULATION (Route-Playback) ───────────────────────
+let simState = { active:false };
+const SIM_PLAY = '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg>';
+const SIM_PAUSE = '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>';
+
+function fmtClock(sec){
+  sec=Math.max(0,Math.round(sec));
+  const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=sec%60;
+  return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+function simNearestVertex(pts,coord,from){
+  let best=from,bd=Infinity;
+  for(let i=from;i<pts.length;i++){ const d=haversine(pts[i][0],pts[i][1],coord[0],coord[1]); if(d<bd){bd=d;best=i;} }
+  return best;
+}
+function simPosAtDist(d){
+  const {pts,cum}=simState; const last=cum.length-1;
+  if(d<=0) return {pt:pts[0],k:0};
+  if(d>=cum[last]) return {pt:pts[last],k:last};
+  let lo=0,hi=last;
+  while(lo<hi){ const mid=(lo+hi)>>1; if(cum[mid]<d) lo=mid+1; else hi=mid; }
+  const k=Math.max(1,lo); const segLen=(cum[k]-cum[k-1])||1; const f=(d-cum[k-1])/segLen;
+  const a=pts[k-1],b=pts[k];
+  return {pt:[a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f], k:k-1};
+}
+function simPositionAt(elapsed){
+  let acc=0; const segs=simState.segments;
+  for(let i=0;i<segs.length;i++){
+    const seg=segs[i], local=elapsed-acc;
+    if(elapsed<acc+seg.dur || i===segs.length-1){
+      if(seg.type==='drive'){
+        const from=simState.cum[seg.fromIdx], to=simState.cum[seg.toIdx];
+        const f=seg.dur?Math.min(1,Math.max(0,local/seg.dur)):1;
+        const d=from+(to-from)*f; const {pt,k}=simPosAtDist(d);
+        return {pt,k,phase:'Fahrt',type:'drive'};
+      }
+      return {pt:simState.pts[seg.idx],k:seg.idx,phase:'Bewässerung'+(seg.tree?.name?' — '+seg.tree.name:''),type:'water'};
+    }
+    acc+=seg.dur;
+  }
+  const last=simState.pts.length-1;
+  return {pt:simState.pts[last],k:last,phase:'Ziel erreicht',type:'end'};
+}
+function buildSimModel(route){
+  let pts=[];
+  const geojson=route.geojsonStr?JSON.parse(route.geojsonStr):(route.geojson||null);
+  if(geojson?.features?.[0]?.geometry?.coordinates){
+    pts=geojson.features[0].geometry.coordinates.map(c=>[c[1],c[0]]);
+  } else if(route.orderIds){
+    const depot=getDepot();
+    const ot=route.orderIds.map(id=>trees.find(t=>t.id===id)).filter(t=>t&&t.lat&&t.lng);
+    pts=ot.map(t=>[t.lat,t.lng]);
+    if(depot){ const dp=[depot.lat,depot.lng]; pts=getDepotMode()==='round'?[dp,...pts,dp]:[dp,...pts]; }
+  }
+  if(pts.length<2) return null;
+  const cum=[0];
+  for(let i=1;i<pts.length;i++) cum[i]=cum[i-1]+haversine(pts[i-1][0],pts[i-1][1],pts[i][0],pts[i][1])*1000;
+  const totalGeo=cum[cum.length-1]||1;
+  const totalDrive=route.durationSec||(totalGeo/1000/30*3600);
+  const waterSec=getBewDuration()*60;
+  const depot=getDepot();
+  const ot=(route.orderIds||[]).map(id=>trees.find(t=>t.id===id)).filter(t=>t&&t.lat&&t.lng);
+  if(ot.length===0) return null;
+  const wp=[];
+  if(depot) wp.push({type:'depot',coord:[depot.lat,depot.lng]});
+  ot.forEach(t=>wp.push({type:'water',coord:[t.lat,t.lng],tree:t}));
+  if(depot&&getDepotMode()==='round') wp.push({type:'depot',coord:[depot.lat,depot.lng]});
+  let prev=0;
+  wp.forEach((w,i)=>{ let idx=simNearestVertexLocal(pts,w.coord,i===0?0:prev); if(idx<prev) idx=prev; w.idx=idx; prev=idx; });
+  const segments=[];
+  for(let i=0;i<wp.length;i++){
+    if(i>0){
+      const from=wp[i-1].idx,to=wp[i].idx;
+      const legDist=Math.max(0,cum[to]-cum[from]);
+      segments.push({type:'drive',dur:totalDrive*(legDist/totalGeo),fromIdx:from,toIdx:to});
+    }
+    if(wp[i].type==='water') segments.push({type:'water',dur:waterSec,idx:wp[i].idx,tree:wp[i].tree});
+  }
+  const total=segments.reduce((s,x)=>s+x.dur,0)||1;
+  return {pts,cum,segments,total};
+}
+function simNearestVertexLocal(pts,coord,from){ return simNearestVertex(pts,coord,from); }
+function simIcon(color){
+  return L.divIcon({ className:'', iconSize:[34,34], iconAnchor:[17,17],
+    html:`<div style="width:34px;height:34px;border-radius:50%;background:${color};border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;font-size:18px;">🚚</div>` });
+}
+async function startSimulation(tourId){
+  if(simState.active) stopSimulation();
+  const tour=tours.find(t=>t.id===tourId); if(!tour) return;
+  let route=null;
+  try{ const snap=await getDoc(doc(db,'projects',currentProjectId,'routes',tourId)); if(snap.exists) route=snap.data(); }catch(e){ console.warn('sim route load:',e); }
+  if(!route){ notify('Bitte zuerst die Route berechnen'); return; }
+  const model=buildSimModel(route);
+  if(!model){ notify('Keine ausreichenden Routendaten für die Simulation'); return; }
+  simState={ active:true, tourId, tour, playing:true, speed:1, elapsed:0, lastTs:0, seeking:false, ...model };
+  simState.marker=L.marker(model.pts[0],{icon:simIcon(tour.color),zIndexOffset:2000}).addTo(map);
+  simState.trail=L.polyline([model.pts[0]],{color:tour.color,weight:6,opacity:.95}).addTo(map);
+  document.getElementById('sim-bar').style.display='flex';
+  renderSimBar();
+  simState.raf=requestAnimationFrame(simTick);
+}
+function stopSimulation(){
+  if(simState.raf) cancelAnimationFrame(simState.raf);
+  if(simState.marker) map.removeLayer(simState.marker);
+  if(simState.trail) map.removeLayer(simState.trail);
+  const bar=document.getElementById('sim-bar'); if(bar){ bar.style.display='none'; bar.innerHTML=''; }
+  simState={active:false};
+}
+function simTick(ts){
+  if(!simState.active) return;
+  if(simState.playing && !simState.seeking && simState.lastTs){
+    const dt=Math.min(0.25,(ts-simState.lastTs)/1000); // dt kappen → kein Sprung nach Tab-Wechsel (rAF-Pause)
+    simState.elapsed+=dt*simState.speed;
+    if(simState.elapsed>=simState.total){ simState.elapsed=simState.total; simState.playing=false; renderSimBar(); }
+  }
+  simState.lastTs=ts;
+  renderSimFrame();
+  simState.raf=requestAnimationFrame(simTick);
+}
+function renderSimFrame(){
+  if(!simState.active) return;
+  const p=simPositionAt(simState.elapsed);
+  simState.marker.setLatLng(p.pt);
+  const trail=simState.pts.slice(0,p.k+1); trail.push(p.pt);
+  simState.trail.setLatLngs(trail);
+  const ph=document.getElementById('sim-playhead'); if(ph) ph.style.left=(simState.elapsed/simState.total*100)+'%';
+  const tt=document.getElementById('sim-time'); if(tt) tt.textContent=`${fmtClock(simState.elapsed)} / ${fmtClock(simState.total)}`;
+  const lab=document.getElementById('sim-phase'); if(lab){ lab.textContent=p.phase; lab.style.color=p.type==='water'?'#16a34a':p.type==='drive'?'#2563eb':'var(--text3)'; }
+}
+function simSeekFromEvent(e){
+  const track=document.getElementById('sim-track'); if(!track) return;
+  const r=track.getBoundingClientRect();
+  const frac=Math.min(1,Math.max(0,(e.clientX-r.left)/r.width));
+  simState.elapsed=frac*simState.total; simState.lastTs=0;
+  renderSimFrame();
+}
+function renderSimBar(){
+  const bar=document.getElementById('sim-bar'); if(!bar||!simState.active) return;
+  let segHtml='',acc=0;
+  simState.segments.forEach(s=>{
+    const w=s.dur/simState.total*100;
+    segHtml+=`<div style="position:absolute;top:0;bottom:0;left:${acc}%;width:${w}%;background:${s.type==='water'?'#16a34a':'#2563eb'};"></div>`;
+    acc+=s.dur;
+  });
+  segHtml+=`<div style="position:absolute;top:0;bottom:0;left:0;width:3px;background:#f97316;"></div><div style="position:absolute;top:0;bottom:0;right:0;width:3px;background:#f97316;"></div>`;
+  const ended=simState.elapsed>=simState.total;
+  const speeds=[0.5,1,2,4,8];
+  bar.innerHTML=`
+    <button data-sim="play" style="width:40px;height:40px;border-radius:50%;border:none;background:#2563eb;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">${(simState.playing&&!ended)?SIM_PAUSE:SIM_PLAY}</button>
+    <div style="display:flex;flex-direction:column;gap:5px;min-width:230px;flex:1;">
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--text2);">
+        <span id="sim-time" style="font-variant-numeric:tabular-nums;">${fmtClock(simState.elapsed)} / ${fmtClock(simState.total)}</span>
+        <span style="font-size:11px;font-weight:700;color:${simState.tour.color};">${simState.tour.name}</span>
+        <span id="sim-phase" style="font-weight:600;"></span>
+      </div>
+      <div id="sim-track" style="position:relative;height:14px;border-radius:7px;overflow:hidden;background:var(--surface2);cursor:pointer;touch-action:none;">
+        ${segHtml}
+        <div id="sim-playhead" style="position:absolute;top:-3px;width:3px;height:20px;background:var(--text);left:${simState.elapsed/simState.total*100}%;border-radius:2px;pointer-events:none;box-shadow:0 0 0 2px var(--surface);"></div>
+      </div>
+    </div>
+    <div style="display:flex;gap:3px;flex-shrink:0;">${speeds.map(s=>`<button data-sim="speed" data-speed="${s}" style="padding:3px 7px;font-size:11px;border-radius:6px;border:1px solid var(--border);background:${simState.speed===s?'var(--green)':'var(--surface)'};color:${simState.speed===s?'#fff':'var(--text2)'};cursor:pointer;font-weight:600;">${s}×</button>`).join('')}</div>
+    <div style="display:flex;gap:9px;font-size:10px;color:var(--text3);flex-shrink:0;">
+      <span style="display:flex;align-items:center;gap:3px;"><i style="width:9px;height:9px;border-radius:2px;background:#16a34a;display:inline-block;"></i>Bewässerung</span>
+      <span style="display:flex;align-items:center;gap:3px;"><i style="width:9px;height:9px;border-radius:2px;background:#2563eb;display:inline-block;"></i>Fahrt</span>
+      <span style="display:flex;align-items:center;gap:3px;"><i style="width:9px;height:9px;border-radius:2px;background:#f97316;display:inline-block;"></i>Depot</span>
+    </div>
+    <button data-sim="close" title="Simulation beenden" style="width:28px;height:28px;border-radius:50%;border:1px solid var(--border);background:var(--surface);cursor:pointer;flex-shrink:0;font-size:15px;color:var(--text3);line-height:1;">✕</button>`;
+  bar.onclick=e=>{
+    const b=e.target.closest('[data-sim]'); if(!b) return;
+    const a=b.dataset.sim;
+    if(a==='play'){
+      if(simState.elapsed>=simState.total) simState.elapsed=0;
+      simState.playing=!simState.playing; simState.lastTs=0; renderSimBar();
+    } else if(a==='speed'){ simState.speed=parseFloat(b.dataset.speed); simState.lastTs=0; renderSimBar(); }
+    else if(a==='close'){ stopSimulation(); }
+  };
+  const track=document.getElementById('sim-track');
+  if(track){
+    track.onpointerdown=e=>{ simState.seeking=true; try{track.setPointerCapture(e.pointerId);}catch(_){} simSeekFromEvent(e); };
+    track.onpointermove=e=>{ if(simState.seeking) simSeekFromEvent(e); };
+    track.onpointerup=track.onpointercancel=()=>{ simState.seeking=false; simState.lastTs=0; };
+  }
+  renderSimFrame();
 }
 
 // ─── LIST ─────────────────────────────────────────────────────
