@@ -28,7 +28,7 @@
 ## DEV-/UMGEBUNGS-QUIRKS (wichtig!)
 - Windows: immer `npm.cmd` / `npx.cmd`.
 - **PowerShell here-strings brechen bei `"`/Sonderzeichen** in Commit-Messages → Commit-Text in Datei schreiben und `git commit -F datei` nutzen.
-- **Dev-Server (3001) hat über die Chrome-Extension kaputtes HMR** (stale Module) → **zuverlässig testen gegen `npm.cmd run build` + `npm.cmd run preview -- --port 3010`**, dazu Cache-Bust `?v=...`.
+- **Dev-Server (3001) live in Chrome funktioniert** (Stand 08.06.2026): `vite.config.js` hat `server`-Block mit `watch.usePolling` (Windows-Watcher) + `Cache-Control: no-store` (kein Stale) → `npm.cmd run dev` reicht, Edits erscheinen sofort in der Chrome-Extension. (Früher kaputtes HMR/stale Module; Fallback build+`preview --port 3010` nur falls nötig.)
 - **Browser-MCP kann NICHT zu `web.app` navigieren** (blockiert) → für Firebase-Zugriff/Tests `localhost`-Preview nutzen (`window.firebase.firestore()` ist auf den Seiten verfügbar).
 - Bad Rothenfelde (`WDXQv3gb1gl2kuzsVSpj`) = Testprojekt; Rüsselsheim (`Lumi5fkOU70s89XZf4Dv`) = große Echtdaten; „Rheine Papierkorbleerung" (`8iqStiWyrDx444Gq88uS`) = Papierkorb-Projekt.
 
