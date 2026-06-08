@@ -267,6 +267,8 @@ async function openProject(projectId){
   loadFieldLabels();
   // Subscribe to tours & trees
   subscribeToProject();
+  // Gründe des neuen Projekts laden (verhindert projektübergreifendes Hängenbleiben)
+  reasons=[]; loadReasons().then(()=>{ if(currentView==='verwaltung') renderReasonsMgmt(); });
 }
 
 // Baut die aktive datengetriebene Ansicht (Controlling/Dashboard) nach einem
@@ -294,6 +296,7 @@ function showProjectScreen(){
   Object.values(tourRoutes).forEach(r=>map.removeLayer(r.layer));tourRoutes={};
   if(depotMarker){map.removeLayer(depotMarker);depotMarker=null;}
   tours=[];trees=[];tourOrder={};activeTourOnMap=null;filterTour='all';
+  reasons=[]; // Gründe des Projekts verwerfen (kein projektübergreifendes Hängenbleiben)
   initProjectScreen();
 }
 
@@ -2464,26 +2467,21 @@ async function initVerwaltung(){
   }
   if(!currentProjectId)return;
   await loadReasons();
-  // Auto-seed standard reasons if none exist yet
-  if(reasons.length===0){
-    const defaults=[
-      'Zugang gesperrt',
-      'Baum krank / abgestorben',
-      'Gerät defekt',
-      'Kein Wasser verfügbar',
-      'Baum bereits bewässert',
-      'Baum nicht auffindbar',
-      'Witterung (Starkregen)',
-      'Sonstiges',
-    ];
-    for(const text of defaults){
-      await addDoc(collection(db,'projects',currentProjectId,'reasons'),{text,createdAt:serverTimestamp()});
-    }
-    await loadReasons();
-    notify('Standard-Gründe wurden angelegt');
-  }
+  // Kein Auto-Seed mehr: Gründe sind streng pro Projekt. Leere Projekte bekommen
+  // einen optionalen Button (seedDefaultReasons) statt automatisch Standard-Gründe.
   renderDriverMgmt();
   renderReasonsMgmt();
+}
+
+async function seedDefaultReasons(){
+  if(!currentProjectId)return;
+  const defaults=['Zugang gesperrt','Baum krank / abgestorben','Gerät defekt','Kein Wasser verfügbar','Baum bereits bewässert','Baum nicht auffindbar','Witterung (Starkregen)','Sonstiges'];
+  for(const text of defaults){
+    await addDoc(collection(db,'projects',currentProjectId,'reasons'),{text,createdAt:serverTimestamp()});
+  }
+  await loadReasons();
+  renderReasonsMgmt();
+  notify('Standard-Gründe hinzugefügt');
 }
 
 // ── FAHRER MANAGEMENT ─────────────────────────────────────────
@@ -2545,7 +2543,9 @@ async function removeDriver(tourId,idx){
 function renderReasonsMgmt(){
   const el=document.getElementById('reasons-mgmt-list');if(!el)return;
   if(reasons.length===0){
-    el.innerHTML='<div style="font-size:12px;color:var(--text3);padding:4px 0 8px;">Noch keine Gründe. Standard-Gründe werden in der App verwendet.</div>';return;
+    el.innerHTML='<div style="font-size:12px;color:var(--text3);padding:4px 0 8px;">Noch keine Gründe für dieses Projekt.</div>'+
+      '<button class="btn btn-secondary" style="font-size:12px;padding:5px 11px;" onclick="seedDefaultReasons()">+ Standard-Gründe (Bewässerung) hinzufügen</button>';
+    return;
   }
   el.innerHTML=reasons.map(r=>`
     <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px;">
@@ -4859,7 +4859,7 @@ Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,
   dispoSimulate,dispoPlan,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
-  saveInlineFields,filterDetailTable,filterBaeumeTable,saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
+  saveInlineFields,filterDetailTable,filterBaeumeTable,saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,
   createProject,openProject,showProjectScreen,
   switchView,openDetail,closePanel,logWatering,
