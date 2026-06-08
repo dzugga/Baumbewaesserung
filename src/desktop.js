@@ -2737,23 +2737,36 @@ function renderImportPreview(){
 
 async function doImport(){
   const btn=document.getElementById('imp-go'); if(btn){ btn.textContent='Importiert…'; btn.disabled=true; }
-  let imported=0,skipped=0;
-  for(const r of _importRows){
-    const la=_importSwap?r.lng:r.lat, lo=_importSwap?r.lat:r.lng;
-    const treeData={
-      name:r.name, stadtteil:r.stadtteil, art:r.art, baumnr:r.baumnr,
-      pflanzjahr:r.pflanzjahr, pflanzzeitpunkt:r.pflanzzeitpunkt, notiz:r.notiz,
-      lat:(la==null?null:la), lng:(lo==null?null:lo),
-      wasser:'mittel',zustand:'mittel', datum:'',tourId:'',tourIds:[],history:[],
-    };
-    try{
-      const baumId=await getNextBaumId();
-      await addDoc(collection(db,'projects',currentProjectId,'trees'),{...treeData,baumId,createdAt:serverTimestamp()});
-      imported++;
-    }catch(e){skipped++;}
-  }
+  let imported=0;
+  try{
+    // Baum-Zähler EINMAL lesen, lokal hochzählen, am Ende EINMAL schreiben (statt pro Objekt)
+    const projRef=doc(db,'projects',currentProjectId);
+    const projSnap=await getDoc(projRef);
+    let counter=projSnap.data()?.lastBaumId||0;
+    const colRef=collection(db,'projects',currentProjectId,'trees');
+    const CH=450; // Firestore-Batch-Limit ist 500
+    for(let i=0;i<_importRows.length;i+=CH){
+      const batch=db.batch();
+      for(const r of _importRows.slice(i,i+CH)){
+        counter++;
+        const baumId='B-'+String(counter).padStart(5,'0');
+        const la=_importSwap?r.lng:r.lat, lo=_importSwap?r.lat:r.lng;
+        batch.set(colRef.doc(),{
+          name:r.name, stadtteil:r.stadtteil, art:r.art, baumnr:r.baumnr,
+          pflanzjahr:r.pflanzjahr, pflanzzeitpunkt:r.pflanzzeitpunkt, notiz:r.notiz,
+          lat:(la==null?null:la), lng:(lo==null?null:lo),
+          wasser:'mittel',zustand:'mittel', datum:'',tourId:'',tourIds:[],history:[],
+          baumId, createdAt:serverTimestamp(),
+        });
+        imported++;
+      }
+      if(btn) btn.textContent=`Importiert… ${Math.min(imported,_importRows.length)}/${_importRows.length}`;
+      await batch.commit();
+    }
+    await updateDoc(projRef,{lastBaumId:counter}); // Zähler einmal final setzen
+  }catch(e){ notify('Import-Fehler: '+e.message); }
   closeImportPreview();
-  notify(`✓ ${imported} Objekte importiert${skipped>0?' ('+skipped+' übersprungen)':''}${_importSwap?' · Koordinaten getauscht':''}`);
+  notify(`✓ ${imported} Objekte importiert${_importSwap?' · Koordinaten getauscht':''}`);
 }
 
 // ─── BAUM ID ──────────────────────────────────────────────────
