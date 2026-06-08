@@ -864,11 +864,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       <div class="dsh-kpi-grid" id="dash-kpi-grid"></div>
       <div class="dsh-cols">
         <div class="dsh-card">
-          <div class="dsh-card-title">
+          <div class="dsh-card-title" style="display:flex;align-items:center;gap:8px;">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="7"/><rect x="12" y="6" width="3" height="11"/><rect x="17" y="13" width="3" height="4"/></svg>
-            Fortschritt je Tour
+            <span>Fortschritt je Tour</span>
+            <span id="dash-tour-count" style="font-size:11px;font-weight:400;color:var(--text3);"></span>
+            <input id="dash-tour-search" type="text" placeholder="Tour suchen…" oninput="dashFilterTours(this.value)"
+              style="margin-left:auto;padding:4px 9px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:inherit;background:var(--bg);width:130px;max-width:45%;outline:none;">
           </div>
-          <div id="dash-tour-progress"></div>
+          <div id="dash-tour-progress" style="max-height:500px;overflow-y:auto;"></div>
           <div class="dsh-legend">
             <span><i style="background:var(--green)"></i>Erledigt</span>
             <span><i style="background:var(--dsh-red-mid)"></i>Nicht erledigt</span>

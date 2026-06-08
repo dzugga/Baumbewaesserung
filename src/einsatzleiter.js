@@ -202,16 +202,27 @@ function tourStats(reported){
   });
 }
 
+function filterTours(q){
+  q=(q||'').toLowerCase().trim();
+  document.querySelectorAll('#tour-progress .tour-row').forEach(row=>{
+    row.style.display = !q || (row.dataset.name||'').includes(q) ? '' : 'none';
+  });
+}
+window.filterTours=filterTours;
+
 function renderTourProgress(reported){
   const el=document.getElementById('tour-progress');
-  if(tours.length===0){ el.innerHTML='<div class="empty">Keine Touren angelegt</div>'; return; }
+  const cntEl=document.getElementById('tour-count');
+  if(tours.length===0){ el.innerHTML='<div class="empty">Keine Touren angelegt</div>'; if(cntEl)cntEl.textContent=''; return; }
 
-  el.innerHTML=tourStats(reported).map(({t,total,bewN,nichtN,offen})=>{
+  const stats=tourStats(reported);
+  if(cntEl) cntEl.textContent=`(${stats.length})`;
+  el.innerHTML=stats.map(({t,total,bewN,nichtN,offen})=>{
     const base=Math.max(total, bewN+nichtN, 1);
     const bewW=bewN/base*100, nichtW=nichtN/base*100, offenW=offen/base*100;
     const pct=total>0?Math.round(bewN/total*100):(bewN+nichtN>0?Math.round(bewN/(bewN+nichtN)*100):0);
     const color=t.color||TOUR_COLORS[0];
-    return `<div class="tour-row">
+    return `<div class="tour-row" data-name="${(t.name||'Tour').toLowerCase().replace(/"/g,'')}">
       <div class="tour-head">
         <span class="tour-dot" style="background:${color};"></span>
         <span class="tour-name">${t.name||'Tour'}</span>
@@ -230,6 +241,7 @@ function renderTourProgress(reported){
       </div>
     </div>`;
   }).join('');
+  const s=document.getElementById('tour-search'); if(s&&s.value) filterTours(s.value);
 }
 
 function renderReasons(nichtTrees){

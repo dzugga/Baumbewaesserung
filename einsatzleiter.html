@@ -215,11 +215,14 @@ body{overflow:hidden;}
     <div class="dash-cols">
       <!-- Fortschritt je Tour -->
       <div class="card">
-        <div class="card-title">
+        <div class="card-title" style="display:flex;align-items:center;gap:8px;">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="7"/><rect x="12" y="6" width="3" height="11"/><rect x="17" y="13" width="3" height="4"/></svg>
-          Fortschritt je Tour
+          <span>Fortschritt je Tour</span>
+          <span id="tour-count" style="font-size:11px;font-weight:400;color:var(--text3);"></span>
+          <input id="tour-search" type="text" placeholder="Tour suchen…" oninput="filterTours(this.value)"
+            style="margin-left:auto;padding:4px 9px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:inherit;background:var(--surface);width:130px;max-width:45%;outline:none;">
         </div>
-        <div id="tour-progress"></div>
+        <div id="tour-progress" style="max-height:500px;overflow-y:auto;"></div>
         <div class="legend">
           <span><i style="background:var(--green)"></i>Erledigt</span>
           <span><i style="background:var(--red-mid)"></i>Nicht erledigt</span>

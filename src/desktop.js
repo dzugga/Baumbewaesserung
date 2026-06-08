@@ -3942,15 +3942,24 @@ function dashTourStats(reported){
   });
 }
 
+function dashFilterTours(q){
+  q=(q||'').toLowerCase().trim();
+  document.querySelectorAll('#dash-tour-progress .dsh-tour-row').forEach(row=>{
+    row.style.display = !q || (row.dataset.name||'').includes(q) ? '' : 'none';
+  });
+}
 function dashRenderTourProgress(reported){
   const el=document.getElementById('dash-tour-progress'); if(!el)return;
-  if(tours.length===0){ el.innerHTML='<div class="dsh-empty">Keine Touren angelegt</div>'; return; }
-  el.innerHTML=dashTourStats(reported).map(({t,total,bewN,nichtN,offen})=>{
+  const cntEl=document.getElementById('dash-tour-count');
+  if(tours.length===0){ el.innerHTML='<div class="dsh-empty">Keine Touren angelegt</div>'; if(cntEl)cntEl.textContent=''; return; }
+  const stats=dashTourStats(reported);
+  if(cntEl) cntEl.textContent=`(${stats.length})`;
+  el.innerHTML=stats.map(({t,total,bewN,nichtN,offen})=>{
     const base=Math.max(total,bewN+nichtN,1);
     const bewW=bewN/base*100,nichtW=nichtN/base*100,offenW=offen/base*100;
     const pct=total>0?Math.round(bewN/total*100):(bewN+nichtN>0?Math.round(bewN/(bewN+nichtN)*100):0);
     const color=t.color||TOUR_COLORS[0];
-    return `<div class="dsh-tour-row">
+    return `<div class="dsh-tour-row" data-name="${(t.name||'Tour').toLowerCase().replace(/"/g,'')}">
       <div class="dsh-tour-head">
         <span class="dsh-dot" style="background:${color};"></span>
         <span class="dsh-tour-name">${t.name||'Tour'}</span>
@@ -3969,6 +3978,7 @@ function dashRenderTourProgress(reported){
       </div>
     </div>`;
   }).join('');
+  const s=document.getElementById('dash-tour-search'); if(s&&s.value) dashFilterTours(s.value);
 }
 
 function dashRenderReasons(nichtTrees){
@@ -4767,7 +4777,7 @@ function renderKiConfig(){
 Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,
   dispoSimulate,dispoPlan,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
-  dashSetPeriod,renderDashboard,refreshDashboard,
+  dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,filterDetailTable,filterBaeumeTable,saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,
   createProject,openProject,showProjectScreen,
