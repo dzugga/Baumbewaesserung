@@ -422,16 +422,21 @@ async function confirmDeleteProject(){
   try{
     const pid=currentProjectId;
 
-    // Delete all subcollections
+    // Alle Unter-Sammlungen löschen — in Sammel-Batches (<=450) statt einzeln
     const subcollections=['trees','tours','routes','reasons','tourHistory'];
+    let allDocs=[];
     for(const sub of subcollections){
       const snap=await getDocs(collection(db,'projects',pid,sub));
-      for(const d of snap.docs){
-        await deleteDoc(doc(db,'projects',pid,sub,d.id));
-      }
+      allDocs.push(...snap.docs.map(d=>d.ref));
+    }
+    const CH=450; // Firestore-Batch-Limit 500
+    for(let i=0;i<allDocs.length;i+=CH){
+      const batch=db.batch();
+      allDocs.slice(i,i+CH).forEach(ref=>batch.delete(ref));
+      await batch.commit();
     }
 
-    // Delete project document itself
+    // Projekt-Dokument selbst löschen
     await deleteDoc(doc(db,'projects',pid));
 
     setSyncState('ok','Synchronisiert');
