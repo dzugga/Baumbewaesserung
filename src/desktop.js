@@ -989,9 +989,11 @@ function objFilterActive(){ return Object.values(objFilter).some(Boolean); }
 function applyObjFilter(){ renderList(); setMarkerVisibility(); updateObjFilterCount(); }
 function resetObjFilter(){ objFilter={stadtteil:'',art:'',pflanzjahr:'',zustand:'',wasser:'',status:''}; renderObjFilterUI(); applyObjFilter(); }
 function updateObjFilterCount(){
+  const active=objFilterActive();
+  const fb=document.getElementById('btn-toggle-filter'); if(fb) fb.style.borderColor=active?'var(--green)':'var(--border)';
   const el=document.getElementById('obj-filter-count'); if(!el)return;
   const act=trees.filter(isActive);
-  el.textContent = objFilterActive()? `${act.filter(objMatchesPropFilter).length}/${act.length}` : '';
+  el.textContent = active? `${act.filter(objMatchesPropFilter).length}/${act.length}` : '';
 }
 function renderObjFilterUI(){
   const el=document.getElementById('obj-filter'); if(!el)return;
@@ -1000,39 +1002,39 @@ function renderObjFilterUI(){
   const esc=s=>String(s).replace(/"/g,'&quot;').replace(/</g,'&lt;');
   const opt=(vals,sel,all)=>`<option value="">${all}</option>`+vals.map(v=>`<option value="${esc(v)}"${v===sel?' selected':''}>${esc(v)}</option>`).join('');
   const ss='padding:4px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);min-width:0;width:100%;font-family:inherit;';
-  const isOpen=el.dataset.open==='true';   // standardmäßig zugeklappt
   const active=objFilterActive();
-  el.innerHTML=`<div style="padding:8px 16px;border-bottom:1px solid var(--border);">
-    <div data-action="toggle-objfilter" style="display:flex;align-items:center;gap:6px;cursor:pointer;${isOpen?'margin-bottom:6px;':''}">
+  el.innerHTML=`<div style="padding:10px 12px;">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
       <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text3);">Filter</span>
       ${active?`<button data-action="reset-objfilter" style="border:none;background:none;color:#1d4ed8;font-size:11px;cursor:pointer;padding:0;">zurücksetzen</button>`:''}
       <span id="obj-filter-count" style="margin-left:auto;font-size:11px;color:${active?'var(--green)':'var(--text3)'};font-weight:${active?'600':'400'};"></span>
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="color:var(--text3);transition:transform .2s;transform:rotate(${isOpen?180:0}deg);flex-shrink:0;"><path d="M6 9l6 6 6-6"/></svg>
     </div>
-    <div id="objfilter-body" style="display:${isOpen?'block':'none'};">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;">
-        <select id="of-stadtteil" style="${ss}">${opt(distinct('stadtteil'),objFilter.stadtteil,'Alle Stadtteile')}</select>
-        <select id="of-art" style="${ss}">${opt(distinct('art'),objFilter.art,'Alle Typen')}</select>
-        <select id="of-pflanzjahr" style="${ss}">${opt(distinct('pflanzjahr'),objFilter.pflanzjahr,'Alle Jahre')}</select>
-        <select id="of-zustand" style="${ss}">${opt(['gut','mittel','schlecht'],objFilter.zustand,'Alle Zustände')}</select>
-        <select id="of-wasser" style="${ss}">${opt(['gering','mittel','hoch'],objFilter.wasser,'Alle Prioritäten')}</select>
-        <select id="of-status" style="${ss}"><option value="">Alle Status</option><option value="bewaessert"${objFilter.status==='bewaessert'?' selected':''}>✓ Erledigt</option><option value="nicht"${objFilter.status==='nicht'?' selected':''}>✕ Nicht erledigt</option><option value="offen"${objFilter.status==='offen'?' selected':''}>○ Offen</option></select>
-      </div>
-      <label style="display:flex;align-items:center;gap:6px;margin-top:7px;font-size:11px;cursor:pointer;color:var(--text2);">
-        <input type="checkbox" id="of-map"${objFilterOnMap?' checked':''}> Nur gefilterte auf der Karte zeigen
-      </label>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;">
+      <select id="of-stadtteil" style="${ss}">${opt(distinct('stadtteil'),objFilter.stadtteil,'Alle Stadtteile')}</select>
+      <select id="of-art" style="${ss}">${opt(distinct('art'),objFilter.art,'Alle Typen')}</select>
+      <select id="of-pflanzjahr" style="${ss}">${opt(distinct('pflanzjahr'),objFilter.pflanzjahr,'Alle Jahre')}</select>
+      <select id="of-zustand" style="${ss}">${opt(['gut','mittel','schlecht'],objFilter.zustand,'Alle Zustände')}</select>
+      <select id="of-wasser" style="${ss}">${opt(['gering','mittel','hoch'],objFilter.wasser,'Alle Prioritäten')}</select>
+      <select id="of-status" style="${ss}"><option value="">Alle Status</option><option value="bewaessert"${objFilter.status==='bewaessert'?' selected':''}>✓ Erledigt</option><option value="nicht"${objFilter.status==='nicht'?' selected':''}>✕ Nicht erledigt</option><option value="offen"${objFilter.status==='offen'?' selected':''}>○ Offen</option></select>
     </div>
+    <label style="display:flex;align-items:center;gap:6px;margin-top:7px;font-size:11px;cursor:pointer;color:var(--text2);">
+      <input type="checkbox" id="of-map"${objFilterOnMap?' checked':''}> Nur gefilterte auf der Karte zeigen
+    </label>
   </div>`;
   const wire={stadtteil:'of-stadtteil',art:'of-art',pflanzjahr:'of-pflanzjahr',zustand:'of-zustand',wasser:'of-wasser',status:'of-status'};
   Object.entries(wire).forEach(([k,id])=>{ const s=document.getElementById(id); if(s) s.onchange=()=>{ objFilter[k]=s.value; applyObjFilter(); }; });
   const mp=document.getElementById('of-map'); if(mp) mp.onchange=()=>{ objFilterOnMap=mp.checked; setMarkerVisibility(); };
-  const hdr=el.querySelector('[data-action="toggle-objfilter"]');
-  if(hdr) hdr.onclick=e=>{
-    if(e.target.closest('[data-action="reset-objfilter"]')){ resetObjFilter(); return; }
-    el.dataset.open=isOpen?'false':'true';
-    renderObjFilterUI();
-  };
+  const rb=el.querySelector('[data-action="reset-objfilter"]'); if(rb) rb.onclick=()=>resetObjFilter();
+  const fb=document.getElementById('btn-toggle-filter'); if(fb) fb.style.borderColor=active?'var(--green)':'var(--border)';
   updateObjFilterCount();
+}
+// Filter-Panel auf der Karte ein-/ausblenden (Knopf unter dem Auge)
+function toggleMapFilter(){
+  const p=document.getElementById('map-filter-panel'); if(!p) return;
+  const open=getComputedStyle(p).display==='none';
+  p.style.display=open?'block':'none';
+  const btn=document.getElementById('btn-toggle-filter');
+  if(btn) btn.style.background=open?'var(--green-light)':'var(--surface)';
 }
 
 function refreshMarkers(){
@@ -5668,7 +5670,7 @@ Object.assign(window,{
   openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,
   addWmsLayer,deleteWmsLayer,renderWmsList,
   setFilter,pickColor,renderList,
-  toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,
+  toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
