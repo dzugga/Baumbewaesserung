@@ -2516,8 +2516,6 @@ function switchView(v){
   const kiconfig=document.getElementById('view-kiconfig');
   const disposition=document.getElementById('view-disposition');
   const verwaltung=document.getElementById('view-verwaltung');
-  const rollen=document.getElementById('view-rollen');
-  if(rollen) rollen.style.display=v==='rollen'?'block':'none';
   const benutzer=document.getElementById('view-benutzer');
   if(benutzer) benutzer.style.display=v==='benutzer'?'block':'none';
   if(baeume) baeume.style.display=v==='baeume'?'flex':'none';
@@ -2551,14 +2549,24 @@ function switchView(v){
   if(v==='kiconfig') renderKiConfig();
   if(v==='disposition') initDispo();
   if(v==='verwaltung') initVerwaltung();
-  if(v==='rollen') renderRollenView();
   if(v==='benutzer') initBenutzer();
 }
 async function initBenutzer(){
   if(currentRole!=='superadmin' && currentCap!=='admin') return;
   await loadRoles();
+  const stepRollen=document.getElementById('benutzer-step-rollen');
+  if(stepRollen) stepRollen.style.display = (currentRole==='superadmin') ? '' : 'none';
+  if(currentRole==='superadmin') renderRollenView(); // füllt #rollen-content
   renderDriverLogins();
   renderUserMgmt();
+}
+function toggleBenutzerRollen(){
+  const body=document.getElementById('rollen-content');
+  const chev=document.getElementById('benutzer-rollen-chevron');
+  if(!body) return;
+  const open=body.style.display==='none';
+  body.style.display=open?'block':'none';
+  if(chev) chev.style.transform=open?'rotate(180deg)':'rotate(0)';
 }
 
 let _baeumeAllTrees = []; // cache for search
@@ -5650,7 +5658,7 @@ Object.assign(window,{
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
-  renderRollenView,saveRole,addRole,deleteRole,
+  renderRollenView,saveRole,addRole,deleteRole,toggleBenutzerRollen,
   startGpsPlacement,toggleFilterNoGps,updateBtnFilterNoGps,
   saveFieldLabels, migrateTourIds,
   doLogin, doLogout, toggleLoginMode,
