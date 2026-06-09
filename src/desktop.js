@@ -1812,7 +1812,8 @@ function fillTourSelect(sel){
 function openAddTree(lat,lng){
   editingTreeId=null;
   document.getElementById('modal-tree-title').textContent='Baum hinzufügen';
-  ['f-name','f-stadtteil','f-baumnr','f-art','f-pflanzjahr','f-pflanzzeitpunkt','f-notiz'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  ['f-name','f-stadtteil','f-baumnr','f-pflanzjahr','f-pflanzzeitpunkt','f-notiz'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  fillArtSelect('');
   document.getElementById('f-wasser').value='mittel';
   document.getElementById('f-zustand').value='mittel';
   document.getElementById('f-datum').value='';
@@ -1826,14 +1827,25 @@ function openAddTree(lat,lng){
   document.getElementById('tree-modal').classList.add('open');
 }
 
-function openEditTree(id){
+// Typ/Art-Dropdown aus der projekteigenen Arten-Liste füllen (keine Freitexteingabe)
+async function fillArtSelect(current){
+  const sel=document.getElementById('f-art'); if(!sel) return;
+  if(artenList.length===0) await loadArten();
+  let names=[...new Set(artenList.map(a=>a.name).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  current=(current||'').trim();
+  if(current && !names.includes(current)) names.unshift(current); // bestehenden Wert nicht verlieren
+  sel.innerHTML=`<option value="">— bitte wählen —</option>`+names.map(n=>`<option value="${dlEsc(n)}"${n===current?' selected':''}>${dlEsc(n)}</option>`).join('');
+  sel.value=current||'';
+}
+
+async function openEditTree(id){
   const tree=trees.find(t=>t.id===id);if(!tree)return;
   editingTreeId=id;
   document.getElementById('modal-tree-title').textContent='Baum bearbeiten';
   document.getElementById('f-name').value=tree.name||'';
   document.getElementById('f-stadtteil').value=tree.stadtteil||'';
   document.getElementById('f-baumnr').value=tree.baumnr||'';
-  document.getElementById('f-art').value=tree.art||'';
+  fillArtSelect(tree.art||'');
   document.getElementById('f-pflanzjahr').value=tree.pflanzjahr||'';
   document.getElementById('f-pflanzzeitpunkt').value=tree.pflanzzeitpunkt||'';
   document.getElementById('f-lat').value=tree.lat||'';
@@ -1863,11 +1875,14 @@ async function saveTree(){
   const name=document.getElementById('f-name').value.trim();
   if(!name){alert('Bitte einen Namen eingeben.');return;}
   setSyncState('syncing','Speichert…');
+  const artVal=(document.getElementById('f-art').value||'').trim();
+  const artIdVal=artenList.find(a=>a.name===artVal)?.id||null;
   const data={
     name,
     stadtteil:document.getElementById('f-stadtteil').value,
     baumnr:document.getElementById('f-baumnr').value,
-    art:document.getElementById('f-art').value,
+    art:artVal,
+    artId:artIdVal,
     pflanzjahr:document.getElementById('f-pflanzjahr').value,
     pflanzzeitpunkt:document.getElementById('f-pflanzzeitpunkt').value,
     lat:parseFloat(document.getElementById('f-lat').value)||null,
