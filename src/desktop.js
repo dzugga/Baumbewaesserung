@@ -7,8 +7,16 @@ function collection(db,...segs){ let r=db; for(let i=0;i<segs.length;i++) r=(i%2
 function doc(db,...segs){ let r=db; for(let i=0;i<segs.length;i++) r=(i%2===0)?r.collection(segs[i]):r.doc(segs[i]); return r; }
 function getDoc(ref){ return ref.get(); }
 function getDocs(ref){ return ref.get(); }
-function addDoc(ref,data){ return ref.add(data); }
-function setDoc(ref,data,opts){ return opts?ref.set(data,opts):ref.set(data); }
+// Hängt orgId automatisch an Dokumente innerhalb projects/{id}/<sub>/… (denormalisiert für Rules)
+function _injectOrg(ref,data){
+  if(!data || typeof data!=='object' || Array.isArray(data) || data.orgId!==undefined) return data;
+  const path = ref && ref.path || '';
+  if(/^projects\/[^/]+\/.+/.test(path) && currentProjectData && currentProjectData.orgId)
+    return {...data, orgId: currentProjectData.orgId};
+  return data;
+}
+function addDoc(ref,data){ return ref.add(_injectOrg(ref,data)); }
+function setDoc(ref,data,opts){ data=_injectOrg(ref,data); return opts?ref.set(data,opts):ref.set(data); }
 function updateDoc(ref,data){ return ref.update(data); }
 function deleteDoc(ref){ return ref.delete(); }
 function onSnapshot(ref,cb){ return ref.onSnapshot(cb); }
@@ -101,6 +109,9 @@ function applyFieldLabels() {
 // ─── STATE ────────────────────────────────────────────────────
 let currentProjectId = null;
 let currentProjectData = null;
+let currentUser = null;   // Firebase-Auth-Nutzer
+let currentRole = '';     // aus Custom Claims
+let currentOrg  = '';     // aus Custom Claims
 let _dataViewProject = null;      // Projekt, für das Controlling/Dashboard zuletzt aufgebaut wurde
 let _dataViewSyncQueued = false;  // Debounce für Neuaufbau beim Projektwechsel
 let _histListProject = null;      // Projekt, für das die untere Historie-Liste geladen wurde
@@ -223,7 +234,10 @@ let unsubProjects=null;
 function initProjectScreen(){
   document.getElementById('project-screen').style.display='flex';
   if(unsubProjects)unsubProjects();
-  const q=query(collection(db,'projects'),orderBy('createdAt'));
+  // Superadmin sieht alle Mandanten; sonst nur die eigene Org
+  const q = (currentRole==='superadmin')
+    ? db.collection('projects').orderBy('createdAt')
+    : db.collection('projects').where('orgId','==',currentOrg);
   unsubProjects=onSnapshot(q,snap=>{
     const psList=document.getElementById('ps-list');
     const sync=document.getElementById('ps-sync');
@@ -232,9 +246,12 @@ function initProjectScreen(){
       psList.innerHTML='<div class="ps-empty">Noch keine Projekte. Erstelle dein erstes Projekt unten.</div>';
       return;
     }
+    // bei nicht-Superadmin clientseitig nach createdAt sortieren (vermeidet Composite-Index)
+    const docs=[...snap.docs];
+    if(currentRole!=='superadmin') docs.sort((a,b)=>(a.data().createdAt?.seconds||0)-(b.data().createdAt?.seconds||0));
     // Use async IIFE to allow await inside onSnapshot callback
     (async()=>{
-      const projectsWithCounts = await Promise.all(snap.docs.map(async d=>{
+      const projectsWithCounts = await Promise.all(docs.map(async d=>{
         const data=d.data();
         const treesSnap=await getDocs(collection(db,'projects',d.id,'trees'));
         const toursSnap=await getDocs(collection(db,'projects',d.id,'tours'));
@@ -263,7 +280,7 @@ async function createProject(){
   try{
     const ref=await addDoc(collection(db,'projects'),{
       name, treeCount:0, tourCount:0, depot:null, orsKey:'', depotMode:'round',
-      createdAt:serverTimestamp()
+      createdAt:serverTimestamp(), orgId: currentOrg
     });
     document.getElementById('ps-new-name').value='';
     openProject(ref.id);
@@ -3196,6 +3213,7 @@ async function doImport(){
           lat:(la==null?null:la), lng:(lo==null?null:lo),
           wasser:'mittel',zustand:'mittel', datum:'',tourId:'',tourIds:[],history:[],
           baumId, createdAt:serverTimestamp(),
+          orgId: currentProjectData?.orgId || currentOrg,
         });
         imported++;
       }
@@ -5328,9 +5346,50 @@ Object.assign(window,{
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,
   startGpsPlacement,toggleFilterNoGps,updateBtnFilterNoGps,
   saveFieldLabels, migrateTourIds,
+  doLogin, doLogout,
 });
 
-initProjectScreen();
+// ─── AUTH-GATE ────────────────────────────────────────────────
+function showLogin(msg){
+  const ls=document.getElementById('login-screen'); if(ls) ls.style.display='flex';
+  const ps=document.getElementById('project-screen'); if(ps) ps.style.display='none';
+  const e=document.getElementById('login-error'); if(e) e.textContent=msg||'';
+  const b=document.getElementById('login-btn'); if(b){ b.disabled=false; b.textContent='Anmelden'; }
+}
+function hideLogin(){ const ls=document.getElementById('login-screen'); if(ls) ls.style.display='none'; }
+function updateUserChip(){
+  const el=document.getElementById('user-chip-text');
+  if(el) el.textContent=(currentUser?.email||'')+(currentRole?(' · '+currentRole):'');
+}
+async function doLogin(){
+  const email=(document.getElementById('login-email')?.value||'').trim();
+  const pass=document.getElementById('login-pass')?.value||'';
+  const err=document.getElementById('login-error');
+  const btn=document.getElementById('login-btn');
+  if(!email||!pass){ if(err) err.textContent='Bitte E-Mail und Passwort eingeben'; return; }
+  if(btn){ btn.disabled=true; btn.textContent='Anmelden…'; } if(err) err.textContent='';
+  try{
+    await firebase.auth().signInWithEmailAndPassword(email,pass);
+  }catch(e){
+    const code=e&&e.code||'';
+    if(err) err.textContent=/invalid-credential|wrong-password|user-not-found|invalid-email/.test(code)
+      ? 'E-Mail oder Passwort falsch' : ('Fehler: '+((e&&e.message)||code));
+    if(btn){ btn.disabled=false; btn.textContent='Anmelden'; }
+  }
+}
+async function doLogout(){ try{ await firebase.auth().signOut(); }catch(e){} location.reload(); }
+
+firebase.auth().onAuthStateChanged(async (user)=>{
+  if(user){
+    try{ const tok=await user.getIdTokenResult(); currentUser=user; currentRole=tok.claims.role||''; currentOrg=tok.claims.orgId||''; }
+    catch(e){ currentRole=''; currentOrg=''; }
+    if(!currentRole){ showLogin('Dieses Konto hat keine Berechtigung. Bitte an den Administrator wenden.'); return; }
+    hideLogin(); updateUserChip(); initProjectScreen();
+  } else {
+    currentUser=null; currentRole=''; currentOrg='';
+    showLogin('');
+  }
+});
 
 (()=>{ const el=document.getElementById('app-version'); if(el) el.textContent=`Version ${APP_VERSION}`; })();
 
