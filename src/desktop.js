@@ -785,6 +785,7 @@ async function loadSavedRoutes(){
 
 // Manually triggered: recalculate + save route for one tour via ORS
 async function calculateAndSaveRoute(tourId){
+  if(isReadonly()){ notify('Nur Lesezugriff'); return; }
   if(!getRoutePlanningEnabled()){ notify('Reihenfolgeplanung ist deaktiviert'); return; }
   const tour=tours.find(t=>t.id===tourId);if(!tour)return;
   const trs=trees.filter(t=>treeInTour(t,tourId)&&t.lat&&t.lng&&t.aktiv!==false);
@@ -847,6 +848,7 @@ async function calculateAndSaveRoute(tourId){
 
 // Calculate all tours at once
 async function calculateAllRoutes(){
+  if(isReadonly()){ notify('Nur Lesezugriff'); return; }
   if(!getRoutePlanningEnabled()){ notify('Reihenfolgeplanung ist deaktiviert'); return; }
   for(const tour of tours){
     await calculateAndSaveRoute(tour.id);
@@ -1661,7 +1663,7 @@ function openDetail(id){
           </label>`;
         }).join('')}
       </div>
-      <button class="btn btn-primary" style="padding:5px 12px;font-size:12px;width:100%;" onclick="saveInlineFields('${id}')">Touren speichern</button>
+      <button class="btn btn-primary" style="padding:5px 12px;font-size:12px;width:100%;${isReadonly()?'opacity:.45;cursor:not-allowed;':''}" ${isReadonly()?'disabled title="Nur Lesezugriff"':`onclick="saveInlineFields('${id}')"`}>Touren speichern</button>
     </div>
 
     ${tree.notiz?`<div style="margin:8px 0;padding:10px;background:var(--surface2);border-radius:var(--radius-sm);font-size:12px;color:var(--text2);">${tree.notiz}</div>`:''}
@@ -1769,6 +1771,7 @@ function closePanel(){
 }
 
 async function saveInlineFields(id){
+  if(isReadonly()){ notify('Nur Lesezugriff'); return; }
   const wasser=document.getElementById('inline-wasser')?.value;
   const zustand=document.getElementById('inline-zustand')?.value;
   // Touren aus Checkbox-Auswahl lesen
@@ -2303,9 +2306,11 @@ function getRoutePlanningEnabled(){
   const v = localStorage.getItem('bwt_route_planning');
   return v === null ? true : v === 'true';
 }
-// Routen-Berechnen-Buttons deaktivieren, wenn Reihenfolgeplanung aus ist
-function rpDisAttr(){ return getRoutePlanningEnabled() ? '' : ' disabled title="Reihenfolgeplanung ist deaktiviert"'; }
-function rpDisStyle(){ return getRoutePlanningEnabled() ? '' : 'opacity:.45;cursor:not-allowed;'; }
+// Nur-Lesezugriff: keine Planungs-/Speicher-Aktionen
+function isReadonly(){ return currentCap==='readonly'; }
+// Routen-Berechnen-Buttons deaktivieren, wenn Reihenfolgeplanung aus ist ODER nur Lesezugriff
+function rpDisAttr(){ return isReadonly() ? ' disabled title="Nur Lesezugriff"' : (getRoutePlanningEnabled() ? '' : ' disabled title="Reihenfolgeplanung ist deaktiviert"'); }
+function rpDisStyle(){ return (isReadonly()||!getRoutePlanningEnabled()) ? 'opacity:.45;cursor:not-allowed;' : ''; }
 
 function toggleRoutePlanning(){
   const newVal = !getRoutePlanningEnabled();
@@ -2858,7 +2863,7 @@ function renderTourenGrid(){
 
   // "Alle Routen berechnen"-Toolbar-Button je nach Reihenfolgeplanung
   const allBtn=document.getElementById('btn-calc-all-toolbar');
-  if(allBtn){ const off=!getRoutePlanningEnabled(); allBtn.disabled=off; allBtn.style.opacity=off?'0.45':''; allBtn.style.cursor=off?'not-allowed':''; allBtn.title=off?'Reihenfolgeplanung ist deaktiviert':''; }
+  if(allBtn){ const off=!getRoutePlanningEnabled()||isReadonly(); allBtn.disabled=off; allBtn.style.opacity=off?'0.45':''; allBtn.style.cursor=off?'not-allowed':''; allBtn.title=isReadonly()?'Nur Lesezugriff':(off?'Reihenfolgeplanung ist deaktiviert':''); }
 }
 
 async function focusTourAndSwitch(id){ switchView('karte');setTimeout(()=>focusTour(id),80); }
