@@ -275,6 +275,9 @@ function setSyncState(state,text){
 let unsubProjects=null;
 function initProjectScreen(){
   document.getElementById('project-screen').style.display='flex';
+  // „Neue Stadt erstellen" nur für Superadmin
+  const psNew=document.getElementById('ps-new');
+  if(psNew) psNew.style.display=(currentRole==='superadmin')?'':'none';
   if(unsubProjects)unsubProjects();
   // Superadmin sieht alle Mandanten; sonst nur die eigene Org
   const q = (currentRole==='superadmin')
@@ -317,6 +320,7 @@ function initProjectScreen(){
 }
 
 async function createProject(){
+  if(currentRole!=='superadmin'){ notify('Nur Superadmin kann neue Städte anlegen'); return; }
   const name=document.getElementById('ps-new-name').value.trim();
   if(!name)return;
   try{

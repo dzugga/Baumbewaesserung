@@ -264,7 +264,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <div class="ps-list" id="ps-list">
       <div class="ps-loading"><div class="spinner"></div> Lade Projekte…</div>
     </div>
-    <div class="ps-new">
+    <div class="ps-new" id="ps-new" style="display:none;">
       <input type="text" id="ps-new-name" placeholder="Neue Stadt z.B. Osnabrück…" onkeydown="if(event.key==='Enter')createProject()">
       <button class="btn btn-primary" onclick="createProject()">Erstellen</button>
     </div>
