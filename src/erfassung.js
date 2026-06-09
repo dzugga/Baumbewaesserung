@@ -81,6 +81,9 @@ async function syncQueue() {
 let currentProjectId = null;
 let currentProjectData = null;
 let currentErfasser = null;
+let currentUser = null;     // Firebase-Auth-Nutzer
+let currentRole = '';       // Custom Claims
+let currentOrg  = '';       // Custom Claims
 let allTrees = [];          // alle Bäume des Projekts
 let treesOhneKoords = [];   // Bäume ohne Koordinaten (Modus 2)
 let selectedTree = null;    // für Modus 2
@@ -393,83 +396,92 @@ function centerOnGPS(map, markerRef, onSuccess) {
 }
 
 // ─── LOGIN ────────────────────────────────────────────────────
-async function loadProjects() {
-  const snap = await db.collection('projects').get();
-  const sel = document.getElementById('login-project');
-  sel.innerHTML = '<option value="">– Projekt wählen –</option>' +
-    snap.docs.map(d => `<option value="${d.id}">${d.data().name}</option>`).join('');
-  if (snap.size === 1) {
-    sel.value = snap.docs[0].id;
-    await onProjectChange();
-  }
+// ─── AUTH / LOGIN (E-Mail -> Projektauswahl) ──────────────────
+function _erfErr(m){ const e=document.getElementById('login-error'); if(e){ e.textContent=m; e.style.display=m?'block':'none'; } }
+function _erfBtn(txt,dis){ const b=document.getElementById('btn-login'),l=document.getElementById('btn-login-label'); if(l)l.textContent=txt; if(b)b.disabled=!!dis; }
+
+function showLoginStep1(msg){
+  document.getElementById('screen-login').classList.add('active');
+  ['lg-email','lg-pass'].forEach(id=>{const g=document.getElementById(id);if(g)g.style.display='';});
+  const pg=document.getElementById('lg-project'); if(pg) pg.style.display='none';
+  _erfBtn('Anmelden', false); _erfErr(msg||'');
+}
+async function showProjectStep(){
+  document.getElementById('screen-login').classList.add('active');
+  ['lg-email','lg-pass'].forEach(id=>{const g=document.getElementById(id);if(g)g.style.display='none';});
+  const pg=document.getElementById('lg-project'); if(pg) pg.style.display='';
+  _erfBtn('Starten', false); _erfErr('');
+  await loadProjects();
 }
 
-async function onProjectChange() {
-  const pid = document.getElementById('login-project').value;
-  const erfSel = document.getElementById('login-erfasser');
-  erfSel.innerHTML = '<option value="">– Erfasser wählen –</option>';
-  if (!pid) return;
-  const snap = await db.collection('projects').doc(pid).get();
-  const erfasser = snap.data()?.erfasser || [];
-  erfSel.innerHTML = '<option value="">– Erfasser wählen –</option>' +
-    erfasser.map(n => `<option value="${n}">${n}</option>`).join('');
-  if (erfasser.length === 1) erfSel.value = erfasser[0];
+async function loadProjects() {
+  const ref=db.collection('projects');
+  const snap = currentRole==='superadmin' ? await ref.get() : await ref.where('orgId','==',currentOrg).get();
+  const sel = document.getElementById('login-project');
+  const docs=snap.docs;
+  sel.innerHTML = '<option value="">– Projekt wählen –</option>' +
+    docs.map(d => `<option value="${d.id}">${d.data().name}</option>`).join('');
+  if (docs.length === 1) sel.value = docs[0].id;
 }
 
 async function doLogin() {
-  const pid = document.getElementById('login-project').value;
-  const erfasser = document.getElementById('login-erfasser').value;
-  const errEl = document.getElementById('login-error');
-  errEl.style.display = 'none';
-  if (!pid || !erfasser) {
-    errEl.textContent = 'Bitte alle Felder ausfüllen.';
-    errEl.style.display = 'block';
+  _erfErr('');
+  const projGroup=document.getElementById('lg-project');
+  // Schritt 2: Projekt gewählt -> starten
+  if(currentUser && projGroup && projGroup.style.display!=='none'){
+    const pid=document.getElementById('login-project').value;
+    if(!pid){ _erfErr('Bitte Projekt wählen.'); return; }
+    await startErfassung(pid);
     return;
   }
+  // Schritt 1: anmelden
+  const email=(document.getElementById('login-email')?.value||'').trim();
+  const pass=document.getElementById('login-pass')?.value||'';
+  if(!email||!pass){ _erfErr('Bitte E-Mail und Passwort eingeben.'); return; }
+  _erfBtn('Anmelden…', true);
+  try{ await firebase.auth().signInWithEmailAndPassword(email,pass); }
+  catch(e){ const c=e&&e.code||''; _erfErr(/invalid-credential|wrong-password|user-not-found|invalid-email/.test(c)?'E-Mail oder Passwort falsch':('Fehler: '+(e.message||c))); _erfBtn('Anmelden',false); }
+}
+
+async function startErfassung(pid){
   const snap = await db.collection('projects').doc(pid).get();
   currentProjectData = { id: pid, ...snap.data() };
   currentProjectId = pid;
-  currentErfasser = erfasser;
 
-  // Alle Bäume laden (Firestore-Cache greift automatisch wenn offline)
   try {
     const treesSnap = await db.collection('projects').doc(pid).collection('trees').get();
     allTrees = treesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    cacheTreesLocal(pid, erfasser, allTrees); // lokal sichern
+    cacheTreesLocal(pid, currentErfasser, allTrees);
   } catch(e) {
-    // Offline-Fallback: aus localStorage
-    const cached = loadCachedTrees(pid, erfasser);
+    const cached = loadCachedTrees(pid, currentErfasser);
     allTrees = cached || [];
     if (allTrees.length > 0) toast('📦 Offline — lokale Daten geladen');
   }
   treesOhneKoords = allTrees.filter(t => !t.lat || !t.lng);
 
-  // UI aufbauen
   document.getElementById('header-project').textContent = currentProjectData.name;
-  document.getElementById('header-erfasser').textContent = erfasser;
+  document.getElementById('header-erfasser').textContent = currentErfasser;
   document.getElementById('screen-login').classList.remove('active');
   document.getElementById('screen-app').classList.add('active');
 
   renderKoordList('');
   initMapNeu();
   initMapKoord();
-  setTimeout(() => loadErfassteMarkers(), 500); // nach Map-Init
+  setTimeout(() => loadErfassteMarkers(), 500);
 
-  // Auf Stadtmitte zoomen — Median-Koordinate für Robustheit gegen Ausreißer
   const withCoords = allTrees.filter(t => t.lat && t.lng && t.lat > 40 && t.lat < 55 && t.lng > 5 && t.lng < 15);
   if (withCoords.length > 0) {
     const sortedLats = [...withCoords.map(t => t.lat)].sort((a,b)=>a-b);
     const sortedLngs = [...withCoords.map(t => t.lng)].sort((a,b)=>a-b);
     const mid = Math.floor(sortedLats.length / 2);
-    const centerLat = sortedLats[mid];
-    const centerLng = sortedLngs[mid];
-    mapNeu.setView([centerLat, centerLng], 14);
-    mapKoord.setView([centerLat, centerLng], 14);
+    mapNeu.setView([sortedLats[mid], sortedLngs[mid]], 14);
+    mapKoord.setView([sortedLats[mid], sortedLngs[mid]], 14);
   }
 }
 
-function doLogout() {
+async function doLogout() {
   if (!confirm('Abmelden?')) return;
+  try{ await firebase.auth().signOut(); }catch(_){}
   location.reload();
 }
 
@@ -771,6 +783,7 @@ async function saveNewTree() {
     tourId: '', datum: '', history: [],
     erfasstVon: currentErfasser,
     createdAt: new Date().toISOString(),
+    orgId: currentProjectData?.orgId || currentOrg,
   };
 
   // UI sofort aktualisieren (optimistic)
@@ -824,9 +837,9 @@ function switchMode(mode) {
 
 // ─── INIT ─────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-  // Login
-  document.getElementById('login-project').addEventListener('change', onProjectChange);
+  // Login (E-Mail -> Projektauswahl)
   document.getElementById('btn-login').addEventListener('click', doLogin);
+  document.getElementById('login-pass')?.addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
   document.getElementById('btn-logout').addEventListener('click', doLogout);
   document.getElementById('btn-reload')?.addEventListener('click', hardReload);
 
@@ -873,13 +886,18 @@ document.addEventListener('DOMContentLoaded', () => {
   updateNetworkBadge();
   if (isOnline) syncQueue();
 
-  // Projekte laden + Loading ausblenden + Login zeigen
-  loadProjects().then(() => {
+  // Auth-Gate: entscheidet Login vs. Projektauswahl
+  firebase.auth().onAuthStateChanged(async (user) => {
     hideLoading();
-    document.getElementById('screen-login').classList.add('active');
-  }).catch(e => {
-    console.error(e);
-    hideLoading();
-    document.getElementById('screen-login').classList.add('active');
+    if (user) {
+      try { const tok = await user.getIdTokenResult(); currentUser = user; currentRole = tok.claims.role || ''; currentOrg = tok.claims.orgId || ''; }
+      catch (e) { currentRole = ''; currentOrg = ''; }
+      if (!currentRole) { showLoginStep1('Dieses Konto hat keine Berechtigung. Bitte an den Administrator wenden.'); return; }
+      currentErfasser = user.email || user.uid;
+      showProjectStep();
+    } else {
+      currentUser = null; currentRole = ''; currentOrg = '';
+      showLoginStep1('');
+    }
   });
 });
