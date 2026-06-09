@@ -924,10 +924,14 @@ function getRouteNum(treeId){
 
 function makeMarker(tree){
   const treeTourIds=getTreeTourIds(tree);
-  // Bei angezeigter Tour deren Farbe verwenden, wenn das Objekt zu ihr gehört
-  const tour=(activeTourOnMap && treeTourIds.includes(activeTourOnMap))
-    ? tours.find(t=>t.id===activeTourOnMap)
-    : primaryTour(tree);
+  // Farbe: 1) fokussierte Tour, 2) eine AKTIVE Tour (Mehrfachauswahl), 3) Primär-Tour
+  let tour;
+  if(activeTourOnMap && treeTourIds.includes(activeTourOnMap)){
+    tour=tours.find(t=>t.id===activeTourOnMap);
+  } else {
+    const activeId=treeTourIds.find(id=>activeTours.has(id));
+    tour = activeId ? tours.find(t=>t.id===activeId) : primaryTour(tree);
+  }
   const color=tour?tour.color:'#6b6760';
   const num=getRouteNum(tree.id);
   const isHighlighted=selectedTreeId===tree.id;
