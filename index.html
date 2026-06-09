@@ -713,7 +713,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
           <div style="font-size:13px;font-weight:700;">Personen &amp; PINs anlegen</div>
           <div style="font-size:11px;color:var(--text3);">Anmeldung per Stadt-Code + Name + PIN (mit Rolle) — gilt für alle Apps</div>
         </div>
-        <select id="dl-org" onchange="renderDriverLogins()" style="margin-left:auto;padding:4px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;"></select>
+        <select id="dl-org" onchange="onBenutzerOrgChange()" style="margin-left:auto;padding:4px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;"></select>
       </div>
       <div id="driver-logins-body" style="padding:10px 14px;"></div>
     </div>
@@ -742,6 +742,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <svg id="benutzer-touren-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="color:var(--text3);transition:transform .2s;flex-shrink:0;"><path d="M6 9l6 6 6-6"/></svg>
       </div>
       <div id="touren-content" style="display:none;border-top:1px solid var(--border);">
+        <div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span style="font-size:11px;color:var(--text3);">Projekt:</span>
+          <select id="dta-project" onchange="changeDtaProject(this.value)" style="padding:4px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;min-width:160px;"></select>
+        </div>
         <div id="driver-mgmt-list"></div>
       </div>
     </div>

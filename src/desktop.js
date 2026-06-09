@@ -2560,10 +2560,13 @@ async function initBenutzer(){
   const stepRollen=document.getElementById('benutzer-step-rollen');
   if(stepRollen) stepRollen.style.display = (currentRole==='superadmin') ? '' : 'none';
   if(currentRole==='superadmin') renderRollenView(); // füllt #rollen-content
-  renderDriverLogins();
+  await renderDriverLogins(); // setzt driverLoginsOrg (Mandant aus Schritt 2)
   renderUserMgmt();
   renderDriverMgmt(); // Schritt 4: Tour-Zuweisung (#driver-mgmt-list)
 }
+// Mandanten-Wechsel in Schritt 2 → Schritt 4 (Tour-Zuweisung) mitziehen
+function onBenutzerOrgChange(){ renderDriverLogins(); dtaProjectId=''; renderDriverMgmt(); }
+function changeDtaProject(pid){ dtaProjectId=pid; renderDriverMgmt(); }
 function toggleBenutzerRollen(){
   const body=document.getElementById('rollen-content');
   const chev=document.getElementById('benutzer-rollen-chevron');
@@ -2905,6 +2908,7 @@ function initFeldbezeichnungen(){
 
 // ─── FAHRER-LOGINS & PINs (Mehrmandanten — nutzbar nach Auth-Aktivierung) ─────
 let driverLoginsOrg = '';
+let dtaProjectId = ''; // Schritt 4: gewähltes Projekt für Tour-Zuweisung
 let dlPinEdit = null;
 const dlEsc = s => (''+(s??'')).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 function dlFnCall(name,data){
@@ -3241,18 +3245,32 @@ async function seedDefaultReasons(){
 // ── FAHRER MANAGEMENT ─────────────────────────────────────────
 async function renderDriverMgmt(){
   const el=document.getElementById('driver-mgmt-list');if(!el)return;
-  if(tours.length===0){
-    el.innerHTML='<div style="padding:10px 14px;font-size:12px;color:var(--text3);">Noch keine Touren angelegt.</div>';return;
+  const org = driverLoginsOrg || currentOrg; // Mandant aus Schritt 2
+  // Projekte des Mandanten laden → Projekt-Dropdown (Schritt 4)
+  const projSel=document.getElementById('dta-project');
+  let projs=[];
+  if(org){ try{ const qs=await db.collection('projects').where('orgId','==',org).get(); projs=qs.docs.map(d=>({id:d.id,name:d.data().name||d.id})); }catch(e){} }
+  projs.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  if(!dtaProjectId || !projs.find(p=>p.id===dtaProjectId)){
+    dtaProjectId = (projs.find(p=>p.id===currentProjectId)?.id) || projs[0]?.id || '';
   }
-  // Personen des Mandanten laden (für Zuweisungs-Dropdown)
-  let persons=[];
-  try{ if(currentProjectData?.orgId){ const qs=await db.collection('drivers').where('orgId','==',currentProjectData.orgId).get(); qs.forEach(d=>{ if(d.data().active!==false) persons.push(d.data().name); }); } }catch(e){}
+  if(projSel) projSel.innerHTML=projs.map(p=>`<option value="${dlEsc(p.id)}"${p.id===dtaProjectId?' selected':''}>${dlEsc(p.name)}</option>`).join('');
+  if(!dtaProjectId){
+    el.innerHTML='<div style="padding:10px 14px;font-size:12px;color:var(--text3);">Kein Projekt in diesem Mandanten.</div>';return;
+  }
+  // Touren des gewählten Projekts + Personen des Mandanten laden
+  let tlist=[],persons=[];
+  try{ const ts=await db.collection('projects').doc(dtaProjectId).collection('tours').get(); tlist=ts.docs.map(d=>({id:d.id,...d.data()})); }catch(e){}
+  try{ if(org){ const qs=await db.collection('drivers').where('orgId','==',org).get(); qs.forEach(d=>{ if(d.data().active!==false) persons.push(d.data().name); }); } }catch(e){}
   persons=[...new Set(persons.filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  if(tlist.length===0){
+    el.innerHTML='<div style="padding:10px 14px;font-size:12px;color:var(--text3);">Dieses Projekt hat noch keine Touren.</div>';return;
+  }
   // Spaltenanzahl: 3 bei ≥4 Touren, 2 bei 2-3, 1 bei 1
-  const cols = tours.length >= 4 ? 3 : tours.length >= 2 ? 2 : 1;
+  const cols = tlist.length >= 4 ? 3 : tlist.length >= 2 ? 2 : 1;
   el.innerHTML=`<div style="display:grid;grid-template-columns:repeat(${cols},1fr);">`+
-    tours.map((t,idx)=>{
-      const isLastRow = idx >= tours.length - (tours.length % cols || cols);
+    tlist.map((t,idx)=>{
+      const isLastRow = idx >= tlist.length - (tlist.length % cols || cols);
       const borderRight = (idx+1) % cols !== 0 ? '1px solid var(--border)' : 'none';
       const borderBottom = !isLastRow ? '1px solid var(--border)' : 'none';
       const drivers=(t.drivers||[t.assignedDriver].filter(Boolean));
@@ -3284,22 +3302,26 @@ async function renderDriverMgmt(){
 
 async function addDriver(tourId){
   const inp=document.getElementById('new-driver-'+tourId);
-  const name=inp?.value.trim();if(!name)return;
-  const tour=tours.find(t=>t.id===tourId);if(!tour)return;
-  const drivers=[...(tour.drivers||[tour.assignedDriver].filter(Boolean))];
+  const name=inp?.value.trim();if(!name||!dtaProjectId)return;
+  const ref=doc(db,'projects',dtaProjectId,'tours',tourId);
+  const snap=await getDoc(ref); const d=snap.data()||{};
+  const drivers=[...(d.drivers||[d.assignedDriver].filter(Boolean))];
   if(drivers.includes(name)){notify('Fahrer bereits vorhanden');return;}
   drivers.push(name);
-  await updateDoc(doc(db,'projects',currentProjectId,'tours',tourId),{drivers,assignedDriver:drivers[0]});
-  inp.value='';
+  await updateDoc(ref,{drivers,assignedDriver:drivers[0]});
   notify('Fahrer hinzugefügt');
+  renderDriverMgmt();
 }
 
 async function removeDriver(tourId,idx){
-  const tour=tours.find(t=>t.id===tourId);if(!tour)return;
-  const drivers=[...(tour.drivers||[tour.assignedDriver].filter(Boolean))];
+  if(!dtaProjectId)return;
+  const ref=doc(db,'projects',dtaProjectId,'tours',tourId);
+  const snap=await getDoc(ref); const d=snap.data()||{};
+  const drivers=[...(d.drivers||[d.assignedDriver].filter(Boolean))];
   drivers.splice(idx,1);
-  await updateDoc(doc(db,'projects',currentProjectId,'tours',tourId),{drivers,assignedDriver:drivers[0]||''});
+  await updateDoc(ref,{drivers,assignedDriver:drivers[0]||''});
   notify('Fahrer entfernt');
+  renderDriverMgmt();
 }
 
 // ── GRÜNDE MANAGEMENT ─────────────────────────────────────────
@@ -5653,7 +5675,7 @@ Object.assign(window,{
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
-  renderRollenView,saveRole,addRole,deleteRole,toggleBenutzerRollen,toggleBenutzerTouren,
+  renderRollenView,saveRole,addRole,deleteRole,toggleBenutzerRollen,toggleBenutzerTouren,onBenutzerOrgChange,changeDtaProject,
   startGpsPlacement,toggleFilterNoGps,updateBtnFilterNoGps,
   saveFieldLabels, migrateTourIds,
   doLogin, doLogout, toggleLoginMode,
