@@ -935,7 +935,8 @@ function makeMarker(tree){
   const color=tour?tour.color:'#6b6760';
   const num=getRouteNum(tree.id);
   const isHighlighted=selectedTreeId===tree.id;
-  const isMultiTour=treeTourIds.length>1;
+  // Segmente/Zähler nur bei mehreren GLEICHZEITIG aktiven Touren des Objekts
+  const activeForTree=treeTourIds.filter(id=>activeTours.has(id));
 
   const badge=num!=null
     ?`<div style="position:absolute;bottom:-5px;right:-5px;min-width:16px;height:16px;border-radius:8px;background:#fff;border:1.5px solid ${color};color:${color};font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:monospace;padding:0 2px;">${num}</div>`:'';
@@ -945,16 +946,15 @@ function makeMarker(tree){
     :'';
 
   const sz=isHighlighted?36:28;
-  const n=treeTourIds.length;
-  const useSegments = n>=2 && n<=7;   // 2–7 Touren → segmentierter Ring
-  const tooMany = n>7;                 // ab 8 → Zähler-Fallback
+  const m=activeForTree.length;        // Anzahl gleichzeitig aktiver Touren des Objekts
+  const useSegments = m>=2 && m<=7;    // 2–7 aktive Touren → segmentierter Ring
   const shadow=isHighlighted?'0 0 0 3px '+color+', 0 4px 12px rgba(0,0,0,.4)':'0 2px 6px rgba(0,0,0,.3)';
 
-  // Kreis-Darstellung: segmentierter Ring (Multi-Tour) oder solider Kreis
+  // Kreis-Darstellung: segmentierter Ring (mehrere aktive Touren) oder solider Kreis (Haupttourfarbe)
   let circleHtml;
   if(useSegments){
-    const colors=treeTourIds.map(id=>{const t=tours.find(tt=>tt.id===id);return t?t.color:'#9c9890';});
-    const seg=100/n;
+    const colors=activeForTree.map(id=>{const t=tours.find(tt=>tt.id===id);return t?t.color:'#9c9890';});
+    const seg=100/m;
     const stops=colors.map((c,i)=>`${c} ${(i*seg).toFixed(2)}% ${((i+1)*seg).toFixed(2)}%`).join(',');
     const inset=isHighlighted?7:6;
     circleHtml=`<div style="position:absolute;inset:0;box-sizing:border-box;border-radius:50%;background:conic-gradient(${stops});border:${isHighlighted?3:2}px solid #fff;box-shadow:${shadow};cursor:pointer;transform:${isHighlighted?'scale(1.15)':'scale(1)'};transition:all .2s;"></div>
@@ -963,9 +963,9 @@ function makeMarker(tree){
     circleHtml=`<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${color};border:${isHighlighted?4:3}px solid white;box-shadow:${shadow};display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:${isHighlighted?16:13}px;transform:${isHighlighted?'scale(1.15)':'scale(1)'};transition:all .2s;">🌳</div>`;
   }
 
-  // Oranger Tour-Zähler oben rechts bei mehreren Touren (per Button ausblendbar)
-  const multiBadge=isMultiTour
-    ?`<div class="tour-count-badge" style="position:absolute;top:-6px;right:-6px;min-width:16px;height:16px;border-radius:8px;background:#f59e0b;border:2px solid #fff;color:#fff;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 2px;z-index:10;">${n}</div>`:'';
+  // Oranger Tour-Zähler nur bei mehreren gleichzeitig aktiven Touren (per Button ausblendbar)
+  const multiBadge=m>=2
+    ?`<div class="tour-count-badge" style="position:absolute;top:-6px;right:-6px;min-width:16px;height:16px;border-radius:8px;background:#f59e0b;border:2px solid #fff;color:#fff;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 2px;z-index:10;">${m}</div>`:'';
 
   const icon=L.divIcon({
     className:'',
