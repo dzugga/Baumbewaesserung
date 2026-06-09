@@ -2569,7 +2569,7 @@ function switchView(v){
   if(planenBtn) planenBtn.style.display=v==='karte'?'':'none';
   // Karte: always visible underneath, just hidden by overlays
   if(v==='karte') setTimeout(()=>map.invalidateSize(),10);
-  if(v==='baeume') renderBaeumeTable();
+  if(v==='baeume'){ switchBaeumeTab('objekte'); renderBaeumeTable(); }
   if(v==='touren'){
     document.getElementById('view-touren').style.display='flex';
     // Load routes if not yet loaded
@@ -2689,6 +2689,132 @@ function renderBaeumeTable(){
   _baeumeAllTrees = [...trees]; // cache all trees
   document.getElementById('baeume-search-count').textContent = '';
   renderBaeumeTableWith(_baeumeShowInactive ? trees : trees.filter(isActive));
+}
+
+// ─── ARTEN-STAMMDATEN (Typ/Art als pflegbare Liste je Projekt) ───────
+let artenList=[];
+async function loadArten(){
+  artenList=[];
+  if(!currentProjectId) return;
+  try{ const qs=await getDocs(collection(db,'projects',currentProjectId,'arten')); artenList=qs.docs.map(d=>({id:d.id,...d.data()})); }catch(e){ console.warn('loadArten',e); }
+}
+function artCountById(){
+  const m={}; trees.forEach(t=>{ if(t.artId) m[t.artId]=(m[t.artId]||0)+1; }); return m;
+}
+function switchBaeumeTab(tab){
+  const o=document.getElementById('baeume-objekte'), a=document.getElementById('baeume-arten');
+  const to=document.getElementById('tab-objekte'), ta=document.getElementById('tab-arten');
+  const isArten=tab==='arten';
+  if(o) o.style.display=isArten?'none':'flex';
+  if(a) a.style.display=isArten?'block':'none';
+  [to,ta].forEach(b=>{ if(!b) return; b.style.borderBottomColor='transparent'; b.style.color='var(--text3)'; b.style.fontWeight='600'; });
+  const act=isArten?ta:to; if(act){ act.style.borderBottomColor='var(--green)'; act.style.color='var(--green)'; act.style.fontWeight='700'; }
+  if(isArten) renderArtenView();
+}
+async function renderArtenView(){
+  const el=document.getElementById('baeume-arten'); if(!el) return;
+  el.innerHTML='<div style="color:var(--text3);font-size:13px;">Lade…</div>';
+  await loadArten();
+  renderArtenList();
+}
+function renderArtenList(){
+  const el=document.getElementById('baeume-arten'); if(!el) return;
+  const byId=artCountById();
+  const validIds=new Set(artenList.map(a=>a.id));
+  const unmapped=trees.filter(t=>(t.art||'').trim() && !(t.artId&&validIds.has(t.artId))).length;
+  const ro=isReadonly();
+  const sorted=[...artenList].sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  const rows=sorted.map(a=>{
+    const c=byId[a.id]||0;
+    return `<tr style="border-top:1px solid var(--border);">
+      <td style="padding:7px 12px;font-weight:500;">${dlEsc(a.name)}</td>
+      <td style="padding:7px 12px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text2);">${c}</td>
+      <td style="padding:7px 12px;white-space:nowrap;text-align:right;">${ro?'<span style="font-size:11px;color:var(--text3);">nur Lesezugriff</span>':`
+        <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" onclick="renameArt('${a.id}')">Umbenennen</button>
+        <select onchange="if(this.value)mergeArt('${a.id}',this.value);this.selectedIndex=0;" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
+          <option value="">→ zusammenführen…</option>${sorted.filter(x=>x.id!==a.id).map(x=>`<option value="${dlEsc(x.id)}">${dlEsc(x.name)}</option>`).join('')}
+        </select>
+        <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;${c===0?'color:#c0392b;':'opacity:.45;cursor:not-allowed;'}" ${c===0?`onclick="deleteArt('${a.id}')"`:'disabled title="Nur löschbar bei Häufigkeit 0"'}>Löschen</button>`}
+      </td>
+    </tr>`;
+  }).join('');
+  el.innerHTML=`<div style="max-width:780px;margin:0 auto;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
+      <div style="font-size:15px;font-weight:700;">Arten – ${FL.art}</div>
+      <span style="font-size:12px;color:var(--text3);">${artenList.length} Einträge · ${trees.length} Objekte</span>
+      ${ro?'':`<button class="btn btn-primary" style="margin-left:auto;padding:5px 11px;font-size:12px;" onclick="buildArten()">Liste aus Objekten aufbauen/aktualisieren</button>`}
+    </div>
+    ${unmapped?`<div style="background:#fef3c7;border:1px solid #b45309;color:#7a4a06;border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:10px;">${unmapped} Objekte noch keiner Art-ID zugeordnet — „aufbauen/aktualisieren" klicken.</div>`:''}
+    ${artenList.length===0?'<div style="color:var(--text3);font-size:13px;padding:10px 0;">Noch keine Arten-Liste. Klicke „aufbauen/aktualisieren", um sie aus den Objekten zu erzeugen.</div>':`
+    <table style="width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:13px;">
+      <thead><tr style="background:var(--surface2);">
+        <th style="padding:8px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">${FL.art}</th>
+        <th style="padding:8px 12px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Häufigkeit</th>
+        <th style="padding:8px 12px;"></th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`}
+  </div>`;
+}
+async function _chunkedTreeUpdate(updates){
+  for(let i=0;i<updates.length;i+=400){
+    const batch=db.batch();
+    updates.slice(i,i+400).forEach(u=>batch.update(doc(db,'projects',currentProjectId,'trees',u.id),u.data));
+    await batch.commit();
+  }
+}
+async function buildArten(){
+  if(isReadonly()) return notify('Nur Lesezugriff');
+  if(!currentProjectId) return;
+  notify('Arten-Liste wird aktualisiert…');
+  await loadArten();
+  const byName=new Map(artenList.map(a=>[a.name,a.id]));
+  const names=[...new Set(trees.map(t=>(t.art||'').trim()).filter(Boolean))];
+  for(const nm of names){
+    if(!byName.has(nm)){
+      const ref=await addDoc(collection(db,'projects',currentProjectId,'arten'),{name:nm,orgId:currentProjectData?.orgId||currentOrg||null,createdAt:serverTimestamp()});
+      byName.set(nm,ref.id);
+    }
+  }
+  const ups=[];
+  trees.forEach(t=>{ const nm=(t.art||'').trim(); const id=nm?byName.get(nm):''; if((t.artId||'')!==(id||'')){ ups.push({id:t.id,data:{artId:id||null}}); t.artId=id||null; } });
+  await _chunkedTreeUpdate(ups);
+  await loadArten(); renderArtenList();
+  notify(`✓ ${byName.size} Arten · ${ups.length} Objekte zugeordnet`);
+}
+async function renameArt(id){
+  if(isReadonly()) return;
+  const a=artenList.find(x=>x.id===id); if(!a) return;
+  const neu=prompt('Neuer Name für „'+a.name+'":',a.name); if(neu==null) return;
+  const name=neu.trim(); if(!name||name===a.name) return;
+  const dup=artenList.find(x=>x.id!==id && x.name===name);
+  if(dup){ if(confirm('„'+name+'" existiert bereits — stattdessen zusammenführen?')) return mergeArt(id,dup.id); return; }
+  await updateDoc(doc(db,'projects',currentProjectId,'arten',id),{name});
+  const ups=trees.filter(t=>t.artId===id).map(t=>{t.art=name;return {id:t.id,data:{art:name}};});
+  await _chunkedTreeUpdate(ups);
+  await loadArten(); renderArtenList();
+  notify(`✓ Umbenannt — ${ups.length} Objekte aktualisiert`);
+}
+async function mergeArt(srcId,tgtId){
+  if(isReadonly()) return;
+  if(srcId===tgtId) return;
+  const src=artenList.find(x=>x.id===srcId), tgt=artenList.find(x=>x.id===tgtId);
+  if(!src||!tgt) return;
+  if(!confirm(`„${src.name}" in „${tgt.name}" zusammenführen? Zugehörige Objekte werden umgehängt.`)) return;
+  const ups=trees.filter(t=>t.artId===srcId).map(t=>{t.artId=tgtId;t.art=tgt.name;return {id:t.id,data:{artId:tgtId,art:tgt.name}};});
+  await _chunkedTreeUpdate(ups);
+  await deleteDoc(doc(db,'projects',currentProjectId,'arten',srcId));
+  await loadArten(); renderArtenList();
+  notify(`✓ Zusammengeführt — ${ups.length} Objekte umgehängt`);
+}
+async function deleteArt(id){
+  if(isReadonly()) return;
+  const a=artenList.find(x=>x.id===id); if(!a) return;
+  if((artCountById()[id]||0)>0){ notify('Nur löschbar bei Häufigkeit 0'); return; }
+  if(!confirm('„'+a.name+'" löschen?')) return;
+  await deleteDoc(doc(db,'projects',currentProjectId,'arten',id));
+  await loadArten(); renderArtenList();
+  notify('✓ Gelöscht');
 }
 
 function renderBaeumeTableWith(treeList){
@@ -3586,6 +3712,8 @@ async function doImport(){
   }catch(e){ notify('Import-Fehler: '+e.message); }
   closeImportPreview();
   notify(`✓ ${imported} Objekte importiert${_importSwap?' · Koordinaten getauscht':''}`);
+  // Arten-Liste nachziehen (neue Typen bekommen IDs); verzögert, bis Snapshot da ist
+  if(!isReadonly()) setTimeout(()=>{ if(currentProjectId) buildArten().catch(()=>{}); }, 1800);
 }
 
 // ─── BAUM ID ──────────────────────────────────────────────────
@@ -5691,7 +5819,7 @@ Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,
   dispoSimulate,dispoPlan,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
-  saveInlineFields,filterDetailTable,filterBaeumeTable,saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
+  saveInlineFields,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,renameArt,mergeArt,deleteArt,saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,
   createProject,openProject,showProjectScreen,
   switchView,openDetail,closePanel,logWatering,

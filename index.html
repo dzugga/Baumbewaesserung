@@ -1123,6 +1123,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 
 <!-- BÄUME fullscreen overlay -->
 <div id="view-baeume" style="display:none;position:fixed;top:54px;left:0;right:0;bottom:0;z-index:1500;background:var(--bg);flex-direction:column;overflow:hidden;">
+  <!-- Tab-Leiste: Objekte / Arten -->
+  <div style="background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;flex-shrink:0;display:flex;gap:18px;">
+    <button id="tab-objekte" onclick="switchBaeumeTab('objekte')" style="background:none;border:none;border-bottom:2px solid var(--green);color:var(--green);font-weight:700;font-size:13px;font-family:inherit;padding:10px 2px;cursor:pointer;">Objekte</button>
+    <button id="tab-arten" onclick="switchBaeumeTab('arten')" style="background:none;border:none;border-bottom:2px solid transparent;color:var(--text3);font-weight:600;font-size:13px;font-family:inherit;padding:10px 2px;cursor:pointer;">Arten (Typ / Art)</button>
+  </div>
+  <!-- Tab-Inhalt: Objekte -->
+  <div id="baeume-objekte" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
   <div style="background:var(--surface);border-bottom:1px solid var(--border);padding:8px 20px;flex-shrink:0;display:flex;align-items:center;gap:10px;">
     <div style="position:relative;flex:1;max-width:420px;">
       <svg style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text3);" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
@@ -1142,6 +1149,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px;" onclick="document.getElementById('baeume-search').value='';_baeumeNoGpsFilter=false;updateBtnFilterNoGps();filterBaeumeTable('')">✕</button>
   </div>
   <div id="baeume-table-wrap" style="flex:1;overflow:auto;display:flex;flex-direction:column;"></div>
+  </div>
+  <!-- Tab-Inhalt: Arten -->
+  <div id="baeume-arten" style="display:none;flex:1;overflow:auto;padding:16px 20px;"></div>
 </div>
 
 <!-- TOUREN fullscreen overlay -->

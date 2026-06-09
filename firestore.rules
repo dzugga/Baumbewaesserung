@@ -101,6 +101,12 @@ service cloud.firestore {
         allow update:         if canPlan(resource.data.orgId) && orgUnchanged();
         allow delete:         if canPlan(resource.data.orgId);
       }
+      match /arten/{aid} {
+        allow read:           if canReadProj();
+        allow create:         if canPlan(request.resource.data.orgId);
+        allow update:         if canPlan(resource.data.orgId) && orgUnchanged();
+        allow delete:         if canPlan(resource.data.orgId);
+      }
       match /tourHistory/{hid} {
         allow read:   if canReadProj();
         allow create: if inOrg(request.resource.data.orgId) && (cap() == 'driver' || canPlan(request.resource.data.orgId));
