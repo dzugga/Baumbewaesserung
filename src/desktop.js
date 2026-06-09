@@ -940,25 +940,23 @@ function makeMarker(tree){
   const badge=num!=null
     ?`<div style="position:absolute;bottom:-5px;right:-5px;min-width:16px;height:16px;border-radius:8px;background:#fff;border:1.5px solid ${color};color:${color};font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:monospace;padding:0 2px;">${num}</div>`:'';
 
-  // Multi-Tour-Badge: Anzahl der Touren oben rechts
-  const multiBadge=isMultiTour
-    ?`<div style="position:absolute;top:-6px;right:-6px;min-width:16px;height:16px;border-radius:8px;background:#f59e0b;border:2px solid #fff;color:#fff;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 2px;z-index:10;">${treeTourIds.length}</div>`:'';
-
-  // Doppelring für Multi-Tour-Marker
-  const multiRing=isMultiTour&&!isHighlighted
-    ?`<div style="position:absolute;inset:-4px;border-radius:50%;border:2px dashed ${color};opacity:.6;"></div>`:'';
-
   const ring=isHighlighted
     ?`<div style="position:absolute;inset:-5px;border-radius:50%;border:3px solid ${color};animation:pulse-ring .8s ease-in-out infinite;opacity:.7;"></div>`
     :'';
 
   const sz=isHighlighted?36:28;
+
+  // Mehrere Touren: kleine Farbpunkte (je zugehöriger Tour) unter dem Marker
+  const tourDots=isMultiTour
+    ?`<div style="position:absolute;top:${sz+1}px;left:50%;transform:translateX(-50%);display:flex;gap:2px;pointer-events:none;">${treeTourIds.map(id=>{const t=tours.find(tt=>tt.id===id);return `<span style="width:7px;height:7px;border-radius:50%;background:${t?t.color:'#9c9890'};border:1.5px solid #fff;box-shadow:0 1px 2px rgba(0,0,0,.35);"></span>`;}).join('')}</div>`
+    :'';
+
   const icon=L.divIcon({
     className:'',
     html:`<div style="position:relative;width:${sz}px;height:${sz}px;transition:all .2s;">
-      ${ring}${multiRing}
+      ${ring}
       <div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${color};border:${isHighlighted?4:3}px solid white;box-shadow:${isHighlighted?'0 0 0 3px '+color+', 0 4px 12px rgba(0,0,0,.4)':'0 2px 6px rgba(0,0,0,.3)'};display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:${isHighlighted?16:13}px;transform:${isHighlighted?'scale(1.15)':'scale(1)'};transition:all .2s;">🌳</div>
-      ${badge}${multiBadge}</div>`,
+      ${badge}${tourDots}</div>`,
     iconSize:[sz,sz], iconAnchor:[sz/2,sz/2]
   });
   return L.marker([tree.lat,tree.lng],{icon,zIndexOffset:isHighlighted?500:0}).addTo(map)
