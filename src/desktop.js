@@ -924,10 +924,12 @@ function getRouteNum(treeId){
 
 function makeMarker(tree){
   const treeTourIds=getTreeTourIds(tree);
-  const isMulti=treeTourIds.length>1;
-  // Farbe: mehrere Tourzuordnungen → gelb; sonst aktive/Primär-Tourfarbe
+  const isMulti=treeTourIds.length>1;                         // mehrere Tourzuordnungen → Zähler
+  const activeForTree=treeTourIds.filter(id=>activeTours.has(id));
+  const multiActive=activeForTree.length>=2;                  // mehrere gleichzeitig eingeblendet → gelb
+  // Farbe: mehrere gleichzeitig aktive Touren → gelb; sonst aktive/Primär-Tourfarbe
   let color;
-  if(isMulti){
+  if(multiActive){
     color='#eab308';
   } else {
     let tour;
@@ -937,7 +939,7 @@ function makeMarker(tree){
   }
   const num=getRouteNum(tree.id);
   const isHighlighted=selectedTreeId===tree.id;
-  const numColor=isMulti?'#a16207':color; // lesbarer Reihenfolge-Zähler auf Gelb
+  const numColor=multiActive?'#a16207':color; // lesbarer Reihenfolge-Zähler auf Gelb
 
   const badge=num!=null
     ?`<div style="position:absolute;bottom:-5px;right:-5px;min-width:16px;height:16px;border-radius:8px;background:#fff;border:1.5px solid ${numColor};color:${numColor};font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:monospace;padding:0 2px;">${num}</div>`:'';
