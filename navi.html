@@ -182,29 +182,27 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
       INFA-LRM-Objekte
     </div>
     <div class="login-sub">Fahrer-App</div>
-    <div class="form-group">
-      <label class="form-label">Projekt</label>
-      <select class="form-control" id="login-project">
-        <option value="">Wird geladen…</option>
-      </select>
+    <div class="form-group" id="lg-orgcode">
+      <label class="form-label">Stadt / Code</label>
+      <input class="form-control" id="login-orgcode" placeholder="z.B. RUESSEL" autocapitalize="characters" autocomplete="off">
     </div>
-    <div class="form-group">
-      <label class="form-label">Tour</label>
-      <select class="form-control" id="login-tour">
-        <option value="">– Projekt wählen –</option>
-      </select>
-    </div>
-    <div class="form-group">
+    <div class="form-group" id="lg-name">
       <label class="form-label">Dein Name</label>
-      <select class="form-control" id="login-name">
-        <option value="">– Fahrer wählen –</option>
-      </select>
-      <div id="login-name-hint" style="font-size:11px;color:var(--text3);margin-top:4px;display:none;"></div>
+      <input class="form-control" id="login-name" placeholder="Vor- und Nachname" autocomplete="off">
+    </div>
+    <div class="form-group" id="lg-pin">
+      <label class="form-label">PIN</label>
+      <input class="form-control" id="login-pin" type="password" inputmode="numeric" maxlength="6" placeholder="6-stellig" autocomplete="off">
+    </div>
+    <!-- erscheint nach Anmeldung, wenn mehrere Touren -->
+    <div class="form-group" id="login-tour-group" style="display:none;">
+      <label class="form-label">Tour wählen</label>
+      <select class="form-control" id="login-tour"></select>
     </div>
     <div id="login-error" style="color:var(--red);font-size:13px;margin-bottom:12px;display:none;"></div>
     <button class="btn btn-primary" id="btn-login">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-      Tour starten
+      <span id="btn-login-label">Anmelden</span>
     </button>
   </div>
 </div>
@@ -374,5 +372,7 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
 <script src="https://unpkg.com/leaflet-rotate/dist/leaflet-rotate.js"></script>
 <!-- Firebase compat (no ES module needed — works without type=module) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
 <script type="module" src="/src/navi.js"></script></html>
