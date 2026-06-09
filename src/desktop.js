@@ -945,18 +945,34 @@ function makeMarker(tree){
     :'';
 
   const sz=isHighlighted?36:28;
+  const n=treeTourIds.length;
+  const useSegments = n>=2 && n<=7;   // 2–7 Touren → segmentierter Ring
+  const tooMany = n>7;                 // ab 8 → Zähler-Fallback
+  const shadow=isHighlighted?'0 0 0 3px '+color+', 0 4px 12px rgba(0,0,0,.4)':'0 2px 6px rgba(0,0,0,.3)';
 
-  // Mehrere Touren: kleine Farbpunkte (je zugehöriger Tour) unter dem Marker
-  const tourDots=isMultiTour
-    ?`<div style="position:absolute;top:${sz+1}px;left:50%;transform:translateX(-50%);display:flex;gap:2px;pointer-events:none;">${treeTourIds.map(id=>{const t=tours.find(tt=>tt.id===id);return `<span style="width:7px;height:7px;border-radius:50%;background:${t?t.color:'#9c9890'};border:1.5px solid #fff;box-shadow:0 1px 2px rgba(0,0,0,.35);"></span>`;}).join('')}</div>`
-    :'';
+  // Kreis-Darstellung: segmentierter Ring (Multi-Tour) oder solider Kreis
+  let circleHtml;
+  if(useSegments){
+    const colors=treeTourIds.map(id=>{const t=tours.find(tt=>tt.id===id);return t?t.color:'#9c9890';});
+    const seg=100/n;
+    const stops=colors.map((c,i)=>`${c} ${(i*seg).toFixed(2)}% ${((i+1)*seg).toFixed(2)}%`).join(',');
+    const inset=isHighlighted?7:6;
+    circleHtml=`<div style="position:absolute;inset:0;box-sizing:border-box;border-radius:50%;background:conic-gradient(${stops});border:${isHighlighted?3:2}px solid #fff;box-shadow:${shadow};cursor:pointer;transform:${isHighlighted?'scale(1.15)':'scale(1)'};transition:all .2s;"></div>
+      <div style="position:absolute;inset:${inset}px;background:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:${isHighlighted?15:12}px;pointer-events:none;">🌳</div>`;
+  } else {
+    circleHtml=`<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${color};border:${isHighlighted?4:3}px solid white;box-shadow:${shadow};display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:${isHighlighted?16:13}px;transform:${isHighlighted?'scale(1.15)':'scale(1)'};transition:all .2s;">🌳</div>`;
+  }
+
+  // Fallback ab 8 Touren: oranger Zähler oben rechts
+  const multiBadge=tooMany
+    ?`<div style="position:absolute;top:-6px;right:-6px;min-width:16px;height:16px;border-radius:8px;background:#f59e0b;border:2px solid #fff;color:#fff;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 2px;z-index:10;">${n}</div>`:'';
 
   const icon=L.divIcon({
     className:'',
     html:`<div style="position:relative;width:${sz}px;height:${sz}px;transition:all .2s;">
       ${ring}
-      <div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${color};border:${isHighlighted?4:3}px solid white;box-shadow:${isHighlighted?'0 0 0 3px '+color+', 0 4px 12px rgba(0,0,0,.4)':'0 2px 6px rgba(0,0,0,.3)'};display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:${isHighlighted?16:13}px;transform:${isHighlighted?'scale(1.15)':'scale(1)'};transition:all .2s;">🌳</div>
-      ${badge}${tourDots}</div>`,
+      ${circleHtml}
+      ${badge}${multiBadge}</div>`,
     iconSize:[sz,sz], iconAnchor:[sz/2,sz/2]
   });
   return L.marker([tree.lat,tree.lng],{icon,zIndexOffset:isHighlighted?500:0}).addTo(map)
