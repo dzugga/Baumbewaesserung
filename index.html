@@ -274,18 +274,18 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-left:2px;"><path d="M6 9l6 6 6-6"/></svg>
       </button>
       <div class="nav-dropdown">
-        <button class="active" onclick="switchView('karte')">Planung (manuell)</button>
-        <button onclick="switchView('disposition')">Planung (automatisiert nach Füllstand)</button>
+        <button class="active" data-module="planung" onclick="switchView('karte')">Planung (manuell)</button>
+        <button data-module="disposition" onclick="switchView('disposition')">Planung (automatisiert nach Füllstand)</button>
       </div>
     </div>
-    <button class="nav-btn" onclick="switchView('dashboard')">Dashboard</button>
+    <button class="nav-btn" data-module="dashboard" onclick="switchView('dashboard')">Dashboard</button>
     <div class="nav-group">
       <button class="nav-btn nav-parent" type="button">Auswertung
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-left:2px;"><path d="M6 9l6 6 6-6"/></svg>
       </button>
       <div class="nav-dropdown">
-        <button onclick="switchView('controlling')">Controlling</button>
-        <button onclick="switchView('ki')">KI-Analysen</button>
+        <button data-module="controlling" onclick="switchView('controlling')">Controlling</button>
+        <button data-module="ki" onclick="switchView('ki')">KI-Analysen</button>
       </div>
     </div>
     <div class="nav-group">
@@ -293,11 +293,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-left:2px;"><path d="M6 9l6 6 6-6"/></svg>
       </button>
       <div class="nav-dropdown">
-        <button onclick="switchView('baeume')">Objekte</button>
-        <button onclick="switchView('touren')">Touren</button>
-        <button onclick="switchView('verwaltung')">Fahrer &amp; Gründe</button>
-        <button onclick="openProjekte()">Projekte</button>
-        <button onclick="openImport()">Import</button>
+        <button data-module="objekte" onclick="switchView('baeume')">Objekte</button>
+        <button data-module="touren" onclick="switchView('touren')">Touren</button>
+        <button data-module="verwaltung" onclick="switchView('verwaltung')">Fahrer &amp; Gründe</button>
+        <button data-module="projekte" onclick="openProjekte()">Projekte</button>
+        <button data-module="import" onclick="openImport()">Import</button>
       </div>
     </div>
     <div class="nav-group">
@@ -305,8 +305,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-left:2px;"><path d="M6 9l6 6 6-6"/></svg>
       </button>
       <div class="nav-dropdown">
-        <button onclick="openAllgemein()">Allgemein</button>
-        <button onclick="switchView('kiconfig')">KI-Analyse</button>
+        <button data-module="admin" onclick="openAllgemein()">Allgemein</button>
+        <button data-module="admin" onclick="switchView('kiconfig')">KI-Analyse</button>
+        <button data-module="__superadmin__" onclick="switchView('rollen')">Rollen &amp; Module</button>
       </div>
     </div>
   </nav>
@@ -708,6 +709,15 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       </div>
 
     </div>
+  </div>
+</div>
+
+<!-- ROLLEN & MODULE fullscreen overlay -->
+<div id="view-rollen" style="display:none;position:fixed;top:54px;left:0;right:0;bottom:0;z-index:1500;background:var(--bg);overflow-y:auto;">
+  <div style="max-width:980px;margin:0 auto;padding:16px 20px;">
+    <div style="font-size:16px;font-weight:700;margin-bottom:4px;">Rollen &amp; Module</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:16px;">Eigene Rollen anlegen und festlegen, welche Module sie nutzen dürfen. Basis-Typ steuert die Datenrechte.</div>
+    <div id="rollen-content"></div>
   </div>
 </div>
 

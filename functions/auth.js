@@ -27,6 +27,14 @@ function verifyPin(pin, salt, hash) {
 }
 function nowMs() { return Date.now(); }
 
+// Basis-Typ (cap) einer Rolle auflösen — steuert die Firestore-Rules
+const BUILTIN_BASETYPE = { superadmin: 'admin', orgadmin: 'admin', planer: 'editor', erfasser: 'editor', fahrer: 'driver' };
+async function capForRole(roleKey) {
+  if (roleKey === 'superadmin') return 'admin';
+  try { const s = await db.collection('roles').doc(roleKey).get(); if (s.exists && s.data().baseType) return s.data().baseType; } catch (e) {}
+  return BUILTIN_BASETYPE[roleKey] || 'readonly';
+}
+
 // ── Fahrer-Login: Name + PIN -> Custom Token ────────────────────────────────
 exports.driverLogin = onCall({ region: REGION }, async (req) => {
   const { orgId, orgCode, name, pin } = req.data || {};
@@ -64,7 +72,7 @@ exports.driverLogin = onCall({ region: REGION }, async (req) => {
   await ref.update({ failedAttempts: 0, lockedUntil: 0, lastLogin: new Date().toISOString() });
   const uid = 'drv_' + ref.id;
   const token = await admin.auth().createCustomToken(uid, {
-    orgId: oid, role: 'fahrer', driverId: ref.id, name: d.name,
+    orgId: oid, role: 'fahrer', cap: 'driver', driverId: ref.id, name: d.name,
   });
   return { token, driverId: ref.id, name: d.name, orgId: oid };
 });
@@ -108,25 +116,17 @@ exports.setDriverPin = onCall({ region: REGION }, async (req) => {
 
 // ── Admin setzt Rolle/Org (Custom Claims) fuer Planer/Erfasser/Admins ───────
 exports.setUserRole = onCall({ region: REGION }, async (req) => {
-  const caller = req.auth;
-  if (!caller) throw new HttpsError('unauthenticated', 'Login erforderlich');
-  const role = caller.token.role, callerOrg = caller.token.orgId;
+  const { role, callerOrg } = requireAdmin(req.auth);
   const { targetUid, orgId, role: newRole } = req.data || {};
   if (!targetUid || !orgId || !newRole)
     throw new HttpsError('invalid-argument', 'targetUid, orgId, role erforderlich');
-
-  const orgRoles = ['orgadmin', 'planer', 'erfasser', 'fahrer'];
-  if (role === 'superadmin') {
-    if (![...orgRoles, 'superadmin'].includes(newRole))
-      throw new HttpsError('invalid-argument', 'Unbekannte Rolle');
-  } else if (role === 'orgadmin') {
+  const isSuper = role === 'superadmin';
+  if (!isSuper) {
     if (orgId !== callerOrg) throw new HttpsError('permission-denied', 'Fremder Mandant');
-    if (!orgRoles.includes(newRole)) throw new HttpsError('permission-denied', 'Rolle nicht erlaubt');
-  } else {
-    throw new HttpsError('permission-denied', 'Keine Berechtigung');
+    if (newRole === 'superadmin') throw new HttpsError('permission-denied', 'Rolle nicht erlaubt');
   }
-
-  await admin.auth().setCustomUserClaims(targetUid, { orgId, role: newRole });
+  const cap = await capForRole(newRole);
+  await admin.auth().setCustomUserClaims(targetUid, { orgId, role: newRole, cap });
   await db.collection('users').doc(targetUid).set(
     { orgId, role: newRole, updatedAt: new Date().toISOString() }, { merge: true });
   return { ok: true };
@@ -135,9 +135,9 @@ exports.setUserRole = onCall({ region: REGION }, async (req) => {
 // ── Hilfsfunktionen: Admin-Berechtigung prüfen ──────────────────────────────
 function requireAdmin(caller) {
   if (!caller) throw new HttpsError('unauthenticated', 'Login erforderlich');
-  const role = caller.token.role;
-  if (role !== 'superadmin' && role !== 'orgadmin') throw new HttpsError('permission-denied', 'Keine Berechtigung');
-  return { role, callerOrg: caller.token.orgId };
+  const role = caller.token.role, cap = caller.token.cap;
+  if (role !== 'superadmin' && cap !== 'admin') throw new HttpsError('permission-denied', 'Keine Berechtigung');
+  return { role, cap, callerOrg: caller.token.orgId };
 }
 async function assertSameOrg(role, callerOrg, uid) {
   if (role === 'superadmin') return;
@@ -151,11 +151,10 @@ exports.createOrgUser = onCall({ region: REGION }, async (req) => {
   const { role, callerOrg } = requireAdmin(req.auth);
   const { email, password, newRole, orgId, displayName } = req.data || {};
   const targetOrg = orgId || callerOrg;
-  const orgRoles = ['orgadmin', 'planer', 'erfasser', 'fahrer'];
+  const isSuper = role === 'superadmin';
 
-  if (role === 'orgadmin' && targetOrg !== callerOrg) throw new HttpsError('permission-denied', 'Fremder Mandant');
-  const allowed = role === 'superadmin' ? [...orgRoles, 'superadmin'] : orgRoles;
-  if (!allowed.includes(newRole)) throw new HttpsError('permission-denied', 'Rolle nicht erlaubt');
+  if (!isSuper && targetOrg !== callerOrg) throw new HttpsError('permission-denied', 'Fremder Mandant');
+  if (!newRole || (!isSuper && newRole === 'superadmin')) throw new HttpsError('permission-denied', 'Rolle nicht erlaubt');
   if (!email || !/.+@.+\..+/.test(String(email))) throw new HttpsError('invalid-argument', 'Gültige E-Mail erforderlich');
   if (!password || String(password).length < 6) throw new HttpsError('invalid-argument', 'Passwort min. 6 Zeichen');
 
@@ -170,7 +169,8 @@ exports.createOrgUser = onCall({ region: REGION }, async (req) => {
     if (e.code === 'auth/invalid-password') throw new HttpsError('invalid-argument', 'Passwort ungültig (min. 6 Zeichen)');
     throw new HttpsError('internal', e.message || 'Konnte Nutzer nicht anlegen');
   }
-  await admin.auth().setCustomUserClaims(user.uid, { orgId: targetOrg, role: newRole });
+  const cap = await capForRole(newRole);
+  await admin.auth().setCustomUserClaims(user.uid, { orgId: targetOrg, role: newRole, cap });
   await db.collection('users').doc(user.uid).set({
     email: user.email, displayName: displayName || '', orgId: targetOrg, role: newRole,
     active: true, createdAt: new Date().toISOString(),

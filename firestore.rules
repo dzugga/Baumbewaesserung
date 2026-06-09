@@ -1,14 +1,14 @@
 rules_version = '2';
 
 // ============================================================================
-//  Baumbewaesserung – Mehrmandanten-/Rollen-Regeln  (Phase 1, NICHT aktiv)
-//  Aktivierung NUR bewusst per:  firebase deploy --only firestore:rules
+//  Baumbewaesserung – Mehrmandanten-/Rollen-Regeln  (Phase 1+, NICHT aktiv)
+//  Aktivierung NUR bewusst: firebase deploy --only firestore:rules
 //  Voraussetzung: Firebase Auth aktiv + orgId auf allen Dokumenten gebackfillt.
-//  Siehe docs/auth-mandanten.md (Runbook).
 //
-//  Modell: Projekte bleiben top-level. Jedes Dokument traegt orgId
-//  (denormalisiert) -> Rules pruefen ohne teures get() auf das Parent-Projekt.
-//  Rollen kommen aus Custom Claims:  request.auth.token.{orgId, role}
+//  Claims:  request.auth.token.{ orgId, role, cap }
+//    - role: Rollen-Key (für UI/Module), frei definierbar
+//    - cap : Basis-Typ -> Datenrechte: admin | editor | readonly | driver
+//  Daten tragen orgId (denormalisiert) -> Rules ohne get() auf das Parent.
 // ============================================================================
 
 service cloud.firestore {
@@ -16,20 +16,26 @@ service cloud.firestore {
 
     function signedIn() { return request.auth != null; }
     function role()     { return signedIn() ? request.auth.token.role : ''; }
+    function cap()      { return signedIn() ? request.auth.token.cap  : ''; }
     function myOrg()    { return signedIn() ? request.auth.token.orgId : ''; }
     function isSuper()  { return signedIn() && role() == 'superadmin'; }
     function inOrg(oid) { return signedIn() && (myOrg() == oid || isSuper()); }
-    // Planer-aehnliche Rollen duerfen Projektdaten voll bearbeiten
-    function canPlan(oid) { return inOrg(oid) && role() in ['orgadmin', 'planer', 'erfasser']; }
 
-    // Fahrer duerfen an Baeumen NUR diese Felder aendern (orgId bewusst NICHT dabei):
+    // Datenrechte ueber den Basis-Typ (cap), Superadmin immer
+    function canManage(oid) { return isSuper() || (inOrg(oid) && cap() == 'admin'); }
+    function canPlan(oid)   { return isSuper() || (inOrg(oid) && (cap() == 'admin' || cap() == 'editor')); }
+
+    // Fahrer (cap 'driver') duerfen an Baeumen NUR diese Felder aendern:
     function onlyStatusFields() {
       return request.resource.data.diff(resource.data).affectedKeys()
         .hasOnly(['lastStatus','lastReason','lastNote','lastDriver','lastReportAt','history','datum','zustand']);
     }
-    // orgId darf bei Updates nicht veraendert werden
-    function orgUnchanged() {
-      return request.resource.data.orgId == resource.data.orgId;
+    function orgUnchanged() { return request.resource.data.orgId == resource.data.orgId; }
+
+    // ----- Globale Rollen-Definitionen -----
+    match /roles/{rid} {
+      allow read:  if signedIn();   // jeder Eingeloggte liest die Modul-Config
+      allow write: if isSuper();
     }
 
     // ----- Mandanten -----
@@ -38,21 +44,19 @@ service cloud.firestore {
       allow write: if isSuper();
     }
 
-    // ----- Nutzerprofile (fuer Admin-UI; massgeblich sind die Custom Claims) -----
+    // ----- Nutzerprofile (Admin-UI; massgeblich sind die Claims) -----
     match /users/{uid} {
       allow read:   if signedIn() && (request.auth.uid == uid || inOrg(resource.data.orgId));
-      allow create: if isSuper() || (role() == 'orgadmin' && inOrg(request.resource.data.orgId));
-      allow update: if isSuper() || (role() == 'orgadmin' && inOrg(resource.data.orgId));
-      allow delete: if isSuper() || (role() == 'orgadmin' && inOrg(resource.data.orgId));
+      allow create: if canManage(request.resource.data.orgId);
+      allow update: if canManage(resource.data.orgId);
+      allow delete: if canManage(resource.data.orgId);
     }
 
-    // ----- Fahrer (Name + PIN-Hash) -----
-    // Schreiben/Lesen nur durch Admin/Planer; PIN-Pruefung laeuft serverseitig
-    // in der Cloud Function driverLogin (Admin-SDK, umgeht Rules).
+    // ----- Fahrer (Name + PIN-Hash) — PIN-Pruefung serverseitig -----
     match /drivers/{did} {
-      allow read:   if inOrg(resource.data.orgId) && role() in ['orgadmin','planer'];
-      allow create: if isSuper() || (role() == 'orgadmin' && inOrg(request.resource.data.orgId));
-      allow update, delete: if isSuper() || (role() == 'orgadmin' && inOrg(resource.data.orgId));
+      allow read:   if canManage(resource.data.orgId);
+      allow create: if canManage(request.resource.data.orgId);
+      allow update, delete: if canManage(resource.data.orgId);
     }
 
     // ----- Projekte + Unterkollektionen -----
@@ -67,38 +71,31 @@ service cloud.firestore {
         allow create: if canPlan(request.resource.data.orgId);
         allow delete: if canPlan(resource.data.orgId);
         allow update: if (canPlan(resource.data.orgId) && orgUnchanged())
-                      || (role() == 'fahrer' && inOrg(resource.data.orgId)
-                          && orgUnchanged() && onlyStatusFields());
+                      || (cap() == 'driver' && inOrg(resource.data.orgId) && orgUnchanged() && onlyStatusFields());
       }
-
       match /tours/{tid} {
         allow read:           if inOrg(resource.data.orgId);
         allow create:         if canPlan(request.resource.data.orgId);
         allow update:         if canPlan(resource.data.orgId) && orgUnchanged();
         allow delete:         if canPlan(resource.data.orgId);
       }
-
       match /routes/{tid} {
         allow read:           if inOrg(resource.data.orgId);
         allow create:         if canPlan(request.resource.data.orgId);
         allow update:         if canPlan(resource.data.orgId) && orgUnchanged();
         allow delete:         if canPlan(resource.data.orgId);
       }
-
       match /reasons/{rid} {
         allow read:           if inOrg(resource.data.orgId);
         allow create:         if canPlan(request.resource.data.orgId);
         allow update:         if canPlan(resource.data.orgId) && orgUnchanged();
         allow delete:         if canPlan(resource.data.orgId);
       }
-
       match /tourHistory/{hid} {
         allow read:   if inOrg(resource.data.orgId);
-        allow create: if inOrg(request.resource.data.orgId) && role() in ['fahrer','planer','orgadmin'];
+        allow create: if inOrg(request.resource.data.orgId) && (cap() == 'driver' || canPlan(request.resource.data.orgId));
         allow update, delete: if canPlan(resource.data.orgId);
       }
     }
-
-    // Alles andere: standardmaessig verboten (kein weiterer match -> default deny)
   }
 }

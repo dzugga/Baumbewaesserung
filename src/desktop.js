@@ -110,8 +110,48 @@ function applyFieldLabels() {
 let currentProjectId = null;
 let currentProjectData = null;
 let currentUser = null;   // Firebase-Auth-Nutzer
-let currentRole = '';     // aus Custom Claims
+let currentRole = '';     // aus Custom Claims (Rollen-Key)
+let currentCap  = '';     // aus Custom Claims (Basis-Typ: admin|editor|readonly|driver)
 let currentOrg  = '';     // aus Custom Claims
+
+// ─── ROLLEN & MODULE ──────────────────────────────────────────
+const MODULES = [
+  {key:'planung',     label:'Planung (Karte)'},
+  {key:'disposition', label:'Disposition (automatisiert)'},
+  {key:'dashboard',   label:'Dashboard'},
+  {key:'controlling', label:'Controlling'},
+  {key:'ki',          label:'KI-Analysen'},
+  {key:'objekte',     label:'Objekte'},
+  {key:'touren',      label:'Touren'},
+  {key:'import',      label:'Import'},
+  {key:'projekte',    label:'Projekte'},
+  {key:'verwaltung',  label:'Verwaltung (Fahrer & Gründe)'},
+  {key:'nutzer',      label:'Nutzer & Rollen'},
+  {key:'admin',       label:'INFA-Admin (Allgemein/KI-Config)'},
+  {key:'erfassung',   label:'Erfassungs-App'},
+  {key:'mobil',       label:'Fahrer-App (Mobil)'},
+];
+const BASE_TYPES = [
+  {key:'admin',    label:'Verwalten (Admin)'},
+  {key:'editor',   label:'Bearbeiten'},
+  {key:'readonly', label:'Nur lesen'},
+  {key:'driver',   label:'Fahrer (nur Status)'},
+];
+const _allModKeys = MODULES.map(m=>m.key);
+const _mods = (keys)=>Object.fromEntries(_allModKeys.map(k=>[k, keys.includes(k)]));
+const BUILTIN_ROLES = {
+  superadmin: {name:'Superadmin', baseType:'admin', modules:_mods(_allModKeys), builtin:true},
+  orgadmin:   {name:'Org-Admin',  baseType:'admin', modules:_mods(_allModKeys.filter(k=>k!=='admin')), builtin:true},
+  planer:     {name:'Planer',     baseType:'editor', modules:_mods(['planung','disposition','dashboard','controlling','ki','objekte','touren','import','projekte']), builtin:true},
+  erfasser:   {name:'Erfasser',   baseType:'editor', modules:_mods(['erfassung','objekte']), builtin:true},
+  fahrer:     {name:'Fahrer',     baseType:'driver', modules:_mods(['mobil']), builtin:true},
+};
+let rolesCache = {};   // roleKey -> {name, baseType, modules, builtin}
+function roleModules(roleKey){ const r=rolesCache[roleKey]||BUILTIN_ROLES[roleKey]; return r?r.modules:{}; }
+function canUseModule(key){
+  if(currentRole==='superadmin') return true;
+  const m=roleModules(currentRole); return !!m[key];
+}
 let _dataViewProject = null;      // Projekt, für das Controlling/Dashboard zuletzt aufgebaut wurde
 let _dataViewSyncQueued = false;  // Debounce für Neuaufbau beim Projektwechsel
 let _histListProject = null;      // Projekt, für das die untere Historie-Liste geladen wurde
@@ -2474,6 +2514,8 @@ function switchView(v){
   const kiconfig=document.getElementById('view-kiconfig');
   const disposition=document.getElementById('view-disposition');
   const verwaltung=document.getElementById('view-verwaltung');
+  const rollen=document.getElementById('view-rollen');
+  if(rollen) rollen.style.display=v==='rollen'?'block':'none';
   if(baeume) baeume.style.display=v==='baeume'?'flex':'none';
   if(touren) touren.style.display=v==='touren'?'block':'none';
   if(controlling) controlling.style.display=v==='controlling'?'flex':'none';
@@ -2505,6 +2547,7 @@ function switchView(v){
   if(v==='kiconfig') renderKiConfig();
   if(v==='disposition') initDispo();
   if(v==='verwaltung') initVerwaltung();
+  if(v==='rollen') renderRollenView();
 }
 
 let _baeumeAllTrees = []; // cache for search
@@ -2981,20 +3024,22 @@ async function renderUserMgmt(){
       <input id="ur-new-email" class="form-control" type="email" placeholder="E-Mail" style="flex:1;min-width:150px;padding:5px 8px;font-size:12px;">
       <input id="ur-new-pass" class="form-control" type="text" placeholder="Start-Passwort (min. 6)" style="width:170px;padding:5px 8px;font-size:12px;">
       <select id="ur-new-role" style="padding:5px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
-        <option value="planer">Planer</option>
-        <option value="erfasser">Erfasser</option>
-        <option value="orgadmin">Org-Admin</option>
+        ${roleOptionsHtml('planer')}
       </select>
       <button class="btn btn-primary" style="padding:5px 10px;font-size:12px;white-space:nowrap;" onclick="addOrgUser()">+ Nutzer anlegen</button>
     </div>`;
 }
+function roleOptionsHtml(selected){
+  let entries=Object.entries(rolesCache).filter(([k,r])=> k!=='fahrer' && (r.baseType!=='driver'));
+  entries=entries.filter(([k])=> k!=='superadmin' || selected==='superadmin' || currentRole==='superadmin');
+  if(selected && !entries.find(([k])=>k===selected)) entries.unshift([selected,{name:selected}]);
+  return entries.sort((a,b)=>(a[1].name||a[0]).localeCompare(b[1].name||b[0]))
+    .map(([k,r])=>`<option value="${dlEsc(k)}"${k===selected?' selected':''}>${dlEsc(r.name||k)}</option>`).join('');
+}
 function urRow(u){
   const active=u.active!==false, editing=urPassEdit===u.id;
-  const roleOpts=['planer','erfasser','orgadmin'];
-  if(u.role==='superadmin') roleOpts.unshift('superadmin');
-  const roleLbl={superadmin:'Superadmin',orgadmin:'Org-Admin',planer:'Planer',erfasser:'Erfasser',fahrer:'Fahrer'};
   const roleSel=`<select onchange="changeUserRole('${dlEsc(u.id)}',this.value)" title="Rolle ändern" style="font-size:11px;padding:2px 5px;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-family:inherit;">
-    ${roleOpts.map(r=>`<option value="${r}"${u.role===r?' selected':''}>${roleLbl[r]||r}</option>`).join('')}</select>`;
+    ${roleOptionsHtml(u.role)}</select>`;
   return `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--bg);border-radius:6px;flex-wrap:wrap;">
     <span style="flex:1;min-width:140px;font-size:13px;${active?'':'color:var(--text3);text-decoration:line-through;'}">${dlEsc(u.email||u.id)}</span>
     ${roleSel}
@@ -3040,6 +3085,111 @@ async function deleteDriverUi(driverId,name){
   if(!confirm(`Fahrer „${name||driverId}" löschen?\n\nDer PIN-Login wird entfernt. Tour-Historie bleibt erhalten.`)) return;
   try{ await db.collection('drivers').doc(driverId).delete(); notify('✓ Fahrer gelöscht'); renderDriverLogins(); }
   catch(e){ notify(dlErr(e)); }
+}
+
+// ─── ROLLEN & MODULE — laden, säen, verwalten ─────────────────
+async function loadRoles(){
+  rolesCache={};
+  try{ const qs=await db.collection('roles').get(); qs.forEach(d=>{ rolesCache[d.id]={...d.data()}; }); }catch(e){}
+  Object.entries(BUILTIN_ROLES).forEach(([k,v])=>{ if(!rolesCache[k]) rolesCache[k]={...v}; });
+}
+async function seedBuiltinRoles(){
+  if(currentRole!=='superadmin') return;
+  for(const [k,v] of Object.entries(BUILTIN_ROLES)){
+    try{ const ref=db.collection('roles').doc(k); const s=await ref.get(); if(!s.exists) await ref.set(v); }catch(e){}
+  }
+}
+async function renderRollenView(){
+  const el=document.getElementById('rollen-content'); if(!el) return;
+  if(currentRole!=='superadmin'){ el.innerHTML=`<div style="padding:24px;color:var(--text3);font-size:13px;">Nur der Superadmin kann Rollen verwalten.</div>`; return; }
+  await seedBuiltinRoles();
+  await loadRoles();
+  const roles=Object.entries(rolesCache).sort((a,b)=>(a[1].name||a[0]).localeCompare(b[1].name||b[0]));
+  el.innerHTML=roles.map(([k,r])=>roleCard(k,r)).join('')+newRoleCard();
+}
+function roleCard(key,r){
+  const bt=r.baseType||'editor';
+  return `<div class="role-card" data-rolekey="${dlEsc(key)}" style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:12px;">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+      <input class="form-control rc-name" value="${dlEsc(r.name||key)}" style="font-weight:700;font-size:14px;max-width:220px;padding:5px 8px;">
+      <span style="font-size:11px;color:var(--text3);">Schlüssel: ${dlEsc(key)}</span>
+      ${r.builtin?`<span style="font-size:10px;font-weight:700;color:var(--green);background:var(--green-light);padding:2px 8px;border-radius:99px;">Vorlage</span>`:''}
+      <label style="font-size:12px;margin-left:auto;display:flex;align-items:center;gap:6px;">Basis-Typ
+        <select class="rc-basetype" style="font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
+          ${BASE_TYPES.map(b=>`<option value="${b.key}"${bt===b.key?' selected':''}>${b.label}</option>`).join('')}
+        </select>
+      </label>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:4px 14px;margin-bottom:10px;">
+      ${MODULES.map(m=>`<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
+        <input type="checkbox" class="rc-mod" data-mod="${m.key}"${r.modules&&r.modules[m.key]?' checked':''}> ${m.label}</label>`).join('')}
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-primary" style="padding:5px 12px;font-size:12px;" onclick="saveRole('${dlEsc(key)}')">Speichern</button>
+      ${r.builtin?'':`<button class="btn btn-secondary" style="padding:5px 12px;font-size:12px;color:#c0392b;" onclick="deleteRole('${dlEsc(key)}')">Löschen</button>`}
+    </div>
+  </div>`;
+}
+function newRoleCard(){
+  return `<div style="background:var(--surface);border:1px dashed var(--border);border-radius:12px;padding:14px 16px;">
+    <div style="font-size:13px;font-weight:700;margin-bottom:10px;">+ Neue Rolle</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+      <input id="nr-name" class="form-control" placeholder="Rollenname (z.B. Sachbearbeiter)" style="max-width:260px;padding:5px 8px;font-size:13px;">
+      <label style="font-size:12px;display:flex;align-items:center;gap:6px;">Basis-Typ
+        <select id="nr-basetype" style="font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
+          ${BASE_TYPES.map(b=>`<option value="${b.key}">${b.label}</option>`).join('')}
+        </select>
+      </label>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:4px 14px;margin-bottom:10px;">
+      ${MODULES.map(m=>`<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
+        <input type="checkbox" class="nr-mod" data-mod="${m.key}"> ${m.label}</label>`).join('')}
+    </div>
+    <button class="btn btn-primary" style="padding:5px 12px;font-size:12px;" onclick="addRole()">Rolle anlegen</button>
+  </div>`;
+}
+async function saveRole(key){
+  const card=document.querySelector(`.role-card[data-rolekey="${CSS.escape(key)}"]`); if(!card) return;
+  const name=card.querySelector('.rc-name').value.trim()||key;
+  const baseType=card.querySelector('.rc-basetype').value;
+  const modules={}; card.querySelectorAll('.rc-mod').forEach(c=>{ modules[c.dataset.mod]=c.checked; });
+  const builtin=!!(rolesCache[key]&&rolesCache[key].builtin);
+  try{ await db.collection('roles').doc(key).set({name,baseType,modules,builtin},{merge:true}); notify('✓ Rolle gespeichert'); renderRollenView(); }
+  catch(e){ notify(dlErr(e)); }
+}
+async function addRole(){
+  const name=(document.getElementById('nr-name')?.value||'').trim();
+  if(!name){ notify('Bitte Rollenname eingeben'); return; }
+  const baseType=document.getElementById('nr-basetype').value;
+  let key=name.toLowerCase().replace(/[äöü]/g,m=>({'ä':'ae','ö':'oe','ü':'ue'}[m])).replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,40);
+  if(!key) key='rolle_'+Math.floor(performance.now());
+  if(rolesCache[key]){ notify('Eine Rolle mit diesem Schlüssel existiert bereits'); return; }
+  const modules={}; document.querySelectorAll('.nr-mod').forEach(c=>{ modules[c.dataset.mod]=c.checked; });
+  try{ await db.collection('roles').doc(key).set({name,baseType,modules,builtin:false}); notify('✓ Rolle angelegt'); renderRollenView(); }
+  catch(e){ notify(dlErr(e)); }
+}
+async function deleteRole(key){
+  if(BUILTIN_ROLES[key]){ notify('Vorlagen können nicht gelöscht werden'); return; }
+  if(!confirm(`Rolle „${rolesCache[key]?.name||key}" löschen?`)) return;
+  try{ await db.collection('roles').doc(key).delete(); notify('✓ Rolle gelöscht'); renderRollenView(); }
+  catch(e){ notify(dlErr(e)); }
+}
+
+// Module-Sichtbarkeit auf die Navigation anwenden
+function applyModulePermissions(){
+  const isSuper=currentRole==='superadmin';
+  document.querySelectorAll('[data-module]').forEach(el=>{
+    const mods=el.dataset.module.split(',').map(s=>s.trim());
+    let ok;
+    if(mods.includes('__superadmin__')) ok=isSuper;
+    else ok=isSuper||mods.some(m=>canUseModule(m));
+    el.style.display = ok ? '' : 'none';
+  });
+  // leere Nav-Gruppen ausblenden
+  document.querySelectorAll('.topbar-nav .nav-group').forEach(g=>{
+    const btns=[...g.querySelectorAll('.nav-dropdown button')];
+    if(btns.length){ const any=btns.some(b=>b.style.display!=='none'); g.style.display=any?'':'none'; }
+  });
 }
 
 async function seedDefaultReasons(){
@@ -5459,6 +5609,7 @@ Object.assign(window,{
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
+  renderRollenView,saveRole,addRole,deleteRole,
   startGpsPlacement,toggleFilterNoGps,updateBtnFilterNoGps,
   saveFieldLabels, migrateTourIds,
   doLogin, doLogout,
@@ -5496,12 +5647,13 @@ async function doLogout(){ try{ await firebase.auth().signOut(); }catch(e){} loc
 
 firebase.auth().onAuthStateChanged(async (user)=>{
   if(user){
-    try{ const tok=await user.getIdTokenResult(); currentUser=user; currentRole=tok.claims.role||''; currentOrg=tok.claims.orgId||''; }
-    catch(e){ currentRole=''; currentOrg=''; }
+    try{ const tok=await user.getIdTokenResult(); currentUser=user; currentRole=tok.claims.role||''; currentCap=tok.claims.cap||''; currentOrg=tok.claims.orgId||''; }
+    catch(e){ currentRole=''; currentCap=''; currentOrg=''; }
     if(!currentRole){ showLogin('Dieses Konto hat keine Berechtigung. Bitte an den Administrator wenden.'); return; }
-    hideLogin(); updateUserChip(); initProjectScreen();
+    await loadRoles();
+    hideLogin(); updateUserChip(); applyModulePermissions(); initProjectScreen();
   } else {
-    currentUser=null; currentRole=''; currentOrg='';
+    currentUser=null; currentRole=''; currentCap=''; currentOrg='';
     showLogin('');
   }
 });
