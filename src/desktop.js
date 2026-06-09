@@ -205,7 +205,7 @@ const baseOSM = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
 const baseSat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
   {maxZoom:19, attribution:'© Esri, Maxar, Earthstar Geographics'});
 
-// ── WMS-Kartenebenen (vom Nutzer verwaltbar, in localStorage) ──
+// ── WMS-Kartenebenen (vom Nutzer verwaltbar, pro Projekt/Stadt) ──
 const WMS_STORE_KEY='wms_layers_v1';
 const WMS_DEFAULTS=[
   {id:'he-dop20', name:'Luftbild Hessen (DOP20)',
@@ -218,10 +218,14 @@ const WMS_DEFAULTS=[
    attribution:'Geobasisdaten © HVBG Hessen'},
 ];
 function getWmsLayers(){
-  try{ const raw=localStorage.getItem(WMS_STORE_KEY); if(raw) return JSON.parse(raw); }catch(e){}
-  saveWmsLayers(WMS_DEFAULTS); return WMS_DEFAULTS.map(x=>({...x}));
+  if(Array.isArray(currentProjectData?.wmsLayers)) return currentProjectData.wmsLayers.map(x=>({...x})); // projektspezifisch
+  try{ const raw=localStorage.getItem(WMS_STORE_KEY); if(raw) return JSON.parse(raw); }catch(e){} // Fallback (alte globale)
+  return WMS_DEFAULTS.map(x=>({...x}));
 }
-function saveWmsLayers(arr){ try{ localStorage.setItem(WMS_STORE_KEY, JSON.stringify(arr)); }catch(e){} }
+function saveWmsLayers(arr){
+  if(currentProjectId){ saveProjectSettings({wmsLayers:arr}).catch(()=>{}); } // pro Projekt speichern
+  else { try{ localStorage.setItem(WMS_STORE_KEY, JSON.stringify(arr)); }catch(e){} }
+}
 function buildWmsLayer(cfg){
   return L.tileLayer.wms(cfg.url, {
     layers:cfg.layers, format:cfg.format||'image/png', version:cfg.version||'1.3.0',
@@ -342,6 +346,7 @@ async function openProject(projectId){
   document.getElementById('active-project-name').textContent=currentProjectData.name;
   document.getElementById('project-screen').style.display='none';
   loadFieldLabels();
+  rebuildLayerControl(); // WMS-Kartenebenen der Stadt laden
   // Subscribe to tours & trees
   subscribeToProject();
   // Gründe des neuen Projekts laden (verhindert projektübergreifendes Hängenbleiben)
