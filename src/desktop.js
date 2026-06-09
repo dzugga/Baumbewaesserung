@@ -346,6 +346,7 @@ async function openProject(projectId){
   subscribeToProject();
   // Gründe des neuen Projekts laden (verhindert projektübergreifendes Hängenbleiben)
   reasons=[]; loadReasons().then(()=>{ if(currentView==='verwaltung') renderReasonsMgmt(); });
+  artenList=[]; // Arten-Liste pro Projekt verwerfen (kein projektübergreifendes Hängenbleiben)
 }
 
 // Baut die aktive datengetriebene Ansicht (Controlling/Dashboard) nach einem
@@ -397,7 +398,11 @@ function subscribeToProject(){
   unsubTrees=onSnapshot(treesRef,snap=>{
     trees=snap.docs.map(d=>({id:d.id,...d.data()}));
     refreshMarkers();renderList();
-    if(currentView==='baeume')renderBaeumeTable();
+    if(currentView==='baeume'){
+      const artenTab=document.getElementById('baeume-arten');
+      if(artenTab && getComputedStyle(artenTab).display!=='none') renderArtenView();
+      else renderBaeumeTable();
+    }
     syncDataViewToProject();
     setSyncState('ok','Synchronisiert');
     autoMigrateTourIds(); // tourId → tourIds[] still im Hintergrund
