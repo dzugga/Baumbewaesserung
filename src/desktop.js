@@ -425,6 +425,8 @@ function maybeHealCount(field,n){
 function getDepot(){ return currentProjectData?.depot||null; }
 function getOrsKey(){ return currentProjectData?.orsKey||localStorage.getItem('bwt_ors_key')||''; }
 function getBewDuration(){
+  const v=currentProjectData?.bewDuration;               // projektspezifisch
+  if(typeof v==='number' && v>0) return v;
   return parseInt(localStorage.getItem('bew_duration_min'))||5;
 }
 
@@ -447,7 +449,7 @@ function fmtTotalTime(driveSec,treeCount){
 function getDepotMode(){ return currentProjectData?.depotMode||'round'; }
 // Routen-Optimierung: 'nn' = bisherige Variante (Luftlinie, Nearest-Neighbor)
 //                     'matrix' = echte ORS-Fahrzeiten-Matrix + 2-opt
-function getRouteOptMode(){ return localStorage.getItem('bwt_route_opt')||'nn'; }
+function getRouteOptMode(){ return currentProjectData?.routeOptMode || localStorage.getItem('bwt_route_opt') || 'nn'; }
 // KI-Analyse-Modus: 'off' | 'manual' (Prompts kopieren) | 'auto' (Gemini) | 'both'
 function getKiMode(){ return localStorage.getItem('bwt_ki_mode')||'manual'; }
 function setKiMode(m){ localStorage.setItem('bwt_ki_mode', m); applyKiNavVisibility(); renderKiConfig(); }
@@ -2343,8 +2345,10 @@ async function deleteTour(id){
 // ─── SETTINGS ─────────────────────────────────────────────────
 
 function getRoutePlanningEnabled(){
-  const v = localStorage.getItem('bwt_route_planning');
-  return v === null ? true : v === 'true';
+  const v = currentProjectData?.routePlanning;          // projektspezifisch
+  if(v===true||v===false) return v;
+  const ls = localStorage.getItem('bwt_route_planning'); // Fallback (alte globale Einstellung)
+  return ls === null ? true : ls === 'true';
 }
 // Nur-Lesezugriff: keine Planungs-/Speicher-Aktionen
 function isReadonly(){ return currentCap==='readonly'; }
@@ -2353,8 +2357,10 @@ function rpDisAttr(){ return isReadonly() ? ' disabled title="Nur Lesezugriff"' 
 function rpDisStyle(){ return (isReadonly()||!getRoutePlanningEnabled()) ? 'opacity:.45;cursor:not-allowed;' : ''; }
 
 function toggleRoutePlanning(){
+  if(isReadonly()){ notify('Nur Lesezugriff'); return; }
   const newVal = !getRoutePlanningEnabled();
-  localStorage.setItem('bwt_route_planning', newVal);
+  if(currentProjectId) saveProjectSettings({routePlanning:newVal}).catch(()=>{}); // projektspezifisch
+  else localStorage.setItem('bwt_route_planning', newVal);
   const btn = document.getElementById('s-toggle-route');
   const knob = document.getElementById('s-toggle-knob');
   const sub = document.getElementById('s-routing-sub');
@@ -2517,6 +2523,9 @@ async function applySettings(){
   const updates={
     orsKey:getOrsKey(),
     depotMode:document.getElementById('s-depot-mode').value,
+    routeOptMode:document.getElementById('s-route-opt')?.value||getRouteOptMode(),
+    bewDuration:parseInt(document.getElementById('s-bew-duration')?.value)||5,
+    routePlanning:getRoutePlanningEnabled(),
     name:currentProjectData?.name||'', // Projektname wird unter Verwaltung → Projekte verwaltet
   };
   if(lat&&lng) updates.depot={lat,lng,address:addr||`${lat.toFixed(5)}, ${lng.toFixed(5)}`};
