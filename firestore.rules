@@ -30,6 +30,11 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys()
         .hasOnly(['lastStatus','lastReason','lastNote','lastDriver','lastReportAt','history','datum','zustand']);
     }
+    // Fahrer duerfen an Touren NUR den Abschluss-/Wiederaufnahme-Status setzen:
+    function onlyTourStatusFields() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['status','closedAt','closedBy','lastClosedDate','reopenedAt','reopenedBy']);
+    }
     function orgUnchanged() { return request.resource.data.orgId == resource.data.orgId; }
 
     // ----- Globale Rollen-Definitionen -----
@@ -80,7 +85,8 @@ service cloud.firestore {
       match /tours/{tid} {
         allow read:           if canReadProj();
         allow create:         if canPlan(request.resource.data.orgId);
-        allow update:         if canPlan(resource.data.orgId) && orgUnchanged();
+        allow update:         if (canPlan(resource.data.orgId) && orgUnchanged())
+                              || (cap() == 'driver' && inOrg(resource.data.orgId) && orgUnchanged() && onlyTourStatusFields());
         allow delete:         if canPlan(resource.data.orgId);
       }
       match /routes/{tid} {
