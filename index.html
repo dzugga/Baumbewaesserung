@@ -687,9 +687,15 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 <!-- BENUTZER fullscreen overlay -->
 <div id="view-benutzer" style="display:none;position:fixed;top:54px;left:0;right:0;bottom:0;z-index:1500;background:var(--bg);overflow-y:auto;">
   <div style="max-width:980px;margin:0 auto;padding:16px 20px;display:flex;flex-direction:column;gap:14px;">
-    <div>
-      <div style="font-size:16px;font-weight:700;">Benutzer</div>
-      <div style="font-size:12px;color:var(--text3);">Zugänge anlegen & verwalten — in der empfohlenen Reihenfolge.</div>
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+      <div>
+        <div style="font-size:16px;font-weight:700;">Benutzer</div>
+        <div style="font-size:12px;color:var(--text3);">Zugänge anlegen & verwalten — in der empfohlenen Reihenfolge.</div>
+      </div>
+      <div id="benutzer-org-wrap" style="display:flex;align-items:center;gap:8px;">
+        <span style="font-size:12px;font-weight:600;color:var(--text2);white-space:nowrap;">Stadt / Mandant:</span>
+        <select id="benutzer-org" onchange="changeBenutzerOrg(this.value)" style="padding:5px 10px;font-size:13px;border:1px solid var(--border);border-radius:8px;background:var(--surface);font-family:inherit;font-weight:600;"></select>
+      </div>
     </div>
 
     <!-- Schritt 1: Rollen & Module (eingebettet, einklappbar) -->
@@ -713,7 +719,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
           <div style="font-size:13px;font-weight:700;">Personen &amp; PINs anlegen</div>
           <div style="font-size:11px;color:var(--text3);">Anmeldung per Stadt-Code + Name + PIN (mit Rolle) — gilt für alle Apps</div>
         </div>
-        <select id="dl-org" onchange="onBenutzerOrgChange()" style="margin-left:auto;padding:4px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;"></select>
       </div>
       <div id="driver-logins-body" style="padding:10px 14px;"></div>
     </div>
@@ -726,7 +731,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
           <div style="font-size:13px;font-weight:700;">E-Mail-Konten <span style="font-weight:400;color:var(--text3);">(optional, Admin-Zugang)</span></div>
           <div style="font-size:11px;color:var(--text3);">Alternative Anmeldung per E-Mail/Passwort</div>
         </div>
-        <select id="ur-org" onchange="renderUserMgmt()" style="margin-left:auto;padding:4px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;"></select>
       </div>
       <div id="user-mgmt-body" style="padding:10px 14px;"></div>
     </div>

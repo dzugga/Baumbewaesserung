@@ -2560,12 +2560,32 @@ async function initBenutzer(){
   const stepRollen=document.getElementById('benutzer-step-rollen');
   if(stepRollen) stepRollen.style.display = (currentRole==='superadmin') ? '' : 'none';
   if(currentRole==='superadmin') renderRollenView(); // füllt #rollen-content
-  await renderDriverLogins(); // setzt driverLoginsOrg (Mandant aus Schritt 2)
-  renderUserMgmt();
-  renderDriverMgmt(); // Schritt 4: Tour-Zuweisung (#driver-mgmt-list)
+  await initBenutzerOrgSelector(); // zentraler Stadt-/Mandanten-Umschalter
+  renderDriverLogins();   // Schritt 2
+  renderUserMgmt();       // Schritt 3
+  renderDriverMgmt();     // Schritt 4: Tour-Zuweisung
 }
-// Mandanten-Wechsel in Schritt 2 → Schritt 4 (Tour-Zuweisung) mitziehen
-function onBenutzerOrgChange(){ renderDriverLogins(); dtaProjectId=''; renderDriverMgmt(); }
+// Zentraler Mandanten-Umschalter: füllt #benutzer-org, setzt benutzerOrg + die Schritt-Orgs
+async function initBenutzerOrgSelector(){
+  const sel=document.getElementById('benutzer-org');
+  const wrap=document.getElementById('benutzer-org-wrap');
+  let orgs=[];
+  if(currentRole==='superadmin'){ try{ const qs=await db.collection('orgs').get(); qs.forEach(d=>orgs.push({id:d.id,name:d.data().name||d.id})); }catch(e){} }
+  else if(currentOrg){ orgs=[{id:currentOrg,name:currentOrg}]; }
+  orgs.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  if(!benutzerOrg || !orgs.find(o=>o.id===benutzerOrg)){
+    benutzerOrg = (orgs.find(o=>o.id===currentProjectData?.orgId)?.id) || orgs[0]?.id || currentOrg || '';
+  }
+  driverLoginsOrg=benutzerOrg; userMgmtOrg=benutzerOrg;
+  if(sel) sel.innerHTML=orgs.map(o=>`<option value="${dlEsc(o.id)}"${o.id===benutzerOrg?' selected':''}>${dlEsc(o.name)}</option>`).join('');
+  // Umschalter nur für Superadmin mit mehreren Mandanten zeigen
+  if(wrap) wrap.style.display = (currentRole==='superadmin' && orgs.length>1) ? '' : 'none';
+}
+// Zentrale Stadtwahl → alle Schritte (2/3/4) auf die Stadt umschalten
+function changeBenutzerOrg(oid){
+  benutzerOrg=oid; driverLoginsOrg=oid; userMgmtOrg=oid; dtaProjectId='';
+  renderDriverLogins(); renderUserMgmt(); renderDriverMgmt();
+}
 function changeDtaProject(pid){ dtaProjectId=pid; renderDriverMgmt(); }
 function toggleBenutzerRollen(){
   const body=document.getElementById('rollen-content');
@@ -2908,6 +2928,7 @@ function initFeldbezeichnungen(){
 
 // ─── FAHRER-LOGINS & PINs (Mehrmandanten — nutzbar nach Auth-Aktivierung) ─────
 let driverLoginsOrg = '';
+let benutzerOrg = ''; // zentraler Stadt-/Mandanten-Umschalter (Benutzer-Seite)
 let dtaProjectId = ''; // Schritt 4: gewähltes Projekt für Tour-Zuweisung
 let dlPinEdit = null;
 const dlEsc = s => (''+(s??'')).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -2927,32 +2948,19 @@ function dlEditPin(id){ dlPinEdit=id; renderDriverLogins(); }
 function dlCancelPin(){ dlPinEdit=null; renderDriverLogins(); }
 
 async function renderDriverLogins(){
-  const orgSel=document.getElementById('dl-org');
   const body=document.getElementById('driver-logins-body');
-  if(!orgSel||!body) return;
+  if(!body) return;
   if(!(currentRole==='superadmin'||currentCap==='admin')){
-    orgSel.style.display='none';
     body.innerHTML=`<div style="font-size:12px;color:var(--text3);">${currentRole?'Nur Administratoren können Personen verwalten.':'Mehrmandanten/Auth noch nicht aktiviert — siehe <code>docs/auth-mandanten.md</code>.'}</div>`;
     return;
   }
-  let orgs=[];
-  if(currentRole==='superadmin'){ try{ const qs=await db.collection('orgs').get(); qs.forEach(d=>orgs.push({id:d.id,...d.data()})); }catch(e){} }
-  else if(currentOrg){ orgs=[{id:currentOrg,name:currentOrg}]; }
-  if(orgs.length===0){
-    orgSel.innerHTML=''; orgSel.style.display='none';
-    body.innerHTML=`<div style="font-size:12px;color:var(--text3);line-height:1.6;">
-      Keine Mandanten verfügbar (siehe <code>docs/auth-mandanten.md</code>).</div>`;
+  const org = driverLoginsOrg || currentOrg;
+  if(!org){
+    body.innerHTML=`<div style="font-size:12px;color:var(--text3);line-height:1.6;">Kein Mandant gewählt (siehe <code>docs/auth-mandanten.md</code>).</div>`;
     return;
   }
-  if(currentRole==='superadmin'){
-    orgSel.style.display='';
-    const picked=orgSel.value;
-    if(picked && orgs.find(o=>o.id===picked)) driverLoginsOrg=picked;
-    else if(!driverLoginsOrg||!orgs.find(o=>o.id===driverLoginsOrg)) driverLoginsOrg=orgs[0].id;
-    orgSel.innerHTML=orgs.map(o=>`<option value="${dlEsc(o.id)}"${o.id===driverLoginsOrg?' selected':''}>${dlEsc(o.name||o.id)}</option>`).join('');
-  } else { orgSel.style.display='none'; driverLoginsOrg=currentOrg; }
   let drivers=[];
-  try{ const qs=await db.collection('drivers').where('orgId','==',driverLoginsOrg).get(); qs.forEach(d=>drivers.push({id:d.id,...d.data()})); }catch(e){}
+  try{ const qs=await db.collection('drivers').where('orgId','==',org).get(); qs.forEach(d=>drivers.push({id:d.id,...d.data()})); }catch(e){}
   drivers.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   body.innerHTML=`
     <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:10px;">
@@ -3023,27 +3031,16 @@ function urEditPass(id){ urPassEdit=id; renderUserMgmt(); }
 function urCancelPass(){ urPassEdit=null; renderUserMgmt(); }
 
 async function renderUserMgmt(){
-  const orgSel=document.getElementById('ur-org');
   const body=document.getElementById('user-mgmt-body');
-  if(!orgSel||!body) return;
+  if(!body) return;
   if(!(currentRole==='superadmin'||currentCap==='admin')){
-    orgSel.style.display='none';
     body.innerHTML=`<div style="font-size:12px;color:var(--text3);">Nur Administratoren können Nutzer verwalten.</div>`;
     return;
   }
-  let orgs=[];
-  if(currentRole==='superadmin'){ try{ const qs=await db.collection('orgs').get(); qs.forEach(d=>orgs.push({id:d.id,...d.data()})); }catch(e){} }
-  else { orgs=[{id:currentOrg,name:currentOrg}]; }
-  if(orgs.length===0){ orgSel.style.display='none'; body.innerHTML=`<div style="font-size:12px;color:var(--text3);">Keine Mandanten vorhanden (siehe docs/auth-mandanten.md).</div>`; return; }
-  if(currentRole==='superadmin'){
-    orgSel.style.display='';
-    const picked=orgSel.value;
-    if(picked && orgs.find(o=>o.id===picked)) userMgmtOrg=picked;
-    else if(!userMgmtOrg||!orgs.find(o=>o.id===userMgmtOrg)) userMgmtOrg=orgs[0].id;
-    orgSel.innerHTML=orgs.map(o=>`<option value="${dlEsc(o.id)}"${o.id===userMgmtOrg?' selected':''}>${dlEsc(o.name||o.id)}</option>`).join('');
-  } else { orgSel.style.display='none'; userMgmtOrg=currentOrg; }
+  const org = userMgmtOrg || currentOrg;
+  if(!org){ body.innerHTML=`<div style="font-size:12px;color:var(--text3);">Kein Mandant gewählt (siehe docs/auth-mandanten.md).</div>`; return; }
   let users=[];
-  try{ const qs=await db.collection('users').where('orgId','==',userMgmtOrg).get(); qs.forEach(d=>users.push({id:d.id,...d.data()})); }catch(e){}
+  try{ const qs=await db.collection('users').where('orgId','==',org).get(); qs.forEach(d=>users.push({id:d.id,...d.data()})); }catch(e){}
   users.sort((a,b)=>(a.email||'').localeCompare(b.email||''));
   body.innerHTML=`
     <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:10px;">
@@ -5675,7 +5672,7 @@ Object.assign(window,{
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
-  renderRollenView,saveRole,addRole,deleteRole,toggleBenutzerRollen,toggleBenutzerTouren,onBenutzerOrgChange,changeDtaProject,
+  renderRollenView,saveRole,addRole,deleteRole,toggleBenutzerRollen,toggleBenutzerTouren,changeBenutzerOrg,changeDtaProject,
   startGpsPlacement,toggleFilterNoGps,updateBtnFilterNoGps,
   saveFieldLabels, migrateTourIds,
   doLogin, doLogout, toggleLoginMode,
