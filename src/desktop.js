@@ -2916,7 +2916,8 @@ function dlRow(d){
          <button class="btn btn-primary" style="padding:4px 8px;font-size:11px;" onclick="saveDriverPin('${dlEsc(d.id)}')">OK</button>
          <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="dlCancelPin()">✕</button>`
       : `<button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="dlEditPin('${dlEsc(d.id)}')">PIN setzen</button>
-         <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="toggleDriverLoginActive('${dlEsc(d.id)}',${active})">${active?'deaktivieren':'aktivieren'}</button>`}
+         <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="toggleDriverLoginActive('${dlEsc(d.id)}',${active})">${active?'deaktivieren':'aktivieren'}</button>
+         <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;color:#c0392b;" onclick="deleteDriverUi('${dlEsc(d.id)}','${dlEsc(d.name||'')}')">Löschen</button>`}
   </div>`;
 }
 async function addDriverLogin(){
@@ -2989,16 +2990,22 @@ async function renderUserMgmt(){
 }
 function urRow(u){
   const active=u.active!==false, editing=urPassEdit===u.id;
+  const roleOpts=['planer','erfasser','orgadmin'];
+  if(u.role==='superadmin') roleOpts.unshift('superadmin');
+  const roleLbl={superadmin:'Superadmin',orgadmin:'Org-Admin',planer:'Planer',erfasser:'Erfasser',fahrer:'Fahrer'};
+  const roleSel=`<select onchange="changeUserRole('${dlEsc(u.id)}',this.value)" title="Rolle ändern" style="font-size:11px;padding:2px 5px;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-family:inherit;">
+    ${roleOpts.map(r=>`<option value="${r}"${u.role===r?' selected':''}>${roleLbl[r]||r}</option>`).join('')}</select>`;
   return `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--bg);border-radius:6px;flex-wrap:wrap;">
     <span style="flex:1;min-width:140px;font-size:13px;${active?'':'color:var(--text3);text-decoration:line-through;'}">${dlEsc(u.email||u.id)}</span>
-    <span style="font-size:10px;font-weight:700;color:var(--text2);background:var(--surface2);padding:1px 7px;border-radius:99px;">${dlEsc(u.role||'')}</span>
+    ${roleSel}
     <span style="font-size:10px;font-weight:700;color:${active?'var(--green)':'var(--text3)'};">${active?'aktiv':'inaktiv'}</span>
     ${editing
       ? `<input id="ur-pass-${dlEsc(u.id)}" class="form-control" type="text" placeholder="neues Passwort" style="width:150px;padding:4px 6px;font-size:12px;">
          <button class="btn btn-primary" style="padding:4px 8px;font-size:11px;" onclick="saveUserPass('${dlEsc(u.id)}')">OK</button>
          <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="urCancelPass()">✕</button>`
       : `<button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="urEditPass('${dlEsc(u.id)}')">Passwort</button>
-         <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="toggleUserActive('${dlEsc(u.id)}',${active})">${active?'deaktivieren':'aktivieren'}</button>`}
+         <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="toggleUserActive('${dlEsc(u.id)}',${active})">${active?'deaktivieren':'aktivieren'}</button>
+         <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;color:#c0392b;" onclick="deleteOrgUserUi('${dlEsc(u.id)}','${dlEsc(u.email||'')}')">Löschen</button>`}
   </div>`;
 }
 async function addOrgUser(){
@@ -3019,6 +3026,20 @@ async function saveUserPass(uid){
 async function toggleUserActive(uid,currentlyActive){
   try{ await dlFnCall('setUserActive',{uid,active:!currentlyActive}); renderUserMgmt(); }
   catch(e){ notify(fnErr(e)); }
+}
+async function changeUserRole(uid,newRole){
+  try{ await dlFnCall('setUserRole',{targetUid:uid,orgId:userMgmtOrg,role:newRole}); notify('✓ Rolle geändert'); renderUserMgmt(); }
+  catch(e){ notify(fnErr(e)); renderUserMgmt(); }
+}
+async function deleteOrgUserUi(uid,email){
+  if(!confirm(`Konto „${email||uid}" endgültig löschen?\n\nDer Login wird entfernt. Erfasste Daten und Historie bleiben erhalten.`)) return;
+  try{ await dlFnCall('deleteOrgUser',{uid}); notify('✓ Konto gelöscht'); renderUserMgmt(); }
+  catch(e){ notify(fnErr(e)); }
+}
+async function deleteDriverUi(driverId,name){
+  if(!confirm(`Fahrer „${name||driverId}" löschen?\n\nDer PIN-Login wird entfernt. Tour-Historie bleibt erhalten.`)) return;
+  try{ await db.collection('drivers').doc(driverId).delete(); notify('✓ Fahrer gelöscht'); renderDriverLogins(); }
+  catch(e){ notify(dlErr(e)); }
 }
 
 async function seedDefaultReasons(){
@@ -5437,6 +5458,7 @@ Object.assign(window,{
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
+  changeUserRole,deleteOrgUserUi,deleteDriverUi,
   startGpsPlacement,toggleFilterNoGps,updateBtnFilterNoGps,
   saveFieldLabels, migrateTourIds,
   doLogin, doLogout,

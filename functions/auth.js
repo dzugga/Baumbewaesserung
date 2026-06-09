@@ -188,6 +188,19 @@ exports.setUserPassword = onCall({ region: REGION }, async (req) => {
   return { ok: true };
 });
 
+// ── Admin löscht ein Konto endgültig (Login weg; Daten/Historie bleiben) ────
+exports.deleteOrgUser = onCall({ region: REGION }, async (req) => {
+  const { role, callerOrg } = requireAdmin(req.auth);
+  const { uid } = req.data || {};
+  if (!uid) throw new HttpsError('invalid-argument', 'uid erforderlich');
+  if (uid === req.auth.uid) throw new HttpsError('failed-precondition', 'Das eigene Konto kann nicht gelöscht werden');
+  await assertSameOrg(role, callerOrg, uid);
+  try { await admin.auth().deleteUser(uid); }
+  catch (e) { if (e.code !== 'auth/user-not-found') throw new HttpsError('internal', e.message || 'Löschen fehlgeschlagen'); }
+  await db.collection('users').doc(uid).delete().catch(() => {});
+  return { ok: true };
+});
+
 // ── Admin aktiviert/deaktiviert ein Konto ───────────────────────────────────
 exports.setUserActive = onCall({ region: REGION }, async (req) => {
   const { role, callerOrg } = requireAdmin(req.auth);
