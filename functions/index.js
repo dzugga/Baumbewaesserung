@@ -3,6 +3,9 @@
 // Aufruf vom Frontend per POST /api/gemini  { prompt: "...", model?: "..." }
 const { onRequest } = require('firebase-functions/v2/https');
 
+// Auth-/Mandanten-Funktionen (driverLogin, setDriverPin, setUserRole)
+Object.assign(exports, require('./auth'));
+
 const PROJECT = 'baumbewaesserung';
 const LOCATION = 'us-central1';
 const DEFAULT_MODEL = 'gemini-2.5-flash';

@@ -1,0 +1,133 @@
+// ============================================================================
+//  Auth-/Mandanten-Cloud-Functions  (Phase 1 — angelegt, NICHT deployt)
+//  - driverLogin   : Fahrername + PIN  -> Firebase Custom Token (Rolle 'fahrer')
+//  - setDriverPin  : Admin vergibt/aendert eine Fahrer-PIN (nur Hash gespeichert)
+//  - setUserRole   : Admin setzt Custom Claims {orgId, role} fuer Planer/Admins
+//  Aktivierung erst nach Firebase-Auth + Backfill, siehe docs/auth-mandanten.md
+// ============================================================================
+const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const admin = require('firebase-admin');
+const crypto = require('crypto');
+
+if (!admin.apps.length) admin.initializeApp();
+const db = admin.firestore();
+
+const REGION = 'us-central1';
+const MAX_FAILS = 5;
+const LOCK_MS = 15 * 60 * 1000; // 15 Min Sperre nach zu vielen Fehlversuchen
+
+// ---- PIN-Hashing (scrypt, ohne Zusatz-Abhaengigkeit) ----
+function makeSalt() { return crypto.randomBytes(16).toString('hex'); }
+function hashPin(pin, salt) { return crypto.scryptSync(String(pin), salt, 32).toString('hex'); }
+function verifyPin(pin, salt, hash) {
+  if (!salt || !hash) return false;
+  const h = Buffer.from(hashPin(pin, salt), 'hex');
+  const b = Buffer.from(hash, 'hex');
+  return h.length === b.length && crypto.timingSafeEqual(h, b);
+}
+function nowMs() { return Date.now(); }
+
+// ── Fahrer-Login: Name + PIN -> Custom Token ────────────────────────────────
+exports.driverLogin = onCall({ region: REGION }, async (req) => {
+  const { orgId, orgCode, name, pin } = req.data || {};
+  if (!name || !pin) throw new HttpsError('invalid-argument', 'Name und PIN erforderlich');
+
+  let oid = orgId;
+  if (!oid && orgCode) {
+    const qs = await db.collection('orgs').where('code', '==', String(orgCode)).limit(1).get();
+    if (qs.empty) throw new HttpsError('not-found', 'Mandant nicht gefunden');
+    oid = qs.docs[0].id;
+  }
+  if (!oid) throw new HttpsError('invalid-argument', 'orgId oder orgCode erforderlich');
+
+  const nameLower = String(name).trim().toLowerCase();
+  const qs = await db.collection('drivers')
+    .where('orgId', '==', oid).where('nameLower', '==', nameLower).limit(1).get();
+  // Bewusst generische Fehlermeldung (keine Account-Enumeration)
+  if (qs.empty) throw new HttpsError('permission-denied', 'Name oder PIN falsch');
+
+  const ref = qs.docs[0].ref;
+  const d = qs.docs[0].data();
+  if (d.active === false) throw new HttpsError('permission-denied', 'Konto deaktiviert');
+  if (d.lockedUntil && d.lockedUntil > nowMs())
+    throw new HttpsError('resource-exhausted', 'Zu viele Versuche — bitte später erneut');
+
+  if (!verifyPin(pin, d.pinSalt, d.pinHash)) {
+    const fails = (d.failedAttempts || 0) + 1;
+    const upd = fails >= MAX_FAILS
+      ? { failedAttempts: 0, lockedUntil: nowMs() + LOCK_MS }
+      : { failedAttempts: fails };
+    await ref.update(upd);
+    throw new HttpsError('permission-denied', 'Name oder PIN falsch');
+  }
+
+  await ref.update({ failedAttempts: 0, lockedUntil: 0, lastLogin: new Date().toISOString() });
+  const uid = 'drv_' + ref.id;
+  const token = await admin.auth().createCustomToken(uid, {
+    orgId: oid, role: 'fahrer', driverId: ref.id, name: d.name,
+  });
+  return { token, driverId: ref.id, name: d.name, orgId: oid };
+});
+
+// ── Admin vergibt/aendert eine Fahrer-PIN ───────────────────────────────────
+exports.setDriverPin = onCall({ region: REGION }, async (req) => {
+  const caller = req.auth;
+  if (!caller) throw new HttpsError('unauthenticated', 'Login erforderlich');
+  const role = caller.token.role, callerOrg = caller.token.orgId;
+  const { driverId, name, orgId, pin } = req.data || {};
+  const targetOrg = orgId || callerOrg;
+
+  const allowed = role === 'superadmin' || (role === 'orgadmin' && targetOrg === callerOrg);
+  if (!allowed) throw new HttpsError('permission-denied', 'Keine Berechtigung');
+  if (!/^\d{6}$/.test(String(pin || ''))) throw new HttpsError('invalid-argument', 'PIN muss 6-stellig sein');
+
+  const salt = makeSalt(), hash = hashPin(pin, salt);
+
+  if (driverId) {
+    const ref = db.collection('drivers').doc(driverId);
+    const s = await ref.get();
+    if (!s.exists) throw new HttpsError('not-found', 'Fahrer nicht gefunden');
+    if (role !== 'superadmin' && s.data().orgId !== targetOrg)
+      throw new HttpsError('permission-denied', 'Fremder Mandant');
+    await ref.update({ pinSalt: salt, pinHash: hash, failedAttempts: 0, lockedUntil: 0 });
+    return { driverId };
+  }
+
+  if (!name) throw new HttpsError('invalid-argument', 'Name erforderlich');
+  const ref = db.collection('drivers').doc();
+  await ref.set({
+    orgId: targetOrg,
+    name: String(name).trim(),
+    nameLower: String(name).trim().toLowerCase(),
+    pinSalt: salt, pinHash: hash,
+    active: true, failedAttempts: 0, lockedUntil: 0,
+    createdAt: new Date().toISOString(),
+  });
+  return { driverId: ref.id };
+});
+
+// ── Admin setzt Rolle/Org (Custom Claims) fuer Planer/Erfasser/Admins ───────
+exports.setUserRole = onCall({ region: REGION }, async (req) => {
+  const caller = req.auth;
+  if (!caller) throw new HttpsError('unauthenticated', 'Login erforderlich');
+  const role = caller.token.role, callerOrg = caller.token.orgId;
+  const { targetUid, orgId, role: newRole } = req.data || {};
+  if (!targetUid || !orgId || !newRole)
+    throw new HttpsError('invalid-argument', 'targetUid, orgId, role erforderlich');
+
+  const orgRoles = ['orgadmin', 'planer', 'erfasser', 'fahrer'];
+  if (role === 'superadmin') {
+    if (![...orgRoles, 'superadmin'].includes(newRole))
+      throw new HttpsError('invalid-argument', 'Unbekannte Rolle');
+  } else if (role === 'orgadmin') {
+    if (orgId !== callerOrg) throw new HttpsError('permission-denied', 'Fremder Mandant');
+    if (!orgRoles.includes(newRole)) throw new HttpsError('permission-denied', 'Rolle nicht erlaubt');
+  } else {
+    throw new HttpsError('permission-denied', 'Keine Berechtigung');
+  }
+
+  await admin.auth().setCustomUserClaims(targetUid, { orgId, role: newRole });
+  await db.collection('users').doc(targetUid).set(
+    { orgId, role: newRole, updatedAt: new Date().toISOString() }, { merge: true });
+  return { ok: true };
+});
