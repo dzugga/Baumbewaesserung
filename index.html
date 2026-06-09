@@ -434,8 +434,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         style="position:absolute;top:52px;right:14px;z-index:450;display:flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);color:var(--text2);cursor:pointer;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
       </button>
-      <!-- Filter-Panel (per JS befüllt) -->
-      <div id="map-filter-panel" style="display:none;position:absolute;top:90px;right:14px;z-index:460;width:280px;max-width:calc(100% - 28px);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);">
+      <!-- Tour simulieren (nur bei 1 Tour mit Route) -->
+      <button id="btn-sim-tour" onclick="simulateActiveTour()" title="Tour simulieren"
+        style="display:none;position:absolute;top:90px;right:14px;z-index:450;align-items:center;justify-content:center;width:34px;height:34px;padding:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);color:var(--text2);cursor:pointer;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      </button>
+      <!-- Filter-Panel (per JS befüllt) — öffnet links der Knopf-Spalte -->
+      <div id="map-filter-panel" style="display:none;position:absolute;top:14px;right:56px;z-index:460;width:280px;max-width:calc(100% - 70px);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);">
         <div id="obj-filter"></div>
       </div>
       <!-- Abfahr-Simulation (Wiedergabe-Leiste) -->

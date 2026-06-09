@@ -1228,10 +1228,6 @@ function renderLegend(){
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
         Route berechnen
       </button>
-      ${tourRoutes[onlyTid]?`<button data-action="simulate" style="width:100%;padding:5px 10px;font-size:11px;font-weight:600;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-        Abfahrt simulieren
-      </button>`:''}
     </div>`;
   } else if(activeTours.size>1){
     html+=`<div style="padding:4px 8px 8px;">
@@ -1282,9 +1278,20 @@ function renderLegend(){
       if(btn.dataset.action==='calc-active'&&activeTourOnMap)calculateAndSaveRoute(activeTourOnMap);
       else if(btn.dataset.action==='calc-selected'){ (async()=>{ for(const tid of [...activeTours]) await calculateAndSaveRoute(tid); })(); }
       else if(btn.dataset.action==='calc-all')calculateAllRoutes();
-      else if(btn.dataset.action==='simulate'){ const tid=[...activeTours][0]; if(tid) startSimulation(tid); }
     }
   };
+  updateSimButton();
+}
+// Karten-Knopf „Tour simulieren" (oben rechts unter dem Filter) — nur bei genau 1 Tour mit Route
+function updateSimButton(){
+  const btn=document.getElementById('btn-sim-tour'); if(!btn) return;
+  const one=[...activeTours][0];
+  btn.style.display=(activeTours.size===1 && one && tourRoutes[one] && !simState.active)?'flex':'none';
+}
+function simulateActiveTour(){
+  if(activeTours.size!==1) return;
+  const tid=[...activeTours][0];
+  if(tid && tourRoutes[tid]) startSimulation(tid);
 }
 
 // ─── ABFAHR-SIMULATION (Route-Playback) ───────────────────────
@@ -1323,7 +1330,7 @@ function simPositionAt(elapsed){
         const d=from+(to-from)*f; const {pt,k}=simPosAtDist(d);
         return {pt,k,phase:'Fahrt',type:'drive'};
       }
-      return {pt:simState.pts[seg.idx],k:seg.idx,phase:'Bewässerung'+(seg.tree?.name?' — '+seg.tree.name:''),type:'water'};
+      return {pt:simState.pts[seg.idx],k:seg.idx,phase:'Tätigkeit'+(seg.tree?.name?' — '+seg.tree.name:''),type:'water'};
     }
     acc+=seg.dur;
   }
@@ -1381,10 +1388,11 @@ async function startSimulation(tourId){
   if(!route){ notify('Bitte zuerst die Route berechnen'); return; }
   const model=buildSimModel(route);
   if(!model){ notify('Keine ausreichenden Routendaten für die Simulation'); return; }
-  simState={ active:true, tourId, tour, playing:true, speed:1, elapsed:0, lastTs:0, seeking:false, ...model };
+  simState={ active:true, tourId, tour, playing:true, speed:10, elapsed:0, lastTs:0, seeking:false, ...model };
   simState.marker=L.marker(model.pts[0],{icon:simIcon(tour.color),zIndexOffset:2000}).addTo(map);
   simState.trail=L.polyline([model.pts[0]],{color:tour.color,weight:6,opacity:.95}).addTo(map);
   document.getElementById('sim-bar').style.display='flex';
+  const sb=document.getElementById('btn-sim-tour'); if(sb) sb.style.display='none';
   renderSimBar();
   simState.raf=requestAnimationFrame(simTick);
 }
@@ -1394,6 +1402,7 @@ function stopSimulation(){
   if(simState.trail) map.removeLayer(simState.trail);
   const bar=document.getElementById('sim-bar'); if(bar){ bar.style.display='none'; bar.innerHTML=''; }
   simState={active:false};
+  updateSimButton();
 }
 function simTick(ts){
   if(!simState.active) return;
@@ -1433,7 +1442,7 @@ function renderSimBar(){
   });
   segHtml+=`<div style="position:absolute;top:0;bottom:0;left:0;width:3px;background:#f97316;"></div><div style="position:absolute;top:0;bottom:0;right:0;width:3px;background:#f97316;"></div>`;
   const ended=simState.elapsed>=simState.total;
-  const speeds=[0.5,1,2,4,8];
+  const speeds=[10,20,30,50];
   bar.innerHTML=`
     <button data-sim="play" style="width:40px;height:40px;border-radius:50%;border:none;background:#2563eb;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">${(simState.playing&&!ended)?SIM_PAUSE:SIM_PLAY}</button>
     <div style="display:flex;flex-direction:column;gap:5px;min-width:230px;flex:1;">
@@ -1449,7 +1458,7 @@ function renderSimBar(){
     </div>
     <div style="display:flex;gap:3px;flex-shrink:0;">${speeds.map(s=>`<button data-sim="speed" data-speed="${s}" style="padding:3px 7px;font-size:11px;border-radius:6px;border:1px solid var(--border);background:${simState.speed===s?'var(--green)':'var(--surface)'};color:${simState.speed===s?'#fff':'var(--text2)'};cursor:pointer;font-weight:600;">${s}×</button>`).join('')}</div>
     <div style="display:flex;gap:9px;font-size:10px;color:var(--text3);flex-shrink:0;">
-      <span style="display:flex;align-items:center;gap:3px;"><i style="width:9px;height:9px;border-radius:2px;background:#16a34a;display:inline-block;"></i>Bewässerung</span>
+      <span style="display:flex;align-items:center;gap:3px;"><i style="width:9px;height:9px;border-radius:2px;background:#16a34a;display:inline-block;"></i>Tätigkeit</span>
       <span style="display:flex;align-items:center;gap:3px;"><i style="width:9px;height:9px;border-radius:2px;background:#2563eb;display:inline-block;"></i>Fahrt</span>
       <span style="display:flex;align-items:center;gap:3px;"><i style="width:9px;height:9px;border-radius:2px;background:#f97316;display:inline-block;"></i>Depot</span>
     </div>
@@ -5670,7 +5679,7 @@ Object.assign(window,{
   openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,
   addWmsLayer,deleteWmsLayer,renderWmsList,
   setFilter,pickColor,renderList,
-  toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,
+  toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,simulateActiveTour,
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
