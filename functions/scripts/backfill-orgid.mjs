@@ -28,7 +28,7 @@ const ORGS = [
 const PROJECT_ORG_MAP = {
   'Lumi5fkOU70s89XZf4Dv': 'org_ruesselsheim',     // Rüsselsheim (Echtdaten)
   'WDXQv3gb1gl2kuzsVSpj': 'org_bad_rothenfelde',  // Bad Rothenfelde (Test)
-  '8iqStiWyrDx444Gq88uS': 'org_rheine',           // Rheine Papierkorbleerung
+  'itJxlz9sMO3Aq1biDUaY': 'org_rheine',           // Rheine-Papierkorbleerung (Live-ID; Handoff-ID war veraltet)
 };
 
 // Unterkollektionen, die orgId erhalten
