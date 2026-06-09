@@ -2518,6 +2518,8 @@ function switchView(v){
   const verwaltung=document.getElementById('view-verwaltung');
   const rollen=document.getElementById('view-rollen');
   if(rollen) rollen.style.display=v==='rollen'?'block':'none';
+  const benutzer=document.getElementById('view-benutzer');
+  if(benutzer) benutzer.style.display=v==='benutzer'?'block':'none';
   if(baeume) baeume.style.display=v==='baeume'?'flex':'none';
   if(touren) touren.style.display=v==='touren'?'block':'none';
   if(controlling) controlling.style.display=v==='controlling'?'flex':'none';
@@ -2550,6 +2552,13 @@ function switchView(v){
   if(v==='disposition') initDispo();
   if(v==='verwaltung') initVerwaltung();
   if(v==='rollen') renderRollenView();
+  if(v==='benutzer') initBenutzer();
+}
+async function initBenutzer(){
+  if(currentRole!=='superadmin' && currentCap!=='admin') return;
+  await loadRoles();
+  renderDriverLogins();
+  renderUserMgmt();
 }
 
 let _baeumeAllTrees = []; // cache for search
@@ -2883,8 +2892,6 @@ async function initVerwaltung(){
       </div>`
     ).join('');
   }
-  renderDriverLogins(); // org-level, unabhängig vom Projekt
-  renderUserMgmt();      // Nutzer & Rollen (E-Mail-Konten)
   if(!currentProjectId)return;
   await loadReasons();
   // Kein Auto-Seed mehr: Gründe sind streng pro Projekt. Leere Projekte bekommen
@@ -3206,6 +3213,7 @@ function applyModulePermissions(){
     const mods=el.dataset.module.split(',').map(s=>s.trim());
     let ok;
     if(mods.includes('__superadmin__')) ok=isSuper;
+    else if(mods.includes('__admin__')) ok=isSuper||currentCap==='admin';
     else ok=isSuper||mods.some(m=>canUseModule(m));
     el.style.display = ok ? '' : 'none';
   });
