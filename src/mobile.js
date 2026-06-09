@@ -24,8 +24,16 @@ function doc(db, ...segs){
 function getDoc(ref){ return ref.get(); }
 function getDocs(ref){ return ref.get(); }
 function updateDoc(ref, data){ return ref.update(data); }
-function addDoc(ref, data){ return ref.add(data); }
-function setDoc(ref, data, opts){ return opts ? ref.set(data, opts) : ref.set(data); }
+// Hängt orgId automatisch an Dokumente innerhalb projects/{id}/<sub>/… (für Rules)
+function _injectOrg(ref, data){
+  if(!data || typeof data!=='object' || Array.isArray(data) || data.orgId!==undefined) return data;
+  const path = ref && ref.path || '';
+  if(/^projects\/[^/]+\/.+/.test(path) && typeof currentProjectData!=='undefined' && currentProjectData && currentProjectData.orgId)
+    return {...data, orgId: currentProjectData.orgId};
+  return data;
+}
+function addDoc(ref, data){ return ref.add(_injectOrg(ref, data)); }
+function setDoc(ref, data, opts){ data=_injectOrg(ref, data); return opts ? ref.set(data, opts) : ref.set(data); }
 function deleteDoc(ref){ return ref.delete(); }
 function onSnapshot(ref, cb){ return ref.onSnapshot(cb); }
 function serverTimestamp(){ return firebase.firestore.FieldValue.serverTimestamp(); }
@@ -115,25 +123,85 @@ async function loadProjects() {
 }
 
 
-async function doLogin() {
-  const pid  = document.getElementById('login-project').value;
-  const tid  = document.getElementById('login-tour').value;
-  const name = document.getElementById('login-name').value;
-  const errEl = document.getElementById('login-error');
-  errEl.style.display='none';
+let _driverAuth = null;     // {orgId, name, driverId}
+let _tourCandidates = [];
 
-  if(!pid||!tid||!name){
-    errEl.textContent='Bitte alle Felder ausfüllen.';
-    errEl.style.display='block';
+function _loginErr(msg){
+  const e=document.getElementById('login-error');
+  if(e){ e.textContent=msg; e.style.display='block'; }
+}
+function _setLoginBtn(txt, disabled){
+  const b=document.getElementById('btn-login'), l=document.getElementById('btn-login-label');
+  if(l) l.textContent=txt; if(b) b.disabled=!!disabled;
+}
+
+async function doLogin() {
+  const errEl=document.getElementById('login-error'); if(errEl) errEl.style.display='none';
+  const tourGroup=document.getElementById('login-tour-group');
+
+  // Schritt 2: Tour gewählt → starten
+  if(_driverAuth && tourGroup && tourGroup.style.display!=='none'){
+    const tid=document.getElementById('login-tour').value;
+    const cand=_tourCandidates.find(c=>c.tid===tid);
+    if(!cand){ _loginErr('Bitte Tour wählen.'); return; }
+    await startBewässerungLogin(_driverAuth.name, cand.pid, cand.tid);
     return;
   }
 
-  await startBewässerungLogin(name, pid, tid);
+  // Schritt 1: Anmelden (Stadt/Code + Name + PIN)
+  const orgcode=(document.getElementById('login-orgcode')?.value||'').trim();
+  const name=(document.getElementById('login-name')?.value||'').trim();
+  const pin=(document.getElementById('login-pin')?.value||'').trim();
+  if(!orgcode||!name||!pin){ _loginErr('Bitte Stadt/Code, Name und PIN ausfüllen.'); return; }
+  if(!/^\d{6}$/.test(pin)){ _loginErr('PIN muss 6-stellig sein.'); return; }
+  _setLoginBtn('Anmelden…', true);
+  try{
+    const res=await firebase.app().functions('us-central1').httpsCallable('driverLogin')({orgCode:orgcode.toUpperCase(), name, pin});
+    const data=res.data||{};
+    await firebase.auth().signInWithCustomToken(data.token);
+    _driverAuth={orgId:data.orgId, name:data.name||name, driverId:data.driverId};
+    try{ localStorage.setItem('bwt_mobile_orgcode',orgcode.toUpperCase()); localStorage.setItem('bwt_mobile_name',name); }catch(_){}
+    await pickTour(_driverAuth.orgId, _driverAuth.name);
+  }catch(e){
+    const code=e&&e.code||''; const msg=e&&e.message||'';
+    _loginErr(/permission-denied|not-found|unauthenticated|resource-exhausted/.test(code)||/PIN|falsch|Versuche/i.test(msg)
+      ? (msg||'Name oder PIN falsch') : ('Fehler: '+(msg||code)));
+    _setLoginBtn('Anmelden', false);
+  }
 }
 
-function doLogout() {
+async function pickTour(orgId, name){
+  _tourCandidates=[];
+  try{
+    const projSnap=await db.collection('projects').where('orgId','==',orgId).get();
+    for(const p of projSnap.docs){
+      const toursSnap=await p.ref.collection('tours').get();
+      toursSnap.forEach(t=>{
+        const td=t.data();
+        const drivers=td.drivers||(td.assignedDriver?[td.assignedDriver]:[]);
+        _tourCandidates.push({pid:p.id, tid:t.id, projectName:p.data().name||'', tourName:td.name||'', assigned:drivers.includes(name)});
+      });
+    }
+  }catch(e){ _loginErr('Touren konnten nicht geladen werden: '+(e.message||e.code)); _setLoginBtn('Anmelden',false); return; }
+
+  const assigned=_tourCandidates.filter(c=>c.assigned);
+  const list=assigned.length?assigned:_tourCandidates;
+  if(list.length===0){ _loginErr('Keine Tour in diesem Mandanten gefunden.'); _setLoginBtn('Anmelden',false); return; }
+  if(list.length===1){ await startBewässerungLogin(name, list[0].pid, list[0].tid); return; }
+
+  // Mehrere → Tour-Auswahl zeigen, Anmeldefelder ausblenden
+  _tourCandidates=list;
+  const sel=document.getElementById('login-tour');
+  sel.innerHTML='<option value="">– Tour wählen –</option>'+list.map(c=>`<option value="${c.tid}">${c.projectName} · ${c.tourName}</option>`).join('');
+  document.getElementById('login-tour-group').style.display='';
+  ['lg-orgcode','lg-name','lg-pin'].forEach(id=>{ const g=document.getElementById(id); if(g) g.style.display='none'; });
+  _setLoginBtn('Tour starten', false);
+}
+
+async function doLogout() {
   if (!confirm('Abmelden?')) return;
-  localStorage.removeItem('bwt_mobile_session');
+  try{ localStorage.removeItem('bwt_mobile_session'); }catch(_){}
+  try{ await firebase.auth().signOut(); }catch(_){}
   location.reload();
 }
 
@@ -612,6 +680,7 @@ async function finishTour() {
     // ── Lean snapshot ────────────────────────────────────────────
     const histId = `${dateStr}_${now.getTime()}_${currentTourId}`;
     const snapshot = {
+      orgId: currentProjectData?.orgId || '',
       tourId: currentTourId, tourName: currentTour?.name||'',
       tourColor: currentTour?.color||'',
       date: dateStr, closedAt: tsStr, closedBy: currentDriver, stats,
@@ -1379,15 +1448,13 @@ async function syncOfflineQueue(){
 async function tryResumeSession() {
   const loadingEl = document.getElementById('screen-loading');
   const loginEl   = document.getElementById('screen-login');
-
-  function showLogin(){
-    if(loadingEl) loadingEl.style.display='none';
-    if(loginEl)   loginEl.classList.add('active');
-    loadLoginProjects();
-  }
-
-  // Always show login — session resume disabled (localStorage blocked by Edge Tracking Prevention)
-  showLogin();
+  // Stadt/Code + Name vorbefüllen (Komfort) — PIN immer neu eingeben
+  try{
+    const oc=localStorage.getItem('bwt_mobile_orgcode'); if(oc){ const e=document.getElementById('login-orgcode'); if(e) e.value=oc; }
+    const nm=localStorage.getItem('bwt_mobile_name');    if(nm){ const e=document.getElementById('login-name');    if(e) e.value=nm; }
+  }catch(_){}
+  if(loadingEl) loadingEl.style.display='none';
+  if(loginEl)   loginEl.classList.add('active');
 }
 
 // Safety fallback — show login after 5s if still loading
@@ -1397,7 +1464,6 @@ setTimeout(()=>{
   if(loading && loading.style.display !== 'none'){
     loading.style.display = 'none';
     if(login) login.classList.add('active');
-    loadLoginProjects();
   }
 }, 800);
 
@@ -1407,10 +1473,9 @@ tryResumeSession();
 
 // ─── EVENT LISTENERS (replaces all inline onclick/onchange) ──────
 document.addEventListener('DOMContentLoaded', () => {
-  // Login
-  document.getElementById('login-project').addEventListener('change', onLoginProjectChange);
-  document.getElementById('login-tour').addEventListener('change', onLoginTourChange);
-  document.getElementById('btn-login').addEventListener('click', doLogin);
+  // Login (Auth-first: Code + Name + PIN)
+  const btnLoginEl=document.getElementById('btn-login'); if(btnLoginEl) btnLoginEl.addEventListener('click', doLogin);
+  const pinEl=document.getElementById('login-pin'); if(pinEl) pinEl.addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
 
   // App header
   const btnLogout = document.getElementById('btn-logout');

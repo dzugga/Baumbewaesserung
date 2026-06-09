@@ -65,6 +65,16 @@ cd ..
 npx.cmd firebase deploy --only functions:driverLogin,functions:setDriverPin,functions:setUserRole
 ```
 
+**Wichtig (einmalig): `createCustomToken`-Berechtigung.** Damit `driverLogin`
+Tokens signieren darf, braucht das Laufzeit-Service-Konto der Functions die Rolle
+**Service Account Token Creator** (sonst Fehler `iam.serviceAccounts.signBlob denied`):
+```
+gcloud.cmd projects add-iam-policy-binding baumbewaesserung ^
+  --member="serviceAccount:1001991004222-compute@developer.gserviceaccount.com" ^
+  --role="roles/iam.serviceAccountTokenCreator" --condition=None
+```
+(Bereits gesetzt am 09.06.2026.)
+
 ### 3. Backfill ausführen (orgId auf Bestandsdaten + orgs anlegen)
 Erst Credentials bereitstellen (eines):
 ```
