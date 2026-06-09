@@ -294,25 +294,21 @@ function initProjectScreen(){
     // bei nicht-Superadmin clientseitig nach createdAt sortieren (vermeidet Composite-Index)
     const docs=[...snap.docs];
     if(currentRole!=='superadmin') docs.sort((a,b)=>(a.data().createdAt?.seconds||0)-(b.data().createdAt?.seconds||0));
-    // Use async IIFE to allow await inside onSnapshot callback
-    (async()=>{
-      const projectsWithCounts = await Promise.all(docs.map(async d=>{
-        const data=d.data();
-        const treesSnap=await getDocs(collection(db,'projects',d.id,'trees'));
-        const toursSnap=await getDocs(collection(db,'projects',d.id,'tours'));
-        return {id:d.id, data, treeCount:treesSnap.size, tourCount:toursSnap.size};
-      }));
-      psList.innerHTML=projectsWithCounts.map(({id,data,treeCount,tourCount})=>{
-      return `<div class="ps-item" onclick="openProject('${id}')">
+    // Gespeicherte Zähler nutzen (kein Lesen der Unterkollektionen) — heilen sich beim Öffnen
+    psList.innerHTML=docs.map(d=>{
+      const data=d.data();
+      const meta=(data.treeCount!=null||data.tourCount!=null)
+        ? `${data.treeCount??0} Objekte · ${data.tourCount??0} Touren`
+        : 'beim Öffnen aktualisieren';
+      return `<div class="ps-item" onclick="openProject('${d.id}')">
         <div class="ps-item-icon">🌳</div>
         <div class="ps-item-info">
           <div class="ps-item-name">${data.name}</div>
-          <div class="ps-item-meta">${treeCount} Objekte · ${tourCount} Touren</div>
+          <div class="ps-item-meta">${meta}</div>
         </div>
         <svg class="ps-item-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg>
       </div>`;
     }).join('');
-    })();
   },err=>{
     document.getElementById('ps-sync').innerHTML='<div class="sync-dot error"></div> Fehler';
     console.error(err);
@@ -334,6 +330,7 @@ async function createProject(){
 }
 
 async function openProject(projectId){
+  if(unsubProjects){ unsubProjects(); unsubProjects=null; } // Projekt-Listener stoppen (spart Hintergrund-Reads)
   currentProjectId=projectId;
   window._tourHistoryCache=null;   // Historie des alten Projekts verwerfen
   _dataViewProject=null;           // Controlling/Dashboard für neues Projekt neu aufbauen
@@ -391,6 +388,7 @@ function subscribeToProject(){
     if(currentView==='touren') renderTourenGrid();
     if(currentView==='benutzer') renderDriverMgmt();
     syncDataViewToProject();
+    maybeHealCount('tourCount',tours.length);
     setSyncState('ok','Synchronisiert');
   });
 
@@ -398,6 +396,7 @@ function subscribeToProject(){
   unsubTrees=onSnapshot(treesRef,snap=>{
     trees=snap.docs.map(d=>({id:d.id,...d.data()}));
     refreshMarkers();renderList();
+    maybeHealCount('treeCount',trees.length);
     if(currentView==='baeume'){
       const artenTab=document.getElementById('baeume-arten');
       if(artenTab && getComputedStyle(artenTab).display!=='none') renderArtenView();
@@ -407,6 +406,15 @@ function subscribeToProject(){
     setSyncState('ok','Synchronisiert');
     autoMigrateTourIds(); // tourId → tourIds[] still im Hintergrund
   });
+}
+
+// Gespeicherten Projekt-Zähler aktualisieren (1 Write nur bei Abweichung; nur Planer/Admin)
+function maybeHealCount(field,n){
+  if(!currentProjectId || !currentProjectData) return;
+  if(!(currentCap==='admin'||currentCap==='editor'||currentRole==='superadmin')) return;
+  if(currentProjectData[field]===n) return;
+  currentProjectData[field]=n;
+  updateDoc(doc(db,'projects',currentProjectId),{[field]:n}).catch(()=>{});
 }
 
 // ─── PROJECT SETTINGS ─────────────────────────────────────────
