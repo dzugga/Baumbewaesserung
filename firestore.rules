@@ -61,38 +61,42 @@ service cloud.firestore {
 
     // ----- Projekte + Unterkollektionen -----
     match /projects/{pid} {
+      // Org des Parent-Projekts (fuer Lesen unbeschr. Unterkollektions-Queries)
+      function projOrg() { return get(/databases/$(database)/documents/projects/$(pid)).data.orgId; }
+      function canReadProj() { return inOrg(projOrg()); }
+
       allow read:   if inOrg(resource.data.orgId);
       allow create: if canPlan(request.resource.data.orgId);
       allow update: if canPlan(resource.data.orgId) && orgUnchanged();
       allow delete: if canPlan(resource.data.orgId);
 
       match /trees/{tid} {
-        allow read:   if inOrg(resource.data.orgId);
+        allow read:   if canReadProj();
         allow create: if canPlan(request.resource.data.orgId);
         allow delete: if canPlan(resource.data.orgId);
         allow update: if (canPlan(resource.data.orgId) && orgUnchanged())
                       || (cap() == 'driver' && inOrg(resource.data.orgId) && orgUnchanged() && onlyStatusFields());
       }
       match /tours/{tid} {
-        allow read:           if inOrg(resource.data.orgId);
+        allow read:           if canReadProj();
         allow create:         if canPlan(request.resource.data.orgId);
         allow update:         if canPlan(resource.data.orgId) && orgUnchanged();
         allow delete:         if canPlan(resource.data.orgId);
       }
       match /routes/{tid} {
-        allow read:           if inOrg(resource.data.orgId);
+        allow read:           if canReadProj();
         allow create:         if canPlan(request.resource.data.orgId);
         allow update:         if canPlan(resource.data.orgId) && orgUnchanged();
         allow delete:         if canPlan(resource.data.orgId);
       }
       match /reasons/{rid} {
-        allow read:           if inOrg(resource.data.orgId);
+        allow read:           if canReadProj();
         allow create:         if canPlan(request.resource.data.orgId);
         allow update:         if canPlan(resource.data.orgId) && orgUnchanged();
         allow delete:         if canPlan(resource.data.orgId);
       }
       match /tourHistory/{hid} {
-        allow read:   if inOrg(resource.data.orgId);
+        allow read:   if canReadProj();
         allow create: if inOrg(request.resource.data.orgId) && (cap() == 'driver' || canPlan(request.resource.data.orgId));
         allow update, delete: if canPlan(resource.data.orgId);
       }
