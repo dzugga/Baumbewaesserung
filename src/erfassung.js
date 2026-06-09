@@ -401,6 +401,7 @@ function _erfErr(m){ const e=document.getElementById('login-error'); if(e){ e.te
 function _erfBtn(txt,dis){ const b=document.getElementById('btn-login'),l=document.getElementById('btn-login-label'); if(l)l.textContent=txt; if(b)b.disabled=!!dis; }
 
 function showLoginStep1(msg){
+  document.getElementById('screen-app')?.classList.remove('active');
   document.getElementById('screen-login').classList.add('active');
   ['lg-email','lg-pass'].forEach(id=>{const g=document.getElementById(id);if(g)g.style.display='';});
   const pg=document.getElementById('lg-project'); if(pg) pg.style.display='none';

@@ -15,6 +15,13 @@ const TOUR_COLORS = ['#2d6a4f','#1e40af','#7c3aed','#be123c','#b45309','#0e7490'
 // ─── STATE ────────────────────────────────────────────────────
 let currentProjectId = null;
 let currentProjectData = null;
+let currentUser = null, currentRole = '', currentCap = '', currentOrg = '';
+let elRoles = {}; // roleKey -> {modules,...}
+function canUseEinsatzleiter(){
+  if(currentRole==='superadmin' || currentCap==='admin') return true;
+  const r=elRoles[currentRole];
+  return !!(r && r.modules && r.modules.einsatzleiter);
+}
 let trees = [];
 let tours = [];
 let tourHistory = [];
@@ -402,39 +409,69 @@ async function manualRefresh(){
   toast('Aktualisiert');
 }
 
-// ─── LOGIN ────────────────────────────────────────────────────
+// ─── AUTH / LOGIN (E-Mail -> Projektauswahl) ──────────────────
+function _elErr(m){ const e=document.getElementById('login-error'); if(e){ e.textContent=m; e.style.display=m?'block':'none'; } }
+function _elBtn(txt,dis){ const b=document.getElementById('btn-login'),l=document.getElementById('btn-login-label'); if(l)l.textContent=txt; if(b)b.disabled=!!dis; }
+function showLoginStep1(msg){
+  document.getElementById('screen-app')?.classList.remove('active');
+  document.getElementById('screen-login').classList.add('active');
+  ['lg-email','lg-pass'].forEach(id=>{const g=document.getElementById(id);if(g)g.style.display='';});
+  const pg=document.getElementById('lg-project'); if(pg) pg.style.display='none';
+  _elBtn('Anmelden', false); _elErr(msg||'');
+}
+async function showProjectStep(){
+  document.getElementById('screen-login').classList.add('active');
+  ['lg-email','lg-pass'].forEach(id=>{const g=document.getElementById(id);if(g)g.style.display='none';});
+  const pg=document.getElementById('lg-project'); if(pg) pg.style.display='';
+  _elBtn('Starten', false); _elErr('');
+  await loadProjects();
+}
+
 async function loadProjects(){
-  const snap=await db.collection('projects').get();
+  const ref=db.collection('projects');
+  const snap = currentRole==='superadmin' ? await ref.get() : await ref.where('orgId','==',currentOrg).get();
   const sel=document.getElementById('login-project');
+  const docs=snap.docs;
   sel.innerHTML='<option value="">– Projekt wählen –</option>'+
-    snap.docs.map(d=>`<option value="${d.id}">${d.data().name||d.id}</option>`).join('');
-  if(snap.size===1) sel.value=snap.docs[0].id;
+    docs.map(d=>`<option value="${d.id}">${d.data().name||d.id}</option>`).join('');
+  if(docs.length===1) sel.value=docs[0].id;
 }
 
 async function doLogin(){
-  const pid=document.getElementById('login-project').value;
-  const errEl=document.getElementById('login-error');
-  errEl.style.display='none';
-  if(!pid){ errEl.textContent='Bitte ein Projekt wählen.'; errEl.style.display='block'; return; }
+  _elErr('');
+  const projGroup=document.getElementById('lg-project');
+  if(currentUser && projGroup && projGroup.style.display!=='none'){
+    const pid=document.getElementById('login-project').value;
+    if(!pid){ _elErr('Bitte ein Projekt wählen.'); return; }
+    await startEinsatzleiter(pid);
+    return;
+  }
+  const email=(document.getElementById('login-email')?.value||'').trim();
+  const pass=document.getElementById('login-pass')?.value||'';
+  if(!email||!pass){ _elErr('Bitte E-Mail und Passwort eingeben.'); return; }
+  _elBtn('Anmelden…', true);
+  try{ await firebase.auth().signInWithEmailAndPassword(email,pass); }
+  catch(e){ const c=e&&e.code||''; _elErr(/invalid-credential|wrong-password|user-not-found|invalid-email/.test(c)?'E-Mail oder Passwort falsch':('Fehler: '+(e.message||c))); _elBtn('Anmelden',false); }
+}
 
+async function startEinsatzleiter(pid){
   const snap=await db.collection('projects').doc(pid).get();
   currentProjectId=pid;
   currentProjectData={id:pid,...snap.data()};
-
   document.getElementById('header-project').textContent=currentProjectData.name||pid;
   document.getElementById('screen-login').classList.remove('active');
   document.getElementById('screen-app').classList.add('active');
-
   subscribe();
   loadTourHistory();
   clearInterval(refreshTimer);
-  refreshTimer=setInterval(loadTourHistory, 60000); // Live: tourHistory alle 60s nachladen
+  refreshTimer=setInterval(loadTourHistory, 60000);
 }
 
-function doLogout(){
-  if(!confirm('Projekt wechseln?')) return;
+async function doLogout(){
+  if(!confirm('Abmelden?')) return;
   if(unsubTrees) unsubTrees(); if(unsubTours) unsubTours();
   clearInterval(refreshTimer);
+  try{ await firebase.auth().signOut(); }catch(_){}
   location.reload();
 }
 
@@ -448,6 +485,7 @@ function setPeriod(p){
 // ─── INIT ─────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', ()=>{
   document.getElementById('btn-login').addEventListener('click', doLogin);
+  document.getElementById('login-pass')?.addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
   document.getElementById('btn-logout').addEventListener('click', doLogout);
   document.getElementById('btn-refresh').addEventListener('click', manualRefresh);
   document.querySelectorAll('.tf-chip').forEach(c=>
@@ -455,11 +493,19 @@ document.addEventListener('DOMContentLoaded', ()=>{
   document.getElementById('date-from').addEventListener('change', render);
   document.getElementById('date-to').addEventListener('change', render);
 
-  loadProjects().then(()=>{
+  // Auth-Gate: Login -> Modul-Check -> Projektauswahl
+  firebase.auth().onAuthStateChanged(async (user)=>{
     hideLoading();
-    document.getElementById('screen-login').classList.add('active');
-  }).catch(e=>{
-    console.error(e); hideLoading();
-    document.getElementById('screen-login').classList.add('active');
+    if(user){
+      try{ const tok=await user.getIdTokenResult(); currentUser=user; currentRole=tok.claims.role||''; currentCap=tok.claims.cap||''; currentOrg=tok.claims.orgId||''; }
+      catch(e){ currentRole=''; currentCap=''; currentOrg=''; }
+      if(!currentRole){ showLoginStep1('Dieses Konto hat keine Berechtigung.'); return; }
+      try{ const rs=await db.collection('roles').doc(currentRole).get(); if(rs.exists) elRoles[currentRole]=rs.data(); }catch(e){}
+      if(!canUseEinsatzleiter()){ showLoginStep1('Diese Rolle hat keinen Zugriff auf die Einsatzleiter-App.'); return; }
+      showProjectStep();
+    } else {
+      currentUser=null; currentRole=''; currentCap=''; currentOrg='';
+      showLoginStep1('');
+    }
   });
 });

@@ -160,14 +160,22 @@ body{overflow:hidden;}
       Einsatzleitung
     </div>
     <div class="login-sub">Dashboard mobil</div>
-    <div class="form-group">
+    <div class="form-group" id="lg-email">
+      <label class="form-label">E-Mail</label>
+      <input class="form-control" id="login-email" type="email" autocomplete="username" placeholder="name@firma.de">
+    </div>
+    <div class="form-group" id="lg-pass">
+      <label class="form-label">Passwort</label>
+      <input class="form-control" id="login-pass" type="password" autocomplete="current-password" placeholder="********">
+    </div>
+    <div class="form-group" id="lg-project" style="display:none;">
       <label class="form-label">Projekt</label>
-      <select class="form-control" id="login-project"><option value="">Wird geladen…</option></select>
+      <select class="form-control" id="login-project"><option value="">– Projekt wählen –</option></select>
     </div>
     <div id="login-error" style="color:var(--red);font-size:13px;margin-bottom:12px;display:none;"></div>
     <button class="btn btn-primary" id="btn-login">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-      Starten
+      <span id="btn-login-label">Anmelden</span>
     </button>
   </div>
 </div>
@@ -271,6 +279,7 @@ body{overflow:hidden;}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script type="module" src="/src/einsatzleiter.js"></script>
 </body>

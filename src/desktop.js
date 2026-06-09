@@ -130,6 +130,7 @@ const MODULES = [
   {key:'admin',       label:'INFA-Admin (Allgemein/KI-Config)'},
   {key:'erfassung',   label:'Erfassungs-App'},
   {key:'mobil',       label:'Fahrer-App (Mobil)'},
+  {key:'einsatzleiter', label:'Einsatzleiter-App'},
 ];
 const BASE_TYPES = [
   {key:'admin',    label:'Verwalten (Admin)'},
@@ -142,7 +143,7 @@ const _mods = (keys)=>Object.fromEntries(_allModKeys.map(k=>[k, keys.includes(k)
 const BUILTIN_ROLES = {
   superadmin: {name:'Superadmin', baseType:'admin', modules:_mods(_allModKeys), builtin:true},
   orgadmin:   {name:'Org-Admin',  baseType:'admin', modules:_mods(_allModKeys.filter(k=>k!=='admin')), builtin:true},
-  planer:     {name:'Planer',     baseType:'editor', modules:_mods(['planung','disposition','dashboard','controlling','ki','objekte','touren','import','projekte']), builtin:true},
+  planer:     {name:'Planer',     baseType:'editor', modules:_mods(['planung','disposition','dashboard','controlling','ki','objekte','touren','import','projekte','einsatzleiter']), builtin:true},
   erfasser:   {name:'Erfasser',   baseType:'editor', modules:_mods(['erfassung','objekte']), builtin:true},
   fahrer:     {name:'Fahrer',     baseType:'driver', modules:_mods(['mobil']), builtin:true},
 };
@@ -3096,7 +3097,16 @@ async function loadRoles(){
 async function seedBuiltinRoles(){
   if(currentRole!=='superadmin') return;
   for(const [k,v] of Object.entries(BUILTIN_ROLES)){
-    try{ const ref=db.collection('roles').doc(k); const s=await ref.get(); if(!s.exists) await ref.set(v); }catch(e){}
+    try{
+      const ref=db.collection('roles').doc(k); const s=await ref.get();
+      if(!s.exists){ await ref.set(v); }
+      else {
+        // fehlende (neue) Modul-Keys mit Vorlagen-Default ergänzen, Bestehendes nicht überschreiben
+        const cur=s.data().modules||{}; const patch={};
+        _allModKeys.forEach(mk=>{ if(cur[mk]===undefined) patch['modules.'+mk]=!!v.modules[mk]; });
+        if(Object.keys(patch).length) await ref.update(patch);
+      }
+    }catch(e){}
   }
 }
 async function renderRollenView(){
