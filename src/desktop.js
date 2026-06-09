@@ -924,48 +924,36 @@ function getRouteNum(treeId){
 
 function makeMarker(tree){
   const treeTourIds=getTreeTourIds(tree);
-  // Farbe: 1) fokussierte Tour, 2) eine AKTIVE Tour (Mehrfachauswahl), 3) Primär-Tour
-  let tour;
-  if(activeTourOnMap && treeTourIds.includes(activeTourOnMap)){
-    tour=tours.find(t=>t.id===activeTourOnMap);
+  const isMulti=treeTourIds.length>1;
+  // Farbe: mehrere Tourzuordnungen → gelb; sonst aktive/Primär-Tourfarbe
+  let color;
+  if(isMulti){
+    color='#eab308';
   } else {
-    const activeId=treeTourIds.find(id=>activeTours.has(id));
-    tour = activeId ? tours.find(t=>t.id===activeId) : primaryTour(tree);
+    let tour;
+    if(activeTourOnMap && treeTourIds.includes(activeTourOnMap)) tour=tours.find(t=>t.id===activeTourOnMap);
+    else { const activeId=treeTourIds.find(id=>activeTours.has(id)); tour=activeId?tours.find(t=>t.id===activeId):primaryTour(tree); }
+    color=tour?tour.color:'#6b6760';
   }
-  const color=tour?tour.color:'#6b6760';
   const num=getRouteNum(tree.id);
   const isHighlighted=selectedTreeId===tree.id;
-  // Segmente/Zähler nur bei mehreren GLEICHZEITIG aktiven Touren des Objekts
-  const activeForTree=treeTourIds.filter(id=>activeTours.has(id));
+  const numColor=isMulti?'#a16207':color; // lesbarer Reihenfolge-Zähler auf Gelb
 
   const badge=num!=null
-    ?`<div style="position:absolute;bottom:-5px;right:-5px;min-width:16px;height:16px;border-radius:8px;background:#fff;border:1.5px solid ${color};color:${color};font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:monospace;padding:0 2px;">${num}</div>`:'';
+    ?`<div style="position:absolute;bottom:-5px;right:-5px;min-width:16px;height:16px;border-radius:8px;background:#fff;border:1.5px solid ${numColor};color:${numColor};font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:monospace;padding:0 2px;">${num}</div>`:'';
 
   const ring=isHighlighted
     ?`<div style="position:absolute;inset:-5px;border-radius:50%;border:3px solid ${color};animation:pulse-ring .8s ease-in-out infinite;opacity:.7;"></div>`
     :'';
 
   const sz=isHighlighted?36:28;
-  const m=activeForTree.length;        // Anzahl gleichzeitig aktiver Touren des Objekts
-  const useSegments = m>=2 && m<=7;    // 2–7 aktive Touren → segmentierter Ring
   const shadow=isHighlighted?'0 0 0 3px '+color+', 0 4px 12px rgba(0,0,0,.4)':'0 2px 6px rgba(0,0,0,.3)';
 
-  // Kreis-Darstellung: segmentierter Ring (mehrere aktive Touren) oder solider Kreis (Haupttourfarbe)
-  let circleHtml;
-  if(useSegments){
-    const colors=activeForTree.map(id=>{const t=tours.find(tt=>tt.id===id);return t?t.color:'#9c9890';});
-    const seg=100/m;
-    const stops=colors.map((c,i)=>`${c} ${(i*seg).toFixed(2)}% ${((i+1)*seg).toFixed(2)}%`).join(',');
-    const inset=isHighlighted?7:6;
-    circleHtml=`<div style="position:absolute;inset:0;box-sizing:border-box;border-radius:50%;background:conic-gradient(${stops});border:${isHighlighted?3:2}px solid #fff;box-shadow:${shadow};cursor:pointer;transform:${isHighlighted?'scale(1.15)':'scale(1)'};transition:all .2s;"></div>
-      <div style="position:absolute;inset:${inset}px;background:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:${isHighlighted?15:12}px;pointer-events:none;">🌳</div>`;
-  } else {
-    circleHtml=`<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${color};border:${isHighlighted?4:3}px solid white;box-shadow:${shadow};display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:${isHighlighted?16:13}px;transform:${isHighlighted?'scale(1.15)':'scale(1)'};transition:all .2s;">🌳</div>`;
-  }
+  const circleHtml=`<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${color};border:${isHighlighted?4:3}px solid white;box-shadow:${shadow};display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:${isHighlighted?16:13}px;transform:${isHighlighted?'scale(1.15)':'scale(1)'};transition:all .2s;">🌳</div>`;
 
-  // Oranger Tour-Zähler nur bei mehreren gleichzeitig aktiven Touren (per Button ausblendbar)
-  const multiBadge=m>=2
-    ?`<div class="tour-count-badge" style="position:absolute;top:-6px;right:-6px;min-width:16px;height:16px;border-radius:8px;background:#f59e0b;border:2px solid #fff;color:#fff;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 2px;z-index:10;">${m}</div>`:'';
+  // Tour-Zähler = Anzahl der Tourzuordnungen (fix), per Button nur ausblendbar
+  const multiBadge=isMulti
+    ?`<div class="tour-count-badge" style="position:absolute;top:-6px;right:-6px;min-width:16px;height:16px;border-radius:8px;background:#f59e0b;border:2px solid #fff;color:#fff;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 2px;z-index:10;">${treeTourIds.length}</div>`:'';
 
   const icon=L.divIcon({
     className:'',
