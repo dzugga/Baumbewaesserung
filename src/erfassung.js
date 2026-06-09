@@ -83,7 +83,15 @@ let currentProjectData = null;
 let currentErfasser = null;
 let currentUser = null;     // Firebase-Auth-Nutzer
 let currentRole = '';       // Custom Claims
+let currentCap  = '';       // Custom Claims (Basis-Typ)
 let currentOrg  = '';       // Custom Claims
+let erfLoginMode = 'pin';
+let erfRoles = {};          // roleKey -> {modules,...}
+function canUseErfassung(){
+  if(currentRole==='superadmin' || currentCap==='admin') return true;
+  const r=erfRoles[currentRole];
+  return !!(r && r.modules && r.modules.erfassung);
+}
 let allTrees = [];          // alle Bäume des Projekts
 let treesOhneKoords = [];   // Bäume ohne Koordinaten (Modus 2)
 let selectedTree = null;    // für Modus 2
@@ -400,16 +408,32 @@ function centerOnGPS(map, markerRef, onSuccess) {
 function _erfErr(m){ const e=document.getElementById('login-error'); if(e){ e.textContent=m; e.style.display=m?'block':'none'; } }
 function _erfBtn(txt,dis){ const b=document.getElementById('btn-login'),l=document.getElementById('btn-login-label'); if(l)l.textContent=txt; if(b)b.disabled=!!dis; }
 
+function _setMode(){
+  const pm=document.getElementById('lg-pin-mode'), em=document.getElementById('lg-email-mode');
+  if(pm) pm.style.display=erfLoginMode==='pin'?'':'none';
+  if(em) em.style.display=erfLoginMode==='email'?'':'none';
+}
+function toggleLoginMode(){
+  erfLoginMode = erfLoginMode==='pin'?'email':'pin';
+  _setMode();
+  const tg=document.getElementById('login-toggle'); if(tg) tg.textContent=erfLoginMode==='pin'?'Admin-Anmeldung (E-Mail)':'Anmeldung mit Stadt-Code + PIN';
+  _erfErr('');
+}
 function showLoginStep1(msg){
   document.getElementById('screen-app')?.classList.remove('active');
   document.getElementById('screen-login').classList.add('active');
-  ['lg-email','lg-pass'].forEach(id=>{const g=document.getElementById(id);if(g)g.style.display='';});
+  _setMode();
   const pg=document.getElementById('lg-project'); if(pg) pg.style.display='none';
+  const tg=document.getElementById('login-toggle'); if(tg) tg.style.display='';
   _erfBtn('Anmelden', false); _erfErr(msg||'');
+  try{ const oc=localStorage.getItem('bwt_mobile_orgcode'); const e2=document.getElementById('login-orgcode'); if(oc&&e2&&!e2.value)e2.value=oc;
+       const nm=localStorage.getItem('bwt_mobile_name'); const e3=document.getElementById('login-name'); if(nm&&e3&&!e3.value)e3.value=nm; }catch(_){}
 }
 async function showProjectStep(){
   document.getElementById('screen-login').classList.add('active');
-  ['lg-email','lg-pass'].forEach(id=>{const g=document.getElementById(id);if(g)g.style.display='none';});
+  const pm=document.getElementById('lg-pin-mode'), em=document.getElementById('lg-email-mode');
+  if(pm) pm.style.display='none'; if(em) em.style.display='none';
+  const tg=document.getElementById('login-toggle'); if(tg) tg.style.display='none';
   const pg=document.getElementById('lg-project'); if(pg) pg.style.display='';
   _erfBtn('Starten', false); _erfErr('');
   await loadProjects();
@@ -436,12 +460,26 @@ async function doLogin() {
     return;
   }
   // Schritt 1: anmelden
-  const email=(document.getElementById('login-email')?.value||'').trim();
-  const pass=document.getElementById('login-pass')?.value||'';
-  if(!email||!pass){ _erfErr('Bitte E-Mail und Passwort eingeben.'); return; }
+  if(erfLoginMode==='email'){
+    const email=(document.getElementById('login-email')?.value||'').trim();
+    const pass=document.getElementById('login-pass')?.value||'';
+    if(!email||!pass){ _erfErr('Bitte E-Mail und Passwort eingeben.'); return; }
+    _erfBtn('Anmelden…', true);
+    try{ await firebase.auth().signInWithEmailAndPassword(email,pass); }
+    catch(e){ const c=e&&e.code||''; _erfErr(/invalid-credential|wrong-password|user-not-found|invalid-email/.test(c)?'E-Mail oder Passwort falsch':('Fehler: '+(e.message||c))); _erfBtn('Anmelden',false); }
+    return;
+  }
+  const orgcode=(document.getElementById('login-orgcode')?.value||'').trim();
+  const name=(document.getElementById('login-name')?.value||'').trim();
+  const pin=(document.getElementById('login-pin')?.value||'').trim();
+  if(!orgcode||!name||!pin){ _erfErr('Bitte Stadt/Code, Name und PIN ausfüllen.'); return; }
+  if(!/^\d{6}$/.test(pin)){ _erfErr('PIN muss 6-stellig sein.'); return; }
   _erfBtn('Anmelden…', true);
-  try{ await firebase.auth().signInWithEmailAndPassword(email,pass); }
-  catch(e){ const c=e&&e.code||''; _erfErr(/invalid-credential|wrong-password|user-not-found|invalid-email/.test(c)?'E-Mail oder Passwort falsch':('Fehler: '+(e.message||c))); _erfBtn('Anmelden',false); }
+  try{
+    const res=await firebase.app().functions('us-central1').httpsCallable('driverLogin')({orgCode:orgcode.toUpperCase(),name,pin});
+    try{ localStorage.setItem('bwt_mobile_orgcode',orgcode.toUpperCase()); localStorage.setItem('bwt_mobile_name',name); }catch(_){}
+    await firebase.auth().signInWithCustomToken(res.data.token);
+  }catch(e){ const c=e&&e.code||'',m=e&&e.message||''; _erfErr(/permission-denied|not-found|unauthenticated|resource-exhausted/.test(c)?(m||'Name oder PIN falsch'):('Fehler: '+(m||c))); _erfBtn('Anmelden',false); }
 }
 
 async function startErfassung(pid){
@@ -888,16 +926,19 @@ document.addEventListener('DOMContentLoaded', () => {
   if (isOnline) syncQueue();
 
   // Auth-Gate: entscheidet Login vs. Projektauswahl
+  const tgl=document.getElementById('login-toggle'); if(tgl) tgl.addEventListener('click', toggleLoginMode);
+  document.getElementById('login-pin')?.addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
   firebase.auth().onAuthStateChanged(async (user) => {
     hideLoading();
     if (user) {
-      try { const tok = await user.getIdTokenResult(); currentUser = user; currentRole = tok.claims.role || ''; currentOrg = tok.claims.orgId || ''; }
-      catch (e) { currentRole = ''; currentOrg = ''; }
-      if (!currentRole) { showLoginStep1('Dieses Konto hat keine Berechtigung. Bitte an den Administrator wenden.'); return; }
-      currentErfasser = user.email || user.uid;
+      try { const tok = await user.getIdTokenResult(); currentUser = user; currentRole = tok.claims.role || ''; currentCap = tok.claims.cap || ''; currentOrg = tok.claims.orgId || ''; currentErfasser = tok.claims.name || user.email || user.uid; }
+      catch (e) { currentRole = ''; currentCap=''; currentOrg = ''; }
+      if (!currentRole) { showLoginStep1('Dieses Konto hat keine Berechtigung.'); return; }
+      try { const rs = await db.collection('roles').doc(currentRole).get(); if (rs.exists) erfRoles[currentRole] = rs.data(); } catch(e){}
+      if (!canUseErfassung()) { showLoginStep1('Diese Rolle hat keinen Zugriff auf die Erfassungs-App.'); return; }
       showProjectStep();
     } else {
-      currentUser = null; currentRole = ''; currentOrg = '';
+      currentUser = null; currentRole = ''; currentCap=''; currentOrg = '';
       showLoginStep1('');
     }
   });

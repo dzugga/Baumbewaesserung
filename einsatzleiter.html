@@ -160,13 +160,19 @@ body{overflow:hidden;}
       Einsatzleitung
     </div>
     <div class="login-sub">Dashboard mobil</div>
-    <div class="form-group" id="lg-email">
-      <label class="form-label">E-Mail</label>
-      <input class="form-control" id="login-email" type="email" autocomplete="username" placeholder="name@firma.de">
+    <div id="lg-pin-mode">
+      <div class="form-group"><label class="form-label">Stadt / Code</label>
+        <input class="form-control" id="login-orgcode" placeholder="z.B. RHEINE" autocapitalize="characters" autocomplete="off"></div>
+      <div class="form-group"><label class="form-label">Name</label>
+        <input class="form-control" id="login-name" placeholder="Vor- und Nachname" autocomplete="off"></div>
+      <div class="form-group"><label class="form-label">PIN</label>
+        <input class="form-control" id="login-pin" type="password" inputmode="numeric" maxlength="6" placeholder="6-stellig" autocomplete="off"></div>
     </div>
-    <div class="form-group" id="lg-pass">
-      <label class="form-label">Passwort</label>
-      <input class="form-control" id="login-pass" type="password" autocomplete="current-password" placeholder="********">
+    <div id="lg-email-mode" style="display:none;">
+      <div class="form-group" id="lg-email"><label class="form-label">E-Mail</label>
+        <input class="form-control" id="login-email" type="email" autocomplete="username" placeholder="name@firma.de"></div>
+      <div class="form-group" id="lg-pass"><label class="form-label">Passwort</label>
+        <input class="form-control" id="login-pass" type="password" autocomplete="current-password" placeholder="********"></div>
     </div>
     <div class="form-group" id="lg-project" style="display:none;">
       <label class="form-label">Projekt</label>
@@ -177,6 +183,7 @@ body{overflow:hidden;}
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
       <span id="btn-login-label">Anmelden</span>
     </button>
+    <div style="text-align:center;margin-top:10px;"><span id="login-toggle" style="font-size:12px;color:var(--text3);cursor:pointer;text-decoration:underline;">Admin-Anmeldung (E-Mail)</span></div>
   </div>
 </div>
 
@@ -281,6 +288,7 @@ body{overflow:hidden;}
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
 <script type="module" src="/src/einsatzleiter.js"></script>
 </body>
 </html>

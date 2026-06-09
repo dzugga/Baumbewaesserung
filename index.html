@@ -225,12 +225,25 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       INFA Auftragsbearbeitung
     </div>
     <div style="font-size:13px;color:var(--text3);margin-bottom:18px;">Bitte anmelden</div>
-    <label style="font-size:12px;font-weight:600;color:var(--text2);">E-Mail</label>
-    <input id="login-email" type="email" autocomplete="username" placeholder="name@firma.de" style="width:100%;padding:9px 11px;margin:5px 0 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box;" onkeydown="if(event.key==='Enter')document.getElementById('login-pass').focus()">
-    <label style="font-size:12px;font-weight:600;color:var(--text2);">Passwort</label>
-    <input id="login-pass" type="password" autocomplete="current-password" placeholder="********" style="width:100%;padding:9px 11px;margin:5px 0 6px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box;" onkeydown="if(event.key==='Enter')doLogin()">
+    <!-- PIN-Login (Standard) -->
+    <div id="login-pin-mode">
+      <label style="font-size:12px;font-weight:600;color:var(--text2);">Stadt / Code</label>
+      <input id="login-orgcode" autocomplete="off" autocapitalize="characters" placeholder="z.B. RHEINE" style="width:100%;padding:9px 11px;margin:5px 0 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box;">
+      <label style="font-size:12px;font-weight:600;color:var(--text2);">Name</label>
+      <input id="login-name" autocomplete="off" placeholder="Vor- und Nachname" style="width:100%;padding:9px 11px;margin:5px 0 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box;">
+      <label style="font-size:12px;font-weight:600;color:var(--text2);">PIN</label>
+      <input id="login-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="6-stellig" style="width:100%;padding:9px 11px;margin:5px 0 6px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box;" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <!-- E-Mail-Login (Admin/Fallback) -->
+    <div id="login-email-mode" style="display:none;">
+      <label style="font-size:12px;font-weight:600;color:var(--text2);">E-Mail</label>
+      <input id="login-email" type="email" autocomplete="username" placeholder="name@firma.de" style="width:100%;padding:9px 11px;margin:5px 0 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box;">
+      <label style="font-size:12px;font-weight:600;color:var(--text2);">Passwort</label>
+      <input id="login-pass" type="password" autocomplete="current-password" placeholder="********" style="width:100%;padding:9px 11px;margin:5px 0 6px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box;" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
     <div id="login-error" style="color:#c0392b;font-size:12px;min-height:16px;margin:4px 0 8px;"></div>
     <button id="login-btn" onclick="doLogin()" style="width:100%;padding:10px;background:var(--green);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;">Anmelden</button>
+    <div style="text-align:center;margin-top:10px;"><span id="login-toggle" onclick="toggleLoginMode()" style="font-size:12px;color:var(--text3);cursor:pointer;text-decoration:underline;">Admin-Anmeldung (E-Mail)</span></div>
   </div>
 </div>
 
@@ -649,8 +662,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <!-- Fahrer-Logins & PINs (Mehrmandanten — nutzbar nach Aktivierung, s. docs/auth-mandanten.md) -->
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
       <div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <span style="font-size:12px;font-weight:700;">Fahrer-Logins &amp; PINs</span>
-        <span style="font-size:11px;color:var(--text3);">PIN für die mobile Anmeldung (Name + PIN)</span>
+        <span style="font-size:12px;font-weight:700;">Personen &amp; PINs</span>
+        <span style="font-size:11px;color:var(--text3);">Anmeldung per Stadt-Code + Name + PIN (mit Rolle)</span>
         <select id="dl-org" onchange="renderDriverLogins()" style="margin-left:auto;padding:4px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;"></select>
       </div>
       <div id="driver-logins-body" style="padding:10px 14px;"></div>

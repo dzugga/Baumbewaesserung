@@ -113,6 +113,7 @@ let currentUser = null;   // Firebase-Auth-Nutzer
 let currentRole = '';     // aus Custom Claims (Rollen-Key)
 let currentCap  = '';     // aus Custom Claims (Basis-Typ: admin|editor|readonly|driver)
 let currentOrg  = '';     // aus Custom Claims
+let currentName = '';     // Anzeigename (E-Mail oder PIN-Name)
 
 // ─── ROLLEN & MODULE ──────────────────────────────────────────
 const MODULES = [
@@ -2916,9 +2917,9 @@ async function renderDriverLogins(){
   const orgSel=document.getElementById('dl-org');
   const body=document.getElementById('driver-logins-body');
   if(!orgSel||!body) return;
-  if(!(currentRole==='superadmin'||currentRole==='orgadmin')){
+  if(!(currentRole==='superadmin'||currentCap==='admin')){
     orgSel.style.display='none';
-    body.innerHTML=`<div style="font-size:12px;color:var(--text3);">${currentRole?'Nur Administratoren können Fahrer-Logins verwalten.':'Mehrmandanten/Auth noch nicht aktiviert — siehe <code>docs/auth-mandanten.md</code>.'}</div>`;
+    body.innerHTML=`<div style="font-size:12px;color:var(--text3);">${currentRole?'Nur Administratoren können Personen verwalten.':'Mehrmandanten/Auth noch nicht aktiviert — siehe <code>docs/auth-mandanten.md</code>.'}</div>`;
     return;
   }
   let orgs=[];
@@ -2942,18 +2943,27 @@ async function renderDriverLogins(){
   drivers.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   body.innerHTML=`
     <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:10px;">
-      ${drivers.length?drivers.map(dlRow).join(''):`<div style="font-size:12px;color:var(--text3);">Noch keine Fahrer in diesem Mandanten.</div>`}
+      ${drivers.length?drivers.map(dlRow).join(''):`<div style="font-size:12px;color:var(--text3);">Noch keine Personen in diesem Mandanten.</div>`}
     </div>
-    <div style="display:flex;gap:6px;align-items:center;border-top:1px solid var(--border);padding-top:10px;">
-      <input id="dl-new-name" class="form-control" placeholder="Fahrername…" style="flex:1;padding:5px 8px;font-size:12px;">
-      <input id="dl-new-pin" class="form-control" placeholder="6-stellige PIN" inputmode="numeric" maxlength="6" style="width:130px;padding:5px 8px;font-size:12px;">
-      <button class="btn btn-primary" style="padding:5px 10px;font-size:12px;white-space:nowrap;" onclick="addDriverLogin()">+ Fahrer + PIN</button>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:10px;">
+      <input id="dl-new-name" class="form-control" placeholder="Name…" style="flex:1;min-width:130px;padding:5px 8px;font-size:12px;">
+      <select id="dl-new-role" style="padding:5px 6px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">${personRoleOptionsHtml('fahrer')}</select>
+      <input id="dl-new-pin" class="form-control" placeholder="6-stellige PIN" inputmode="numeric" maxlength="6" style="width:120px;padding:5px 8px;font-size:12px;">
+      <button class="btn btn-primary" style="padding:5px 10px;font-size:12px;white-space:nowrap;" onclick="addDriverLogin()">+ Person + PIN</button>
     </div>`;
+}
+function personRoleOptionsHtml(selected){
+  let entries=Object.entries(rolesCache).filter(([k])=> k!=='superadmin' || selected==='superadmin' || currentRole==='superadmin');
+  if(selected && !entries.find(([k])=>k===selected)) entries.unshift([selected,{name:selected}]);
+  return entries.sort((a,b)=>(a[1].name||a[0]).localeCompare(b[1].name||b[0]))
+    .map(([k,r])=>`<option value="${dlEsc(k)}"${k===selected?' selected':''}>${dlEsc(r.name||k)}</option>`).join('');
 }
 function dlRow(d){
   const active=d.active!==false, editing=dlPinEdit===d.id;
-  return `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--bg);border-radius:6px;">
-    <span style="flex:1;font-size:13px;${active?'':'color:var(--text3);text-decoration:line-through;'}">${dlEsc(d.name)}</span>
+  const roleSel=`<select onchange="changeDriverRole('${dlEsc(d.id)}',this.value)" title="Rolle ändern" style="font-size:11px;padding:2px 5px;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-family:inherit;">${personRoleOptionsHtml(d.role||'fahrer')}</select>`;
+  return `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--bg);border-radius:6px;flex-wrap:wrap;">
+    <span style="flex:1;min-width:120px;font-size:13px;${active?'':'color:var(--text3);text-decoration:line-through;'}">${dlEsc(d.name)}</span>
+    ${roleSel}
     <span style="font-size:10px;font-weight:700;color:${active?'var(--green)':'var(--text3)'};">${active?'aktiv':'inaktiv'}</span>
     ${editing
       ? `<input id="dl-pin-${dlEsc(d.id)}" class="form-control" placeholder="neue PIN" inputmode="numeric" maxlength="6" style="width:110px;padding:4px 6px;font-size:12px;">
@@ -2967,10 +2977,15 @@ function dlRow(d){
 async function addDriverLogin(){
   const name=(document.getElementById('dl-new-name')?.value||'').trim();
   const pin=(document.getElementById('dl-new-pin')?.value||'').trim();
-  if(!name){ notify('Bitte Fahrername eingeben'); return; }
+  const personRole=document.getElementById('dl-new-role')?.value||'fahrer';
+  if(!name){ notify('Bitte Name eingeben'); return; }
   if(!/^\d{6}$/.test(pin)){ notify('PIN muss 6-stellig sein'); return; }
-  try{ await dlFnCall('setDriverPin',{name,orgId:driverLoginsOrg,pin}); notify('✓ Fahrer angelegt'); renderDriverLogins(); }
-  catch(e){ notify(dlErr(e)); }
+  try{ await dlFnCall('setDriverPin',{name,orgId:driverLoginsOrg,pin,personRole}); notify('✓ Person angelegt'); renderDriverLogins(); }
+  catch(e){ notify(fnErr(e)); }
+}
+async function changeDriverRole(driverId,personRole){
+  try{ await dlFnCall('setDriverPin',{driverId,orgId:driverLoginsOrg,personRole}); notify('✓ Rolle geändert'); renderDriverLogins(); }
+  catch(e){ notify(fnErr(e)); renderDriverLogins(); }
 }
 async function saveDriverPin(driverId){
   const pin=(document.getElementById('dl-pin-'+driverId)?.value||'').trim();
@@ -2998,7 +3013,7 @@ async function renderUserMgmt(){
   const orgSel=document.getElementById('ur-org');
   const body=document.getElementById('user-mgmt-body');
   if(!orgSel||!body) return;
-  if(!(currentRole==='superadmin'||currentRole==='orgadmin')){
+  if(!(currentRole==='superadmin'||currentCap==='admin')){
     orgSel.style.display='none';
     body.innerHTML=`<div style="font-size:12px;color:var(--text3);">Nur Administratoren können Nutzer verwalten.</div>`;
     return;
@@ -5616,13 +5631,13 @@ Object.assign(window,{
   addWmsLayer,deleteWmsLayer,renderWmsList,
   setFilter,pickColor,renderList,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,
-  renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,
+  renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
   renderRollenView,saveRole,addRole,deleteRole,
   startGpsPlacement,toggleFilterNoGps,updateBtnFilterNoGps,
   saveFieldLabels, migrateTourIds,
-  doLogin, doLogout,
+  doLogin, doLogout, toggleLoginMode,
 });
 
 // ─── AUTH-GATE ────────────────────────────────────────────────
@@ -5631,33 +5646,56 @@ function showLogin(msg){
   const ps=document.getElementById('project-screen'); if(ps) ps.style.display='none';
   const e=document.getElementById('login-error'); if(e) e.textContent=msg||'';
   const b=document.getElementById('login-btn'); if(b){ b.disabled=false; b.textContent='Anmelden'; }
+  try{ const oc=localStorage.getItem('bwt_desktop_orgcode'); const e2=document.getElementById('login-orgcode'); if(oc&&e2&&!e2.value) e2.value=oc;
+       const nm=localStorage.getItem('bwt_desktop_name'); const e3=document.getElementById('login-name'); if(nm&&e3&&!e3.value) e3.value=nm; }catch(_){}
 }
 function hideLogin(){ const ls=document.getElementById('login-screen'); if(ls) ls.style.display='none'; }
 function updateUserChip(){
   const el=document.getElementById('user-chip-text');
-  if(el) el.textContent=(currentUser?.email||'')+(currentRole?(' · '+currentRole):'');
+  const roleLbl=(rolesCache[currentRole]?.name)||currentRole;
+  if(el) el.textContent=(currentName||currentUser?.email||'')+(roleLbl?(' · '+roleLbl):'');
+}
+let loginMode='pin';
+function toggleLoginMode(){
+  loginMode = loginMode==='pin' ? 'email' : 'pin';
+  const pm=document.getElementById('login-pin-mode'), em=document.getElementById('login-email-mode'), tg=document.getElementById('login-toggle');
+  if(pm) pm.style.display=loginMode==='pin'?'':'none';
+  if(em) em.style.display=loginMode==='email'?'':'none';
+  if(tg) tg.textContent=loginMode==='pin'?'Admin-Anmeldung (E-Mail)':'Anmeldung mit Stadt-Code + PIN';
+  const e=document.getElementById('login-error'); if(e) e.textContent='';
+  const b=document.getElementById('login-btn'); if(b){ b.disabled=false; b.textContent='Anmelden'; }
 }
 async function doLogin(){
-  const email=(document.getElementById('login-email')?.value||'').trim();
-  const pass=document.getElementById('login-pass')?.value||'';
   const err=document.getElementById('login-error');
   const btn=document.getElementById('login-btn');
-  if(!email||!pass){ if(err) err.textContent='Bitte E-Mail und Passwort eingeben'; return; }
-  if(btn){ btn.disabled=true; btn.textContent='Anmelden…'; } if(err) err.textContent='';
-  try{
-    await firebase.auth().signInWithEmailAndPassword(email,pass);
-  }catch(e){
-    const code=e&&e.code||'';
-    if(err) err.textContent=/invalid-credential|wrong-password|user-not-found|invalid-email/.test(code)
-      ? 'E-Mail oder Passwort falsch' : ('Fehler: '+((e&&e.message)||code));
-    if(btn){ btn.disabled=false; btn.textContent='Anmelden'; }
+  if(err) err.textContent='';
+  if(loginMode==='email'){
+    const email=(document.getElementById('login-email')?.value||'').trim();
+    const pass=document.getElementById('login-pass')?.value||'';
+    if(!email||!pass){ if(err) err.textContent='Bitte E-Mail und Passwort eingeben'; return; }
+    if(btn){ btn.disabled=true; btn.textContent='Anmelden…'; }
+    try{ await firebase.auth().signInWithEmailAndPassword(email,pass); }
+    catch(e){ const c=e&&e.code||''; if(err) err.textContent=/invalid-credential|wrong-password|user-not-found|invalid-email/.test(c)?'E-Mail oder Passwort falsch':('Fehler: '+((e&&e.message)||c)); if(btn){ btn.disabled=false; btn.textContent='Anmelden'; } }
+    return;
   }
+  // PIN: Stadt-Code + Name + PIN
+  const orgcode=(document.getElementById('login-orgcode')?.value||'').trim();
+  const name=(document.getElementById('login-name')?.value||'').trim();
+  const pin=(document.getElementById('login-pin')?.value||'').trim();
+  if(!orgcode||!name||!pin){ if(err) err.textContent='Bitte Stadt/Code, Name und PIN ausfüllen'; return; }
+  if(!/^\d{6}$/.test(pin)){ if(err) err.textContent='PIN muss 6-stellig sein'; return; }
+  if(btn){ btn.disabled=true; btn.textContent='Anmelden…'; }
+  try{
+    const res=await firebase.app().functions('us-central1').httpsCallable('driverLogin')({orgCode:orgcode.toUpperCase(),name,pin});
+    try{ localStorage.setItem('bwt_desktop_orgcode',orgcode.toUpperCase()); localStorage.setItem('bwt_desktop_name',name); }catch(_){}
+    await firebase.auth().signInWithCustomToken(res.data.token);
+  }catch(e){ const c=e&&e.code||'',m=e&&e.message||''; if(err) err.textContent=/permission-denied|not-found|unauthenticated|resource-exhausted/.test(c)?(m||'Name oder PIN falsch'):('Fehler: '+(m||c)); if(btn){ btn.disabled=false; btn.textContent='Anmelden'; } }
 }
 async function doLogout(){ try{ await firebase.auth().signOut(); }catch(e){} location.reload(); }
 
 firebase.auth().onAuthStateChanged(async (user)=>{
   if(user){
-    try{ const tok=await user.getIdTokenResult(); currentUser=user; currentRole=tok.claims.role||''; currentCap=tok.claims.cap||''; currentOrg=tok.claims.orgId||''; }
+    try{ const tok=await user.getIdTokenResult(); currentUser=user; currentRole=tok.claims.role||''; currentCap=tok.claims.cap||''; currentOrg=tok.claims.orgId||''; currentName=tok.claims.name||user.email||''; }
     catch(e){ currentRole=''; currentCap=''; currentOrg=''; }
     if(!currentRole){ showLogin('Dieses Konto hat keine Berechtigung. Bitte an den Administrator wenden.'); return; }
     await loadRoles();

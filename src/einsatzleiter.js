@@ -412,16 +412,33 @@ async function manualRefresh(){
 // ─── AUTH / LOGIN (E-Mail -> Projektauswahl) ──────────────────
 function _elErr(m){ const e=document.getElementById('login-error'); if(e){ e.textContent=m; e.style.display=m?'block':'none'; } }
 function _elBtn(txt,dis){ const b=document.getElementById('btn-login'),l=document.getElementById('btn-login-label'); if(l)l.textContent=txt; if(b)b.disabled=!!dis; }
+let elLoginMode='pin';
+function _elSetMode(){
+  const pm=document.getElementById('lg-pin-mode'), em=document.getElementById('lg-email-mode');
+  if(pm) pm.style.display=elLoginMode==='pin'?'':'none';
+  if(em) em.style.display=elLoginMode==='email'?'':'none';
+}
+function toggleLoginMode(){
+  elLoginMode = elLoginMode==='pin'?'email':'pin';
+  _elSetMode();
+  const tg=document.getElementById('login-toggle'); if(tg) tg.textContent=elLoginMode==='pin'?'Admin-Anmeldung (E-Mail)':'Anmeldung mit Stadt-Code + PIN';
+  _elErr('');
+}
 function showLoginStep1(msg){
   document.getElementById('screen-app')?.classList.remove('active');
   document.getElementById('screen-login').classList.add('active');
-  ['lg-email','lg-pass'].forEach(id=>{const g=document.getElementById(id);if(g)g.style.display='';});
+  _elSetMode();
   const pg=document.getElementById('lg-project'); if(pg) pg.style.display='none';
+  const tg=document.getElementById('login-toggle'); if(tg) tg.style.display='';
   _elBtn('Anmelden', false); _elErr(msg||'');
+  try{ const oc=localStorage.getItem('bwt_mobile_orgcode'); const e2=document.getElementById('login-orgcode'); if(oc&&e2&&!e2.value)e2.value=oc;
+       const nm=localStorage.getItem('bwt_mobile_name'); const e3=document.getElementById('login-name'); if(nm&&e3&&!e3.value)e3.value=nm; }catch(_){}
 }
 async function showProjectStep(){
   document.getElementById('screen-login').classList.add('active');
-  ['lg-email','lg-pass'].forEach(id=>{const g=document.getElementById(id);if(g)g.style.display='none';});
+  const pm=document.getElementById('lg-pin-mode'), em=document.getElementById('lg-email-mode');
+  if(pm) pm.style.display='none'; if(em) em.style.display='none';
+  const tg=document.getElementById('login-toggle'); if(tg) tg.style.display='none';
   const pg=document.getElementById('lg-project'); if(pg) pg.style.display='';
   _elBtn('Starten', false); _elErr('');
   await loadProjects();
@@ -446,12 +463,26 @@ async function doLogin(){
     await startEinsatzleiter(pid);
     return;
   }
-  const email=(document.getElementById('login-email')?.value||'').trim();
-  const pass=document.getElementById('login-pass')?.value||'';
-  if(!email||!pass){ _elErr('Bitte E-Mail und Passwort eingeben.'); return; }
+  if(elLoginMode==='email'){
+    const email=(document.getElementById('login-email')?.value||'').trim();
+    const pass=document.getElementById('login-pass')?.value||'';
+    if(!email||!pass){ _elErr('Bitte E-Mail und Passwort eingeben.'); return; }
+    _elBtn('Anmelden…', true);
+    try{ await firebase.auth().signInWithEmailAndPassword(email,pass); }
+    catch(e){ const c=e&&e.code||''; _elErr(/invalid-credential|wrong-password|user-not-found|invalid-email/.test(c)?'E-Mail oder Passwort falsch':('Fehler: '+(e.message||c))); _elBtn('Anmelden',false); }
+    return;
+  }
+  const orgcode=(document.getElementById('login-orgcode')?.value||'').trim();
+  const name=(document.getElementById('login-name')?.value||'').trim();
+  const pin=(document.getElementById('login-pin')?.value||'').trim();
+  if(!orgcode||!name||!pin){ _elErr('Bitte Stadt/Code, Name und PIN ausfüllen.'); return; }
+  if(!/^\d{6}$/.test(pin)){ _elErr('PIN muss 6-stellig sein.'); return; }
   _elBtn('Anmelden…', true);
-  try{ await firebase.auth().signInWithEmailAndPassword(email,pass); }
-  catch(e){ const c=e&&e.code||''; _elErr(/invalid-credential|wrong-password|user-not-found|invalid-email/.test(c)?'E-Mail oder Passwort falsch':('Fehler: '+(e.message||c))); _elBtn('Anmelden',false); }
+  try{
+    const res=await firebase.app().functions('us-central1').httpsCallable('driverLogin')({orgCode:orgcode.toUpperCase(),name,pin});
+    try{ localStorage.setItem('bwt_mobile_orgcode',orgcode.toUpperCase()); localStorage.setItem('bwt_mobile_name',name); }catch(_){}
+    await firebase.auth().signInWithCustomToken(res.data.token);
+  }catch(e){ const c=e&&e.code||'',m=e&&e.message||''; _elErr(/permission-denied|not-found|unauthenticated|resource-exhausted/.test(c)?(m||'Name oder PIN falsch'):('Fehler: '+(m||c))); _elBtn('Anmelden',false); }
 }
 
 async function startEinsatzleiter(pid){
@@ -486,6 +517,8 @@ function setPeriod(p){
 document.addEventListener('DOMContentLoaded', ()=>{
   document.getElementById('btn-login').addEventListener('click', doLogin);
   document.getElementById('login-pass')?.addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+  document.getElementById('login-pin')?.addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+  document.getElementById('login-toggle')?.addEventListener('click', toggleLoginMode);
   document.getElementById('btn-logout').addEventListener('click', doLogout);
   document.getElementById('btn-refresh').addEventListener('click', manualRefresh);
   document.querySelectorAll('.tf-chip').forEach(c=>

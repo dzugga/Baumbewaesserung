@@ -70,44 +70,49 @@ exports.driverLogin = onCall({ region: REGION }, async (req) => {
   }
 
   await ref.update({ failedAttempts: 0, lockedUntil: 0, lastLogin: new Date().toISOString() });
+  const personRole = d.role || 'fahrer';
+  const personCap = await capForRole(personRole);
   const uid = 'drv_' + ref.id;
   const token = await admin.auth().createCustomToken(uid, {
-    orgId: oid, role: 'fahrer', cap: 'driver', driverId: ref.id, name: d.name,
+    orgId: oid, role: personRole, cap: personCap, driverId: ref.id, name: d.name,
   });
-  return { token, driverId: ref.id, name: d.name, orgId: oid };
+  return { token, driverId: ref.id, name: d.name, orgId: oid, role: personRole };
 });
 
-// ── Admin vergibt/aendert eine Fahrer-PIN ───────────────────────────────────
+// ── Admin legt Person an / aendert PIN, Name oder Rolle ─────────────────────
 exports.setDriverPin = onCall({ region: REGION }, async (req) => {
-  const caller = req.auth;
-  if (!caller) throw new HttpsError('unauthenticated', 'Login erforderlich');
-  const role = caller.token.role, callerOrg = caller.token.orgId;
-  const { driverId, name, orgId, pin } = req.data || {};
+  const { role, callerOrg } = requireAdmin(req.auth);
+  const { driverId, name, orgId, pin, personRole } = req.data || {};
   const targetOrg = orgId || callerOrg;
+  const isSuper = role === 'superadmin';
+  if (!isSuper && targetOrg !== callerOrg) throw new HttpsError('permission-denied', 'Fremder Mandant');
+  const pr = personRole || 'fahrer';
+  if (!isSuper && pr === 'superadmin') throw new HttpsError('permission-denied', 'Rolle nicht erlaubt');
 
-  const allowed = role === 'superadmin' || (role === 'orgadmin' && targetOrg === callerOrg);
-  if (!allowed) throw new HttpsError('permission-denied', 'Keine Berechtigung');
-  if (!/^\d{6}$/.test(String(pin || ''))) throw new HttpsError('invalid-argument', 'PIN muss 6-stellig sein');
-
-  const salt = makeSalt(), hash = hashPin(pin, salt);
+  const setPin = pin !== undefined && pin !== null && pin !== '';
+  if (setPin && !/^\d{6}$/.test(String(pin))) throw new HttpsError('invalid-argument', 'PIN muss 6-stellig sein');
 
   if (driverId) {
     const ref = db.collection('drivers').doc(driverId);
     const s = await ref.get();
-    if (!s.exists) throw new HttpsError('not-found', 'Fahrer nicht gefunden');
-    if (role !== 'superadmin' && s.data().orgId !== targetOrg)
-      throw new HttpsError('permission-denied', 'Fremder Mandant');
-    await ref.update({ pinSalt: salt, pinHash: hash, failedAttempts: 0, lockedUntil: 0 });
+    if (!s.exists) throw new HttpsError('not-found', 'Person nicht gefunden');
+    if (!isSuper && s.data().orgId !== targetOrg) throw new HttpsError('permission-denied', 'Fremder Mandant');
+    const upd = { failedAttempts: 0, lockedUntil: 0 };
+    if (personRole !== undefined) upd.role = pr;   // Rolle nur aendern, wenn mitgeschickt
+    if (name) { upd.name = String(name).trim(); upd.nameLower = String(name).trim().toLowerCase(); }
+    if (setPin) { const salt = makeSalt(); upd.pinSalt = salt; upd.pinHash = hashPin(pin, salt); }
+    await ref.update(upd);
     return { driverId };
   }
 
   if (!name) throw new HttpsError('invalid-argument', 'Name erforderlich');
+  if (!setPin) throw new HttpsError('invalid-argument', 'PIN erforderlich');
+  const salt = makeSalt();
   const ref = db.collection('drivers').doc();
   await ref.set({
-    orgId: targetOrg,
-    name: String(name).trim(),
-    nameLower: String(name).trim().toLowerCase(),
-    pinSalt: salt, pinHash: hash,
+    orgId: targetOrg, role: pr,
+    name: String(name).trim(), nameLower: String(name).trim().toLowerCase(),
+    pinSalt: salt, pinHash: hashPin(pin, salt),
     active: true, failedAttempts: 0, lockedUntil: 0,
     createdAt: new Date().toISOString(),
   });
