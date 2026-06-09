@@ -189,6 +189,8 @@ let editingTourId = null;
 let selectedTourColor = TOUR_COLORS[0];
 let mapMarkers = {};
 let tourRoutes = {};
+let _routesCache = {};       // tourId -> routeData (spart wiederholte Firestore-Reads)
+let _routesLoadedFor = null; // projectId, für den der Routen-Cache gilt
 let routeCache = {};
 let tourOrder = {};
 let depotMarker = null;
@@ -331,6 +333,7 @@ async function createProject(){
 
 async function openProject(projectId){
   if(unsubProjects){ unsubProjects(); unsubProjects=null; } // Projekt-Listener stoppen (spart Hintergrund-Reads)
+  _routesCache={};_routesLoadedFor=null; // Routen-Cache für neues Projekt verwerfen
   currentProjectId=projectId;
   window._tourHistoryCache=null;   // Historie des alten Projekts verwerfen
   _dataViewProject=null;           // Controlling/Dashboard für neues Projekt neu aufbauen
@@ -373,6 +376,7 @@ function showProjectScreen(){
   if(depotMarker){map.removeLayer(depotMarker);depotMarker=null;}
   tours=[];trees=[];tourOrder={};activeTours.clear();showUnplanned=false;activeTourOnMap=null;filterTour='all';
   reasons=[]; // Gründe des Projekts verwerfen (kein projektübergreifendes Hängenbleiben)
+  _routesCache={};_routesLoadedFor=null; // Routen-Cache verwerfen
   initProjectScreen();
 }
 
@@ -775,15 +779,21 @@ function drawSavedRoute(tourId, routeData){
 }
 
 // Load and display all saved routes from Firestore (no recalculation)
-async function loadSavedRoutes(){
+async function loadSavedRoutes(force=false){
   if(!getRoutePlanningEnabled()) return;
   Object.values(tourRoutes).forEach(r=>map.removeLayer(r.layer));tourRoutes={};
+  const useCache = !force && _routesLoadedFor===currentProjectId;
+  if(!useCache){ _routesCache={}; }
   for(const tour of tours){
-    const routeSnap=await getDoc(doc(db,'projects',currentProjectId,'routes',tour.id));
-    if(routeSnap.exists){
-      drawSavedRoute(tour.id, routeSnap.data());
+    let data = useCache ? _routesCache[tour.id] : null;
+    if(!useCache){
+      const routeSnap=await getDoc(doc(db,'projects',currentProjectId,'routes',tour.id));
+      if(routeSnap.exists){ data=routeSnap.data(); _routesCache[tour.id]=data; }
+    }
+    if(data){
+      drawSavedRoute(tour.id, data);
     } else {
-      // No saved route yet — just compute order for numbering, no line drawn
+      // Keine gespeicherte Route — nur Reihenfolge für Nummerierung berechnen (kein Read)
       const trs=trees.filter(t=>treeInTour(t,tour.id)&&t.lat&&t.lng&&t.aktiv!==false);
       if(trs.length>0){
         const depot=getDepot();
@@ -792,6 +802,7 @@ async function loadSavedRoutes(){
       }
     }
   }
+  if(!useCache) _routesLoadedFor=currentProjectId;
   rebuildMarkersWithNumbers();renderList();renderLegend();
   document.getElementById('route-info-bar').classList.remove('visible');
 }
@@ -850,6 +861,7 @@ async function calculateAndSaveRoute(tourId){
     km,durationSec,updatedAt:serverTimestamp()
   };
   await setDoc(doc(db,'projects',currentProjectId,'routes',tourId),routeData);
+  _routesCache[tourId]=routeData; // Cache aktuell halten (spart Re-Read)
 
   // Draw on map
   drawSavedRoute(tourId, routeData);
@@ -873,8 +885,8 @@ async function rebuildActiveRoute(){
   // Just reload saved routes — no auto-recalculation
   await loadSavedRoutes();
   if(activeTourOnMap){
-    const routeSnap=await getDoc(doc(db,'projects',currentProjectId,'routes',activeTourOnMap));
-    if(routeSnap.exists) drawSavedRoute(activeTourOnMap,routeSnap.data());
+    const data=_routesCache[activeTourOnMap];
+    if(data) drawSavedRoute(activeTourOnMap,data);
     updateRouteInfoBar();
   }
 }
