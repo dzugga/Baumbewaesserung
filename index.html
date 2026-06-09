@@ -309,7 +309,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       <div class="nav-dropdown">
         <button data-module="objekte" onclick="switchView('baeume')">Objekte</button>
         <button data-module="touren" onclick="switchView('touren')">Touren</button>
-        <button data-module="verwaltung" onclick="switchView('verwaltung')">Fahrer &amp; Gründe</button>
+        <button data-module="verwaltung" onclick="switchView('verwaltung')">Gründe</button>
         <button data-module="projekte" onclick="openProjekte()">Projekte</button>
         <button data-module="import" onclick="openImport()">Import</button>
       </div>
@@ -320,6 +320,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       </button>
       <div class="nav-dropdown">
         <button data-module="__admin__" onclick="switchView('benutzer')">Benutzer</button>
+        <button data-module="admin" onclick="switchView('feldbezeichnungen')">Feldbezeichnungen</button>
         <button data-module="admin" onclick="openAllgemein()">Allgemein</button>
         <button data-module="admin" onclick="switchView('kiconfig')">KI-Analyse</button>
       </div>
@@ -650,27 +651,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 <div id="view-verwaltung" style="display:none;position:fixed;top:54px;left:0;right:0;bottom:0;z-index:1500;background:var(--bg);overflow-y:auto;">
   <div style="max-width:1100px;margin:0 auto;padding:14px 20px;display:flex;flex-direction:column;gap:10px;">
 
-    <!-- Fahrer pro Tour — Grid -->
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
-      <div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;">
-        <span style="font-size:12px;font-weight:700;">Fahrer</span>
-        <span style="font-size:11px;color:var(--text3);">Pro Tour — nur diese erscheinen in der mobilen App</span>
-      </div>
-      <div id="driver-mgmt-list"></div>
-    </div>
-
-    <!-- Feldbezeichnungen -->
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:0;">
-      <div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
-        <div>
-          <span style="font-size:12px;font-weight:700;">Feldbezeichnungen</span>
-          <span style="font-size:11px;color:var(--text3);margin-left:6px;">Anzeigenamen der Felder anpassen</span>
-        </div>
-        <button class="btn btn-primary" style="padding:4px 10px;font-size:12px;" onclick="saveFieldLabels()">Speichern</button>
-      </div>
-      <div id="fl-grid-container"></div>
-    </div>
-
     <!-- Gründe -->
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
       <div style="padding:8px 14px;border-bottom:1px solid var(--border);">
@@ -684,6 +664,22 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
           <button class="btn btn-primary" style="padding:5px 10px;font-size:12px;white-space:nowrap;" onclick="addReasonMgmt()">+ Hinzufügen</button>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- FELDBEZEICHNUNGEN fullscreen overlay -->
+<div id="view-feldbezeichnungen" style="display:none;position:fixed;top:54px;left:0;right:0;bottom:0;z-index:1500;background:var(--bg);overflow-y:auto;">
+  <div style="max-width:1100px;margin:0 auto;padding:14px 20px;">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+      <div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <span style="font-size:12px;font-weight:700;">Feldbezeichnungen</span>
+          <span style="font-size:11px;color:var(--text3);margin-left:6px;">Anzeigenamen der Felder anpassen</span>
+        </div>
+        <button class="btn btn-primary" style="padding:4px 10px;font-size:12px;" onclick="saveFieldLabels()">Speichern</button>
+      </div>
+      <div id="fl-grid-container"></div>
     </div>
   </div>
 </div>
@@ -735,14 +731,19 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       <div id="user-mgmt-body" style="padding:10px 14px;"></div>
     </div>
 
-    <!-- Schritt 4: Tour-Zuweisung -->
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;display:flex;align-items:center;gap:12px;">
-      <div style="width:26px;height:26px;border-radius:50%;background:var(--text3);color:#fff;font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">4</div>
-      <div style="flex:1;">
-        <div style="font-size:13px;font-weight:700;">Personen den Touren zuweisen</div>
-        <div style="font-size:11px;color:var(--text3);">Projektbezogen — legt fest, welche Tour ein Fahrer in der App sieht</div>
+    <!-- Schritt 4: Tour-Zuweisung (eingebettet, einklappbar) -->
+    <div id="benutzer-step-touren" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+      <div onclick="toggleBenutzerTouren()" style="padding:10px 14px;display:flex;align-items:center;gap:12px;cursor:pointer;">
+        <div style="width:26px;height:26px;border-radius:50%;background:var(--green);color:#fff;font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">4</div>
+        <div style="flex:1;">
+          <div style="font-size:13px;font-weight:700;">Personen den Touren zuweisen</div>
+          <div style="font-size:11px;color:var(--text3);">Projektbezogen — legt fest, welche Tour ein Fahrer in der App sieht</div>
+        </div>
+        <svg id="benutzer-touren-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="color:var(--text3);transition:transform .2s;flex-shrink:0;"><path d="M6 9l6 6 6-6"/></svg>
       </div>
-      <button class="btn btn-secondary" style="padding:5px 12px;font-size:12px;white-space:nowrap;" onclick="switchView('verwaltung')">Zu „Fahrer pro Tour" ↗</button>
+      <div id="touren-content" style="display:none;border-top:1px solid var(--border);">
+        <div id="driver-mgmt-list"></div>
+      </div>
     </div>
   </div>
 </div>

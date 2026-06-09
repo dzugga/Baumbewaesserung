@@ -384,7 +384,7 @@ function subscribeToProject(){
     tours=snap.docs.map(d=>({id:d.id,...d.data()}));
     renderFilters();renderList();renderLegend();
     if(currentView==='touren') renderTourenGrid();
-    if(currentView==='verwaltung') renderDriverMgmt();
+    if(currentView==='benutzer') renderDriverMgmt();
     syncDataViewToProject();
     setSyncState('ok','Synchronisiert');
   });
@@ -2516,7 +2516,9 @@ function switchView(v){
   const kiconfig=document.getElementById('view-kiconfig');
   const disposition=document.getElementById('view-disposition');
   const verwaltung=document.getElementById('view-verwaltung');
+  const feldbez=document.getElementById('view-feldbezeichnungen');
   const benutzer=document.getElementById('view-benutzer');
+  if(feldbez) feldbez.style.display=v==='feldbezeichnungen'?'block':'none';
   if(benutzer) benutzer.style.display=v==='benutzer'?'block':'none';
   if(baeume) baeume.style.display=v==='baeume'?'flex':'none';
   if(touren) touren.style.display=v==='touren'?'block':'none';
@@ -2549,6 +2551,7 @@ function switchView(v){
   if(v==='kiconfig') renderKiConfig();
   if(v==='disposition') initDispo();
   if(v==='verwaltung') initVerwaltung();
+  if(v==='feldbezeichnungen') initFeldbezeichnungen();
   if(v==='benutzer') initBenutzer();
 }
 async function initBenutzer(){
@@ -2559,10 +2562,19 @@ async function initBenutzer(){
   if(currentRole==='superadmin') renderRollenView(); // füllt #rollen-content
   renderDriverLogins();
   renderUserMgmt();
+  renderDriverMgmt(); // Schritt 4: Tour-Zuweisung (#driver-mgmt-list)
 }
 function toggleBenutzerRollen(){
   const body=document.getElementById('rollen-content');
   const chev=document.getElementById('benutzer-rollen-chevron');
+  if(!body) return;
+  const open=body.style.display==='none';
+  body.style.display=open?'block':'none';
+  if(chev) chev.style.transform=open?'rotate(180deg)':'rotate(0)';
+}
+function toggleBenutzerTouren(){
+  const body=document.getElementById('touren-content');
+  const chev=document.getElementById('benutzer-touren-chevron');
   if(!body) return;
   const open=body.style.display==='none';
   body.style.display=open?'block':'none';
@@ -2867,45 +2879,28 @@ async function autoMigrateTourIds(){
 }
 
 async function initVerwaltung(){
-  // Migration läuft automatisch im Hintergrund → Banner nicht mehr nötig
-  const needsMigration=false;
-  let migBanner=document.getElementById('migration-banner');
-  if(!migBanner){
-    migBanner=document.createElement('div');
-    migBanner.id='migration-banner';
-    const vw=document.getElementById('view-verwaltung');
-    vw?.children[0]?.insertBefore(migBanner, vw.children[0].firstChild);
-  }
-  migBanner.style.display=needsMigration?'flex':'none';
-  migBanner.style.cssText=`display:${needsMigration?'flex':'none'};align-items:center;justify-content:space-between;gap:12px;background:#fef3c7;border:1px solid #b45309;border-radius:10px;padding:10px 14px;margin-bottom:10px;`;
-  migBanner.innerHTML=`
-    <div>
-      <span style="font-size:12px;font-weight:700;color:#b45309;">⚠ Einmalige Migration erforderlich</span>
-      <span style="font-size:11px;color:#6b6760;margin-left:8px;">Konvertiert tourId → tourIds[] — danach funktioniert die Fahrer-App wieder korrekt</span>
-    </div>
-    <button class="btn btn-secondary" style="padding:5px 12px;font-size:12px;white-space:nowrap;border-color:#b45309;color:#b45309;" onclick="migrateTourIds()">Jetzt migrieren</button>`;
-  // Feldbezeichnungen-Grid dynamisch rendern
-  const flGrid = document.getElementById('fl-grid-container');
-  if(flGrid) {
-    const fields = [
-      ['name','Anlage / Straße'],['stadtteil','Stadtteil'],['baumnr','Objektnummer'],
-      ['art','Typ / Art'],['pflanzjahr','Jahr'],['pflanzzeitpunkt','Zeitpunkt'],
-      ['zustand','Zustand'],['wasser','Prioritaet'],['datum','Letzte Bearb.'],
-    ];
-    flGrid.style.cssText = 'display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border);';
-    flGrid.innerHTML = fields.map(([k,def]) =>
-      `<div style="background:var(--surface);padding:8px 10px;">
-        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text3);margin-bottom:4px;">${def}</div>
-        <input class="form-control" id="fl-${k}" placeholder="${DEFAULT_LABELS[k]||def}" value="${FL[k]||''}" style="padding:5px 8px;font-size:12px;">
-      </div>`
-    ).join('');
-  }
+  // Nur noch Gründe (Fahrer→Benutzer, Feldbezeichnungen→eigener INFA-Admin-Punkt)
   if(!currentProjectId)return;
   await loadReasons();
-  // Kein Auto-Seed mehr: Gründe sind streng pro Projekt. Leere Projekte bekommen
-  // einen optionalen Button (seedDefaultReasons) statt automatisch Standard-Gründe.
-  renderDriverMgmt();
+  // Kein Auto-Seed: Gründe sind streng pro Projekt (leere Projekte → seedDefaultReasons-Button).
   renderReasonsMgmt();
+}
+
+function initFeldbezeichnungen(){
+  const flGrid = document.getElementById('fl-grid-container');
+  if(!flGrid) return;
+  const fields = [
+    ['name','Anlage / Straße'],['stadtteil','Stadtteil'],['baumnr','Objektnummer'],
+    ['art','Typ / Art'],['pflanzjahr','Jahr'],['pflanzzeitpunkt','Zeitpunkt'],
+    ['zustand','Zustand'],['wasser','Prioritaet'],['datum','Letzte Bearb.'],
+  ];
+  flGrid.style.cssText = 'display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border);';
+  flGrid.innerHTML = fields.map(([k,def]) =>
+    `<div style="background:var(--surface);padding:8px 10px;">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text3);margin-bottom:4px;">${def}</div>
+      <input class="form-control" id="fl-${k}" placeholder="${DEFAULT_LABELS[k]||def}" value="${FL[k]||''}" style="padding:5px 8px;font-size:12px;">
+    </div>`
+  ).join('');
 }
 
 // ─── FAHRER-LOGINS & PINs (Mehrmandanten — nutzbar nach Auth-Aktivierung) ─────
@@ -5658,7 +5653,7 @@ Object.assign(window,{
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
-  renderRollenView,saveRole,addRole,deleteRole,toggleBenutzerRollen,
+  renderRollenView,saveRole,addRole,deleteRole,toggleBenutzerRollen,toggleBenutzerTouren,
   startGpsPlacement,toggleFilterNoGps,updateBtnFilterNoGps,
   saveFieldLabels, migrateTourIds,
   doLogin, doLogout, toggleLoginMode,
