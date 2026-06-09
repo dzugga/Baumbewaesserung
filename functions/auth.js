@@ -131,3 +131,70 @@ exports.setUserRole = onCall({ region: REGION }, async (req) => {
     { orgId, role: newRole, updatedAt: new Date().toISOString() }, { merge: true });
   return { ok: true };
 });
+
+// ── Hilfsfunktionen: Admin-Berechtigung prüfen ──────────────────────────────
+function requireAdmin(caller) {
+  if (!caller) throw new HttpsError('unauthenticated', 'Login erforderlich');
+  const role = caller.token.role;
+  if (role !== 'superadmin' && role !== 'orgadmin') throw new HttpsError('permission-denied', 'Keine Berechtigung');
+  return { role, callerOrg: caller.token.orgId };
+}
+async function assertSameOrg(role, callerOrg, uid) {
+  if (role === 'superadmin') return;
+  const s = await db.collection('users').doc(uid).get();
+  const tOrg = s.exists ? s.data().orgId : null;
+  if (tOrg !== callerOrg) throw new HttpsError('permission-denied', 'Fremder Mandant');
+}
+
+// ── Admin legt ein E-Mail-Konto an (Planer/Erfasser/Orgadmin) ───────────────
+exports.createOrgUser = onCall({ region: REGION }, async (req) => {
+  const { role, callerOrg } = requireAdmin(req.auth);
+  const { email, password, newRole, orgId, displayName } = req.data || {};
+  const targetOrg = orgId || callerOrg;
+  const orgRoles = ['orgadmin', 'planer', 'erfasser', 'fahrer'];
+
+  if (role === 'orgadmin' && targetOrg !== callerOrg) throw new HttpsError('permission-denied', 'Fremder Mandant');
+  const allowed = role === 'superadmin' ? [...orgRoles, 'superadmin'] : orgRoles;
+  if (!allowed.includes(newRole)) throw new HttpsError('permission-denied', 'Rolle nicht erlaubt');
+  if (!email || !/.+@.+\..+/.test(String(email))) throw new HttpsError('invalid-argument', 'Gültige E-Mail erforderlich');
+  if (!password || String(password).length < 6) throw new HttpsError('invalid-argument', 'Passwort min. 6 Zeichen');
+
+  let user;
+  try {
+    user = await admin.auth().createUser({
+      email: String(email).trim(), password: String(password),
+      displayName: displayName || undefined, emailVerified: true,
+    });
+  } catch (e) {
+    if (e.code === 'auth/email-already-exists') throw new HttpsError('already-exists', 'E-Mail ist bereits vergeben');
+    if (e.code === 'auth/invalid-password') throw new HttpsError('invalid-argument', 'Passwort ungültig (min. 6 Zeichen)');
+    throw new HttpsError('internal', e.message || 'Konnte Nutzer nicht anlegen');
+  }
+  await admin.auth().setCustomUserClaims(user.uid, { orgId: targetOrg, role: newRole });
+  await db.collection('users').doc(user.uid).set({
+    email: user.email, displayName: displayName || '', orgId: targetOrg, role: newRole,
+    active: true, createdAt: new Date().toISOString(),
+  }, { merge: true });
+  return { uid: user.uid };
+});
+
+// ── Admin setzt ein neues Passwort ──────────────────────────────────────────
+exports.setUserPassword = onCall({ region: REGION }, async (req) => {
+  const { role, callerOrg } = requireAdmin(req.auth);
+  const { uid, password } = req.data || {};
+  if (!uid || !password || String(password).length < 6) throw new HttpsError('invalid-argument', 'uid + Passwort (min. 6) erforderlich');
+  await assertSameOrg(role, callerOrg, uid);
+  await admin.auth().updateUser(uid, { password: String(password) });
+  return { ok: true };
+});
+
+// ── Admin aktiviert/deaktiviert ein Konto ───────────────────────────────────
+exports.setUserActive = onCall({ region: REGION }, async (req) => {
+  const { role, callerOrg } = requireAdmin(req.auth);
+  const { uid, active } = req.data || {};
+  if (!uid) throw new HttpsError('invalid-argument', 'uid erforderlich');
+  await assertSameOrg(role, callerOrg, uid);
+  await admin.auth().updateUser(uid, { disabled: !active });
+  await db.collection('users').doc(uid).set({ active: !!active }, { merge: true });
+  return { ok: true };
+});

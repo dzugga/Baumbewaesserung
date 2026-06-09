@@ -654,6 +654,16 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       <div id="driver-logins-body" style="padding:10px 14px;"></div>
     </div>
 
+    <!-- Nutzer & Rollen (E-Mail-Konten: Planer/Erfasser/Orgadmin) -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+      <div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span style="font-size:12px;font-weight:700;">Nutzer &amp; Rollen</span>
+        <span style="font-size:11px;color:var(--text3);">E-Mail-Konten für Planer / Erfasser / Admins</span>
+        <select id="ur-org" onchange="renderUserMgmt()" style="margin-left:auto;padding:4px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;"></select>
+      </div>
+      <div id="user-mgmt-body" style="padding:10px 14px;"></div>
+    </div>
+
     <!-- Feldbezeichnungen -->
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:0;">
       <div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">

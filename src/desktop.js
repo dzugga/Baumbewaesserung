@@ -2840,6 +2840,7 @@ async function initVerwaltung(){
     ).join('');
   }
   renderDriverLogins(); // org-level, unabhängig vom Projekt
+  renderUserMgmt();      // Nutzer & Rollen (E-Mail-Konten)
   if(!currentProjectId)return;
   await loadReasons();
   // Kein Auto-Seed mehr: Gründe sind streng pro Projekt. Leere Projekte bekommen
@@ -2871,19 +2872,27 @@ async function renderDriverLogins(){
   const orgSel=document.getElementById('dl-org');
   const body=document.getElementById('driver-logins-body');
   if(!orgSel||!body) return;
+  if(!(currentRole==='superadmin'||currentRole==='orgadmin')){
+    orgSel.style.display='none';
+    body.innerHTML=`<div style="font-size:12px;color:var(--text3);">${currentRole?'Nur Administratoren können Fahrer-Logins verwalten.':'Mehrmandanten/Auth noch nicht aktiviert — siehe <code>docs/auth-mandanten.md</code>.'}</div>`;
+    return;
+  }
   let orgs=[];
-  try{ const qs=await db.collection('orgs').get(); qs.forEach(d=>orgs.push({id:d.id,...d.data()})); }catch(e){}
+  if(currentRole==='superadmin'){ try{ const qs=await db.collection('orgs').get(); qs.forEach(d=>orgs.push({id:d.id,...d.data()})); }catch(e){} }
+  else if(currentOrg){ orgs=[{id:currentOrg,name:currentOrg}]; }
   if(orgs.length===0){
     orgSel.innerHTML=''; orgSel.style.display='none';
     body.innerHTML=`<div style="font-size:12px;color:var(--text3);line-height:1.6;">
-      Mehrmandanten/Auth ist noch nicht aktiviert. Diese Verwaltung wird automatisch nutzbar, sobald Mandanten angelegt sind
-      (Backfill) und Firebase Auth läuft — siehe <code>docs/auth-mandanten.md</code>.</div>`;
+      Keine Mandanten verfügbar (siehe <code>docs/auth-mandanten.md</code>).</div>`;
     return;
   }
-  orgSel.style.display='';
-  if(!driverLoginsOrg||!orgs.find(o=>o.id===driverLoginsOrg)) driverLoginsOrg=orgs[0].id;
-  orgSel.innerHTML=orgs.map(o=>`<option value="${dlEsc(o.id)}"${o.id===driverLoginsOrg?' selected':''}>${dlEsc(o.name||o.id)}</option>`).join('');
-  driverLoginsOrg=orgSel.value;
+  if(currentRole==='superadmin'){
+    orgSel.style.display='';
+    const picked=orgSel.value;
+    if(picked && orgs.find(o=>o.id===picked)) driverLoginsOrg=picked;
+    else if(!driverLoginsOrg||!orgs.find(o=>o.id===driverLoginsOrg)) driverLoginsOrg=orgs[0].id;
+    orgSel.innerHTML=orgs.map(o=>`<option value="${dlEsc(o.id)}"${o.id===driverLoginsOrg?' selected':''}>${dlEsc(o.name||o.id)}</option>`).join('');
+  } else { orgSel.style.display='none'; driverLoginsOrg=currentOrg; }
   let drivers=[];
   try{ const qs=await db.collection('drivers').where('orgId','==',driverLoginsOrg).get(); qs.forEach(d=>drivers.push({id:d.id,...d.data()})); }catch(e){}
   drivers.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
@@ -2927,6 +2936,89 @@ async function saveDriverPin(driverId){
 async function toggleDriverLoginActive(driverId,currentlyActive){
   try{ await db.collection('drivers').doc(driverId).set({active:!currentlyActive},{merge:true}); renderDriverLogins(); }
   catch(e){ notify(dlErr(e)); }
+}
+
+// ─── NUTZER & ROLLEN (E-Mail-Konten — nutzbar nach Auth-Aktivierung) ─────────
+let userMgmtOrg='';
+let urPassEdit=null;
+function fnErr(e){
+  const c=(e&&e.code)||'', m=(e&&e.message)||'';
+  if(/unavailable|deadline/.test(c)) return '⚠ Funktion nicht erreichbar — ist sie deployt? (docs/auth-mandanten.md)';
+  return m || ('Fehler: '+(c||'unbekannt'));
+}
+function urEditPass(id){ urPassEdit=id; renderUserMgmt(); }
+function urCancelPass(){ urPassEdit=null; renderUserMgmt(); }
+
+async function renderUserMgmt(){
+  const orgSel=document.getElementById('ur-org');
+  const body=document.getElementById('user-mgmt-body');
+  if(!orgSel||!body) return;
+  if(!(currentRole==='superadmin'||currentRole==='orgadmin')){
+    orgSel.style.display='none';
+    body.innerHTML=`<div style="font-size:12px;color:var(--text3);">Nur Administratoren können Nutzer verwalten.</div>`;
+    return;
+  }
+  let orgs=[];
+  if(currentRole==='superadmin'){ try{ const qs=await db.collection('orgs').get(); qs.forEach(d=>orgs.push({id:d.id,...d.data()})); }catch(e){} }
+  else { orgs=[{id:currentOrg,name:currentOrg}]; }
+  if(orgs.length===0){ orgSel.style.display='none'; body.innerHTML=`<div style="font-size:12px;color:var(--text3);">Keine Mandanten vorhanden (siehe docs/auth-mandanten.md).</div>`; return; }
+  if(currentRole==='superadmin'){
+    orgSel.style.display='';
+    const picked=orgSel.value;
+    if(picked && orgs.find(o=>o.id===picked)) userMgmtOrg=picked;
+    else if(!userMgmtOrg||!orgs.find(o=>o.id===userMgmtOrg)) userMgmtOrg=orgs[0].id;
+    orgSel.innerHTML=orgs.map(o=>`<option value="${dlEsc(o.id)}"${o.id===userMgmtOrg?' selected':''}>${dlEsc(o.name||o.id)}</option>`).join('');
+  } else { orgSel.style.display='none'; userMgmtOrg=currentOrg; }
+  let users=[];
+  try{ const qs=await db.collection('users').where('orgId','==',userMgmtOrg).get(); qs.forEach(d=>users.push({id:d.id,...d.data()})); }catch(e){}
+  users.sort((a,b)=>(a.email||'').localeCompare(b.email||''));
+  body.innerHTML=`
+    <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:10px;">
+      ${users.length?users.map(urRow).join(''):`<div style="font-size:12px;color:var(--text3);">Noch keine Nutzer in diesem Mandanten.</div>`}
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:10px;">
+      <input id="ur-new-email" class="form-control" type="email" placeholder="E-Mail" style="flex:1;min-width:150px;padding:5px 8px;font-size:12px;">
+      <input id="ur-new-pass" class="form-control" type="text" placeholder="Start-Passwort (min. 6)" style="width:170px;padding:5px 8px;font-size:12px;">
+      <select id="ur-new-role" style="padding:5px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
+        <option value="planer">Planer</option>
+        <option value="erfasser">Erfasser</option>
+        <option value="orgadmin">Org-Admin</option>
+      </select>
+      <button class="btn btn-primary" style="padding:5px 10px;font-size:12px;white-space:nowrap;" onclick="addOrgUser()">+ Nutzer anlegen</button>
+    </div>`;
+}
+function urRow(u){
+  const active=u.active!==false, editing=urPassEdit===u.id;
+  return `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--bg);border-radius:6px;flex-wrap:wrap;">
+    <span style="flex:1;min-width:140px;font-size:13px;${active?'':'color:var(--text3);text-decoration:line-through;'}">${dlEsc(u.email||u.id)}</span>
+    <span style="font-size:10px;font-weight:700;color:var(--text2);background:var(--surface2);padding:1px 7px;border-radius:99px;">${dlEsc(u.role||'')}</span>
+    <span style="font-size:10px;font-weight:700;color:${active?'var(--green)':'var(--text3)'};">${active?'aktiv':'inaktiv'}</span>
+    ${editing
+      ? `<input id="ur-pass-${dlEsc(u.id)}" class="form-control" type="text" placeholder="neues Passwort" style="width:150px;padding:4px 6px;font-size:12px;">
+         <button class="btn btn-primary" style="padding:4px 8px;font-size:11px;" onclick="saveUserPass('${dlEsc(u.id)}')">OK</button>
+         <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="urCancelPass()">✕</button>`
+      : `<button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="urEditPass('${dlEsc(u.id)}')">Passwort</button>
+         <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="toggleUserActive('${dlEsc(u.id)}',${active})">${active?'deaktivieren':'aktivieren'}</button>`}
+  </div>`;
+}
+async function addOrgUser(){
+  const email=(document.getElementById('ur-new-email')?.value||'').trim();
+  const password=(document.getElementById('ur-new-pass')?.value||'').trim();
+  const newRole=document.getElementById('ur-new-role')?.value||'planer';
+  if(!email){ notify('Bitte E-Mail eingeben'); return; }
+  if(password.length<6){ notify('Start-Passwort min. 6 Zeichen'); return; }
+  try{ await dlFnCall('createOrgUser',{email,password,newRole,orgId:userMgmtOrg}); notify('✓ Nutzer angelegt'); renderUserMgmt(); }
+  catch(e){ notify(fnErr(e)); }
+}
+async function saveUserPass(uid){
+  const password=(document.getElementById('ur-pass-'+uid)?.value||'').trim();
+  if(password.length<6){ notify('Passwort min. 6 Zeichen'); return; }
+  try{ await dlFnCall('setUserPassword',{uid,password}); urPassEdit=null; notify('✓ Passwort gesetzt'); renderUserMgmt(); }
+  catch(e){ notify(fnErr(e)); }
+}
+async function toggleUserActive(uid,currentlyActive){
+  try{ await dlFnCall('setUserActive',{uid,active:!currentlyActive}); renderUserMgmt(); }
+  catch(e){ notify(fnErr(e)); }
 }
 
 async function seedDefaultReasons(){
@@ -5344,6 +5436,7 @@ Object.assign(window,{
   setFilter,pickColor,renderList,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,
+  renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   startGpsPlacement,toggleFilterNoGps,updateBtnFilterNoGps,
   saveFieldLabels, migrateTourIds,
   doLogin, doLogout,
