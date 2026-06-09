@@ -1022,7 +1022,7 @@ function renderObjFilterUI(){
     </label>
   </div>`;
   const wire={stadtteil:'of-stadtteil',art:'of-art',pflanzjahr:'of-pflanzjahr',zustand:'of-zustand',wasser:'of-wasser',status:'of-status'};
-  Object.entries(wire).forEach(([k,id])=>{ const s=document.getElementById(id); if(s) s.onchange=()=>{ objFilter[k]=s.value; applyObjFilter(); }; });
+  Object.entries(wire).forEach(([k,id])=>{ const s=document.getElementById(id); if(s) s.onchange=()=>{ objFilter[k]=s.value; applyObjFilter(); renderObjFilterUI(); }; });
   const mp=document.getElementById('of-map'); if(mp) mp.onchange=()=>{ objFilterOnMap=mp.checked; setMarkerVisibility(); };
   const rb=el.querySelector('[data-action="reset-objfilter"]'); if(rb) rb.onclick=()=>resetObjFilter();
   const fb=document.getElementById('btn-toggle-filter'); if(fb) fb.style.borderColor=active?'var(--green)':'var(--border)';
