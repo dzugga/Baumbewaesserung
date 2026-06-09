@@ -623,6 +623,16 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       <div id="driver-mgmt-list"></div>
     </div>
 
+    <!-- Fahrer-Logins & PINs (Mehrmandanten — nutzbar nach Aktivierung, s. docs/auth-mandanten.md) -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+      <div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span style="font-size:12px;font-weight:700;">Fahrer-Logins &amp; PINs</span>
+        <span style="font-size:11px;color:var(--text3);">PIN für die mobile Anmeldung (Name + PIN)</span>
+        <select id="dl-org" onchange="renderDriverLogins()" style="margin-left:auto;padding:4px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;"></select>
+      </div>
+      <div id="driver-logins-body" style="padding:10px 14px;"></div>
+    </div>
+
     <!-- Feldbezeichnungen -->
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:0;">
       <div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
@@ -1102,6 +1112,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 <!-- Firebase compat SDK -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
 <script type="module" src="/src/desktop.js"></script>
 </body>
 </html>

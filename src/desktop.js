@@ -2822,12 +2822,94 @@ async function initVerwaltung(){
       </div>`
     ).join('');
   }
+  renderDriverLogins(); // org-level, unabhängig vom Projekt
   if(!currentProjectId)return;
   await loadReasons();
   // Kein Auto-Seed mehr: Gründe sind streng pro Projekt. Leere Projekte bekommen
   // einen optionalen Button (seedDefaultReasons) statt automatisch Standard-Gründe.
   renderDriverMgmt();
   renderReasonsMgmt();
+}
+
+// ─── FAHRER-LOGINS & PINs (Mehrmandanten — nutzbar nach Auth-Aktivierung) ─────
+let driverLoginsOrg = '';
+let dlPinEdit = null;
+const dlEsc = s => (''+(s??'')).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+function dlFnCall(name,data){
+  try{
+    if(!window.firebase?.app || !firebase.app().functions) return Promise.reject({code:'unavailable'});
+    return firebase.app().functions('us-central1').httpsCallable(name)(data);
+  }catch(e){ return Promise.reject(e); }
+}
+function dlErr(e){
+  const c=(e&&e.code)||'';
+  if(/unauthenticated|unavailable|not-found|internal|permission-denied/.test(c))
+    return '⚠ Noch nicht aktiv/angemeldet — siehe Runbook (docs/auth-mandanten.md)';
+  return 'Fehler: '+((e&&e.message)||c||e);
+}
+function dlEditPin(id){ dlPinEdit=id; renderDriverLogins(); }
+function dlCancelPin(){ dlPinEdit=null; renderDriverLogins(); }
+
+async function renderDriverLogins(){
+  const orgSel=document.getElementById('dl-org');
+  const body=document.getElementById('driver-logins-body');
+  if(!orgSel||!body) return;
+  let orgs=[];
+  try{ const qs=await db.collection('orgs').get(); qs.forEach(d=>orgs.push({id:d.id,...d.data()})); }catch(e){}
+  if(orgs.length===0){
+    orgSel.innerHTML=''; orgSel.style.display='none';
+    body.innerHTML=`<div style="font-size:12px;color:var(--text3);line-height:1.6;">
+      Mehrmandanten/Auth ist noch nicht aktiviert. Diese Verwaltung wird automatisch nutzbar, sobald Mandanten angelegt sind
+      (Backfill) und Firebase Auth läuft — siehe <code>docs/auth-mandanten.md</code>.</div>`;
+    return;
+  }
+  orgSel.style.display='';
+  if(!driverLoginsOrg||!orgs.find(o=>o.id===driverLoginsOrg)) driverLoginsOrg=orgs[0].id;
+  orgSel.innerHTML=orgs.map(o=>`<option value="${dlEsc(o.id)}"${o.id===driverLoginsOrg?' selected':''}>${dlEsc(o.name||o.id)}</option>`).join('');
+  driverLoginsOrg=orgSel.value;
+  let drivers=[];
+  try{ const qs=await db.collection('drivers').where('orgId','==',driverLoginsOrg).get(); qs.forEach(d=>drivers.push({id:d.id,...d.data()})); }catch(e){}
+  drivers.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  body.innerHTML=`
+    <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:10px;">
+      ${drivers.length?drivers.map(dlRow).join(''):`<div style="font-size:12px;color:var(--text3);">Noch keine Fahrer in diesem Mandanten.</div>`}
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;border-top:1px solid var(--border);padding-top:10px;">
+      <input id="dl-new-name" class="form-control" placeholder="Fahrername…" style="flex:1;padding:5px 8px;font-size:12px;">
+      <input id="dl-new-pin" class="form-control" placeholder="6-stellige PIN" inputmode="numeric" maxlength="6" style="width:130px;padding:5px 8px;font-size:12px;">
+      <button class="btn btn-primary" style="padding:5px 10px;font-size:12px;white-space:nowrap;" onclick="addDriverLogin()">+ Fahrer + PIN</button>
+    </div>`;
+}
+function dlRow(d){
+  const active=d.active!==false, editing=dlPinEdit===d.id;
+  return `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--bg);border-radius:6px;">
+    <span style="flex:1;font-size:13px;${active?'':'color:var(--text3);text-decoration:line-through;'}">${dlEsc(d.name)}</span>
+    <span style="font-size:10px;font-weight:700;color:${active?'var(--green)':'var(--text3)'};">${active?'aktiv':'inaktiv'}</span>
+    ${editing
+      ? `<input id="dl-pin-${dlEsc(d.id)}" class="form-control" placeholder="neue PIN" inputmode="numeric" maxlength="6" style="width:110px;padding:4px 6px;font-size:12px;">
+         <button class="btn btn-primary" style="padding:4px 8px;font-size:11px;" onclick="saveDriverPin('${dlEsc(d.id)}')">OK</button>
+         <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="dlCancelPin()">✕</button>`
+      : `<button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="dlEditPin('${dlEsc(d.id)}')">PIN setzen</button>
+         <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="toggleDriverLoginActive('${dlEsc(d.id)}',${active})">${active?'deaktivieren':'aktivieren'}</button>`}
+  </div>`;
+}
+async function addDriverLogin(){
+  const name=(document.getElementById('dl-new-name')?.value||'').trim();
+  const pin=(document.getElementById('dl-new-pin')?.value||'').trim();
+  if(!name){ notify('Bitte Fahrername eingeben'); return; }
+  if(!/^\d{6}$/.test(pin)){ notify('PIN muss 6-stellig sein'); return; }
+  try{ await dlFnCall('setDriverPin',{name,orgId:driverLoginsOrg,pin}); notify('✓ Fahrer angelegt'); renderDriverLogins(); }
+  catch(e){ notify(dlErr(e)); }
+}
+async function saveDriverPin(driverId){
+  const pin=(document.getElementById('dl-pin-'+driverId)?.value||'').trim();
+  if(!/^\d{6}$/.test(pin)){ notify('PIN muss 6-stellig sein'); return; }
+  try{ await dlFnCall('setDriverPin',{driverId,orgId:driverLoginsOrg,pin}); dlPinEdit=null; notify('✓ PIN gesetzt'); renderDriverLogins(); }
+  catch(e){ notify(dlErr(e)); }
+}
+async function toggleDriverLoginActive(driverId,currentlyActive){
+  try{ await db.collection('drivers').doc(driverId).set({active:!currentlyActive},{merge:true}); renderDriverLogins(); }
+  catch(e){ notify(dlErr(e)); }
 }
 
 async function seedDefaultReasons(){
@@ -5243,6 +5325,7 @@ Object.assign(window,{
   addWmsLayer,deleteWmsLayer,renderWmsList,
   setFilter,pickColor,renderList,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,
+  renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,
   startGpsPlacement,toggleFilterNoGps,updateBtnFilterNoGps,
   saveFieldLabels, migrateTourIds,
 });
