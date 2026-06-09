@@ -2606,7 +2606,7 @@ function switchView(v){
   if(verwaltung) verwaltung.style.display=v==='verwaltung'?'block':'none';
   // „Planen“-Button nur im manuellen Planungs-Modus (Karte) zeigen
   const planenBtn=document.getElementById('btn-planen');
-  if(planenBtn) planenBtn.style.display=v==='karte'?'':'none';
+  if(planenBtn) planenBtn.style.display=v==='karte'?'flex':'none';
   // Karte: always visible underneath, just hidden by overlays
   if(v==='karte') setTimeout(()=>map.invalidateSize(),10);
   if(v==='baeume'){ switchBaeumeTab('objekte'); renderBaeumeTable(); }
