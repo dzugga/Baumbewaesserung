@@ -3233,6 +3233,10 @@ async function renderDriverMgmt(){
   if(tours.length===0){
     el.innerHTML='<div style="padding:10px 14px;font-size:12px;color:var(--text3);">Noch keine Touren angelegt.</div>';return;
   }
+  // Personen des Mandanten laden (für Zuweisungs-Dropdown)
+  let persons=[];
+  try{ if(currentProjectData?.orgId){ const qs=await db.collection('drivers').where('orgId','==',currentProjectData.orgId).get(); qs.forEach(d=>{ if(d.data().active!==false) persons.push(d.data().name); }); } }catch(e){}
+  persons=[...new Set(persons.filter(Boolean))].sort((a,b)=>a.localeCompare(b));
   // Spaltenanzahl: 3 bei ≥4 Touren, 2 bei 2-3, 1 bei 1
   const cols = tours.length >= 4 ? 3 : tours.length >= 2 ? 2 : 1;
   el.innerHTML=`<div style="display:grid;grid-template-columns:repeat(${cols},1fr);">`+
@@ -3254,10 +3258,15 @@ async function renderDriverMgmt(){
         <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;min-height:20px;">
           ${tags||'<span style="font-size:11px;color:var(--text3);">Kein Fahrer</span>'}
         </div>
-        <div style="display:flex;gap:4px;">
-          <input class="form-control" id="new-driver-${t.id}" placeholder="Name…" style="flex:1;padding:4px 8px;font-size:11px;min-width:0;" onkeydown="if(event.key==='Enter')addDriver('${t.id}')">
-          <button class="btn btn-primary" style="padding:4px 8px;font-size:11px;" onclick="addDriver('${t.id}')">+</button>
-        </div>
+        ${(()=>{ const avail=persons.filter(p=>!drivers.includes(p));
+          if(persons.length===0) return `<div style="font-size:11px;color:var(--text3);">Keine Personen — unter „Personen &amp; PINs" anlegen.</div>`;
+          if(avail.length===0) return `<div style="font-size:11px;color:var(--text3);">Alle Personen zugewiesen.</div>`;
+          return `<div style="display:flex;gap:4px;">
+            <select id="new-driver-${t.id}" style="flex:1;padding:4px 6px;font-size:11px;min-width:0;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
+              <option value="">+ Person zuweisen…</option>${avail.map(p=>`<option value="${dlEsc(p)}">${dlEsc(p)}</option>`).join('')}
+            </select>
+            <button class="btn btn-primary" style="padding:4px 8px;font-size:11px;" onclick="addDriver('${t.id}')">+</button>
+          </div>`; })()}
       </div>`;
     }).join('')+`</div>`;
 }
