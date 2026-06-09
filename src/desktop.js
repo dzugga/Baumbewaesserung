@@ -2867,7 +2867,6 @@ async function initVerwaltung(){
       <span style="font-size:11px;color:#6b6760;margin-left:8px;">Konvertiert tourId → tourIds[] — danach funktioniert die Fahrer-App wieder korrekt</span>
     </div>
     <button class="btn btn-secondary" style="padding:5px 12px;font-size:12px;white-space:nowrap;border-color:#b45309;color:#b45309;" onclick="migrateTourIds()">Jetzt migrieren</button>`;
-  loadErfasser();
   // Feldbezeichnungen-Grid dynamisch rendern
   const flGrid = document.getElementById('fl-grid-container');
   if(flGrid) {

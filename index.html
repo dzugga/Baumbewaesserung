@@ -691,37 +691,19 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       <div id="fl-grid-container"></div>
     </div>
 
-    <!-- Gründe + Erfasser nebeneinander -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-
-      <!-- Gründe -->
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
-        <div style="padding:8px 14px;border-bottom:1px solid var(--border);">
-          <span style="font-size:12px;font-weight:700;">Gründe: Nicht erledigt</span>
-          <span style="font-size:11px;color:var(--text3);margin-left:6px;">Stehen dem Fahrer in der App zur Auswahl</span>
-        </div>
-        <div style="padding:8px 12px;">
-          <div id="reasons-mgmt-list" style="margin-bottom:8px;"></div>
-          <div style="display:flex;gap:6px;">
-            <input class="form-control" id="new-reason-mgmt" placeholder="Neuen Grund eingeben…" style="flex:1;padding:5px 8px;font-size:12px;" onkeydown="if(event.key==='Enter')addReasonMgmt()">
-            <button class="btn btn-primary" style="padding:5px 10px;font-size:12px;white-space:nowrap;" onclick="addReasonMgmt()">+ Hinzufügen</button>
-          </div>
+    <!-- Gründe -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+      <div style="padding:8px 14px;border-bottom:1px solid var(--border);">
+        <span style="font-size:12px;font-weight:700;">Gründe: Nicht erledigt</span>
+        <span style="font-size:11px;color:var(--text3);margin-left:6px;">Stehen dem Fahrer in der App zur Auswahl</span>
+      </div>
+      <div style="padding:8px 12px;">
+        <div id="reasons-mgmt-list" style="margin-bottom:8px;"></div>
+        <div style="display:flex;gap:6px;">
+          <input class="form-control" id="new-reason-mgmt" placeholder="Neuen Grund eingeben…" style="flex:1;padding:5px 8px;font-size:12px;" onkeydown="if(event.key==='Enter')addReasonMgmt()">
+          <button class="btn btn-primary" style="padding:5px 10px;font-size:12px;white-space:nowrap;" onclick="addReasonMgmt()">+ Hinzufügen</button>
         </div>
       </div>
-
-      <!-- Erfasser -->
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
-        <div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;">
-          <span style="font-size:12px;font-weight:700;">Erfasser</span>
-          <span style="font-size:11px;color:var(--text3);">Mitarbeiter für die INFA-Objekterfassung</span>
-        </div>
-        <div id="erfasser-list" style="padding:4px 0;min-height:32px;"></div>
-        <div style="padding:6px 12px 10px;display:flex;gap:6px;">
-          <input class="form-control" id="new-erfasser-input" placeholder="Name des Erfassers…" style="flex:1;padding:5px 8px;font-size:12px;" onkeydown="if(event.key==='Enter')addErfasser()">
-          <button class="btn btn-primary" style="padding:5px 10px;font-size:12px;white-space:nowrap;" onclick="addErfasser()">+ Hinzufügen</button>
-        </div>
-      </div>
-
     </div>
   </div>
 </div>
