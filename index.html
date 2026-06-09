@@ -311,16 +311,16 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <button data-module="objekte" onclick="switchView('baeume')">Objekte</button>
         <button data-module="touren" onclick="switchView('touren')">Touren</button>
         <button data-module="verwaltung" onclick="switchView('verwaltung')">Gründe</button>
-        <button data-module="projekte" onclick="openProjekte()">Projekte</button>
         <button data-module="import" onclick="openImport()">Import</button>
       </div>
     </div>
     <div class="nav-group">
-      <button class="nav-btn nav-parent" type="button">INFA-Admin
+      <button class="nav-btn nav-parent" type="button">Admin
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-left:2px;"><path d="M6 9l6 6 6-6"/></svg>
       </button>
       <div class="nav-dropdown">
         <button data-module="__admin__" onclick="switchView('benutzer')">Benutzer</button>
+        <button data-module="projekte" onclick="openProjekte()">Projekte</button>
         <button data-module="admin" onclick="switchView('feldbezeichnungen')">Feldbezeichnungen</button>
         <button data-module="admin" onclick="openAllgemein()">Allgemein</button>
         <button data-module="admin" onclick="switchView('kiconfig')">KI-Analyse</button>
