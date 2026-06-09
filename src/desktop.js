@@ -963,9 +963,9 @@ function makeMarker(tree){
     circleHtml=`<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${color};border:${isHighlighted?4:3}px solid white;box-shadow:${shadow};display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:${isHighlighted?16:13}px;transform:${isHighlighted?'scale(1.15)':'scale(1)'};transition:all .2s;">🌳</div>`;
   }
 
-  // Fallback ab 8 Touren: oranger Zähler oben rechts
-  const multiBadge=tooMany
-    ?`<div style="position:absolute;top:-6px;right:-6px;min-width:16px;height:16px;border-radius:8px;background:#f59e0b;border:2px solid #fff;color:#fff;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 2px;z-index:10;">${n}</div>`:'';
+  // Oranger Tour-Zähler oben rechts bei mehreren Touren (per Button ausblendbar)
+  const multiBadge=isMultiTour
+    ?`<div class="tour-count-badge" style="position:absolute;top:-6px;right:-6px;min-width:16px;height:16px;border-radius:8px;background:#f59e0b;border:2px solid #fff;color:#fff;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 2px;z-index:10;">${n}</div>`:'';
 
   const icon=L.divIcon({
     className:'',
@@ -1053,6 +1053,14 @@ function toggleMapFilter(){
   p.style.display=open?'block':'none';
   const btn=document.getElementById('btn-toggle-filter');
   if(btn) btn.style.background=open?'var(--green-light)':'var(--surface)';
+}
+// Tour-Zähler (orange Badges) ein-/ausblenden — Farbdarstellung bleibt eindeutig
+let showTourCounts=true;
+function toggleTourCounts(){
+  showTourCounts=!showTourCounts;
+  document.body.classList.toggle('hide-tour-counts',!showTourCounts);
+  const btn=document.getElementById('btn-toggle-counts');
+  if(btn) btn.style.background=showTourCounts?'var(--green-light)':'var(--surface)';
 }
 
 function refreshMarkers(){
@@ -5697,7 +5705,7 @@ Object.assign(window,{
   openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,
   addWmsLayer,deleteWmsLayer,renderWmsList,
   setFilter,pickColor,renderList,
-  toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,simulateActiveTour,
+  toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,toggleTourCounts,simulateActiveTour,
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
