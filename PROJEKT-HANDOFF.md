@@ -1,82 +1,75 @@
-# INFA / Baumbewässerung — Projekt-Handoff (Stand 08.06.2026)
+# INFA / Baumbewässerung — Projekt-Handoff (Stand 09.06.2026)
 
 ## Projekt & Stack
 - **Repo:** github.com/dzugga/Baumbewaesserung · Branch `main` · lokal: `C:\Users\mdzugga\Documents\GitHub\Baumbewaesserung`
-- **Build:** Vite. Dev: `npm.cmd run dev -- --port 3001` (immer Port 3001). Build: `npm.cmd run build` → `dist/`
+- **Build:** Vite 8. Dev: `npm.cmd run dev` (Port **3001**, in vite.config.js fixiert). Build: `npm.cmd run build` → `dist/`
 - **Hosting:** Firebase (`baumbewaesserung`), live: https://baumbewaesserung.web.app
-  Deploy: `npx.cmd firebase deploy --only hosting` (Windows → npx.cmd). **Nur auf ausdrückliche Aufforderung.** Functions nie ohne Aufforderung.
-- **Backend:** Firebase Firestore (compat SDK v10.12.0), Leaflet+OSM, OpenRouteService (Desktop-Routing), Chart.js, SheetJS, Gemini via Cloud Function `geminiAnalyse`.
-- **Apps:**
-  - `index.html` + `src/desktop.js` — Desktop-Planer „INFA-Auftragsbearbeitung"
-  - `mobil.html` + `src/mobile.js` — Fahrer-App „INFA-LRM-Objekte" (produktiv)
-  - `navi.html` + `src/navi.js` — **Navi-Klon (Beta)** mit Turn-by-turn (Sandbox, siehe unten)
-  - `erfassung.html` + `src/erfassung.js` — Objekterfassung
-  - `einsatzleiter.html` + `src/einsatzleiter.js` — Einsatzleiter-Live-Übersicht
+  Deploy Hosting: `npx.cmd firebase deploy --only hosting`. Functions: `--only functions:NAME`. Rules: `--only firestore:rules`. **Nur auf ausdrückliche Aufforderung.**
+- **Backend:** Firebase Firestore (compat SDK v10.12.0), **Firebase Auth** (E-Mail + Custom Token), Cloud Functions (Node 22, 2nd Gen, us-central1), Leaflet+OSM, OpenRouteService (Desktop-Routing), Chart.js, SheetJS, Gemini via `geminiAnalyse`.
+- **Apps:** `index.html`+`src/desktop.js` (Desktop-Planer) · `mobil.html`+`src/mobile.js` (Fahrer) · `erfassung.html`+`src/erfassung.js` (Erfassung) · `einsatzleiter.html`+`src/einsatzleiter.js` (Live-Übersicht) · `navi.html`+`src/navi.js` (Navi-Klon Beta).
 
-## Datenmodell (Firestore)
-`projects/{id}/{trees, tours, routes, reasons, tourHistory}`
-- **trees:** name, stadtteil, art, baumnr, pflanzjahr, pflanzzeitpunkt, lat, lng, wasser, zustand, **aktiv** (false = inaktiv), tourId/**tourIds[]**, lastStatus ('bewaessert'|'nicht'|null), lastReason/lastNote/lastDriver/lastReportAt, history[], baumId (B-00001…)
-- **reasons:** `{text}` — **pro Projekt** (kein Auto-Seed mehr, optionaler Button „Standard-Gründe hinzufügen")
-- **tourHistory:** Snapshots abgeschlossener Touren. **Schema vereinheitlicht auf `trees`** (früher `results`).
+## ⭐ GROSSES THEMA DIESER SESSION: Mehrmandantenfähigkeit + Auth + Rollen — UMGESETZT & LIVE (Rules scharf!)
+Die offene Mehrmandanten-/Auth-Aufgabe ist **vollständig produktiv**. Alle Apps verlangen Login, Firestore-Rules sind **scharf** (Mandanten-Isolation erzwungen).
 
-## WICHTIGE KONVENTIONEN
-- **Status-Keys `'bewaessert'`/`'nicht'`** (mit „ae") sind interne Logik — **NIE umbenennen** (nur Anzeigetexte „Erledigt"/„Nicht erledigt").
-- JS-Logik in `src/*.js`, nicht im HTML. Inline-CSS bevorzugt. Änderungen minimal halten.
-- **Commit-Messages enden mit:** `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`
-- **Firestore-Batch-Limit = 500** (wir nutzen ≤450 pro Batch).
+### Login (alle Apps gleich)
+- **Stadt-Code + Name + PIN** auf Desktop/Mobil/Erfassung/Einsatzleiter. Ein Umschalter „Admin-Anmeldung (E-Mail)" bietet zusätzlich E-Mail/Passwort (Master-/Notzugang).
+- Die **Rolle der Person** bestimmt Module/Rechte. Modul-Sperren greifen (z. B. Erfasser-App, Einsatzleiter-App).
+- **Superadmin** = `dzugga@infa.de` (E-Mail-Login, mandantenübergreifend) — der Master-Zugang.
+
+### Datenmodell (Firestore) — Erweiterungen
+- `orgs/{orgId}` = Mandant `{name, code}`. Codes: **RUESSEL** (Rüsselsheim), **BADROTH** (Bad Rothenfelde), **RHEINE** (Rheine).
+- `users/{uid}` = E-Mail-Konten `{email, orgId, role, active}`.
+- `drivers/{id}` = **PIN-Personen** `{orgId, name, nameLower, pinHash, pinSalt, role, active}` (role kann jede Rolle sein, nicht nur Fahrer).
+- `roles/{roleKey}` = **globale Rollen** `{name, baseType, modules{...}, builtin}`. Built-ins: superadmin/orgadmin/planer/erfasser/fahrer.
+- **Jedes** Projekt + Unterkollektions-Dokument trägt **`orgId`** (denormalisiert; per Backfill gesetzt, neue Docs via Shim/Funktion). Projekt-IDs: Rüsselsheim `Lumi5fkOU70s89XZf4Dv`, Bad Rothenfelde `WDXQv3gb1gl2kuzsVSpj`, **Rheine `itJxlz9sMO3Aq1biDUaY`** (Handoff-ID `8iqStiWyrDx444Gq88uS` war veraltet/falsch).
+
+### Claims & Rules
+- Custom Claims: `{orgId, role, cap, name}`. `cap` = Basis-Typ (`admin`|`editor`|`readonly`|`driver`) steuert die Rules; `role` = Rollen-Key (steuert UI/Module via `roles`-Collection).
+- `firestore.rules` (scharf, in firebase.json verdrahtet): `inOrg`/`canPlan`/`canManage` cap-basiert, Superadmin-Bypass. **Unterkollektions-Lesen via `get()` aufs Parent-Projekt** (denn App-Queries sind nicht org-gefiltert — sonst werden unbeschränkte Collection-Queries abgelehnt!). Schreiben prüft `resource.data.orgId` (kein get).
+- **Rollback** falls nötig: Firebase-Konsole → Firestore → Regeln → Versionsverlauf → vorige Version.
+
+### Cloud Functions (functions/auth.js, alle deployt, us-central1)
+`driverLogin` (Name+PIN → Custom Token mit Rolle/cap), `setDriverPin` (Person anlegen/ändern, role+PIN), `setUserRole`, `createOrgUser`, `setUserPassword`, `setUserActive`, `deleteOrgUser` — alle admin-only (Superadmin oder cap=admin). Plus `geminiAnalyse`.
+⚠ `createCustomToken` braucht die IAM-Rolle **Service Account Token Creator** auf dem Compute-SA (bereits gesetzt; bei Neuaufsetzen siehe docs/auth-mandanten.md).
+
+### Verwaltung (alles in der App)
+- **INFA-Admin → „Benutzer"** (Admins): Schritt 1 **Rollen & Module** (einklappbar, Superadmin), 2 **Personen & PINs** (Name+Rolle+PIN), 3 **E-Mail-Konten** (optional), 4 Link zur Tour-Zuweisung.
+- **Verwaltung → „Fahrer pro Tour"** (projektbezogen): weist **angelegte Personen** (Dropdown) den Touren zu → bestimmt, welche Tour ein Fahrer mobil sieht.
+- Nav-Gating: `data-module="..."` + `applyModulePermissions()`. Tokens `__superadmin__`, `__admin__`. Admin-Punkte erscheinen erst nach Öffnen eines Projekts (Top-Nav).
+- gcloud ist installiert + ADC eingerichtet (für Admin-Skripte). Skripte: `functions/scripts/{backfill-orgid,set-claims}.mjs`. Runbook: `docs/auth-mandanten.md`.
+
+## Weitere Features dieser Session (Desktop-Planung)
+- **Mehrfach-Tour-Auswahl** (Checkboxen in der Legende, Summen-Info, „Routen berechnen (N)").
+- **Routenlinien-Schalter** (Auge-Button oben rechts auf der Karte).
+- **Abfahr-Simulation:** Button „▶ Abfahrt simulieren" in der Legende (nur bei **genau 1** gewählter Tour **mit berechneter Route**) → Wiedergabe-Leiste (Play/Pause, Tempo 0.5–8×, Zeitleiste mit Phasen Fahrt/Bewässerung/Depot, scrubbbar), 🚚 fährt die Route ab.
+- **„Nicht verplant" additiv** (Checkbox, gleichzeitig mit Touren einblendbar).
+- **Objektfilter einklappbar** + **Tour-Suchfeld** (ab 8 Touren) in der Sidebar.
+- Schwebende Routen-Info-Pille entfernt (Infos im Seitenpanel).
+- Toast-Klick-Bug gefixt (pointer-events:none) in allen Apps.
 
 ## DEV-/UMGEBUNGS-QUIRKS (wichtig!)
-- Windows: immer `npm.cmd` / `npx.cmd`.
-- **PowerShell here-strings brechen bei `"`/Sonderzeichen** in Commit-Messages → Commit-Text in Datei schreiben und `git commit -F datei` nutzen.
-- **Dev-Server (3001) live in Chrome funktioniert** (Stand 08.06.2026): `vite.config.js` hat `server`-Block mit `watch.usePolling` (Windows-Watcher) + `Cache-Control: no-store` (kein Stale) → `npm.cmd run dev` reicht, Edits erscheinen sofort in der Chrome-Extension. (Früher kaputtes HMR/stale Module; Fallback build+`preview --port 3010` nur falls nötig.)
-- **Browser-MCP kann NICHT zu `web.app` navigieren** (blockiert) → für Firebase-Zugriff/Tests `localhost`-Preview nutzen (`window.firebase.firestore()` ist auf den Seiten verfügbar).
-- Bad Rothenfelde (`WDXQv3gb1gl2kuzsVSpj`) = Testprojekt; Rüsselsheim (`Lumi5fkOU70s89XZf4Dv`) = große Echtdaten; „Rheine Papierkorbleerung" (`8iqStiWyrDx444Gq88uS`) = Papierkorb-Projekt.
-
-## WAS IN DER LETZTEN SESSION GEMACHT WURDE (alles committet/deployt)
-1. **Schema-Vereinheitlichung `results` → `trees`:** Detail-Modal, Controlling, Einsatzleiter lesen `trees`; `normalizeHistory()` als Sicherheitsnetz; **Fahrer-App schreibt jetzt `trees`**; Bestandsdaten migriert, `results`-Backups entfernt.
-2. **Controlling-Fixes:** „Diese Woche" ISO-Montag, Timeline UTC-Off-by-one + eine Datenquelle, results-Meldungen werden gezählt.
-3. **Projektwechsel-Refresh:** Controlling/Dashboard **und** Historie-Liste aktualisieren beim Projektwechsel (vorher nur nach Reload).
-4. **Historie-Detail:** Status-Korrektur optional in Live-Ansicht/Karte übernehmen (Schutz: keine neuere Meldung überschreiben); **Grund = Dropdown** der Projekt-Gründe.
-5. **Tour-Fortschritt nie >100%** (Dashboard + Einsatzleiter): zählt nur aktuell **aktive** Tour-Objekte.
-6. **„Fortschritt je Tour" + „Gründe":** Suchfeld + Zähler + feste Scrollhöhe (max. 3 Touren / 5 Gründe, Rest scrollbar).
-7. **Inaktive Objekte** werden überall ausgeschlossen (Navi-Liste/Marker/Route, Desktop-Routenberechnung). Bestehende Rheine-Route bereinigt.
-8. **Import-Vorschau (Desktop):** Koordinaten-Kontrolle vor dem Schreiben — Plausibilitätsprüfung, Warnung bei Punkten außerhalb DE, **Mini-Karte**, Schalter **„lat ↔ lng tauschen"** (Auto-Erkennung), Dezimal-Komma-Parsing. Import erst nach Bestätigung.
-9. **Import beschleunigt:** Batch-Writes statt Einzel-Roundtrips (Zähler einmal lesen/lokal hochzählen). **Projekt-Löschen** ebenso (Batch-Deletes).
-10. **Gründe strikt pro Projekt:** Reload bei Projektwechsel (Leak weg); Auto-Seed entfernt → optionaler Button.
-11. **Planung-Eigenschaftsfilter (NEU, deployt, noch nicht final verifiziert):** Filter im Objekte-Panel (Stadtteil/Typ/Jahr/Zustand/Priorität/Status) + Schalter „Nur gefilterte auf der Karte zeigen".
-
-## NAVI-KLON (Beta) — `navi.html` / `src/navi.js`
-Eigenständige Kopie der Fahrer-App (Sandbox), **echte `mobil.html` bleibt unberührt**. Funktionen:
-- Turn-by-turn **keyless via OSRM-Demo** (`router.project-osrm.org`), deutsche Manöver, ETA, Vorab-Ansage.
-- **Sprachausgabe** (Web Speech, mit Entsperr-Priming + 🔊-Schalter), **Karten-Rotation** (leaflet-rotate + iOS-Kompass via DeviceOrientation, 🧭-Schalter), **Wake-Lock**, **Off-Route-Reroute**.
-- **Nächstes Ziel = nächstgelegenes** offenes Objekt; Reihenfolge wird beim Navi-Start ab GPS neu sortiert (Nummern passen sich an); Ankunft an **jedem** offenen Stopp; **Auto-Weiter**.
-- **🗺️/📍-Schalter:** ganze Restroute (Standard) vs. nur nächste Etappe.
-- **Bedienelemente als schwebende Buttons** rechts auf der Karte (Banner frei für die Anweisung).
-- **Deeplink** „In Google Maps navigieren" je Objekt (für CarPlay/Hintergrund-Navi).
-- **Konfigurierbare Endpunkte** oben in `navi.js`: `NAVI_OSRM_BASE`, `NAVI_TILE_URL` (1-Zeilen-Switch für Self-Hosting).
-- **Beta-Test-Hooks** (window.naviSimulateGps / naviDebug / naviSetBearing) zum Testen ohne Fahrt.
-
-## INFRASTRUKTUR / KOSTEN (Doku im Repo: `docs/self-hosting.md`)
-- OSRM-Demo + OSM-Tiles sind **gratis aber Fair-Use, nicht für gewerblichen Dauerbetrieb** (Drosselung möglich, keine Abrechnung).
-- **Self-Hosting empfohlen** (OSRM + TileServer-GL + Caddy auf Hetzner): ~15–50 €/Monat, kein Limit, DSGVO-freundlich. Anleitung: `docs/self-hosting.md`.
-- **Mapbox** bei 50 Fahrern grob 450–1.000 €/Monat (geschätzt) → Self-Hosting 10–30× günstiger.
-- **CarPlay:** Web-App lässt sich NICHT direkt anzeigen (kein Browser auf CarPlay). Weg: Deeplink → Google/Apple Maps (laufen auf CarPlay) oder native App (großes Projekt).
-- Lokale (nicht committete) Vorlagen: `INFA-Navigation-Kostenvergleich.docx`, `INFA-Umzug-Hetzner-Analyse.docx`, `Navi-Mockups.html`.
+- Windows: immer `npm.cmd` / `npx.cmd` / `gcloud.cmd` (PS-ExecutionPolicy blockiert .ps1).
+- Dev-Server (3001) live in Chrome ok (vite.config.js: `watch.usePolling` + `Cache-Control: no-store`). **Aber: `location.reload()` via JS holt manchmal alten Stand → lieber frisch navigieren (`?v=`).**
+- **Browser-MCP kann NICHT zu `web.app` navigieren** (blockiert) → lokal über `localhost:3001` testen; deployten Stand per `curl` prüfen.
+- **Rules scharf:** Zum Testen via Browser muss man als passende Person angemeldet sein. Test-Konten per Admin-SDK anlegen + **nach dem Test wieder löschen** (so in dieser Session gehandhabt).
+- Commit-Messages enden mit `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`; bei Sonderzeichen `git commit -F datei`.
+- Status-Keys `'bewaessert'`/`'nicht'` nie umbenennen. Inline-CSS bevorzugt.
 
 ## OFFENE PUNKTE / TODO
-- **Rheine-Koordinaten final bereinigen:** lat/lng waren vertauscht (Punkte vor Afrika). ~580 schon getauscht, aber Objektzahl wuchs während der Korrektur (laufender Import?). Sobald **kein Import mehr läuft**: alle Rest-„vor-Afrika"-Punkte (lat 0–20 & lng 40–60) tauschen + Endkontrolle (alle in DE: lat 47–55, lng 5–16). Projekt-pid `8iqStiWyrDx444Gq88uS`.
-- **Planung-Eigenschaftsfilter** im Live-Lauf verifizieren (deployt, Browser-Test wurde unterbrochen).
-- **Navi am echten Gerät** final prüfen: kommt die iOS-Bewegungs-/Ausrichtungs-Freigabe? Dreht die Karte richtig herum (sonst Vorzeichen `360 − Richtung`)? Stimme hörbar?
-- **Mehrmandantenfähigkeit/Auth** (offene Firestore-Rules!) — noch nicht umgesetzt. Reihenfolge: Auth+Rules zuerst.
-- **Foto-Funktion** — zurückgestellt (Firebase Storage).
-- **Self-Hosting** ggf. tatsächlich aufsetzen (Doku liegt vor).
-- Optional: Navi-Abruf-Zähler (Routing-Requests) in INFA-Admin sichtbar machen.
+- **Rheine-Koordinaten** final bereinigen (lat/lng waren teils vertauscht — „vor Afrika"). Projekt `itJxlz9sMO3Aq1biDUaY`.
+- **Navi** am echten Gerät prüfen (iOS-Kompass/Rotation/Stimme).
+- **Echte Konten/PINs** anlegen (bisher v. a. Test/Marc/Alex + dzugga). Über INFA-Admin → Benutzer.
+- Optional: Admin-Punkte (Benutzer) auch **vor** der Projektauswahl zugänglich machen.
+- Optional: Superadmin-PIN unter Master-Code statt E-Mail.
+- Optional: Mobil/Navi konsequent auf Modul-Sperre prüfen (aktuell: Mobil = Fahrer per PIN).
+- Foto-Funktion (zurückgestellt, Firebase Storage). Self-Hosting OSRM/Tiles (docs/self-hosting.md).
 
 ## LETZTE COMMITS (Auswahl)
-- `56b2154` Planung: Eigenschaften-Filter
-- `e796ae1` Reasons-Button-Label
-- `21c22f1` Projekt-Löschen Batch
-- `a4f3e02` Import Batch-Speedup
-- `f9764b9` Gründe strikt pro Projekt
-- `bb1e72f` Import-Vorschau mit Koordinaten-Kontrolle
-- `b59d52b` Tour-Fortschritt ≤100%
+- `831437d` Benutzer: Rollen & Module als Schritt 1 eingebettet, Menüpunkt entfernt
+- `d2689c4` INFA-Admin: eigener Menüpunkt „Benutzer" mit Schritt-Reihenfolge
+- `07df63c` Fahrer pro Tour: Personen-Dropdown statt Freitext
+- `c6c95c5` Login: alle Apps auf Stadt-Code + Name + PIN
+- `35c48b1` Cutover: Firestore-Rules scharf (cap-basiert)
+- `ba84c15` Rollen & Module: frei definierbare Rollen + Modul-Berechtigungen
+- `6f88e08` Auth/Mehrmandanten Phase 1 (Rules, Functions, Backfill, Runbook)
+- `35afe8a` Abfahr-Simulation + Routen-Info-Leiste entfernt
