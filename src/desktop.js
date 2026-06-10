@@ -915,6 +915,14 @@ async function refreshAllRoutes(){
   document.getElementById('route-info-bar').classList.remove('visible');
 }
 
+// Kennzahlen einer Tour: bevorzugt geladene Route (tourRoutes), sonst persistierte Tour-Werte
+function tourMetrics(tid){
+  const rt=tourRoutes[tid];
+  if(rt) return {km:rt.km||0, durationSec:rt.durationSec||0};
+  const t=tours.find(x=>x.id===tid);
+  if(t && typeof t.routeKm==='number') return {km:t.routeKm, durationSec:t.routeDriveSec||0};
+  return null;
+}
 function updateRouteInfoBar(){
   const bar=document.getElementById('route-info-bar');
   const txt=document.getElementById('route-info-text');
@@ -922,7 +930,7 @@ function updateRouteInfoBar(){
   if(bar) bar.classList.remove('visible'); // schwebende Routen-Info-Leiste entfernt — Infos im Seitenpanel
   // Mehrere Touren ausgewählt → kompakte Summe
   if(activeTours.size>1){
-    let km=0,dur=0; activeTours.forEach(tid=>{ if(tourRoutes[tid]){ km+=tourRoutes[tid].km; dur+=tourRoutes[tid].durationSec||0; } });
+    let km=0,dur=0; activeTours.forEach(tid=>{ const m=tourMetrics(tid); if(m){ km+=m.km; dur+=m.durationSec; } });
     const cnt=trees.filter(t=>treeInAnyActiveTour(t)&&t.lat&&t.lng).length;
     txt.textContent=`${activeTours.size} Touren · ${cnt} Objekte${km?` · Σ ${km.toFixed(1)} km${dur?' · '+fmtDuration(dur)+' Fahrt':''}`:''}`;
     if(sidePanel){
@@ -935,8 +943,9 @@ function updateRouteInfoBar(){
     }
     return;
   }
-  if(activeTourOnMap&&tourRoutes[activeTourOnMap]){
-    const {km,durationSec}=tourRoutes[activeTourOnMap];
+  const _activeM=activeTourOnMap?tourMetrics(activeTourOnMap):null;
+  if(_activeM){
+    const {km,durationSec}=_activeM;
     const tour=tours.find(t=>t.id===activeTourOnMap);
     const cnt=trees.filter(t=>treeInTour(t,activeTourOnMap)&&t.lat&&t.lng).length;
     const depot=getDepot();
@@ -1238,7 +1247,7 @@ function renderLegend(){
     html+=`<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:${activeTour.color};">
       <span style="width:14px;height:3px;border-radius:2px;background:${activeTour.color};display:inline-block;"></span>
       ${activeTour.name}
-      ${tourRoutes[activeTour.id]?'· '+tourRoutes[activeTour.id].km.toFixed(1)+' km':''}
+      ${(()=>{const m=tourMetrics(activeTour.id);return m?'· '+m.km.toFixed(1)+' km':'';})()}
     </span>${unpTag}`;
   } else if(selCount>1){
     html+=`<span style="font-size:11px;font-weight:600;color:var(--green);">${selCount} ausgewählt</span>${unpTag}`;
@@ -1262,7 +1271,7 @@ function renderLegend(){
   // Tour rows — compact
   html+=`<div style="padding:0 8px 4px;">`;
   tours.forEach(t=>{
-    const km=tourRoutes[t.id]?tourRoutes[t.id].km.toFixed(1):'–';
+    const _tm=tourMetrics(t.id); const km=_tm?_tm.km.toFixed(1):'–';
     const isSel=activeTours.has(t.id);
     html+=`<div class="legend-item${isSel?' active-tour':''}" data-tourid="${t.id}" data-tourname="${(t.name||'').toLowerCase().replace(/"/g,'&quot;')}" style="padding:3px 6px;margin-bottom:1px;">
       <input type="checkbox" class="tour-check"${isSel?' checked':''} style="margin:0 4px 0 0;cursor:pointer;flex-shrink:0;accent-color:${t.color};">
