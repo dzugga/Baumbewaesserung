@@ -6259,7 +6259,13 @@ function renderHandbuch(){
           <summary style="padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2.5" style="flex-shrink:0;transition:transform .15s;"><path d="M9 18l6-6-6-6"/></svg>
             ${hbMark(s.title,q)}</summary>
-          <div style="padding:2px 14px 12px 34px;font-size:13px;line-height:1.65;color:var(--text2);white-space:pre-line;">${hbMark(s.text,q)}</div>
+          <div style="padding:2px 14px 12px 34px;font-size:13px;line-height:1.65;color:var(--text2);">
+            <div style="white-space:pre-line;">${hbMark(s.text,q)}</div>
+            ${(s.imgs||[]).map(im=>`<figure style="margin:12px 0 4px;">
+              <img src="${im.src}" loading="lazy" onclick="openHbImg('${im.src}','${dlEsc(im.cap||'')}')" alt="${dlEsc(im.cap||'')}" style="max-width:100%;max-height:420px;width:auto;border:1px solid var(--border);border-radius:8px;cursor:zoom-in;box-shadow:0 1px 4px rgba(0,0,0,.10);">
+              <figcaption style="font-size:11px;color:var(--text3);margin-top:4px;">🔍 ${dlEsc(im.cap||'Zum Vergrößern klicken')}</figcaption>
+            </figure>`).join('')}
+          </div>
         </details>`).join('')}
     </div>`).join('');
   // Pfeil drehen bei offenen Abschnitten
@@ -6268,6 +6274,20 @@ function renderHandbuch(){
     d.addEventListener('toggle',sync); sync();
   });
 }
+// Großansicht für Handbuch-Bilder
+function openHbImg(src,cap){
+  let ov=document.getElementById('hb-img-overlay');
+  if(!ov){ ov=document.createElement('div'); ov.id='hb-img-overlay'; document.body.appendChild(ov); }
+  ov.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;cursor:zoom-out;';
+  ov.innerHTML=`<div style="max-width:94vw;max-height:92vh;display:flex;flex-direction:column;align-items:center;gap:10px;">
+    <img src="${src}" style="max-width:94vw;max-height:84vh;object-fit:contain;border-radius:8px;box-shadow:0 8px 40px rgba(0,0,0,.5);">
+    ${cap?`<div style="color:#fff;font-size:13px;">${dlEsc(cap)}</div>`:''}</div>
+    <button style="position:absolute;top:18px;right:22px;background:rgba(255,255,255,.15);border:none;color:#fff;width:38px;height:38px;border-radius:50%;cursor:pointer;font-size:22px;">×</button>`;
+  ov.onclick=()=>closeHbImg();
+}
+function closeHbImg(){ document.getElementById('hb-img-overlay')?.remove(); }
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeHbImg(); });
+
 async function renderHbUpdates(q){
   const cont=document.getElementById('hb-content'); if(!cont) return;
   if(!_hbChangelog){
@@ -6290,7 +6310,7 @@ async function renderHbUpdates(q){
 
 Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,
-  renderHandbuch,setHbTab,hbSearchDebounced,
+  renderHandbuch,setHbTab,hbSearchDebounced,openHbImg,closeHbImg,
   dispoSimulate,dispoPlan,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
