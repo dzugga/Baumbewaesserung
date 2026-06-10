@@ -2021,7 +2021,7 @@ async function deleteFoto(){
     tree.fotos=tree.fotos.filter(x=>x.u!==f.u);
     notify('✓ Foto gelöscht');
     if(!tree.fotos.length) closeFoto(); else renderFotoLightbox();
-    if(selectedTreeId===tree.id) openDetail(tree.id);
+    refreshMediaViews(tree.id);
   }catch(e){ notify('Fehler beim Löschen: '+(e.message||e.code)); }
 }
 document.addEventListener('keydown',e=>{
@@ -2065,7 +2065,7 @@ async function docUploadFiles(treeId,files){
     .set({dokumente:firebase.firestore.FieldValue.arrayUnion(...added)},{merge:true});
   tree.dokumente=[...(tree.dokumente||[]),...added];
   notify(`✓ ${added.length} Dokument(e) hinzugefügt`);
-  if(selectedTreeId===treeId) openDetail(treeId);
+  refreshMediaViews(treeId);
 }
 async function docAddLink(treeId){
   if(isReadonly()){ notify('Nur Lesezugriff'); return; }
@@ -2080,9 +2080,41 @@ async function docAddLink(treeId){
       .set({dokumente:firebase.firestore.FieldValue.arrayUnion(entry)},{merge:true});
     tree.dokumente=[...(tree.dokumente||[]),entry];
     notify('✓ Link hinzugefügt');
-    if(selectedTreeId===treeId) openDetail(treeId);
+    refreshMediaViews(treeId);
   }catch(e){ notify('Fehler: '+(e.message||e.code)); }
 }
+// Fotos & Dokumente im Bearbeiten-Formular („Objekt bearbeiten") — gleiche Funktionen wie im Detail-Panel
+function renderModalMedia(treeId){
+  const el=document.getElementById('modal-media'); if(!el) return;
+  const tree=treeId?trees.find(t=>t.id===treeId):null;
+  if(!tree){ el.style.display='none'; el.innerHTML=''; return; }
+  el.style.display='';
+  const fotos=tree.fotos||[], docs=tree.dokumente||[];
+  el.innerHTML=`
+    <div class="form-section">Fotos${fotos.length?` (${fotos.length})`:''}</div>
+    ${fotos.length
+      ?`<div style="display:flex;gap:8px;flex-wrap:wrap;padding:2px 0 6px;">${fotos.map((f,i)=>`<img src="${f.u}" loading="lazy" onclick="openFoto('${dlEsc(treeId)}',${i})" title="Foto ansehen" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--border);cursor:pointer;">`).join('')}</div>`
+      :'<div style="font-size:11px;color:var(--text3);padding:2px 0 6px;">Keine Fotos vorhanden (Aufnahme über die Erfassungs-App).</div>'}
+    <div class="form-section">Dokumente${docs.length?` (${docs.length})`:''}</div>
+    <div style="display:flex;flex-direction:column;gap:5px;padding:2px 0 4px;">
+      ${docs.map((d,i)=>`<div style="display:flex;align-items:center;gap:8px;background:var(--surface2);border-radius:8px;padding:7px 10px;">
+        <span style="flex-shrink:0;">${d.typ==='link'?'🔗':docIcon(d.name)}</span>
+        <a href="${dlEsc(d.u)}" target="_blank" rel="noopener" title="${dlEsc(d.name||'')}" style="flex:1;min-width:0;font-size:12px;font-weight:600;color:var(--text);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(d.name||'Dokument')}</a>
+        ${d.size?`<span style="font-size:10px;color:var(--text3);flex-shrink:0;">${fmtBytes(d.size)}</span>`:''}
+        ${isReadonly()?'':`<button type="button" onclick="docDelete('${dlEsc(treeId)}',${i})" title="Entfernen" style="border:none;background:none;cursor:pointer;color:var(--red);font-size:15px;line-height:1;padding:0 2px;flex-shrink:0;">×</button>`}
+      </div>`).join('')}
+      ${isReadonly()?(docs.length?'':'<div style="font-size:11px;color:var(--text3);">Keine Dokumente.</div>'):`<div style="display:flex;gap:6px;">
+        <button type="button" class="btn btn-secondary" style="flex:1;padding:6px;font-size:12px;" onclick="docUploadStart('${dlEsc(treeId)}')">📎 Datei hochladen</button>
+        <button type="button" class="btn btn-secondary" style="flex:1;padding:6px;font-size:12px;" onclick="docAddLink('${dlEsc(treeId)}')">🔗 Link hinzufügen</button>
+      </div>`}
+    </div>`;
+}
+// Nach Medien-Änderungen offene Ansichten aktualisieren (Detail-Panel + Bearbeiten-Formular)
+function refreshMediaViews(treeId){
+  if(selectedTreeId===treeId) openDetail(treeId);
+  if(editingTreeId===treeId) renderModalMedia(treeId);
+}
+
 async function docDelete(treeId,idx){
   if(isReadonly()){ notify('Nur Lesezugriff'); return; }
   const tree=trees.find(t=>t.id===treeId); const d=tree?.dokumente?.[idx]; if(!d) return;
@@ -2093,7 +2125,7 @@ async function docDelete(treeId,idx){
       .set({dokumente:firebase.firestore.FieldValue.arrayRemove(d)},{merge:true});
     tree.dokumente=tree.dokumente.filter((_,i)=>i!==idx);
     notify('✓ Entfernt');
-    if(selectedTreeId===treeId) openDetail(treeId);
+    refreshMediaViews(treeId);
   }catch(e){ notify('Fehler: '+(e.message||e.code)); }
 }
 
@@ -2133,7 +2165,8 @@ function fillTourSelect(sel){
 
 function openAddTree(lat,lng){
   editingTreeId=null;
-  document.getElementById('modal-tree-title').textContent='Baum hinzufügen';
+  document.getElementById('modal-tree-title').textContent='Objekt hinzufügen';
+  renderModalMedia(null); // Medien erst nach dem Anlegen (kein Objekt vorhanden)
   ['f-name','f-stadtteil','f-baumnr','f-pflanzjahr','f-pflanzzeitpunkt','f-notiz'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   fillArtSelect('');
   document.getElementById('f-wasser').value='mittel';
@@ -2163,7 +2196,8 @@ async function fillArtSelect(current){
 async function openEditTree(id){
   const tree=trees.find(t=>t.id===id);if(!tree)return;
   editingTreeId=id;
-  document.getElementById('modal-tree-title').textContent='Baum bearbeiten';
+  document.getElementById('modal-tree-title').textContent='Objekt bearbeiten';
+  renderModalMedia(id); // Fotos ansehen + Dokumente öffnen/hinterlegen direkt im Formular
   document.getElementById('f-name').value=tree.name||'';
   document.getElementById('f-stadtteil').value=tree.stadtteil||'';
   document.getElementById('f-baumnr').value=tree.baumnr||'';
@@ -2183,7 +2217,7 @@ async function openEditTree(id){
   const archBtn=document.getElementById('btn-tree-archive');
   if(danger) danger.style.display='flex';
   if(!isActive(tree)){
-    document.getElementById('modal-tree-title').textContent='Baum bearbeiten (inaktiv)';
+    document.getElementById('modal-tree-title').textContent='Objekt bearbeiten (inaktiv)';
     if(archBtn){ archBtn.textContent='Reaktivieren'; archBtn.onclick=reactivateTreeFromModal; }
   } else {
     if(archBtn){ archBtn.textContent='Inaktiv setzen'; archBtn.onclick=archiveTreeFromModal; }
