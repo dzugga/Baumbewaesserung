@@ -60,6 +60,11 @@ Nach Änderungen immer per **Claude in Chrome Extension** prüfen:
 - Einsatzleiter: `http://localhost:3001/einsatzleiter.html`
 - Erfassung: `http://localhost:3001/erfassung.html`
 
+## Terminologie (verbindlich)
+- Das Produkt ist allgemeingültig: Im **Handbuch niemals** „Baum/Bäume/Bewässerung" — immer **Objekt(e)**, „Tätigkeit", „Meldungen", „erledigt/nicht erledigt", „Zeitaufwand".
+- Gilt auch für **Commit-Betreffzeilen** (sie speisen den Handbuch-Reiter „Aktualisierungen").
+- Neue UI-Texte ebenfalls objekt-neutral formulieren.
+
 ## Handbuch (Pflegepflicht)
 - Digitales Handbuch unter Desktop → Admin → Handbuch; Inhalte in `src/handbuch-daten.js` (nach Apps gegliedert, `keywords` für die Suche).
 - **Bei jeder neuen/geänderten Funktion den passenden Handbuch-Abschnitt mitpflegen** (Endnutzer-Sprache, keine Technik-Details).
