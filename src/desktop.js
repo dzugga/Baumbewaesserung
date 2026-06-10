@@ -2808,7 +2808,23 @@ function renderArtenList(){
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>`}
+    ${ro?'':`<div style="display:flex;gap:6px;margin-top:10px;">
+      <input id="art-new-name" class="form-control" placeholder="Neue Art (${FL.art})…" style="flex:1;padding:6px 10px;font-size:13px;" onkeydown="if(event.key==='Enter')addArt()">
+      <button class="btn btn-primary" style="padding:6px 12px;font-size:12px;white-space:nowrap;" onclick="addArt()">+ Hinzufügen</button>
+    </div>`}
   </div>`;
+}
+async function addArt(){
+  if(isReadonly()) return;
+  if(!currentProjectId) return;
+  const inp=document.getElementById('art-new-name');
+  const name=(inp?.value||'').trim();
+  if(!name) return;
+  await loadArten();
+  if(artenList.some(a=>a.name===name)){ notify('„'+name+'" existiert bereits'); return; }
+  await addDoc(collection(db,'projects',currentProjectId,'arten'),{name,orgId:currentProjectData?.orgId||currentOrg||null,createdAt:serverTimestamp()});
+  await loadArten(); renderArtenList();
+  notify('✓ Art hinzugefügt');
 }
 async function _chunkedTreeUpdate(updates){
   for(let i=0;i<updates.length;i+=400){
@@ -5873,7 +5889,7 @@ Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,
   dispoSimulate,dispoPlan,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
-  saveInlineFields,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,renameArt,mergeArt,deleteArt,saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
+  saveInlineFields,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,
   createProject,openProject,showProjectScreen,
   switchView,openDetail,closePanel,logWatering,
