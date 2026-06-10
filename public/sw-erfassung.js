@@ -1,14 +1,9 @@
 // Service Worker Erfassungs-App
-// WICHTIG: App-Hülle (HTML/JS) NETWORK-FIRST, damit neue Deploys sofort ankommen.
-// (Cache-first hatte iPhones auf einer alten Version festgehalten → Login-Button tot.)
-const CACHE = 'erfassung-v2';
-const SHELL = ['/erfassung.html'];
+// WICHTIG: Scope ist '/' (ganze Origin). Daher NICHT die anderen Apps (index/mobil/navi) abfangen.
+// App-Hülle network-first, damit neue Deploys sofort ankommen (cache-first hatte iPhones festgehalten).
+const CACHE = 'erfassung-v3';
 
-self.addEventListener('install', e => {
-  e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(SHELL).catch(() => {})).then(() => self.skipWaiting())
-  );
-});
+self.addEventListener('install', e => { e.waitUntil(self.skipWaiting()); });
 
 self.addEventListener('activate', e => {
   e.waitUntil(
@@ -21,31 +16,35 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
-  const url = req.url;
+  let url; try { url = new URL(req.url); } catch (_) { return; }
+
   // Firebase/Backend nie cachen
-  if (url.includes('firestore.googleapis.com') || url.includes('firebase.googleapis.com')
-      || url.includes('identitytoolkit') || url.includes('securetoken')
-      || url.includes('cloudfunctions.net')) return;
+  if (/firestore\.googleapis|firebase(installations|remoteconfig)?\.googleapis|identitytoolkit|securetoken|cloudfunctions\.net/.test(url.href)) return;
 
-  const sameOrigin = url.startsWith(self.location.origin);
-  const isShell = req.mode === 'navigate'
-    || (sameOrigin && (url.endsWith('.html') || url.endsWith('.js') || url.includes('/assets/')));
-
-  if (isShell) {
-    // Network-first: immer die aktuelle App-Version laden; Cache nur als Offline-Fallback.
-    e.respondWith(
-      fetch(req).then(res => {
-        if (res && res.ok) { const c = res.clone(); caches.open(CACHE).then(cc => cc.put(req, c)); }
-        return res;
-      }).catch(() => caches.match(req).then(m => m || caches.match('/erfassung.html')))
-    );
-  } else {
-    // Statische Libs/Tiles (versionierte URLs): cache-first.
-    e.respondWith(
-      caches.match(req).then(cached => cached || fetch(req).then(res => {
-        if (res && res.ok) { const c = res.clone(); caches.open(CACHE).then(cc => cc.put(req, c)); }
-        return res;
-      }).catch(() => cached))
-    );
+  // Drittanbieter-Libs (Leaflet/Firebase CDN, versionierte URLs): cache-first als Offline-Hilfe
+  if (url.origin !== self.location.origin) {
+    if (/gstatic\.com|unpkg\.com/.test(url.hostname)) {
+      e.respondWith(caches.match(req).then(c => c || fetch(req).then(r => {
+        if (r && r.ok) { const cc = r.clone(); caches.open(CACHE).then(x => x.put(req, cc)); } return r;
+      }).catch(() => c)));
+    }
+    return; // sonstige Fremd-Origins normal lassen
   }
+
+  // Navigationen: NUR erfassung.html behandeln; index/mobil/navi nicht abfangen
+  if (req.mode === 'navigate') {
+    if (url.pathname === '/erfassung.html' || url.pathname.endsWith('/erfassung.html')) {
+      e.respondWith(
+        fetch(req).then(r => { if (r && r.ok) { const cc = r.clone(); caches.open(CACHE).then(x => x.put('/erfassung.html', cc)); } return r; })
+          .catch(() => caches.match('/erfassung.html'))
+      );
+    }
+    return; // andere Seiten dem Browser überlassen
+  }
+
+  // Same-origin Assets (JS/CSS/…): network-first (frische Versionen für alle Apps), Cache als Offline-Fallback
+  e.respondWith(
+    fetch(req).then(r => { if (r && r.ok) { const cc = r.clone(); caches.open(CACHE).then(x => x.put(req, cc)); } return r; })
+      .catch(() => caches.match(req))
+  );
 });

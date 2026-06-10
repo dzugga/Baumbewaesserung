@@ -1433,7 +1433,7 @@ function simPositionAt(elapsed){
   const last=simState.pts.length-1;
   return {pt:simState.pts[last],k:last,phase:'Ziel erreicht',type:'end'};
 }
-function buildSimModel(route){
+function buildSimModel(route,skipBew){
   let pts=[];
   const geojson=route.geojsonStr?JSON.parse(route.geojsonStr):(route.geojson||null);
   if(geojson?.features?.[0]?.geometry?.coordinates){
@@ -1449,7 +1449,7 @@ function buildSimModel(route){
   for(let i=1;i<pts.length;i++) cum[i]=cum[i-1]+haversine(pts[i-1][0],pts[i-1][1],pts[i][0],pts[i][1])*1000;
   const totalGeo=cum[cum.length-1]||1;
   const totalDrive=route.durationSec||(totalGeo/1000/30*3600);
-  const waterSec=getBewDuration()*60;
+  const waterSec=skipBew?0:getBewDuration()*60;
   const depot=getDepot();
   const ot=(route.orderIds||[]).map(id=>trees.find(t=>t.id===id)).filter(t=>t&&t.lat&&t.lng);
   if(ot.length===0) return null;
@@ -1482,9 +1482,9 @@ async function startSimulation(tourId){
   let route=null;
   try{ const snap=await getDoc(doc(db,'projects',currentProjectId,'routes',tourId)); if(snap.exists) route=snap.data(); }catch(e){ console.warn('sim route load:',e); }
   if(!route){ notify('Bitte zuerst die Route berechnen'); return; }
-  const model=buildSimModel(route);
+  const model=buildSimModel(route,false);
   if(!model){ notify('Keine ausreichenden Routendaten für die Simulation'); return; }
-  simState={ active:true, tourId, tour, playing:true, speed:10, elapsed:0, lastTs:0, seeking:false, ...model };
+  simState={ active:true, tourId, tour, playing:true, speed:10, elapsed:0, lastTs:0, seeking:false, _route:route, skipBew:false, ...model };
   simState.marker=L.marker(model.pts[0],{icon:simIcon(tour.color),zIndexOffset:2000}).addTo(map);
   simState.trail=L.polyline([model.pts[0]],{color:tour.color,weight:6,opacity:.95}).addTo(map);
   document.getElementById('sim-bar').style.display='flex';
@@ -1538,7 +1538,6 @@ function renderSimBar(){
   });
   segHtml+=`<div style="position:absolute;top:0;bottom:0;left:0;width:3px;background:#f97316;"></div><div style="position:absolute;top:0;bottom:0;right:0;width:3px;background:#f97316;"></div>`;
   const ended=simState.elapsed>=simState.total;
-  const speeds=[10,20,30,50];
   bar.innerHTML=`
     <button data-sim="play" style="width:40px;height:40px;border-radius:50%;border:none;background:#2563eb;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">${(simState.playing&&!ended)?SIM_PAUSE:SIM_PLAY}</button>
     <div style="display:flex;flex-direction:column;gap:5px;min-width:230px;flex:1;">
@@ -1552,7 +1551,13 @@ function renderSimBar(){
         <div id="sim-playhead" style="position:absolute;top:-3px;width:3px;height:20px;background:var(--text);left:${simState.elapsed/simState.total*100}%;border-radius:2px;pointer-events:none;box-shadow:0 0 0 2px var(--surface);"></div>
       </div>
     </div>
-    <div style="display:flex;gap:3px;flex-shrink:0;">${speeds.map(s=>`<button data-sim="speed" data-speed="${s}" style="padding:3px 7px;font-size:11px;border-radius:6px;border:1px solid var(--border);background:${simState.speed===s?'var(--green)':'var(--surface)'};color:${simState.speed===s?'#fff':'var(--text2)'};cursor:pointer;font-weight:600;">${s}×</button>`).join('')}</div>
+    <div style="display:flex;align-items:center;gap:7px;flex-shrink:0;">
+      <input type="range" min="1" max="200" step="1" value="${simState.speed}" oninput="setSimSpeed(this.value)" title="Geschwindigkeit (×)" style="width:110px;accent-color:var(--green);cursor:pointer;">
+      <span id="sim-speed-label" style="font-size:11px;font-weight:700;color:var(--text2);min-width:40px;">${simState.speed}×</span>
+    </div>
+    <label title="Bei Tätigkeit nicht anhalten — direkt zum nächsten Punkt weiterfahren" style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text2);cursor:pointer;flex-shrink:0;white-space:nowrap;">
+      <input type="checkbox" ${simState.skipBew?'checked':''} onchange="toggleSimSkipBew()" style="cursor:pointer;accent-color:var(--green);"> Tätigkeit überspringen
+    </label>
     <div style="display:flex;gap:9px;font-size:10px;color:var(--text3);flex-shrink:0;">
       <span style="display:flex;align-items:center;gap:3px;"><i style="width:9px;height:9px;border-radius:2px;background:#16a34a;display:inline-block;"></i>Tätigkeit</span>
       <span style="display:flex;align-items:center;gap:3px;"><i style="width:9px;height:9px;border-radius:2px;background:#2563eb;display:inline-block;"></i>Fahrt</span>
@@ -1565,7 +1570,7 @@ function renderSimBar(){
     if(a==='play'){
       if(simState.elapsed>=simState.total) simState.elapsed=0;
       simState.playing=!simState.playing; simState.lastTs=0; renderSimBar();
-    } else if(a==='speed'){ simState.speed=parseFloat(b.dataset.speed); simState.lastTs=0; renderSimBar(); }
+    }
     else if(a==='close'){ stopSimulation(); }
   };
   const track=document.getElementById('sim-track');
@@ -1575,6 +1580,22 @@ function renderSimBar(){
     track.onpointerup=track.onpointercancel=()=>{ simState.seeking=false; simState.lastTs=0; };
   }
   renderSimFrame();
+}
+// Geschwindigkeit per Schieberegler (1–200×) — nur Label aktualisieren, Bar nicht neu rendern (flüssiger Regler)
+function setSimSpeed(v){
+  if(!simState.active) return;
+  simState.speed=Math.max(1,Math.min(200,parseFloat(v)||1));
+  simState.lastTs=0;
+  const l=document.getElementById('sim-speed-label'); if(l) l.textContent=simState.speed+'×';
+}
+// Schalter: bei Tätigkeit nicht anhalten → Modell neu bauen (Position als Fortschritt erhalten)
+function toggleSimSkipBew(){
+  if(!simState.active||!simState._route) return;
+  const frac = simState.total ? Math.min(1, simState.elapsed/simState.total) : 0;
+  simState.skipBew=!simState.skipBew;
+  const m=buildSimModel(simState._route, simState.skipBew);
+  if(m){ simState.segments=m.segments; simState.total=m.total; simState.pts=m.pts; simState.cum=m.cum; simState.elapsed=frac*simState.total; simState.lastTs=0; }
+  renderSimBar();
 }
 
 // ─── LIST ─────────────────────────────────────────────────────
@@ -5947,7 +5968,7 @@ Object.assign(window,{
   openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,
   addWmsLayer,deleteWmsLayer,renderWmsList,
   setFilter,pickColor,renderList,
-  toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,toggleTourCounts,simulateActiveTour,fitToCity,
+  toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,toggleTourCounts,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
