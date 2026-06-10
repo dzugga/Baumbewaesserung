@@ -155,6 +155,34 @@ exports.setOrgOrsKey = onCall({ region: REGION }, async (req) => {
   return { ok: true };
 });
 
+// ── Admin setzt die WMS-Kartenebenen seines Mandanten (stadtscharf) ─────────
+exports.setOrgWmsLayers = onCall({ region: REGION }, async (req) => {
+  const { role, callerOrg } = requireAdmin(req.auth);
+  const { orgId, layers } = req.data || {};
+  const targetOrg = orgId || callerOrg;
+  const isSuper = role === 'superadmin';
+  if (!isSuper && targetOrg !== callerOrg) throw new HttpsError('permission-denied', 'Fremder Mandant');
+  if (!Array.isArray(layers)) throw new HttpsError('invalid-argument', 'layers muss ein Array sein');
+  if (layers.length > 30) throw new HttpsError('invalid-argument', 'Zu viele Ebenen');
+  await db.collection('orgs').doc(targetOrg).set({ wmsLayers: layers }, { merge: true });
+  return { ok: true };
+});
+
+// ── Admin setzt die Dispo-Konfiguration seines Mandanten (stadtscharf) ──────
+exports.setOrgDispo = onCall({ region: REGION }, async (req) => {
+  const { role, callerOrg } = requireAdmin(req.auth);
+  const { orgId, config, resources } = req.data || {};
+  const targetOrg = orgId || callerOrg;
+  const isSuper = role === 'superadmin';
+  if (!isSuper && targetOrg !== callerOrg) throw new HttpsError('permission-denied', 'Fremder Mandant');
+  const upd = {};
+  if (config && typeof config === 'object' && !Array.isArray(config)) upd.dispoConfig = config;
+  if (Array.isArray(resources)) upd.dispoResources = resources.slice(0, 50);
+  if (!Object.keys(upd).length) throw new HttpsError('invalid-argument', 'Nichts zu speichern');
+  await db.collection('orgs').doc(targetOrg).set(upd, { merge: true });
+  return { ok: true };
+});
+
 // ── Admin setzt den KI-Analyse-Modus seines Mandanten (stadtscharf) ─────────
 exports.setOrgKiMode = onCall({ region: REGION }, async (req) => {
   const { role, callerOrg } = requireAdmin(req.auth);

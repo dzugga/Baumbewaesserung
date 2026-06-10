@@ -241,8 +241,7 @@ const baseOSM = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
 const baseSat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
   {maxZoom:19, attribution:'© Esri, Maxar, Earthstar Geographics'});
 
-// ── WMS-Kartenebenen (vom Nutzer verwaltbar, pro Projekt/Stadt) ──
-const WMS_STORE_KEY='wms_layers_v1';
+// ── WMS-Kartenebenen (vom Nutzer verwaltbar, stadtscharf am Mandanten) ──
 const WMS_DEFAULTS=[
   {id:'he-dop20', name:'Luftbild Hessen (DOP20)',
    url:'https://www.gds-srv.hessen.de/cgi-bin/lika-services/de-viewer/access/ogc-free-images.ows',
@@ -253,14 +252,18 @@ const WMS_DEFAULTS=[
    layers:'CP.CadastralParcel', type:'overlay', format:'image/png', version:'1.1.1', transparent:true, maxZoom:20,
    attribution:'Geobasisdaten © HVBG Hessen'},
 ];
+// WMS stadtscharf: liegt am Mandanten (orgs/{orgId}.wmsLayers), in loadOrgSettings geladen.
+let currentOrgWmsLayers = null; // null = noch nicht geladen / Mandant ohne eigene Ebenen
 function getWmsLayers(){
-  if(Array.isArray(currentProjectData?.wmsLayers)) return currentProjectData.wmsLayers.map(x=>({...x})); // projektspezifisch
-  try{ const raw=localStorage.getItem(WMS_STORE_KEY); if(raw) return JSON.parse(raw); }catch(e){} // Fallback (alte globale)
-  return WMS_DEFAULTS.map(x=>({...x}));
+  if(Array.isArray(currentOrgWmsLayers)) return currentOrgWmsLayers.map(x=>({...x})); // stadtweit
+  if(Array.isArray(currentProjectData?.wmsLayers)) return currentProjectData.wmsLayers.map(x=>({...x})); // Legacy projektweit
+  return []; // keine region-fremden Defaults mehr (früher Hessen-fest)
 }
 function saveWmsLayers(arr){
-  if(currentProjectId){ saveProjectSettings({wmsLayers:arr}).catch(()=>{}); } // pro Projekt speichern
-  else { try{ localStorage.setItem(WMS_STORE_KEY, JSON.stringify(arr)); }catch(e){} }
+  currentOrgWmsLayers=arr.map(x=>({...x}));
+  const org=currentProjectData?.orgId; if(!org) return;
+  if(!(currentRole==='superadmin'||currentCap==='admin')){ notify('Nur Administratoren'); return; }
+  dlFnCall('setOrgWmsLayers',{orgId:org,layers:arr}).catch(e=>notify(fnErr(e)));
 }
 function buildWmsLayer(cfg){
   return L.tileLayer.wms(cfg.url, {
@@ -388,7 +391,7 @@ async function openProject(projectId){
   document.getElementById('active-project-name').textContent=currentProjectData.name;
   document.getElementById('project-screen').style.display='none';
   loadFieldLabels();
-  loadOrgSettings(); // KI-Modus + ORS-Key dieser Stadt laden (stadtscharf, 1 Org-Read)
+  await loadOrgSettings(); // KI-Modus + ORS-Key + WMS + Dispo dieser Stadt (1 Org-Read) — vor dem Kartenaufbau
   rebuildLayerControl(); // WMS-Kartenebenen der Stadt laden
   // Subscribe to tours & trees
   subscribeToProject();
@@ -508,9 +511,15 @@ function getKiMode(){ return currentKiMode || 'manual'; }
 // Mandanten-Einstellungen (KI-Modus + ORS-Key) in EINEM Org-Read laden — stadtscharf, beim Projektwechsel
 async function loadOrgSettings(){
   const org=currentProjectData?.orgId;
-  currentKiMode='manual'; currentOrgOrsKey='';
+  currentKiMode='manual'; currentOrgOrsKey=''; currentOrgWmsLayers=null; currentDispoConfig=null; currentDispoResources=null;
   if(org){
-    try{ const os=await db.collection('orgs').doc(org).get(); if(os.exists){ const d=os.data(); currentKiMode=d.kiMode||'manual'; currentOrgOrsKey=d.orsKey||''; } }catch(e){}
+    try{ const os=await db.collection('orgs').doc(org).get(); if(os.exists){ const d=os.data();
+      currentKiMode=d.kiMode||'manual';
+      currentOrgOrsKey=d.orsKey||'';
+      currentOrgWmsLayers=Array.isArray(d.wmsLayers)?d.wmsLayers:null;
+      currentDispoConfig=(d.dispoConfig&&typeof d.dispoConfig==='object')?d.dispoConfig:null;
+      currentDispoResources=Array.isArray(d.dispoResources)?d.dispoResources:null;
+    } }catch(e){}
   }
   applyKiNavVisibility();
 }
@@ -5508,7 +5517,7 @@ function initDashboard(){
 
 // ─── DISPOSITION (Papierkorb-Tagesplanung, MVP) ──────────────
 // Alles lokal (localStorage) – verändert keine echten Projektdaten.
-const DISPO_CFG_KEY='dispo_config', DISPO_BINS_KEY='dispo_bins', DISPO_RES_KEY='dispo_resources';
+const DISPO_BINS_KEY='dispo_bins'; // nur Bins lokal (transient); Config/Resources liegen am Mandanten
 let dispoMap=null, dispoLayer=null, dispoPickCleanup=null, dispoMarkers={};
 let dispoVisible=null; // null = alle Fahrzeuge sichtbar; sonst Set sichtbarer Ressourcen-IDs
 function dispoResVisible(id){ return !dispoVisible || dispoVisible.has(id); }
@@ -5526,13 +5535,28 @@ function dispoToggleVehicle(id){ // 👁 additiv ein-/ausblenden
 }
 function dispoShowAllVehicles(){ dispoVisible=null; dispoRenderResults(); dispoRenderMap(); }
 
-function dispoGetConfig(){
-  const d={kritisch:80, planbar:50, aus:50, emptyMin:3, reservePct:10, speedKmh:25, binCount:40};
-  try{ return {...d, ...(JSON.parse(localStorage.getItem(DISPO_CFG_KEY)||'{}'))}; }catch(e){ return d; }
-}
-function dispoSetConfig(c){ localStorage.setItem(DISPO_CFG_KEY, JSON.stringify(c)); }
+// Dispo-Konfig stadtscharf: orgs/{orgId}.dispoConfig + .dispoResources (in loadOrgSettings geladen).
+// Bins bleiben lokal (transiente Simulations-Ausgabe, wird je Lauf neu erzeugt).
+const DISPO_DEFAULT_CFG={kritisch:80, planbar:50, aus:50, emptyMin:3, reservePct:10, speedKmh:25, binCount:40};
+const DISPO_DEFAULT_RES=[
+  {id:'r1', name:'Fahrzeug 1', arbeitszeitMin:420, depot:null, maxBins:0},
+  {id:'r2', name:'Fahrzeug 2', arbeitszeitMin:420, depot:null, maxBins:0},
+];
+let currentDispoConfig=null, currentDispoResources=null, _dispoPersistTimer=null;
+function dispoGetConfig(){ return {...DISPO_DEFAULT_CFG, ...(currentDispoConfig||{})}; }
+function dispoSetConfig(c){ currentDispoConfig={...c}; dispoPersist(); }
 function dispoGetBins(){ try{ return JSON.parse(localStorage.getItem(DISPO_BINS_KEY)||'[]'); }catch(e){ return []; } }
 function dispoSetBins(a){ localStorage.setItem(DISPO_BINS_KEY, JSON.stringify(a)); }
+// Stadtweit speichern (nur Admin; debounced, damit Einzeländerungen gebündelt 1 Write ergeben)
+function dispoPersist(){
+  const org=currentProjectData?.orgId; if(!org) return;
+  if(!(currentRole==='superadmin'||currentCap==='admin')) return; // Nicht-Admins: nur Session, kein stadtweiter Write
+  clearTimeout(_dispoPersistTimer);
+  _dispoPersistTimer=setTimeout(()=>{
+    dlFnCall('setOrgDispo',{orgId:org, config:dispoGetConfig(), resources:currentDispoResources||DISPO_DEFAULT_RES})
+      .catch(e=>notify(fnErr(e)));
+  }, 500);
+}
 function dispoDefaultDepot(){
   const d=getDepot(); if(d?.lat) return {lat:d.lat, lng:d.lng, adresse:d.address||'Betriebshof'};
   const pts=(dispoGetBins().length?dispoGetBins():trees.filter(t=>t.lat&&t.lng));
@@ -5540,14 +5564,11 @@ function dispoDefaultDepot(){
   return {lat:50.0, lng:8.42, adresse:'Betriebshof'};
 }
 function dispoGetResources(){
-  try{ const r=JSON.parse(localStorage.getItem(DISPO_RES_KEY)||'null'); if(r) return r; }catch(e){}
-  const def=[
-    {id:'r1', name:'Fahrzeug 1', arbeitszeitMin:420, depot:null, maxBins:0}, // depot null = Standard-Betriebshof, maxBins 0 = unbegrenzt
-    {id:'r2', name:'Fahrzeug 2', arbeitszeitMin:420, depot:null, maxBins:0},
-  ];
-  dispoSetResources(def); return def;
+  return (Array.isArray(currentDispoResources)&&currentDispoResources.length)
+    ? currentDispoResources.map(x=>({...x}))
+    : DISPO_DEFAULT_RES.map(x=>({...x})); // depot null = Standard-Betriebshof, maxBins 0 = unbegrenzt
 }
-function dispoSetResources(a){ localStorage.setItem(DISPO_RES_KEY, JSON.stringify(a)); }
+function dispoSetResources(a){ currentDispoResources=a.map(x=>({...x})); dispoPersist(); }
 // depot null/leer oder == Projekt-Betriebshof → Standard
 function dispoIsStandardDepot(d){ if(!d||d.lat==null) return true; const dp=dispoDefaultDepot(); return Math.abs(d.lat-dp.lat)<1e-5 && Math.abs(d.lng-dp.lng)<1e-5; }
 function dispoResolveDepot(r){ return (r.depot&&r.depot.lat!=null)?r.depot:dispoDefaultDepot(); }
