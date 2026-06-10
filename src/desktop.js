@@ -802,15 +802,16 @@ async function loadSavedRoutes(force=false){
       if(routeSnap.exists){ data=routeSnap.data(); _routesCache[tour.id]=data; }
     }
     if(data){
-      drawSavedRoute(tour.id, data);
+      // Linie nur für ausgewählte Touren zeichnen (Routen folgen der Auswahl; keine Auswahl → keine Linien)
+      if(activeTours.has(tour.id)) drawSavedRoute(tour.id, data);
       // Kennzahlen am Tour-Doc nachziehen, falls noch nicht gespeichert (Routen vor dieser Änderung)
       if(typeof tour.routeKm!=='number' && !isReadonly() && (currentCap==='admin'||currentCap==='editor'||currentRole==='superadmin')){
         const km=data.km||0, dr=data.durationSec||0;
         updateDoc(doc(db,'projects',currentProjectId,'tours',tour.id),{routeKm:km, routeDriveSec:dr})
           .then(()=>{ const _t=tours.find(t=>t.id===tour.id); if(_t){ _t.routeKm=km; _t.routeDriveSec=dr; } }).catch(()=>{});
       }
-    } else {
-      // Keine gespeicherte Route — nur Reihenfolge für Nummerierung berechnen (kein Read)
+    } else if(activeTours.has(tour.id)) {
+      // Ausgewählte Tour ohne gespeicherte Route — Reihenfolge für Nummerierung berechnen (kein Read)
       const trs=trees.filter(t=>treeInTour(t,tour.id)&&t.lat&&t.lng&&t.aktiv!==false);
       if(trs.length>0){
         const depot=getDepot();
