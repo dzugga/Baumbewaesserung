@@ -49,6 +49,13 @@ service cloud.firestore {
       allow write: if isSuper();
     }
 
+    // ----- Nutzungs-Zähler je Mandant (Reads/Writes/Deletes, App-seitig hochgezählt) -----
+    match /usage/{uid} {
+      allow read:          if isSuper() || (inOrg(resource.data.orgId) && cap() == 'admin');
+      allow create, update: if signedIn() && inOrg(request.resource.data.orgId); // jeder eingeloggte Nutzer zählt seine Org hoch
+      allow delete:        if isSuper();
+    }
+
     // ----- Nutzerprofile (Admin-UI; massgeblich sind die Claims) -----
     match /users/{uid} {
       allow read:   if signedIn() && (request.auth.uid == uid || inOrg(resource.data.orgId));

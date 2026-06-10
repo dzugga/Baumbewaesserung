@@ -5,8 +5,8 @@ function initializeApp(cfg){ return firebase.initializeApp(cfg); }
 function getFirestore(app){ return firebase.firestore(app); }
 function collection(db,...segs){ let r=db; for(let i=0;i<segs.length;i++) r=(i%2===0)?r.collection(segs[i]):r.doc(segs[i]); return r; }
 function doc(db,...segs){ let r=db; for(let i=0;i<segs.length;i++) r=(i%2===0)?r.collection(segs[i]):r.doc(segs[i]); return r; }
-function getDoc(ref){ return ref.get(); }
-function getDocs(ref){ return ref.get(); }
+function getDoc(ref){ return ref.get().then(s=>{ _bumpUsage('reads',1,ref); return s; }); }
+function getDocs(ref){ return ref.get().then(s=>{ _bumpUsage('reads',Math.max(1,s.size||0),ref); return s; }); }
 // Hängt orgId automatisch an Dokumente innerhalb projects/{id}/<sub>/… (denormalisiert für Rules)
 function _injectOrg(ref,data){
   if(!data || typeof data!=='object' || Array.isArray(data) || data.orgId!==undefined) return data;
@@ -15,11 +15,11 @@ function _injectOrg(ref,data){
     return {...data, orgId: currentProjectData.orgId};
   return data;
 }
-function addDoc(ref,data){ return ref.add(_injectOrg(ref,data)); }
-function setDoc(ref,data,opts){ data=_injectOrg(ref,data); return opts?ref.set(data,opts):ref.set(data); }
-function updateDoc(ref,data){ return ref.update(data); }
-function deleteDoc(ref){ return ref.delete(); }
-function onSnapshot(ref,cb){ return ref.onSnapshot(cb); }
+function addDoc(ref,data){ const p=ref.add(_injectOrg(ref,data)); _bumpUsage('writes',1,ref); return p; }
+function setDoc(ref,data,opts){ data=_injectOrg(ref,data); const p=opts?ref.set(data,opts):ref.set(data); _bumpUsage('writes',1,ref); return p; }
+function updateDoc(ref,data){ const p=ref.update(data); _bumpUsage('writes',1,ref); return p; }
+function deleteDoc(ref){ const p=ref.delete(); _bumpUsage('deletes',1,ref); return p; }
+function onSnapshot(ref,cb){ return ref.onSnapshot(snap=>{ try{ const n=snap.docChanges?snap.docChanges().length:1; _bumpUsage('reads',n||1,ref); }catch(_){ _bumpUsage('reads',1,ref); } cb(snap); }); }
 function serverTimestamp(){ return firebase.firestore.FieldValue.serverTimestamp(); }
 function query(ref,...constraints){ constraints.forEach(c=>{ if(typeof c==='function') c(ref); }); return ref; }
 function orderBy(field,dir='asc'){ return ref=>ref.orderBy(field,dir); }
@@ -36,6 +36,41 @@ const firebaseConfig = {
 };
 const app = initializeApp(firebaseConfig);
 const db  = getFirestore(app);
+
+// ─── NUTZUNGS-ZÄHLUNG je Mandant (Näherung; zählt nur App-Vorgänge) ──────────
+let _usageByOrg = {};
+let _usageFlushTimer = null;
+function _curUsageOrg(){ return (typeof currentProjectData!=='undefined'&&currentProjectData&&currentProjectData.orgId) || (typeof currentOrg!=='undefined'&&currentOrg) || ''; }
+function _bumpUsage(kind,n,ref){
+  if(!(n>0)) return;
+  if(ref && ref.path && ref.path.indexOf('usage')===0) return; // eigene Nutzungs-Dokumente nicht mitzählen
+  const org=_curUsageOrg(); if(!org) return;
+  (_usageByOrg[org] || (_usageByOrg[org]={reads:0,writes:0,deletes:0}))[kind]+=n;
+  if(!_usageFlushTimer) _usageFlushTimer=setTimeout(flushUsage, 45000);
+}
+function _usageMonth(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+async function flushUsage(){
+  _usageFlushTimer=null;
+  const pending=_usageByOrg; _usageByOrg={};
+  const ym=_usageMonth(); const inc=firebase.firestore.FieldValue.increment;
+  for(const org of Object.keys(pending)){
+    const c=pending[org]; if(!c.reads&&!c.writes&&!c.deletes) continue;
+    try{ await db.collection('usage').doc(org+'_'+ym).set({orgId:org,monat:ym,reads:inc(c.reads),writes:inc(c.writes),deletes:inc(c.deletes),updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true}); }
+    catch(e){ /* Näherung: bei Fehler verwerfen */ }
+  }
+}
+// Batch-Vorgänge mitzählen
+const _origBatch = db.batch.bind(db);
+db.batch = function(){
+  const b=_origBatch(); let w=0,d=0;
+  const os=b.set.bind(b), ou=b.update.bind(b), od=b.delete.bind(b), oc=b.commit.bind(b);
+  b.set=(...a)=>{ if(!(a[0]&&a[0].path&&a[0].path.indexOf('usage')===0)) w++; return os(...a); };
+  b.update=(...a)=>{ w++; return ou(...a); };
+  b.delete=(...a)=>{ d++; return od(...a); };
+  b.commit=()=>{ const org=_curUsageOrg(); if(org&&(w||d)){ const u=(_usageByOrg[org]||(_usageByOrg[org]={reads:0,writes:0,deletes:0})); u.writes+=w; u.deletes+=d; if(!_usageFlushTimer)_usageFlushTimer=setTimeout(flushUsage,45000);} return oc(); };
+  return b;
+};
+window.addEventListener('beforeunload', ()=>{ try{ flushUsage(); }catch(_){} });
 
 // ─── CONSTANTS ────────────────────────────────────────────────
 const TOUR_COLORS=[
@@ -2669,6 +2704,7 @@ function switchView(v){
   const kiconfig=document.getElementById('view-kiconfig');
   const disposition=document.getElementById('view-disposition');
   const verwaltung=document.getElementById('view-verwaltung');
+  const usage=document.getElementById('view-usage'); if(usage) usage.style.display=v==='usage'?'block':'none';
   const feldbez=document.getElementById('view-feldbezeichnungen');
   const benutzer=document.getElementById('view-benutzer');
   if(feldbez) feldbez.style.display=v==='feldbezeichnungen'?'block':'none';
@@ -2705,6 +2741,7 @@ function switchView(v){
   if(v==='disposition') initDispo();
   if(v==='verwaltung') initVerwaltung();
   if(v==='feldbezeichnungen') initFeldbezeichnungen();
+  if(v==='usage') initUsage();
   if(v==='benutzer') initBenutzer();
 }
 async function initBenutzer(){
@@ -3222,6 +3259,61 @@ function initFeldbezeichnungen(){
       <input class="form-control" id="fl-${k}" placeholder="${DEFAULT_LABELS[k]||def}" value="${FL[k]||''}" style="padding:5px 8px;font-size:12px;">
     </div>`
   ).join('');
+}
+
+// ─── NUTZUNG JE STADT (Admin) ────────────────────────────────────────────────
+let _usageRows=[];
+async function initUsage(){
+  await flushUsage().catch(()=>{}); // aktuelle Zähler erst persistieren
+  const sel=document.getElementById('usage-month');
+  if(sel && !sel.options.length){
+    const now=new Date(); const opts=[];
+    for(let i=0;i<6;i++){ const d=new Date(now.getFullYear(),now.getMonth()-i,1); opts.push(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')); }
+    sel.innerHTML=opts.map(m=>`<option value="${m}">${m}</option>`).join('');
+  }
+  renderUsage();
+}
+async function renderUsage(){
+  const el=document.getElementById('usage-body'); if(!el) return;
+  if(!(currentRole==='superadmin'||currentCap==='admin')){ el.innerHTML='<div style="color:var(--text3);font-size:13px;">Nur Administratoren.</div>'; return; }
+  el.innerHTML='<div style="color:var(--text3);font-size:13px;">Lade…</div>';
+  const ym=document.getElementById('usage-month')?.value || _usageMonth();
+  const orgNames={};
+  try{ if(currentRole==='superadmin'){ const qs=await db.collection('orgs').get(); qs.forEach(d=>orgNames[d.id]=d.data().name||d.id); } else { orgNames[currentOrg]=currentOrg; } }catch(e){}
+  let docs=[];
+  try{
+    if(currentRole==='superadmin'){ const qs=await db.collection('usage').where('monat','==',ym).get(); docs=qs.docs.map(d=>d.data()); }
+    else { const s=await db.collection('usage').doc(currentOrg+'_'+ym).get(); if(s.exists) docs=[s.data()]; }
+  }catch(e){ el.innerHTML='<div style="color:var(--red);font-size:13px;">Fehler beim Laden: '+(e.message||e.code)+'</div>'; return; }
+  docs.sort((a,b)=>(orgNames[a.orgId]||a.orgId).localeCompare(orgNames[b.orgId]||b.orgId));
+  _usageRows=docs.map(d=>({stadt:orgNames[d.orgId]||d.orgId, orgId:d.orgId, reads:d.reads||0, writes:d.writes||0, deletes:d.deletes||0}));
+  const fmt=n=>(n||0).toLocaleString('de-DE');
+  if(_usageRows.length===0){ el.innerHTML=`<div style="color:var(--text3);font-size:13px;padding:10px 0;">Noch keine Nutzungsdaten für ${ym}. (Werden gesammelt, sobald die App genutzt wird.)</div>`; return; }
+  const sum=_usageRows.reduce((a,r)=>({reads:a.reads+r.reads,writes:a.writes+r.writes,deletes:a.deletes+r.deletes}),{reads:0,writes:0,deletes:0});
+  const th='padding:9px 12px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);';
+  el.innerHTML=`<table style="width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:13px;">
+    <thead><tr style="background:var(--surface2);">
+      <th style="${th}text-align:left;">Stadt</th><th style="${th}">Reads</th><th style="${th}">Writes</th><th style="${th}">Deletes</th>
+    </tr></thead>
+    <tbody>${_usageRows.map(r=>`<tr style="border-top:1px solid var(--border);">
+      <td style="padding:7px 12px;font-weight:500;">${dlEsc(r.stadt)}</td>
+      <td style="padding:7px 12px;text-align:right;font-variant-numeric:tabular-nums;">${fmt(r.reads)}</td>
+      <td style="padding:7px 12px;text-align:right;font-variant-numeric:tabular-nums;">${fmt(r.writes)}</td>
+      <td style="padding:7px 12px;text-align:right;font-variant-numeric:tabular-nums;">${fmt(r.deletes)}</td>
+    </tr>`).join('')}
+    <tr style="border-top:2px solid var(--border);font-weight:700;background:var(--surface2);">
+      <td style="padding:8px 12px;">Summe</td>
+      <td style="padding:8px 12px;text-align:right;">${fmt(sum.reads)}</td>
+      <td style="padding:8px 12px;text-align:right;">${fmt(sum.writes)}</td>
+      <td style="padding:8px 12px;text-align:right;">${fmt(sum.deletes)}</td>
+    </tr></tbody></table>`;
+}
+function exportUsageCSV(){
+  const ym=document.getElementById('usage-month')?.value||_usageMonth();
+  const rows=[['Stadt','orgId','Reads','Writes','Deletes','Monat'],..._usageRows.map(r=>[r.stadt,r.orgId,r.reads,r.writes,r.deletes,ym])];
+  const csv=rows.map(r=>r.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(';')).join('\n');
+  const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='nutzung_'+ym+'.csv'; a.click();
 }
 
 // ─── FAHRER-LOGINS & PINs (Mehrmandanten — nutzbar nach Auth-Aktivierung) ─────
@@ -5972,7 +6064,7 @@ Object.assign(window,{
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
-  renderRollenView,saveRole,addRole,deleteRole,toggleBenutzerRollen,toggleBenutzerTouren,changeBenutzerOrg,changeDtaProject,
+  renderRollenView,saveRole,addRole,deleteRole,toggleBenutzerRollen,toggleBenutzerTouren,changeBenutzerOrg,changeDtaProject,renderUsage,exportUsageCSV,
   startGpsPlacement,toggleFilterNoGps,updateBtnFilterNoGps,
   saveFieldLabels, migrateTourIds,
   doLogin, doLogout, toggleLoginMode,
@@ -6035,7 +6127,7 @@ async function doLogin(){
     await firebase.auth().signInWithCustomToken(res.data.token);
   }catch(e){ const c=e&&e.code||'',m=e&&e.message||''; if(err) err.textContent=/permission-denied|not-found|unauthenticated|resource-exhausted/.test(c)?(m||'Name oder PIN falsch'):('Fehler: '+(m||c)); if(btn){ btn.disabled=false; btn.textContent='Anmelden'; } }
 }
-async function doLogout(){ try{ await firebase.auth().signOut(); }catch(e){} location.reload(); }
+async function doLogout(){ try{ await flushUsage(); }catch(_){} try{ await firebase.auth().signOut(); }catch(e){} location.reload(); }
 
 firebase.auth().onAuthStateChanged(async (user)=>{
   if(user){

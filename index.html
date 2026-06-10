@@ -326,6 +326,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <button data-module="__admin__" onclick="switchView('benutzer')">Benutzer</button>
         <button data-module="projekte" onclick="openProjekte()">Projekte</button>
         <button data-module="admin" onclick="switchView('feldbezeichnungen')">Feldbezeichnungen</button>
+        <button data-module="__admin__" onclick="switchView('usage')">Nutzung je Stadt</button>
         <button data-module="admin" onclick="openAllgemein()">Allgemein</button>
         <button data-module="admin" onclick="switchView('kiconfig')">KI-Analyse</button>
       </div>
@@ -717,6 +718,21 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       </div>
       <div id="fl-grid-container"></div>
     </div>
+  </div>
+</div>
+
+<!-- NUTZUNG JE STADT fullscreen overlay -->
+<div id="view-usage" style="display:none;position:fixed;top:54px;left:0;right:0;bottom:0;z-index:1500;background:var(--bg);overflow-y:auto;">
+  <div style="max-width:900px;margin:0 auto;padding:16px 20px;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+      <div>
+        <div style="font-size:16px;font-weight:700;">Nutzung je Stadt</div>
+        <div style="font-size:12px;color:var(--text3);">Reads/Writes/Deletes pro Mandant — Näherung aus App-Vorgängen (ohne Konsole/Admin-SDK).</div>
+      </div>
+      <select id="usage-month" onchange="renderUsage()" style="margin-left:auto;padding:5px 10px;font-size:13px;border:1px solid var(--border);border-radius:8px;background:var(--surface);font-family:inherit;"></select>
+      <button class="btn btn-secondary" style="padding:5px 11px;font-size:12px;" onclick="exportUsageCSV()">CSV-Export</button>
+    </div>
+    <div id="usage-body"></div>
   </div>
 </div>
 
