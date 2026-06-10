@@ -81,6 +81,12 @@ async function syncQueue() {
       } else if (entry.type === 'updateCoords') {
         await db.collection('projects').doc(entry.projectId).collection('trees').doc(entry.treeId)
           .set(entry.data, { merge: true });
+      } else if (entry.type === 'addPhotos') {
+        const photos = await idbGetPhotos(entry.treeId);
+        if (photos.length) {
+          await attachPhotosOnline(entry.orgId, entry.projectId, entry.treeId, photos.map(p => p.blob));
+          await idbDeletePhotos(entry.treeId);
+        }
       }
     } catch(e) { failed.push(entry); }
   }
@@ -117,6 +123,14 @@ async function uploadPhotos(orgId, projectId, treeId, blobs) {
     await ref.put(blob, { contentType: 'image/jpeg', cacheControl: 'public, max-age=31536000, immutable' });
     urls.push({ u: await ref.getDownloadURL(), t: Date.now() });
   }
+  return urls;
+}
+
+// Fotos an ein bestehendes Objekt anhängen (online: Upload + arrayUnion; gibt URLs zurück)
+async function attachPhotosOnline(orgId, projectId, treeId, blobs) {
+  const urls = await uploadPhotos(orgId, projectId, treeId, blobs);
+  await db.collection('projects').doc(projectId).collection('trees').doc(treeId)
+    .set({ fotos: firebase.firestore.FieldValue.arrayUnion(...urls) }, { merge: true });
   return urls;
 }
 
@@ -789,6 +803,7 @@ function openFormSheet() {
 function closeFormSheet() {
   document.getElementById('form-backdrop').classList.remove('open');
   document.getElementById('form-sheet').classList.remove('open');
+  clearPendingPhotos();
   pendingCoords = null;
   formMode = 'new';
   overviewEditTree = null;
@@ -829,7 +844,8 @@ function openKoordEditSheet() {
   document.querySelector('#form-sheet .sheet-title').textContent = 'Eigenschaften bearbeiten';
   document.getElementById('form-coords-display').textContent = selectedTree.baumId || 'Eigenschaften';
   fillFormFromTree(selectedTree);
-  const ff = document.getElementById('foto-field'); if (ff) ff.style.display = 'none';
+  clearPendingPhotos();
+  const ff = document.getElementById('foto-field'); if (ff) ff.style.display = '';
   document.getElementById('form-backdrop').classList.add('open');
   document.getElementById('form-sheet').classList.add('open');
   setTimeout(() => document.getElementById('f-name').focus(), 400);
@@ -837,15 +853,31 @@ function openKoordEditSheet() {
 
 // Bearbeitete Eigenschaften in den Speicher übernehmen (werden beim
 // „Position speichern“ zusammen mit der Koordinate persistiert).
-function saveKoordEdits() {
+async function saveKoordEdits() {
   if (!selectedTree) { closeFormSheet(); return; }
   const edits = collectFormEdits();
   if (!edits.name) { toast('⚠ Bitte einen Namen eingeben'); return; }
-  Object.assign(selectedTree, edits, { _edited: true });
+  const tree = selectedTree;
+  const orgId = tree.orgId || currentProjectData?.orgId || currentOrg;
+  const photoBlobs = pendingPhotos.map(p => p.blob);
+  clearPendingPhotos();
+  Object.assign(tree, edits, { _edited: true });
   document.getElementById('koord-tree-name').textContent =
-    `${selectedTree.name || '–'}${selectedTree.baumnr ? ' · ' + selectedTree.baumnr : ''}`;
+    `${tree.name || '–'}${tree.baumnr ? ' · ' + tree.baumnr : ''}`;
   closeFormSheet();
-  toast('Eigenschaften übernommen — jetzt Position setzen & speichern');
+  // Fotos hängen direkt am bestehenden Objekt (unabhängig vom Positions-Speichern)
+  if (photoBlobs.length && tree.id) {
+    if (!isOnline) {
+      try { await idbPutPhotos(tree.id, photoBlobs); } catch (_) {}
+      addToQueue({ type: 'addPhotos', projectId: currentProjectId, treeId: tree.id, orgId });
+      toast('Eigenschaften übernommen · 📦 Foto(s) offline — werden synchronisiert. Jetzt Position setzen.');
+    } else {
+      try { await attachPhotosOnline(orgId, currentProjectId, tree.id, photoBlobs); toast(`Eigenschaften übernommen · ${photoBlobs.length} Foto(s) gespeichert — jetzt Position setzen.`); }
+      catch (e) { try { await idbPutPhotos(tree.id, photoBlobs); } catch (_) {} addToQueue({ type: 'addPhotos', projectId: currentProjectId, treeId: tree.id, orgId }); toast('Eigenschaften übernommen · Foto(s) in Warteschlange. Jetzt Position setzen.'); }
+    }
+  } else {
+    toast('Eigenschaften übernommen — jetzt Position setzen & speichern');
+  }
 }
 
 // Eigenschaften nachträglich bearbeiten (Übersicht: Klick auf Marker) –
@@ -860,7 +892,8 @@ function openOverviewEditSheet(tree, marker, type) {
   document.getElementById('form-coords-display').textContent =
     (type === 'bestand' ? (tree.baumnr || '') : (tree.baumId || '')) || (tree.name || '');
   fillFormFromTree(tree);
-  const ff = document.getElementById('foto-field'); if (ff) ff.style.display = 'none';
+  clearPendingPhotos();
+  const ff = document.getElementById('foto-field'); if (ff) ff.style.display = '';
   document.getElementById('form-backdrop').classList.add('open');
   document.getElementById('form-sheet').classList.add('open');
   setTimeout(() => document.getElementById('f-name').focus(), 400);
@@ -872,6 +905,9 @@ async function saveOverviewEdits() {
   const edits = collectFormEdits();
   if (!edits.name) { toast('⚠ Bitte einen Namen eingeben'); return; }
   if (!tree.id) { toast('⚠ Objekt noch nicht synchronisiert — bitte später bearbeiten'); return; }
+  const orgId = tree.orgId || currentProjectData?.orgId || currentOrg;
+  const photoBlobs = pendingPhotos.map(p => p.blob);
+  clearPendingPhotos();
   // In-Memory aktualisieren
   Object.assign(tree, edits);
   allTrees = allTrees.map(x => x.id === tree.id ? { ...x, ...edits } : x);
@@ -880,19 +916,22 @@ async function saveOverviewEdits() {
   // Direkt persistieren (Offline → Queue)
   if (!isOnline) {
     addToQueue({ type: 'updateCoords', projectId: currentProjectId, treeId: tree.id, data: edits });
+    if (photoBlobs.length) { try { await idbPutPhotos(tree.id, photoBlobs); } catch (_) {} addToQueue({ type: 'addPhotos', projectId: currentProjectId, treeId: tree.id, orgId }); }
     toast('📦 Offline gespeichert — wird synchronisiert');
     return;
   }
   toast('Speichern…');
   try {
     await db.collection('projects').doc(currentProjectId).collection('trees').doc(tree.id).set(edits, { merge: true });
+    if (photoBlobs.length) await attachPhotosOnline(orgId, currentProjectId, tree.id, photoBlobs);
     const synced = await Promise.race([
       db.waitForPendingWrites().then(() => true),
       new Promise(r => setTimeout(() => r(false), 10000)),
     ]);
-    toast(synced ? '✓ Eigenschaften gespeichert' : '⚠ Nicht synchronisiert — erneut versuchen');
+    toast(synced ? `✓ Eigenschaften gespeichert${photoBlobs.length ? ` · ${photoBlobs.length} Foto(s)` : ''}` : '⚠ Nicht synchronisiert — erneut versuchen');
   } catch (e) {
     addToQueue({ type: 'updateCoords', projectId: currentProjectId, treeId: tree.id, data: edits });
+    if (photoBlobs.length) { try { await idbPutPhotos(tree.id, photoBlobs); } catch (_) {} addToQueue({ type: 'addPhotos', projectId: currentProjectId, treeId: tree.id, orgId }); }
     console.warn('Overview-Edit-Save:', e);
     toast(`⚠ Fehler — in Warteschlange: ${e.code || e.message}`);
   }
