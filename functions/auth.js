@@ -122,6 +122,26 @@ exports.setDriverPin = onCall({ region: REGION }, async (req) => {
   return { driverId: ref.id };
 });
 
+// ── Admin setzt/aendert den Stadt-Code seines Mandanten (eindeutig) ─────────
+exports.setOrgCode = onCall({ region: REGION }, async (req) => {
+  const { role, callerOrg } = requireAdmin(req.auth);
+  const { orgId, code } = req.data || {};
+  const targetOrg = orgId || callerOrg;
+  const isSuper = role === 'superadmin';
+  if (!isSuper && targetOrg !== callerOrg) throw new HttpsError('permission-denied', 'Fremder Mandant');
+
+  const c = String(code || '').trim().toUpperCase();
+  if (!/^[A-Z0-9]{2,12}$/.test(c)) throw new HttpsError('invalid-argument', 'Code: 2–12 Zeichen, nur A–Z und 0–9');
+
+  // Eindeutigkeit ueber alle Mandanten pruefen
+  const qs = await db.collection('orgs').where('code', '==', c).limit(1).get();
+  if (!qs.empty && qs.docs[0].id !== targetOrg)
+    throw new HttpsError('already-exists', 'Code ist bereits vergeben');
+
+  await db.collection('orgs').doc(targetOrg).set({ code: c }, { merge: true });
+  return { ok: true, code: c };
+});
+
 // ── Admin setzt Rolle/Org (Custom Claims) fuer Planer/Erfasser/Admins ───────
 exports.setUserRole = onCall({ region: REGION }, async (req) => {
   const { role, callerOrg } = requireAdmin(req.auth);

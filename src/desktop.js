@@ -3355,7 +3355,14 @@ async function renderDriverLogins(){
   let drivers=[];
   try{ const qs=await db.collection('drivers').where('orgId','==',org).get(); qs.forEach(d=>drivers.push({id:d.id,...d.data()})); }catch(e){}
   drivers.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  let orgCode=''; try{ const os=await db.collection('orgs').doc(org).get(); if(os.exists) orgCode=os.data().code||''; }catch(e){}
   body.innerHTML=`
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border);">
+      <span style="font-size:12px;font-weight:600;">Stadt-Code</span>
+      <input id="dl-org-code" class="form-control" placeholder="z. B. RUESSEL" maxlength="12" value="${dlEsc(orgCode)}" style="width:140px;padding:5px 8px;font-size:12px;text-transform:uppercase;">
+      <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px;" onclick="saveOrgCode()">Speichern</button>
+      <span style="font-size:11px;color:var(--text3);">Fallback, falls Name+PIN in mehreren Städten gleich sind.</span>
+    </div>
     <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:10px;">
       ${drivers.length?drivers.map(dlRow).join(''):`<div style="font-size:12px;color:var(--text3);">Noch keine Personen in diesem Mandanten.</div>`}
     </div>
@@ -3395,6 +3402,13 @@ async function addDriverLogin(){
   if(!name){ notify('Bitte Name eingeben'); return; }
   if(!/^\d{6}$/.test(pin)){ notify('PIN muss 6-stellig sein'); return; }
   try{ await dlFnCall('setDriverPin',{name,orgId:driverLoginsOrg,pin,personRole}); notify('✓ Person angelegt'); renderDriverLogins(); }
+  catch(e){ notify(fnErr(e)); }
+}
+async function saveOrgCode(){
+  const org=driverLoginsOrg||currentOrg;
+  const code=(document.getElementById('dl-org-code')?.value||'').trim().toUpperCase();
+  if(!/^[A-Z0-9]{2,12}$/.test(code)){ notify('Code: 2–12 Zeichen, nur A–Z und 0–9'); return; }
+  try{ await dlFnCall('setOrgCode',{orgId:org,code}); notify('✓ Stadt-Code gespeichert'); renderDriverLogins(); }
   catch(e){ notify(fnErr(e)); }
 }
 async function changeDriverRole(driverId,personRole){
@@ -6064,7 +6078,7 @@ Object.assign(window,{
   addWmsLayer,deleteWmsLayer,renderWmsList,
   setFilter,pickColor,renderList,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,toggleTourCounts,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
-  renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,
+  renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,saveOrgCode,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
   renderRollenView,saveRole,addRole,deleteRole,toggleBenutzerRollen,toggleBenutzerTouren,changeBenutzerOrg,changeDtaProject,renderUsage,exportUsageCSV,
