@@ -316,6 +316,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <button data-module="touren" onclick="switchView('touren')">Touren</button>
         <button data-module="verwaltung" onclick="switchView('verwaltung')">Gründe</button>
         <button data-module="import" onclick="openImport()">Import</button>
+        <button onclick="switchView('handbuch')">📖 Handbuch</button>
       </div>
     </div>
     <div class="nav-group">
@@ -1154,6 +1155,24 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <b>Hinweis zu „Automatisch (Gemini)":</b> erfordert die deployte Cloud Function <code>geminiAnalyse</code> und einen hinterlegten Gemini-Key (als Secret <code>GEMINI_KEY</code>). Ohne diese läuft nur „Manuell". Der Key bleibt serverseitig geheim und ist nie im Browser sichtbar.
       </div>
     </div>
+  </div>
+</div>
+
+<!-- HANDBUCH fullscreen overlay -->
+<div id="view-handbuch" style="display:none;position:fixed;top:54px;left:0;right:0;bottom:0;z-index:1500;background:var(--bg);flex-direction:column;overflow:hidden;">
+  <div style="background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;gap:14px;flex-shrink:0;flex-wrap:wrap;">
+    <span style="font-size:13px;font-weight:600;color:var(--text);">📖 Handbuch</span>
+    <div style="display:flex;gap:2px;background:var(--surface2);border-radius:8px;padding:2px;">
+      <button id="hb-tab-handbuch" onclick="setHbTab('handbuch')" style="border:none;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;background:var(--surface);color:var(--text);">Handbuch</button>
+      <button id="hb-tab-updates" onclick="setHbTab('updates')" style="border:none;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;background:transparent;color:var(--text3);">Aktualisierungen</button>
+    </div>
+    <div style="position:relative;flex:1;min-width:220px;max-width:420px;margin-left:auto;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2.5" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+      <input id="hb-search" type="text" placeholder="Funktion suchen… (z. B. Foto, Import, Route, Offline)" oninput="hbSearchDebounced()" style="width:100%;padding:7px 10px 7px 32px;font-size:13px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);font-family:inherit;outline:none;">
+    </div>
+  </div>
+  <div style="flex:1;overflow-y:auto;padding:20px;">
+    <div id="hb-content" style="max-width:840px;margin:0 auto;"></div>
   </div>
 </div>
 

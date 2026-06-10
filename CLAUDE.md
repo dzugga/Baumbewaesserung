@@ -60,6 +60,11 @@ Nach Änderungen immer per **Claude in Chrome Extension** prüfen:
 - Einsatzleiter: `http://localhost:3001/einsatzleiter.html`
 - Erfassung: `http://localhost:3001/erfassung.html`
 
+## Handbuch (Pflegepflicht)
+- Digitales Handbuch unter Desktop → Admin → Handbuch; Inhalte in `src/handbuch-daten.js` (nach Apps gegliedert, `keywords` für die Suche).
+- **Bei jeder neuen/geänderten Funktion den passenden Handbuch-Abschnitt mitpflegen** (Endnutzer-Sprache, keine Technik-Details).
+- Reiter „Aktualisierungen" entsteht automatisch aus Git-Commits (`scripts/gen-changelog.mjs`, läuft bei `npm run build`) → Commit-Betreffzeilen deutsch und endnutzer-verständlich halten.
+
 ## Entwicklungshinweise für Claude
 - JS-Logik liegt in `src/desktop.js` (Desktop) und `src/mobile.js` (Fahrer-App) – nicht in den HTML-Dateien.
 - **Niemals `firebase deploy` ausführen** ohne explizite Aufforderung.

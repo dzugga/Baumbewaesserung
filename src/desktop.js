@@ -1,6 +1,8 @@
 // App-Version – hier zentral pflegen (wird im Einstellungen-Panel angezeigt)
 const APP_VERSION = '1.0';
 
+import { HANDBUCH } from './handbuch-daten.js';
+
 function initializeApp(cfg){ return firebase.initializeApp(cfg); }
 function getFirestore(app){ return firebase.firestore(app); }
 function collection(db,...segs){ let r=db; for(let i=0;i<segs.length;i++) r=(i%2===0)?r.collection(segs[i]):r.doc(segs[i]); return r; }
@@ -2816,6 +2818,7 @@ function switchView(v){
   const dashboard=document.getElementById('view-dashboard');
   const ki=document.getElementById('view-ki');
   const kiconfig=document.getElementById('view-kiconfig');
+  const handbuch=document.getElementById('view-handbuch'); if(handbuch) handbuch.style.display=v==='handbuch'?'flex':'none';
   const disposition=document.getElementById('view-disposition');
   const verwaltung=document.getElementById('view-verwaltung');
   const usage=document.getElementById('view-usage'); if(usage) usage.style.display=v==='usage'?'block':'none';
@@ -2852,6 +2855,7 @@ function switchView(v){
   if(v==='dashboard'){ _dataViewProject=currentProjectId; initDashboard(); } // einmaliges Laden; danach nur per Refresh-Button
   if(v==='ki') renderKi();
   if(v==='kiconfig') renderKiConfig();
+  if(v==='handbuch') renderHandbuch();
   if(v==='disposition') initDispo();
   if(v==='verwaltung') initVerwaltung();
   if(v==='feldbezeichnungen') initFeldbezeichnungen();
@@ -6221,8 +6225,72 @@ function renderKiConfig(){
   </button>`).join('');
 }
 
+// ─── HANDBUCH (durchsuchbar; „Aktualisierungen" automatisch aus Git-Historie) ──
+let _hbTab='handbuch', _hbChangelog=null;
+const hbSearchDebounced=_debounce(()=>renderHandbuch(),140);
+function setHbTab(t){ _hbTab=t; renderHandbuch(); }
+function hbMark(s,q){
+  const e=dlEsc(s);
+  if(!q) return e;
+  try{ return e.replace(new RegExp('('+q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','gi'),'<mark style="background:#fde68a;border-radius:3px;padding:0 1px;">$1</mark>'); }
+  catch(_){ return e; }
+}
+function renderHandbuch(){
+  const cont=document.getElementById('hb-content'); if(!cont) return;
+  const q=(document.getElementById('hb-search')?.value||'').trim();
+  // Tab-Optik
+  const tb=document.getElementById('hb-tab-handbuch'), tu=document.getElementById('hb-tab-updates');
+  if(tb&&tu){
+    const apply=(el,on)=>{ el.style.background=on?'var(--surface)':'transparent'; el.style.color=on?'var(--text)':'var(--text3)'; el.style.boxShadow=on?'0 1px 2px rgba(0,0,0,.08)':'none'; };
+    apply(tb,_hbTab==='handbuch'); apply(tu,_hbTab==='updates');
+  }
+  if(_hbTab==='updates'){ renderHbUpdates(q); return; }
+  const ql=q.toLowerCase();
+  const groups=HANDBUCH.map(g=>({
+    g, secs:g.sections.filter(s=>!ql || (s.title+' '+s.text+' '+(s.keywords||[]).join(' ')).toLowerCase().includes(ql))
+  })).filter(x=>x.secs.length);
+  if(!groups.length){ cont.innerHTML=`<div style="text-align:center;padding:48px 0;color:var(--text3);font-size:13px;">Keine Treffer für „${dlEsc(q)}" — anderen Begriff probieren.</div>`; return; }
+  cont.innerHTML=groups.map(({g,secs})=>`
+    <div style="margin-bottom:22px;">
+      <div style="font-size:14px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:8px;">${g.icon} ${dlEsc(g.app)}
+        <span style="font-size:11px;font-weight:600;color:var(--text3);">${secs.length} ${secs.length===1?'Thema':'Themen'}</span></div>
+      ${secs.map(s=>`
+        <details ${q?'open':''} style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:6px;overflow:hidden;">
+          <summary style="padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2.5" style="flex-shrink:0;transition:transform .15s;"><path d="M9 18l6-6-6-6"/></svg>
+            ${hbMark(s.title,q)}</summary>
+          <div style="padding:2px 14px 12px 34px;font-size:13px;line-height:1.65;color:var(--text2);white-space:pre-line;">${hbMark(s.text,q)}</div>
+        </details>`).join('')}
+    </div>`).join('');
+  // Pfeil drehen bei offenen Abschnitten
+  cont.querySelectorAll('details').forEach(d=>{
+    const sync=()=>{ const sv=d.querySelector('summary svg'); if(sv) sv.style.transform=d.open?'rotate(90deg)':''; };
+    d.addEventListener('toggle',sync); sync();
+  });
+}
+async function renderHbUpdates(q){
+  const cont=document.getElementById('hb-content'); if(!cont) return;
+  if(!_hbChangelog){
+    cont.innerHTML='<div style="padding:24px 0;color:var(--text3);font-size:13px;text-align:center;">Lädt…</div>';
+    try{ const r=await fetch('/changelog.json'); _hbChangelog=r.ok?await r.json():[]; }catch(_){ _hbChangelog=[]; }
+    if(_hbTab!=='updates') return; // Nutzer hat inzwischen den Tab gewechselt
+  }
+  const ql=(q||'').toLowerCase();
+  const list=_hbChangelog.filter(e=>!ql||e.t.toLowerCase().includes(ql));
+  if(!list.length){ cont.innerHTML='<div style="text-align:center;padding:48px 0;color:var(--text3);font-size:13px;">Keine Einträge gefunden.</div>'; return; }
+  // Nach Datum gruppieren
+  const byDay={}; list.forEach(e=>{ (byDay[e.d]=byDay[e.d]||[]).push(e.t); });
+  cont.innerHTML=`<div style="font-size:12px;color:var(--text3);margin-bottom:14px;">Automatisch erzeugte Liste aller Software-Änderungen (neueste zuerst). Wird mit jeder Veröffentlichung aktualisiert.</div>`+
+    Object.entries(byDay).map(([d,items])=>`
+    <div style="margin-bottom:16px;">
+      <div style="font-size:12px;font-weight:700;color:var(--green);margin-bottom:6px;">${dlEsc(d)}</div>
+      ${items.map(t=>`<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:9px 14px;margin-bottom:5px;font-size:13px;line-height:1.5;color:var(--text2);">${hbMark(t,q)}</div>`).join('')}
+    </div>`).join('');
+}
+
 Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,
+  renderHandbuch,setHbTab,hbSearchDebounced,
   dispoSimulate,dispoPlan,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
