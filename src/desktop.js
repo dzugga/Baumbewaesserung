@@ -388,7 +388,7 @@ async function openProject(projectId){
   document.getElementById('active-project-name').textContent=currentProjectData.name;
   document.getElementById('project-screen').style.display='none';
   loadFieldLabels();
-  loadKiMode(); // KI-Analyse-Modus dieser Stadt laden (stadtscharf)
+  loadOrgSettings(); // KI-Modus + ORS-Key dieser Stadt laden (stadtscharf, 1 Org-Read)
   rebuildLayerControl(); // WMS-Kartenebenen der Stadt laden
   // Subscribe to tours & trees
   subscribeToProject();
@@ -472,7 +472,9 @@ function maybeHealCount(field,n){
 
 // ─── PROJECT SETTINGS ─────────────────────────────────────────
 function getDepot(){ return currentProjectData?.depot||null; }
-function getOrsKey(){ return currentProjectData?.orsKey||localStorage.getItem('bwt_ors_key')||''; }
+// ORS-Key stadtscharf: liegt am Mandanten (orgs/{orgId}.orsKey). Legacy-Fallback: alter projektweiter Key.
+let currentOrgOrsKey = '';
+function getOrsKey(){ return currentOrgOrsKey || currentProjectData?.orsKey || ''; }
 function getBewDuration(){
   const v=currentProjectData?.bewDuration;               // projektspezifisch
   if(typeof v==='number' && v>0) return v;
@@ -503,11 +505,13 @@ function getRouteOptMode(){ return currentProjectData?.routeOptMode || localStor
 // Stadtscharf: liegt am Mandanten (orgs/{orgId}.kiMode); beim Projektwechsel geladen.
 let currentKiMode = 'manual';
 function getKiMode(){ return currentKiMode || 'manual'; }
-async function loadKiMode(){
+// Mandanten-Einstellungen (KI-Modus + ORS-Key) in EINEM Org-Read laden — stadtscharf, beim Projektwechsel
+async function loadOrgSettings(){
   const org=currentProjectData?.orgId;
-  if(!org){ currentKiMode='manual'; applyKiNavVisibility(); return; }
-  try{ const os=await db.collection('orgs').doc(org).get(); currentKiMode=(os.exists&&os.data().kiMode)||'manual'; }
-  catch(e){ currentKiMode='manual'; }
+  currentKiMode='manual'; currentOrgOrsKey='';
+  if(org){
+    try{ const os=await db.collection('orgs').doc(org).get(); if(os.exists){ const d=os.data(); currentKiMode=d.kiMode||'manual'; currentOrgOrsKey=d.orsKey||''; } }catch(e){}
+  }
   applyKiNavVisibility();
 }
 async function setKiMode(m){
@@ -2629,7 +2633,7 @@ function openAllgemein(){
     <div style="padding:18px 20px;">
       <div class="form-section" style="margin-top:0;">ORS API-Key (Straßen-Routing)</div>
       <div class="form-group">
-        <label class="form-label">API-Key</label>
+        <label class="form-label">API-Key <span style="font-weight:400;color:var(--text3);">— gilt für diese Stadt</span></label>
         <input class="form-control" id="alg-apikey" placeholder="ors_…">
         <div style="margin-top:6px;font-size:11px;color:var(--text3);">Kostenlos: <a href="https://openrouteservice.org/dev/#/signup" target="_blank" style="color:var(--green);">openrouteservice.org</a></div>
       </div>
@@ -2646,9 +2650,10 @@ function openAllgemein(){
   m.addEventListener('click',e=>{ if(e.target===m) close(); });
   m.querySelector('#alg-save').onclick=async()=>{
     const key=m.querySelector('#alg-apikey').value.trim();
-    localStorage.setItem('bwt_ors_key', key);
-    if(currentProjectId){ try{ await saveProjectSettings({orsKey:key}); }catch(e){} }
-    close(); notify('API-Key gespeichert');
+    if(!(currentRole==='superadmin'||currentCap==='admin')){ notify('Nur Administratoren'); return; }
+    const org=currentProjectData?.orgId; if(!org){ notify('Kein Mandant aktiv'); return; }
+    try{ await dlFnCall('setOrgOrsKey',{orgId:org,orsKey:key}); currentOrgOrsKey=key; close(); notify('✓ API-Key gespeichert (für diese Stadt)'); }
+    catch(e){ notify(fnErr(e)); }
   };
 }
 
@@ -2703,7 +2708,6 @@ async function applySettings(){
   const lng=parseFloat(document.getElementById('s-depot-lng').value)||null;
   const addr=document.getElementById('s-depot-addr').value.trim();
   const updates={
-    orsKey:getOrsKey(),
     depotMode:document.getElementById('s-depot-mode').value,
     routeOptMode:document.getElementById('s-route-opt')?.value||getRouteOptMode(),
     bewDuration:parseInt(document.getElementById('s-bew-duration')?.value)||5,
@@ -2712,7 +2716,6 @@ async function applySettings(){
   };
   if(lat&&lng) updates.depot={lat,lng,address:addr||`${lat.toFixed(5)}, ${lng.toFixed(5)}`};
   await saveProjectSettings(updates);
-  localStorage.setItem('bwt_ors_key',updates.orsKey);
   document.getElementById('active-project-name').textContent=updates.name;
   closeSettings();renderDepotMarker();
   await loadSavedRoutes();

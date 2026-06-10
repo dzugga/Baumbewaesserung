@@ -142,6 +142,19 @@ exports.setOrgCode = onCall({ region: REGION }, async (req) => {
   return { ok: true, code: c };
 });
 
+// ── Admin setzt den ORS-Routing-Key seines Mandanten (stadtscharf) ──────────
+exports.setOrgOrsKey = onCall({ region: REGION }, async (req) => {
+  const { role, callerOrg } = requireAdmin(req.auth);
+  const { orgId, orsKey } = req.data || {};
+  const targetOrg = orgId || callerOrg;
+  const isSuper = role === 'superadmin';
+  if (!isSuper && targetOrg !== callerOrg) throw new HttpsError('permission-denied', 'Fremder Mandant');
+  const key = String(orsKey || '').trim();
+  if (key.length > 200) throw new HttpsError('invalid-argument', 'Key zu lang');
+  await db.collection('orgs').doc(targetOrg).set({ orsKey: key }, { merge: true });
+  return { ok: true };
+});
+
 // ── Admin setzt den KI-Analyse-Modus seines Mandanten (stadtscharf) ─────────
 exports.setOrgKiMode = onCall({ region: REGION }, async (req) => {
   const { role, callerOrg } = requireAdmin(req.auth);
