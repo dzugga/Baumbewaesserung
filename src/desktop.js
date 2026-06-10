@@ -388,6 +388,7 @@ async function openProject(projectId){
   document.getElementById('active-project-name').textContent=currentProjectData.name;
   document.getElementById('project-screen').style.display='none';
   loadFieldLabels();
+  loadKiMode(); // KI-Analyse-Modus dieser Stadt laden (stadtscharf)
   rebuildLayerControl(); // WMS-Kartenebenen der Stadt laden
   // Subscribe to tours & trees
   subscribeToProject();
@@ -499,8 +500,23 @@ function getDepotMode(){ return currentProjectData?.depotMode||'round'; }
 //                     'matrix' = echte ORS-Fahrzeiten-Matrix + 2-opt
 function getRouteOptMode(){ return currentProjectData?.routeOptMode || localStorage.getItem('bwt_route_opt') || 'nn'; }
 // KI-Analyse-Modus: 'off' | 'manual' (Prompts kopieren) | 'auto' (Gemini) | 'both'
-function getKiMode(){ return localStorage.getItem('bwt_ki_mode')||'manual'; }
-function setKiMode(m){ localStorage.setItem('bwt_ki_mode', m); applyKiNavVisibility(); renderKiConfig(); }
+// Stadtscharf: liegt am Mandanten (orgs/{orgId}.kiMode); beim Projektwechsel geladen.
+let currentKiMode = 'manual';
+function getKiMode(){ return currentKiMode || 'manual'; }
+async function loadKiMode(){
+  const org=currentProjectData?.orgId;
+  if(!org){ currentKiMode='manual'; applyKiNavVisibility(); return; }
+  try{ const os=await db.collection('orgs').doc(org).get(); currentKiMode=(os.exists&&os.data().kiMode)||'manual'; }
+  catch(e){ currentKiMode='manual'; }
+  applyKiNavVisibility();
+}
+async function setKiMode(m){
+  const org=currentProjectData?.orgId;
+  if(!org){ notify('Kein Mandant aktiv'); return; }
+  if(!(currentRole==='superadmin'||currentCap==='admin')){ notify('Nur Administratoren'); return; }
+  try{ await dlFnCall('setOrgKiMode',{orgId:org,mode:m}); currentKiMode=m; applyKiNavVisibility(); renderKiConfig(); notify('✓ KI-Modus gespeichert'); }
+  catch(e){ notify(fnErr(e)); }
+}
 function kiHasManual(){ const m=getKiMode(); return m==='manual'||m==='both'; }
 function kiHasAuto(){ const m=getKiMode(); return m==='auto'||m==='both'; }
 // KI-Analysen-Reiter ein-/ausblenden je nach Modus
@@ -6139,6 +6155,8 @@ function openKiPrompt(id){
 function renderKiConfig(){
   const el=document.getElementById('kiconfig-options'); if(!el) return;
   const cur=getKiMode();
+  const cityEl=document.getElementById('kiconfig-city');
+  if(cityEl) cityEl.textContent=currentProjectData?.name?`Stadt: ${currentProjectData.name}`:'';
   const opts=[
     {v:'off',t:'Aus',d:'KI-Analyse ist für Nutzer komplett ausgeblendet (kein Reiter „KI-Analysen").'},
     {v:'manual',t:'Manuell – Prompts kopieren',d:'Fertige Prompts zum Kopieren in ChatGPT/Claude. Kein Server, kein Key nötig.'},

@@ -142,6 +142,18 @@ exports.setOrgCode = onCall({ region: REGION }, async (req) => {
   return { ok: true, code: c };
 });
 
+// ── Admin setzt den KI-Analyse-Modus seines Mandanten (stadtscharf) ─────────
+exports.setOrgKiMode = onCall({ region: REGION }, async (req) => {
+  const { role, callerOrg } = requireAdmin(req.auth);
+  const { orgId, mode } = req.data || {};
+  const targetOrg = orgId || callerOrg;
+  const isSuper = role === 'superadmin';
+  if (!isSuper && targetOrg !== callerOrg) throw new HttpsError('permission-denied', 'Fremder Mandant');
+  if (!['off', 'manual', 'auto', 'both'].includes(mode)) throw new HttpsError('invalid-argument', 'Ungueltiger Modus');
+  await db.collection('orgs').doc(targetOrg).set({ kiMode: mode }, { merge: true });
+  return { ok: true, mode };
+});
+
 // ── Admin setzt Rolle/Org (Custom Claims) fuer Planer/Erfasser/Admins ───────
 exports.setUserRole = onCall({ region: REGION }, async (req) => {
   const { role, callerOrg } = requireAdmin(req.auth);
