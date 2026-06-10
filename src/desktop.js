@@ -3826,6 +3826,37 @@ let _importRows=[], _importSwap=false, _impMap=null, _impLayer=null;
 function impNum(v){ if(v==null)return NaN; if(typeof v==='number')return v; return parseFloat(String(v).trim().replace(',','.')); }
 // Plausibel in Deutschland?
 function impInDE(la,lo){ return la>47&&la<55.5&&lo>5&&lo<16; }
+// ETRS89/UTM (EPSG:25832/25833) -> WGS84 (Snyder-Inverse, GRS80≈WGS84)
+function utmToLatLng(easting,northing,zone){
+  const a=6378137.0,f=1/298.257223563,e2=f*(2-f);
+  const e1=(1-Math.sqrt(1-e2))/(1+Math.sqrt(1-e2)),k0=0.9996;
+  const x=easting-500000.0,y=northing;
+  const M=y/k0,mu=M/(a*(1-e2/4-3*e2*e2/64-5*e2*e2*e2/256));
+  const phi1=mu+(3*e1/2-27*e1**3/32)*Math.sin(2*mu)+(21*e1*e1/16-55*e1**4/32)*Math.sin(4*mu)+(151*e1**3/96)*Math.sin(6*mu)+(1097*e1**4/512)*Math.sin(8*mu);
+  const ep2=e2/(1-e2),C1=ep2*Math.cos(phi1)**2,T1=Math.tan(phi1)**2;
+  const N1=a/Math.sqrt(1-e2*Math.sin(phi1)**2),R1=a*(1-e2)/Math.pow(1-e2*Math.sin(phi1)**2,1.5),D=x/(N1*k0);
+  const lat=phi1-(N1*Math.tan(phi1)/R1)*(D*D/2-(5+3*T1+10*C1-4*C1*C1-9*ep2)*D**4/24+(61+90*T1+298*C1+45*T1*T1-252*ep2-3*C1*C1)*D**6/720);
+  const lon0=(zone*6-183)*Math.PI/180;
+  const lon=lon0+(D-(1+2*T1+C1)*D**3/6+(5-2*C1+28*T1-3*C1*C1+8*ep2+24*T1*T1)*D**5/120)/Math.cos(phi1);
+  return {lat:lat*180/Math.PI,lng:lon*180/Math.PI};
+}
+// Zwei Zahlen -> {lat,lng}: Grad direkt, sonst als ETRS89/UTM erkennen (Werte weit außerhalb des Gradbereichs)
+function impCoords(a,b){
+  if(isNaN(a)||isNaN(b)) return {lat:null,lng:null};
+  if(Math.abs(a)<=1000 && Math.abs(b)<=1000) return {lat:a,lng:b}; // Dezimalgrad
+  const A=Math.abs(a), B=Math.abs(b);
+  // Northing = Wert im DE-Bereich (~5,2–6,1 Mio); der andere ist Easting (egal welche Spalte)
+  let northing,easting;
+  if(A>=4000000&&A<=7000000){ northing=A; easting=B; }
+  else if(B>=4000000&&B<=7000000){ northing=B; easting=A; }
+  else { northing=Math.max(A,B); easting=Math.min(A,B); }
+  let zone=32; // Standard DE-West (EPSG:25832)
+  if(easting>=1000000){ const z=Math.floor(easting/1000000); if(z===32||z===33){ zone=z; easting=easting%1000000; } } // Zonen-Präfix (z. B. 32460696)
+  const r=utmToLatLng(easting,northing,zone);
+  if(impInDE(r.lat,r.lng)) return {lat:r.lat,lng:r.lng};
+  const r2=utmToLatLng(easting,northing,zone===32?33:32); // andere Zone probieren (Ost-DE)
+  return impInDE(r2.lat,r2.lng)?{lat:r2.lat,lng:r2.lng}:{lat:r.lat,lng:r.lng};
+}
 
 async function importExcel(input){
   if(!currentProjectId){notify('Bitte zuerst ein Projekt öffnen');return;}
@@ -3841,12 +3872,12 @@ async function importExcel(input){
   const parsed=[];
   for(let i=1;i<rows.length;i++){
     const row=rows[i]; if(!row||row.length<1)continue;
-    const lat=impNum(row[7]), lng=impNum(row[8]);
+    const {lat,lng}=impCoords(impNum(row[7]),impNum(row[8])); // Dezimalgrad ODER ETRS89/UTM
     parsed.push({
       name:row[0]||'Unbekannt', stadtteil:row[1]||'', art:row[2]||'',
       baumnr:row[3]?.toString()||'', pflanzjahr:row[4]?.toString()||'',
       pflanzzeitpunkt:row[5]?.toString()||'', notiz:row[6]||'',
-      lat:isNaN(lat)?null:lat, lng:isNaN(lng)?null:lng,
+      lat, lng,
     });
   }
   if(!parsed.length){ notify('Keine Datenzeilen gefunden'); return; }
