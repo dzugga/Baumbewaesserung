@@ -6094,23 +6094,57 @@ function initDispo(){
 }
 
 // ─── KI-AUSWERTUNG (Prompt-Bibliothek) ───────────────────────
-function buildKiContext(){
+// Zeitraum-Auswahl: Meldungen (history[] + Live-Status) werden auf den Zeitraum gefiltert
+function kiComputeRange(period,from,to){
+  const today=new Date(); const day=d=>d.toISOString().slice(0,10);
+  const first=new Date(today.getFullYear(),today.getMonth(),1);
+  if(period==='7'){ const f=new Date(today); f.setDate(f.getDate()-6); return {from:day(f),to:day(today),label:'Letzte 7 Tage'}; }
+  if(period==='30'){ const f=new Date(today); f.setDate(f.getDate()-29); return {from:day(f),to:day(today),label:'Letzte 30 Tage'}; }
+  if(period==='month') return {from:day(first),to:day(today),label:'Dieser Monat'};
+  if(period==='prev'){ const pf=new Date(today.getFullYear(),today.getMonth()-1,1), pt=new Date(today.getFullYear(),today.getMonth(),0); return {from:day(pf),to:day(pt),label:'Letzter Monat'}; }
+  if(period==='custom'&&(from||to)) return {from:from||'2000-01-01',to:to||day(today),label:`${from?fmtDateDE(from):'Anfang'} – ${to?fmtDateDE(to):'heute'}`};
+  return {from:null,to:null,label:'Gesamter Zeitraum'};
+}
+function fmtDateDE(iso){ const [y,m,d]=(iso||'').split('-'); return d&&m&&y?`${d}.${m}.${y}`:iso; }
+// Alle Meldungen (Datum/Status/Grund) je aktivem Objekt im Zeitraum — Quelle: history[] + Live-Status
+function kiReports(from,to){
+  const out=[], seen=new Set();
+  const inR=d=>d&&(!from||d>=from)&&(!to||d<=to);
+  trees.filter(isActive).forEach(t=>{
+    (t.history||[]).forEach(h=>{
+      if(!h.date||!h.status||h.status==='offen') return;
+      const d=(''+h.date).slice(0,10);
+      if(inR(d)){ out.push({t,date:d,status:h.status,reason:h.reason||null}); seen.add(t.id+'|'+d); }
+    });
+    if(t.lastStatus&&t.lastStatus!=='offen'&&t.lastReportAt){
+      const d=(''+t.lastReportAt).slice(0,10);
+      if(inR(d)&&!seen.has(t.id+'|'+d)) out.push({t,date:d,status:t.lastStatus,reason:t.lastReason||null});
+    }
+  });
+  return out;
+}
+function buildKiContext(range){
   if(!currentProjectId) return 'Kein Projekt geöffnet.';
   const active=trees.filter(isActive);
   const cntZ=k=>active.filter(t=>t.zustand===k).length;
   const grp=(arr,key,top)=>{ const m={}; arr.forEach(t=>{const v=key(t)||'—';m[v]=(m[v]||0)+1;}); let e=Object.entries(m).sort((a,b)=>b[1]-a[1]); if(top)e=e.slice(0,top); return e.map(([k,n])=>`${k}: ${n}`).join(', '); };
-  const bew=active.filter(t=>t.lastStatus==='bewaessert').length;
-  const nicht=active.filter(t=>t.lastStatus==='nicht').length;
-  const offen=active.filter(t=>!t.lastStatus||t.lastStatus==='offen').length;
-  const gruende=grp(active.filter(t=>t.lastStatus==='nicht'), t=>t.lastReason)||'keine';
+  const r=range||kiComputeRange('all');
+  const reps=kiReports(r.from,r.to);
+  const bew=reps.filter(x=>x.status==='bewaessert').length;
+  const nicht=reps.filter(x=>x.status==='nicht').length;
+  const objMitMeldung=new Set(reps.map(x=>x.t.id)).size;
+  const gruende=grp(reps.filter(x=>x.status==='nicht'), x=>x.reason)||'keine';
+  const nichtStadtteil=grp(reps.filter(x=>x.status==='nicht'), x=>x.t.stadtteil)||'keine';
   const tourStr=tours.map(t=>{ const c=active.filter(x=>treeInTour(x,t.id)).length; const rt=tourRoutes[t.id]; return `${t.name}: ${c} Objekte${rt?`, ${rt.km.toFixed(1)} km`:''}`; }).join(' | ')||'keine';
   return [
     `Projekt: ${currentProjectData?.name||currentProjectId}`,
+    `Auswertungszeitraum: ${r.label}${r.from?` (${fmtDateDE(r.from)} bis ${fmtDateDE(r.to)})`:''}`,
     `Objekte gesamt (aktiv): ${active.length}`,
-    `Zustand: gut ${cntZ('gut')}, mittel ${cntZ('mittel')}, schlecht ${cntZ('schlecht')}`,
-    `Letzter Status: bewässert ${bew}, nicht bewässert ${nicht}, offen ${offen}`,
-    `Gründe „nicht bewässert": ${gruende}`,
-    `Objekte je Stadtteil: ${grp(active,t=>t.stadtteil)}`,
+    `Zustand (Bestand): gut ${cntZ('gut')}, mittel ${cntZ('mittel')}, schlecht ${cntZ('schlecht')}`,
+    `Meldungen im Zeitraum: ${reps.length} gesamt — bewässert ${bew}, nicht bewässert ${nicht}; betroffene Objekte: ${objMitMeldung}; ohne Meldung im Zeitraum: ${active.length-objMitMeldung}`,
+    `Gründe „nicht bewässert" (Zeitraum): ${gruende}`,
+    `„Nicht bewässert" je Stadtteil (Zeitraum): ${nichtStadtteil}`,
+    `Objekte je Stadtteil (Bestand): ${grp(active,t=>t.stadtteil)}`,
     `Top-Baumarten: ${grp(active,t=>t.art,8)}`,
     `Pflanzjahre: ${grp(active,t=>t.pflanzjahr,8)}`,
     `Touren (${tours.length}): ${tourStr}`,
@@ -6143,12 +6177,73 @@ function renderKi(){
   </button>`).join('');
 }
 
+// Markdown (Gemini-Antwort) → HTML für Anzeige & Bericht
+function mdToHtml(md){
+  const E=s=>(''+s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const inline=s=>E(s).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/(^|[^*])\*([^*\n]+)\*/g,'$1<i>$2</i>').replace(/`([^`]+)`/g,'<code>$1</code>');
+  const L=(''+md).split(/\r?\n/); let h='',i=0;
+  while(i<L.length){
+    const l=L[i];
+    if(/^\s*$/.test(l)){i++;continue;}
+    const hm=l.match(/^(#{1,4})\s+(.*)/);
+    if(hm){ const lv=Math.min(hm[1].length+1,5); h+=`<h${lv}>${inline(hm[2])}</h${lv}>`; i++; continue; }
+    if(/^\s*[-*]\s+/.test(l)){ h+='<ul>'; while(i<L.length&&/^\s*[-*]\s+/.test(L[i])){ h+='<li>'+inline(L[i].replace(/^\s*[-*]\s+/,''))+'</li>'; i++; } h+='</ul>'; continue; }
+    if(/^\s*\d+[.)]\s+/.test(l)){ h+='<ol>'; while(i<L.length&&/^\s*\d+[.)]\s+/.test(L[i])){ h+='<li>'+inline(L[i].replace(/^\s*\d+[.)]\s+/,''))+'</li>'; i++; } h+='</ol>'; continue; }
+    if(/^\s*\|.*\|\s*$/.test(l)){
+      const rows=[]; while(i<L.length&&/^\s*\|.*\|\s*$/.test(L[i])){ rows.push(L[i]); i++; }
+      const cells=r=>r.trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim());
+      let first=true; h+='<table>';
+      rows.forEach(r=>{ if(/^\s*\|[\s:|-]+\|\s*$/.test(r)) return; const tag=first?'th':'td'; first=false; h+='<tr>'+cells(r).map(c=>`<${tag}>${inline(c)}</${tag}>`).join('')+'</tr>'; });
+      h+='</table>'; continue;
+    }
+    if(/^\s*(---+|\*\*\*+)\s*$/.test(l)){ h+='<hr>'; i++; continue; }
+    const par=[]; while(i<L.length&&!/^\s*$/.test(L[i])&&!/^#{1,4}\s|^\s*[-*]\s|^\s*\d+[.)]\s|^\s*\|/.test(L[i])){ par.push(L[i]); i++; }
+    h+='<p>'+inline(par.join(' '))+'</p>';
+  }
+  return h;
+}
+// Druck-/Word-fertiger Bericht aus der Gemini-Antwort
+function kiReportHtml(title,ans,periodLabel){
+  const proj=dlEsc(currentProjectData?.name||''), today=new Date().toLocaleDateString('de-DE');
+  return `<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><title>${dlEsc(title)} – ${proj}</title><style>
+    body{font-family:'Segoe UI',Arial,sans-serif;color:#1f2937;margin:0;padding:34px 40px;font-size:12.5px;line-height:1.6;}
+    h1{font-size:21px;margin:0 0 3px;color:#2d6a4f;} h2{font-size:15px;color:#2d6a4f;border-bottom:1px solid #d9d4c8;padding-bottom:3px;margin:20px 0 8px;}
+    h3{font-size:13.5px;margin:15px 0 6px;} h4,h5{font-size:12.5px;margin:12px 0 4px;}
+    p{margin:6px 0;} ul,ol{margin:6px 0;padding-left:22px;} li{margin:3px 0;}
+    table{border-collapse:collapse;width:100%;margin:10px 0;} th,td{border:1px solid #cfcabd;padding:5px 9px;text-align:left;font-size:11.5px;} th{background:#eef2ee;}
+    code{background:#f1efe9;padding:1px 4px;border-radius:3px;font-size:11.5px;}
+    .meta{color:#6b7280;font-size:11.5px;margin:2px 0 16px;padding-bottom:10px;border-bottom:2px solid #2d6a4f;}
+    .disc{margin-top:26px;padding-top:8px;border-top:1px solid #d9d4c8;color:#9ca3af;font-size:10.5px;}
+    @page{margin:18mm 16mm;} @media print{body{padding:0;}}
+  </style></head><body>
+    <h1>${dlEsc(title)}</h1>
+    <div class="meta">Stadt/Projekt: ${proj} &nbsp;·&nbsp; Auswertungszeitraum: ${dlEsc(periodLabel)} &nbsp;·&nbsp; Erstellt am: ${today} &nbsp;·&nbsp; Quelle: KI-Analyse (Google Gemini)</div>
+    ${mdToHtml(ans)}
+    <div class="disc">Automatisch erstellter KI-Bericht — Inhalte vor Verwendung fachlich prüfen.</div>
+  </body></html>`;
+}
+function kiExportPdf(html){
+  const w=window.open('','_blank','width=920,height=720');
+  if(!w){ notify('Popup blockiert — bitte Popups für diese Seite erlauben'); return; }
+  w.document.write(html); w.document.close();
+  setTimeout(()=>{ try{ w.focus(); w.print(); }catch(_){} },450);
+}
+function kiExportWord(html,title){
+  const blob=new Blob(['﻿'+html],{type:'application/msword'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`KI-Bericht_${(title||'Analyse').replace(/[^\wäöüÄÖÜß-]+/g,'_')}_${new Date().toISOString().slice(0,10)}.doc`;
+  a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+}
+
 function openKiPrompt(id){
   const p=KI_PROMPTS.find(x=>x.id===id); if(!p) return;
   if(!currentProjectId){ notify('Bitte zuerst ein Projekt öffnen'); return; }
-  const text=p.build(buildKiContext());
   const esc=s=>(''+s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const auto=kiHasAuto(), manual=kiHasManual();
+  let curRange=kiComputeRange('30');
+  const buildText=()=>p.build(buildKiContext(curRange))+
+    '\n\nFormatiere die Antwort als übersichtlichen Bericht in Markdown: ## Überschriften, kurze Absätze, Aufzählungen, wo sinnvoll eine Tabelle. Beginne mit einer Zusammenfassung (2–3 Sätze).';
   const modal=document.createElement('div');
   modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;';
   const footer=[
@@ -6157,15 +6252,32 @@ function openKiPrompt(id){
     manual?`<a href="https://chatgpt.com/" target="_blank" rel="noopener" class="btn btn-secondary">ChatGPT ↗</a>`:'',
     manual?`<a href="https://claude.ai/new" target="_blank" rel="noopener" class="btn btn-secondary">Claude ↗</a>`:'',
   ].filter(Boolean).join('');
-  modal.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);width:820px;max-width:96vw;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;">
+  modal.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);width:860px;max-width:96vw;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;">
     <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;">
       <span style="font-size:20px;">${p.icon}</span>
       <div style="flex:1;min-width:0;"><div style="font-size:15px;font-weight:700;">${p.title}</div><div style="font-size:12px;color:var(--text3);">${p.desc}</div></div>
       <button id="ki-close" style="border:none;background:none;cursor:pointer;color:var(--text2);font-size:22px;line-height:1;">×</button>
     </div>
     <div style="padding:14px 20px;overflow:auto;">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+        <span style="font-size:12px;font-weight:600;">Zeitraum:</span>
+        <select id="ki-period" style="padding:5px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
+          <option value="7">Letzte 7 Tage</option>
+          <option value="30" selected>Letzte 30 Tage</option>
+          <option value="month">Dieser Monat</option>
+          <option value="prev">Letzter Monat</option>
+          <option value="all">Gesamter Zeitraum</option>
+          <option value="custom">Eigener Zeitraum…</option>
+        </select>
+        <span id="ki-custom" style="display:none;align-items:center;gap:6px;">
+          <input type="date" id="ki-from" style="padding:4px 6px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
+          <span style="font-size:12px;color:var(--text3);">bis</span>
+          <input type="date" id="ki-to" style="padding:4px 6px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
+        </span>
+        <span style="font-size:11px;color:var(--text3);">— filtert die Meldungsdaten im Prompt</span>
+      </div>
       <div style="font-size:11px;color:var(--text3);margin-bottom:6px;">Prompt (editierbar)${auto?' – „Mit Gemini auswerten" oder ':' – '}kopieren und in einen KI-Dienst einfügen:</div>
-      <textarea id="ki-text" style="width:100%;height:${auto?'220px':'320px'};font-family:'DM Mono',monospace;font-size:12px;line-height:1.5;border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;resize:vertical;background:var(--bg);color:var(--text);outline:none;">${esc(text)}</textarea>
+      <textarea id="ki-text" style="width:100%;height:${auto?'200px':'300px'};font-family:'DM Mono',monospace;font-size:12px;line-height:1.5;border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;resize:vertical;background:var(--bg);color:var(--text);outline:none;">${esc(buildText())}</textarea>
       <div style="font-size:11px;color:var(--amber);margin-top:8px;">⚠ Die Projektdaten sind im Prompt enthalten.${auto?' Bei „Mit Gemini auswerten" werden sie über die Cloud Function an Google Gemini gesendet.':' Beim Einfügen in einen externen KI-Dienst verlassen sie die App.'}</div>
       <div id="ki-result" style="display:none;margin-top:14px;"></div>
     </div>
@@ -6175,6 +6287,16 @@ function openKiPrompt(id){
   const close=()=>modal.remove();
   modal.querySelector('#ki-close').onclick=close;
   modal.addEventListener('click',e=>{ if(e.target===modal) close(); });
+  // Zeitraum ändern → Prompt neu aufbauen (überschreibt manuelle Änderungen am Prompt)
+  const refresh=()=>{
+    const per=modal.querySelector('#ki-period').value;
+    modal.querySelector('#ki-custom').style.display=per==='custom'?'inline-flex':'none';
+    curRange=kiComputeRange(per, modal.querySelector('#ki-from').value, modal.querySelector('#ki-to').value);
+    modal.querySelector('#ki-text').value=buildText();
+  };
+  modal.querySelector('#ki-period').onchange=refresh;
+  modal.querySelector('#ki-from').onchange=refresh;
+  modal.querySelector('#ki-to').onchange=refresh;
   const copyBtn=modal.querySelector('#ki-copy');
   if(copyBtn) copyBtn.onclick=()=>{
     const ta=modal.querySelector('#ki-text');
@@ -6197,9 +6319,18 @@ function openKiPrompt(id){
         res.innerHTML=`<div style="color:var(--red);font-size:12px;">Fehler (${r.status}): ${esc(data.error||'unbekannt')}${det}</div>`;
       } else {
         const ans=data.text||'(leere Antwort)';
-        res.innerHTML=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span style="font-size:11px;font-weight:700;color:var(--green);">🤖 GEMINI-ANTWORT</span><button id="ki-ans-copy" class="btn btn-secondary" style="padding:2px 8px;font-size:11px;margin-left:auto;">Antwort kopieren</button></div>
-          <div style="white-space:pre-wrap;font-size:13px;line-height:1.55;background:var(--green-light);border:1px solid var(--green-mid);border-radius:var(--radius-sm);padding:12px;max-height:340px;overflow:auto;">${esc(ans)}</div>`;
+        res.innerHTML=`<style>.ki-md h2{font-size:14px;margin:12px 0 6px;color:var(--green);}.ki-md h3{font-size:13px;margin:10px 0 4px;}.ki-md p{margin:6px 0;}.ki-md ul,.ki-md ol{margin:6px 0;padding-left:20px;}.ki-md li{margin:2px 0;}.ki-md table{border-collapse:collapse;margin:8px 0;width:100%;}.ki-md th,.ki-md td{border:1px solid var(--green-mid);padding:4px 8px;font-size:12px;text-align:left;}.ki-md th{background:rgba(45,106,79,.08);}</style>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
+            <span style="font-size:11px;font-weight:700;color:var(--green);">🤖 GEMINI-ANTWORT</span>
+            <span style="margin-left:auto;display:flex;gap:6px;">
+              <button id="ki-rep-pdf" class="btn btn-primary" style="padding:3px 10px;font-size:11px;">🖨️ Bericht als PDF</button>
+              <button id="ki-rep-word" class="btn btn-secondary" style="padding:3px 10px;font-size:11px;">📄 Als Word</button>
+              <button id="ki-ans-copy" class="btn btn-secondary" style="padding:3px 10px;font-size:11px;">Kopieren</button>
+            </span></div>
+          <div class="ki-md" style="font-size:13px;line-height:1.6;background:var(--green-light);border:1px solid var(--green-mid);border-radius:var(--radius-sm);padding:14px;max-height:380px;overflow:auto;">${mdToHtml(ans)}</div>`;
         const ac=res.querySelector('#ki-ans-copy'); if(ac) ac.onclick=()=>{ navigator.clipboard?.writeText(ans); notify('Antwort kopiert'); };
+        const rp=res.querySelector('#ki-rep-pdf'); if(rp) rp.onclick=()=>kiExportPdf(kiReportHtml(p.title,ans,curRange.label));
+        const rw=res.querySelector('#ki-rep-word'); if(rw) rw.onclick=()=>kiExportWord(kiReportHtml(p.title,ans,curRange.label),p.title);
       }
     }catch(e){
       res.innerHTML=`<div style="color:var(--red);font-size:12px;">Netzwerkfehler: ${esc(String(e))}<br>Läuft die Cloud Function bereits? (Lokal über Vite ist „/api/gemini" nicht verfügbar – nur auf der deployten Seite.)</div>`;
