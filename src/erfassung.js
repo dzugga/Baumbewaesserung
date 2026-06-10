@@ -336,24 +336,18 @@ function hideBestand() {
 async function toggleBestand() {
   if (bestandShown) { hideBestand(); return; }
   if (!mapUebersicht) return;
-  const btn = document.getElementById('btn-bestand-toggle');
-  if (btn) btn.disabled = true;
-  toast('Bestandsobjekte werden geladen…');
   try {
-    const snap = await db.collection('projects').doc(currentProjectId).collection('trees').get();
+    // allTrees ist durch den Trees-Listener immer aktuell — kein erneuter Collection-Read nötig
     // Session-Objekte ausschließen – sie bleiben grün/blau
     const sessionIds = new Set([..._erfassteData.map(t => t.id), ..._koordiniertData.map(t => t.id)]);
-    const bestand = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-      .filter(t => !sessionIds.has(t.id) && t.lat && t.lng);
+    const bestand = allTrees.filter(t => !sessionIds.has(t.id) && t.lat && t.lng);
     bestand.forEach(addBestandMarker);
     bestandShown = true;
     updateBestandBtn();
     toast(`${bestand.length} Bestandsobjekte angezeigt`);
   } catch(e) {
     console.warn('toggleBestand:', e);
-    toast('Fehler beim Laden der Bestandsobjekte');
-  } finally {
-    if (btn) btn.disabled = false;
+    toast('Fehler beim Anzeigen der Bestandsobjekte');
   }
 }
 
@@ -600,21 +594,43 @@ async function doLogin() {
   }catch(e){ const c=e&&e.code||'',m=e&&e.message||''; _erfErr(/permission-denied|not-found|unauthenticated|resource-exhausted/.test(c)?(m||'Name oder PIN falsch'):('Fehler: '+(m||c))); _erfBtn('Anmelden',false); }
 }
 
+// Bäume per Listener statt Einmal-Read: Firestore-Persistenz (IndexedDB) liefert beim
+// Re-Login einen Resume-Token → Server sendet nur GEÄNDERTE Dokumente (Delta-Reads statt
+// kompletter Collection). Nebeneffekt: „ohne Koordinaten"-Liste aktualisiert sich live,
+// wenn Kollegen Koordinaten setzen (kein Doppel-Erfassen).
+let unsubTreesErf = null;
+function watchTrees(pid){
+  if (unsubTreesErf) { try{ unsubTreesErf(); }catch(_){} unsubTreesErf = null; }
+  return new Promise(resolve => {
+    let first = true;
+    unsubTreesErf = db.collection('projects').doc(pid).collection('trees').onSnapshot(snap => {
+      // Optimistische lokale Writes ignorieren: die Save-Logik (waitForPendingWrites +
+      // applyCoordLocally) steuert die Liste selbst — „Baum bleibt bis Server-Bestätigung".
+      if (!first && snap.metadata.hasPendingWrites) return;
+      allTrees = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      treesOhneKoords = allTrees.filter(t => !t.lat || !t.lng);
+      cacheTreesLocal(pid, currentErfasser, allTrees);
+      if (first) { first = false; resolve(); }
+      else renderKoordList(document.getElementById('koord-search')?.value || '');
+    }, err => { console.warn('trees-listen:', err); if (first) { first = false; resolve(); } });
+  });
+}
+
 async function startErfassung(pid){
   const snap = await db.collection('projects').doc(pid).get();
   currentProjectData = { id: pid, ...snap.data() };
   currentProjectId = pid;
 
-  try {
-    const treesSnap = await db.collection('projects').doc(pid).collection('trees').get();
-    allTrees = treesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    cacheTreesLocal(pid, currentErfasser, allTrees);
-  } catch(e) {
+  await watchTrees(pid);
+  if (!allTrees.length) {
+    // Erster Login offline ohne Firestore-Cache → localStorage-Fallback
     const cached = loadCachedTrees(pid, currentErfasser);
-    allTrees = cached || [];
-    if (allTrees.length > 0) toast('📦 Offline — lokale Daten geladen');
+    if (cached && cached.length) {
+      allTrees = cached;
+      treesOhneKoords = allTrees.filter(t => !t.lat || !t.lng);
+      toast('📦 Offline — lokale Daten geladen');
+    }
   }
-  treesOhneKoords = allTrees.filter(t => !t.lat || !t.lng);
 
   document.getElementById('header-project').textContent = currentProjectData.name;
   document.getElementById('header-erfasser').textContent = currentErfasser;

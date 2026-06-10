@@ -74,11 +74,13 @@ exports.driverLogin = onCall({ region: REGION }, async (req) => {
     return { token, driverId: ref.id, name: d.name, orgId: oid2, role: personRole };
   }
 
-  // Kein Treffer: Fehlversuch nur bei eindeutigem aktiven Kandidaten zaehlen (Lock sinnvoll halten)
-  if (active.length === 1) {
-    const x = active[0]; const fails = (x.d.failedAttempts || 0) + 1;
-    await x.ref.update(fails >= MAX_FAILS ? { failedAttempts: 0, lockedUntil: now + LOCK_MS } : { failedAttempts: fails });
-  }
+  // Kein Treffer: Fehlversuch auf ALLE getesteten (nicht gesperrten) Kandidaten zaehlen.
+  // Sonst waere der Lockout bei Namensgleichheit ueber Staedte umgehbar (unbegrenztes PIN-Raten).
+  const tested = active.filter(x => !(x.d.lockedUntil && x.d.lockedUntil > now));
+  await Promise.all(tested.map(x => {
+    const fails = (x.d.failedAttempts || 0) + 1;
+    return x.ref.update(fails >= MAX_FAILS ? { failedAttempts: 0, lockedUntil: now + LOCK_MS } : { failedAttempts: fails });
+  }));
   throw new HttpsError('permission-denied', 'Name oder PIN falsch');
 });
 

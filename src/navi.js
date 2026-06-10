@@ -182,14 +182,15 @@ async function pickTour(orgId, name){
   _tourCandidates=[];
   try{
     const projSnap=await db.collection('projects').where('orgId','==',orgId).get();
-    for(const p of projSnap.docs){
-      const toursSnap=await p.ref.collection('tours').get();
-      toursSnap.forEach(t=>{
+    // Tour-Abfragen parallel statt sequenziell (eine Wartezeit statt N bei mehreren Projekten je Stadt)
+    const tourSnaps=await Promise.all(projSnap.docs.map(p=>p.ref.collection('tours').get()));
+    projSnap.docs.forEach((p,i)=>{
+      tourSnaps[i].forEach(t=>{
         const td=t.data();
         const drivers=td.drivers||(td.assignedDriver?[td.assignedDriver]:[]);
         _tourCandidates.push({pid:p.id, tid:t.id, projectName:p.data().name||'', tourName:td.name||'', assigned:drivers.includes(name)});
       });
-    }
+    });
   }catch(e){ _loginErr('Touren konnten nicht geladen werden: '+(e.message||e.code)); _setLoginBtn('Anmelden',false); return; }
   const assigned=_tourCandidates.filter(c=>c.assigned);
   const list=assigned.length?assigned:_tourCandidates;

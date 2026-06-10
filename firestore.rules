@@ -1,9 +1,9 @@
 rules_version = '2';
 
 // ============================================================================
-//  Baumbewaesserung – Mehrmandanten-/Rollen-Regeln  (Phase 1+, NICHT aktiv)
-//  Aktivierung NUR bewusst: firebase deploy --only firestore:rules
-//  Voraussetzung: Firebase Auth aktiv + orgId auf allen Dokumenten gebackfillt.
+//  Baumbewaesserung – Mehrmandanten-/Rollen-Regeln  (AKTIV/deployt)
+//  Deploy: firebase deploy --only firestore:rules
+//  Voraussetzung (erfuellt): Firebase Auth aktiv + orgId auf allen Dokumenten.
 //
 //  Claims:  request.auth.token.{ orgId, role, cap }
 //    - role: Rollen-Key (für UI/Module), frei definierbar
