@@ -64,6 +64,7 @@ Nach Änderungen immer per **Claude in Chrome Extension** prüfen:
 - Digitales Handbuch unter Desktop → Admin → Handbuch; Inhalte in `src/handbuch-daten.js` (nach Apps gegliedert, `keywords` für die Suche).
 - **Bei jeder neuen/geänderten Funktion den passenden Handbuch-Abschnitt mitpflegen** (Endnutzer-Sprache, keine Technik-Details).
 - Reiter „Aktualisierungen" entsteht automatisch aus Git-Commits (`scripts/gen-changelog.mjs`, läuft bei `npm run build`) → Commit-Betreffzeilen deutsch und endnutzer-verständlich halten.
+- Screenshots (public/handbuch/) bei UI-Änderungen neu erzeugen: Demo-Daten anlegen (Mandant org_demo_hb, Projekt demo_handbuch, Logins „Demo Admin"/135790 + „Max Muster"/246800 — siehe Kopf von `scripts/handbuch-screenshots.mjs`) → `node scripts/handbuch-screenshots.mjs` (Dev-Server :3001 nötig) → Demo-Daten wieder löschen.
 
 ## Entwicklungshinweise für Claude
 - JS-Logik liegt in `src/desktop.js` (Desktop) und `src/mobile.js` (Fahrer-App) – nicht in den HTML-Dateien.
