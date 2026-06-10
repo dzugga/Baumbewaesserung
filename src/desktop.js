@@ -6250,7 +6250,7 @@ function openKiPrompt(id){
     auto?`<button id="ki-gemini" class="btn btn-primary">🤖 Mit Gemini auswerten</button>`:'',
     manual?`<button id="ki-copy" class="btn ${auto?'btn-secondary':'btn-primary'}">📋 Prompt kopieren</button>`:'',
     manual?`<a href="https://chatgpt.com/" target="_blank" rel="noopener" class="btn btn-secondary">ChatGPT ↗</a>`:'',
-    manual?`<a href="https://claude.ai/new" target="_blank" rel="noopener" class="btn btn-secondary">Claude ↗</a>`:'',
+    manual?`<a href="https://copilot.microsoft.com/" target="_blank" rel="noopener" class="btn btn-secondary">Copilot ↗</a>`:'',
   ].filter(Boolean).join('');
   modal.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);width:860px;max-width:96vw;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;">
     <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;">
