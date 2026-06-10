@@ -6121,7 +6121,7 @@ async function doLogin(){
   const orgcode=(document.getElementById('login-orgcode')?.value||'').trim();
   const name=(document.getElementById('login-name')?.value||'').trim();
   const pin=(document.getElementById('login-pin')?.value||'').trim();
-  if(!orgcode||!name||!pin){ if(err) err.textContent='Bitte Stadt/Code, Name und PIN ausfüllen'; return; }
+  if(!name||!pin){ if(err) err.textContent='Bitte Name und PIN ausfüllen'; return; }
   if(!/^\d{6}$/.test(pin)){ if(err) err.textContent='PIN muss 6-stellig sein'; return; }
   if(btn){ btn.disabled=true; btn.textContent='Anmelden…'; }
   try{

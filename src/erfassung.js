@@ -472,7 +472,7 @@ async function doLogin() {
   const orgcode=(document.getElementById('login-orgcode')?.value||'').trim();
   const name=(document.getElementById('login-name')?.value||'').trim();
   const pin=(document.getElementById('login-pin')?.value||'').trim();
-  if(!orgcode||!name||!pin){ _erfErr('Bitte Stadt/Code, Name und PIN ausfüllen.'); return; }
+  if(!name||!pin){ _erfErr('Bitte Name und PIN ausfüllen.'); return; }
   if(!/^\d{6}$/.test(pin)){ _erfErr('PIN muss 6-stellig sein.'); return; }
   _erfBtn('Anmelden…', true);
   try{

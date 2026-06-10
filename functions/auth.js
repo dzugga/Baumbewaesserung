@@ -46,37 +46,40 @@ exports.driverLogin = onCall({ region: REGION }, async (req) => {
     if (qs.empty) throw new HttpsError('not-found', 'Mandant nicht gefunden');
     oid = qs.docs[0].id;
   }
-  if (!oid) throw new HttpsError('invalid-argument', 'orgId oder orgCode erforderlich');
 
   const nameLower = String(name).trim().toLowerCase();
-  const qs = await db.collection('drivers')
-    .where('orgId', '==', oid).where('nameLower', '==', nameLower).limit(1).get();
-  // Bewusst generische Fehlermeldung (keine Account-Enumeration)
-  if (qs.empty) throw new HttpsError('permission-denied', 'Name oder PIN falsch');
+  // Mit Stadt: nur diese Org. Ohne Stadt: ueber alle Staedte per Name suchen (PIN entscheidet).
+  const cand = oid
+    ? (await db.collection('drivers').where('orgId', '==', oid).where('nameLower', '==', nameLower).get()).docs
+    : (await db.collection('drivers').where('nameLower', '==', nameLower).get()).docs;
+  if (!cand.length) throw new HttpsError('permission-denied', 'Name oder PIN falsch'); // generisch (keine Enumeration)
 
-  const ref = qs.docs[0].ref;
-  const d = qs.docs[0].data();
-  if (d.active === false) throw new HttpsError('permission-denied', 'Konto deaktiviert');
-  if (d.lockedUntil && d.lockedUntil > nowMs())
-    throw new HttpsError('resource-exhausted', 'Zu viele Versuche — bitte später erneut');
+  const now = nowMs();
+  const active = cand.map(s => ({ ref: s.ref, d: s.data() })).filter(x => x.d.active !== false);
+  // PIN gegen nicht-gesperrte Kandidaten pruefen
+  const matches = active.filter(x => !(x.d.lockedUntil && x.d.lockedUntil > now) && verifyPin(pin, x.d.pinSalt, x.d.pinHash));
 
-  if (!verifyPin(pin, d.pinSalt, d.pinHash)) {
-    const fails = (d.failedAttempts || 0) + 1;
-    const upd = fails >= MAX_FAILS
-      ? { failedAttempts: 0, lockedUntil: nowMs() + LOCK_MS }
-      : { failedAttempts: fails };
-    await ref.update(upd);
-    throw new HttpsError('permission-denied', 'Name oder PIN falsch');
+  if (matches.length > 1)
+    throw new HttpsError('failed-precondition', 'Name in mehreren Staedten — bitte Stadt-Code angeben');
+
+  if (matches.length === 1) {
+    const { ref, d } = matches[0];
+    const oid2 = d.orgId;
+    await ref.update({ failedAttempts: 0, lockedUntil: 0, lastLogin: new Date().toISOString() });
+    const personRole = d.role || 'fahrer';
+    const personCap = await capForRole(personRole);
+    const token = await admin.auth().createCustomToken('drv_' + ref.id, {
+      orgId: oid2, role: personRole, cap: personCap, driverId: ref.id, name: d.name,
+    });
+    return { token, driverId: ref.id, name: d.name, orgId: oid2, role: personRole };
   }
 
-  await ref.update({ failedAttempts: 0, lockedUntil: 0, lastLogin: new Date().toISOString() });
-  const personRole = d.role || 'fahrer';
-  const personCap = await capForRole(personRole);
-  const uid = 'drv_' + ref.id;
-  const token = await admin.auth().createCustomToken(uid, {
-    orgId: oid, role: personRole, cap: personCap, driverId: ref.id, name: d.name,
-  });
-  return { token, driverId: ref.id, name: d.name, orgId: oid, role: personRole };
+  // Kein Treffer: Fehlversuch nur bei eindeutigem aktiven Kandidaten zaehlen (Lock sinnvoll halten)
+  if (active.length === 1) {
+    const x = active[0]; const fails = (x.d.failedAttempts || 0) + 1;
+    await x.ref.update(fails >= MAX_FAILS ? { failedAttempts: 0, lockedUntil: now + LOCK_MS } : { failedAttempts: fails });
+  }
+  throw new HttpsError('permission-denied', 'Name oder PIN falsch');
 });
 
 // ── Admin legt Person an / aendert PIN, Name oder Rolle ─────────────────────
