@@ -2864,11 +2864,10 @@ function switchView(v){
 }
 async function initBenutzer(){
   if(currentRole!=='superadmin' && currentCap!=='admin') return;
-  await loadRoles();
+  await initBenutzerOrgSelector(); // zentraler Stadt-/Mandanten-Umschalter (setzt benutzerOrg)
   const stepRollen=document.getElementById('benutzer-step-rollen');
-  if(stepRollen) stepRollen.style.display = (currentRole==='superadmin') ? '' : 'none';
-  if(currentRole==='superadmin') renderRollenView(); // füllt #rollen-content
-  await initBenutzerOrgSelector(); // zentraler Stadt-/Mandanten-Umschalter
+  if(stepRollen) stepRollen.style.display=''; // Rollen sind mandantenscharf — auch Stadt-Admins pflegen ihre
+  await renderRollenView(); // lädt rolesCache der gewählten Stadt (für Rollen-Dropdowns darunter)
   renderDriverLogins();   // Schritt 2
   renderUserMgmt();       // Schritt 3
   renderDriverMgmt();     // Schritt 4: Tour-Zuweisung
@@ -2889,9 +2888,10 @@ async function initBenutzerOrgSelector(){
   // Umschalter nur für Superadmin mit mehreren Mandanten zeigen
   if(wrap) wrap.style.display = (currentRole==='superadmin' && orgs.length>1) ? '' : 'none';
 }
-// Zentrale Stadtwahl → alle Schritte (2/3/4) auf die Stadt umschalten
-function changeBenutzerOrg(oid){
+// Zentrale Stadtwahl → alle Schritte (1/2/3/4) auf die Stadt umschalten
+async function changeBenutzerOrg(oid){
   benutzerOrg=oid; driverLoginsOrg=oid; userMgmtOrg=oid; dtaProjectId='';
+  await renderRollenView(); // Rollen der neuen Stadt laden (mandantenscharf)
   renderDriverLogins(); renderUserMgmt(); renderDriverMgmt();
 }
 function changeDtaProject(pid){ dtaProjectId=pid; renderDriverMgmt(); }
@@ -3639,16 +3639,29 @@ async function deleteDriverUi(driverId,name){
 }
 
 // ─── ROLLEN & MODULE — laden, säen, verwalten ─────────────────
-async function loadRoles(){
+// Rollen sind mandantenscharf: orgs/{orgId}/roles. Fallback: alter globaler Katalog (Migration).
+function rolesOrg(){ return benutzerOrg||currentOrg; }
+let _orgNameCache={};
+async function orgDisplayName(oid){
+  if(_orgNameCache[oid]) return _orgNameCache[oid];
+  try{ const s=await db.collection('orgs').doc(oid).get(); _orgNameCache[oid]=(s.exists&&s.data().name)||oid; }
+  catch(_){ _orgNameCache[oid]=oid; }
+  return _orgNameCache[oid];
+}
+function rolesCol(org){ return db.collection('orgs').doc(org).collection('roles'); }
+async function loadRoles(org){
   rolesCache={};
-  try{ const qs=await db.collection('roles').get(); qs.forEach(d=>{ rolesCache[d.id]={...d.data()}; }); }catch(e){}
+  const o=org||rolesOrg();
+  let found=false;
+  if(o){ try{ const qs=await rolesCol(o).get(); qs.forEach(d=>{ rolesCache[d.id]={...d.data()}; found=true; }); }catch(e){} }
+  if(!found){ try{ const qs=await db.collection('roles').get(); qs.forEach(d=>{ rolesCache[d.id]={...d.data()}; }); }catch(e){} } // Legacy global
   Object.entries(BUILTIN_ROLES).forEach(([k,v])=>{ if(!rolesCache[k]) rolesCache[k]={...v}; });
 }
-async function seedBuiltinRoles(){
-  if(currentRole!=='superadmin') return;
+async function seedBuiltinRoles(org){
+  if(!(currentRole==='superadmin'||currentCap==='admin')||!org) return;
   for(const [k,v] of Object.entries(BUILTIN_ROLES)){
     try{
-      const ref=db.collection('roles').doc(k); const s=await ref.get();
+      const ref=rolesCol(org).doc(k); const s=await ref.get();
       if(!s.exists){ await ref.set(v); }
       else {
         // fehlende (neue) Modul-Keys mit Vorlagen-Default ergänzen, Bestehendes nicht überschreiben
@@ -3661,11 +3674,15 @@ async function seedBuiltinRoles(){
 }
 async function renderRollenView(){
   const el=document.getElementById('rollen-content'); if(!el) return;
-  if(currentRole!=='superadmin'){ el.innerHTML=`<div style="padding:24px;color:var(--text3);font-size:13px;">Nur der Superadmin kann Rollen verwalten.</div>`; return; }
-  await seedBuiltinRoles();
-  await loadRoles();
+  if(!(currentRole==='superadmin'||currentCap==='admin')){ el.innerHTML=`<div style="padding:24px;color:var(--text3);font-size:13px;">Nur Administratoren können Rollen verwalten.</div>`; return; }
+  const org=rolesOrg();
+  if(!org){ el.innerHTML=`<div style="padding:24px;color:var(--text3);font-size:13px;">Kein Mandant gewählt.</div>`; return; }
+  await seedBuiltinRoles(org);
+  await loadRoles(org);
+  const cityName=await orgDisplayName(org);
   const roles=Object.entries(rolesCache).sort((a,b)=>(a[1].name||a[0]).localeCompare(b[1].name||b[0]));
-  el.innerHTML=roles.map(([k,r])=>roleCard(k,r)).join('')+newRoleCard();
+  el.innerHTML=`<div style="font-size:12px;font-weight:600;color:var(--green);margin-bottom:10px;">Rollen der Stadt: ${dlEsc(cityName)} — Änderungen gelten nur für diesen Mandanten.</div>`+
+    roles.map(([k,r])=>roleCard(k,r)).join('')+newRoleCard();
 }
 function roleCard(key,r){
   const bt=r.baseType||'editor';
@@ -3714,7 +3731,7 @@ async function saveRole(key){
   const baseType=card.querySelector('.rc-basetype').value;
   const modules={}; card.querySelectorAll('.rc-mod').forEach(c=>{ modules[c.dataset.mod]=c.checked; });
   const builtin=!!(rolesCache[key]&&rolesCache[key].builtin);
-  try{ await db.collection('roles').doc(key).set({name,baseType,modules,builtin},{merge:true}); notify('✓ Rolle gespeichert'); renderRollenView(); }
+  try{ await rolesCol(rolesOrg()).doc(key).set({name,baseType,modules,builtin},{merge:true}); notify('✓ Rolle gespeichert (für diese Stadt)'); renderRollenView(); }
   catch(e){ notify(dlErr(e)); }
 }
 async function addRole(){
@@ -3725,13 +3742,13 @@ async function addRole(){
   if(!key) key='rolle_'+Math.floor(performance.now());
   if(rolesCache[key]){ notify('Eine Rolle mit diesem Schlüssel existiert bereits'); return; }
   const modules={}; document.querySelectorAll('.nr-mod').forEach(c=>{ modules[c.dataset.mod]=c.checked; });
-  try{ await db.collection('roles').doc(key).set({name,baseType,modules,builtin:false}); notify('✓ Rolle angelegt'); renderRollenView(); }
+  try{ await rolesCol(rolesOrg()).doc(key).set({name,baseType,modules,builtin:false}); notify('✓ Rolle angelegt (für diese Stadt)'); renderRollenView(); }
   catch(e){ notify(dlErr(e)); }
 }
 async function deleteRole(key){
   if(BUILTIN_ROLES[key]){ notify('Vorlagen können nicht gelöscht werden'); return; }
   if(!confirm(`Rolle „${rolesCache[key]?.name||key}" löschen?`)) return;
-  try{ await db.collection('roles').doc(key).delete(); notify('✓ Rolle gelöscht'); renderRollenView(); }
+  try{ await rolesCol(rolesOrg()).doc(key).delete(); notify('✓ Rolle gelöscht'); renderRollenView(); }
   catch(e){ notify(dlErr(e)); }
 }
 

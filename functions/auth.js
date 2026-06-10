@@ -27,10 +27,17 @@ function verifyPin(pin, salt, hash) {
 }
 function nowMs() { return Date.now(); }
 
-// Basis-Typ (cap) einer Rolle auflösen — steuert die Firestore-Rules
+// Basis-Typ (cap) einer Rolle auflösen — steuert die Firestore-Rules.
+// Rollen sind mandantenscharf (orgs/{orgId}/roles); Fallback: alter globaler Katalog.
 const BUILTIN_BASETYPE = { superadmin: 'admin', orgadmin: 'admin', planer: 'editor', erfasser: 'editor', fahrer: 'driver' };
-async function capForRole(roleKey) {
+async function capForRole(roleKey, orgId) {
   if (roleKey === 'superadmin') return 'admin';
+  try {
+    if (orgId) {
+      const s = await db.collection('orgs').doc(orgId).collection('roles').doc(roleKey).get();
+      if (s.exists && s.data().baseType) return s.data().baseType;
+    }
+  } catch (e) {}
   try { const s = await db.collection('roles').doc(roleKey).get(); if (s.exists && s.data().baseType) return s.data().baseType; } catch (e) {}
   return BUILTIN_BASETYPE[roleKey] || 'readonly';
 }
@@ -67,7 +74,7 @@ exports.driverLogin = onCall({ region: REGION }, async (req) => {
     const oid2 = d.orgId;
     await ref.update({ failedAttempts: 0, lockedUntil: 0, lastLogin: new Date().toISOString() });
     const personRole = d.role || 'fahrer';
-    const personCap = await capForRole(personRole);
+    const personCap = await capForRole(personRole, oid2);
     const token = await admin.auth().createCustomToken('drv_' + ref.id, {
       orgId: oid2, role: personRole, cap: personCap, driverId: ref.id, name: d.name,
     });
@@ -208,7 +215,7 @@ exports.setUserRole = onCall({ region: REGION }, async (req) => {
     if (orgId !== callerOrg) throw new HttpsError('permission-denied', 'Fremder Mandant');
     if (newRole === 'superadmin') throw new HttpsError('permission-denied', 'Rolle nicht erlaubt');
   }
-  const cap = await capForRole(newRole);
+  const cap = await capForRole(newRole, orgId);
   await admin.auth().setCustomUserClaims(targetUid, { orgId, role: newRole, cap });
   await db.collection('users').doc(targetUid).set(
     { orgId, role: newRole, updatedAt: new Date().toISOString() }, { merge: true });
@@ -252,7 +259,7 @@ exports.createOrgUser = onCall({ region: REGION }, async (req) => {
     if (e.code === 'auth/invalid-password') throw new HttpsError('invalid-argument', 'Passwort ungültig (min. 6 Zeichen)');
     throw new HttpsError('internal', e.message || 'Konnte Nutzer nicht anlegen');
   }
-  const cap = await capForRole(newRole);
+  const cap = await capForRole(newRole, targetOrg);
   await admin.auth().setCustomUserClaims(user.uid, { orgId: targetOrg, role: newRole, cap });
   await db.collection('users').doc(user.uid).set({
     email: user.email, displayName: displayName || '', orgId: targetOrg, role: newRole,

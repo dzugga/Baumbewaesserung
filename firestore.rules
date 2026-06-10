@@ -47,6 +47,12 @@ service cloud.firestore {
     match /orgs/{oid} {
       allow read:  if inOrg(oid);
       allow write: if isSuper();
+
+      // Rollen-/Modul-Definitionen je Mandant (Stadt-Admin pflegt eigene Rollen)
+      match /roles/{rid} {
+        allow read:  if inOrg(oid);
+        allow write: if isSuper() || (inOrg(oid) && cap() == 'admin');
+      }
     }
 
     // ----- Nutzungs-Zähler je Mandant (Reads/Writes/Deletes, App-seitig hochgezählt) -----

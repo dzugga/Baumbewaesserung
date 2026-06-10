@@ -537,7 +537,12 @@ document.addEventListener('DOMContentLoaded', ()=>{
       try{ const tok=await user.getIdTokenResult(); currentUser=user; currentRole=tok.claims.role||''; currentCap=tok.claims.cap||''; currentOrg=tok.claims.orgId||''; }
       catch(e){ currentRole=''; currentCap=''; currentOrg=''; }
       if(!currentRole){ showLoginStep1('Dieses Konto hat keine Berechtigung.'); return; }
-      try{ const rs=await db.collection('roles').doc(currentRole).get(); if(rs.exists) elRoles[currentRole]=rs.data(); }catch(e){}
+      // Rollen mandantenscharf (orgs/{org}/roles); Fallback: alter globaler Katalog
+      try{
+        let rs=currentOrg?await db.collection('orgs').doc(currentOrg).collection('roles').doc(currentRole).get():null;
+        if(!rs||!rs.exists) rs=await db.collection('roles').doc(currentRole).get();
+        if(rs.exists) elRoles[currentRole]=rs.data();
+      }catch(e){}
       if(!canUseEinsatzleiter()){ showLoginStep1('Diese Rolle hat keinen Zugriff auf die Einsatzleiter-App.'); return; }
       showProjectStep();
     } else {
