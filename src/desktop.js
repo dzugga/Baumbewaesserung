@@ -799,6 +799,12 @@ async function loadSavedRoutes(force=false){
     }
     if(data){
       drawSavedRoute(tour.id, data);
+      // Kennzahlen am Tour-Doc nachziehen, falls noch nicht gespeichert (Routen vor dieser Änderung)
+      if(typeof tour.routeKm!=='number' && !isReadonly() && (currentCap==='admin'||currentCap==='editor'||currentRole==='superadmin')){
+        const km=data.km||0, dr=data.durationSec||0;
+        updateDoc(doc(db,'projects',currentProjectId,'tours',tour.id),{routeKm:km, routeDriveSec:dr})
+          .then(()=>{ const _t=tours.find(t=>t.id===tour.id); if(_t){ _t.routeKm=km; _t.routeDriveSec=dr; } }).catch(()=>{});
+      }
     } else {
       // Keine gespeicherte Route — nur Reihenfolge für Nummerierung berechnen (kein Read)
       const trs=trees.filter(t=>treeInTour(t,tour.id)&&t.lat&&t.lng&&t.aktiv!==false);
@@ -869,6 +875,12 @@ async function calculateAndSaveRoute(tourId){
   };
   await setDoc(doc(db,'projects',currentProjectId,'routes',tourId),routeData);
   _routesCache[tourId]=routeData; // Cache aktuell halten (spart Re-Read)
+  // Kennzahlen aufs Tour-Dokument speichern → in der Touren-Tabelle dauerhaft sichtbar,
+  // ohne dass die Route in den Speicher geladen sein muss. Ändert sich nur bei Neuberechnung.
+  try{
+    await updateDoc(doc(db,'projects',currentProjectId,'tours',tourId),{routeKm:km, routeDriveSec:durationSec, routeComputedAt:new Date().toISOString()});
+    const _t=tours.find(t=>t.id===tourId); if(_t){ _t.routeKm=km; _t.routeDriveSec=durationSec; }
+  }catch(e){ console.warn('Tour-Kennzahlen speichern:',e); }
 
   // Draw on map
   drawSavedRoute(tourId, routeData);
@@ -3016,10 +3028,13 @@ function renderTourenGrid(){
     const mittel=treesInTour.filter(t=>t.zustand==='mittel').length;
     const schlecht=treesInTour.filter(t=>t.zustand==='schlecht').length;
     const rt=tourRoutes[tour.id];
-    const km=rt?rt.km.toFixed(1)+' km':'–';
-    const driveZeit=rt&&rt.durationSec?fmtDuration(rt.durationSec):'–';
-    const bewZeit=rt?fmtBewTime(cnt):'–';
-    const gesamtZeit=rt&&rt.durationSec?fmtTotalTime(rt.durationSec,cnt):'–';
+    // In-Memory-Route bevorzugen (frisch nach Neuberechnung), sonst gespeicherte Tour-Kennzahlen
+    const kmVal   = rt ? rt.km          : (typeof tour.routeKm==='number'      ? tour.routeKm      : null);
+    const driveVal= rt ? rt.durationSec : (typeof tour.routeDriveSec==='number'? tour.routeDriveSec : null);
+    const km=kmVal!=null?kmVal.toFixed(1)+' km':'–';
+    const driveZeit=driveVal?fmtDuration(driveVal):'–';
+    const bewZeit=kmVal!=null?fmtBewTime(cnt):'–';
+    const gesamtZeit=driveVal?fmtTotalTime(driveVal,cnt):'–';
     const bar=cnt>0?`<div style="display:flex;height:6px;border-radius:3px;overflow:hidden;gap:1px;width:120px;">
       ${gut>0?`<div style="flex:${gut};background:var(--green);" title="${gut} gut"></div>`:''}
       ${mittel>0?`<div style="flex:${mittel};background:var(--amber);" title="${mittel} mittel"></div>`:''}
