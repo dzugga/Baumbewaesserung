@@ -3442,7 +3442,7 @@ const dlEsc = s => (''+(s??'')).replace(/&/g,'&amp;').replace(/</g,'&lt;').repla
 function dlFnCall(name,data){
   try{
     if(!window.firebase?.app || !firebase.app().functions) return Promise.reject({code:'unavailable'});
-    return firebase.app().functions('us-central1').httpsCallable(name)(data);
+    return firebase.app().functions('europe-west3').httpsCallable(name)(data);
   }catch(e){ return Promise.reject(e); }
 }
 function dlErr(e){
@@ -6301,7 +6301,7 @@ async function doLogin(){
   if(!/^\d{6}$/.test(pin)){ if(err) err.textContent='PIN muss 6-stellig sein'; return; }
   if(btn){ btn.disabled=true; btn.textContent='Anmelden…'; }
   try{
-    const res=await firebase.app().functions('us-central1').httpsCallable('driverLogin')({orgCode:orgcode.toUpperCase(),name,pin});
+    const res=await firebase.app().functions('europe-west3').httpsCallable('driverLogin')({orgCode:orgcode.toUpperCase(),name,pin});
     try{ localStorage.setItem('bwt_desktop_orgcode',orgcode.toUpperCase()); localStorage.setItem('bwt_desktop_name',name); }catch(_){}
     await firebase.auth().signInWithCustomToken(res.data.token);
   }catch(e){ const c=e&&e.code||'',m=e&&e.message||''; if(err) err.textContent=/permission-denied|not-found|unauthenticated|resource-exhausted/.test(c)?(m||'Name oder PIN falsch'):('Fehler: '+(m||c)); if(btn){ btn.disabled=false; btn.textContent='Anmelden'; } }

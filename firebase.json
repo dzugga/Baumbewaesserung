@@ -19,7 +19,10 @@
     "rewrites": [
       {
         "source": "/api/gemini",
-        "function": "geminiAnalyse"
+        "function": {
+          "functionId": "geminiAnalyse",
+          "region": "europe-west3"
+        }
       },
       {
         "source": "/mobil",

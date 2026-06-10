@@ -8,7 +8,8 @@ const admin = require('firebase-admin');
 Object.assign(exports, require('./auth'));
 
 const PROJECT = 'baumbewaesserung';
-const LOCATION = 'us-central1';
+const FUNC_REGION = 'europe-west3';   // Function läuft in Frankfurt (wie Firestore/Storage)
+const VERTEX_LOCATION = 'us-central1'; // Vertex-AI-Endpunkt (Gemini-Modellverfügbarkeit) — bewusst getrennt
 const DEFAULT_MODEL = 'gemini-2.5-flash';
 const ALLOWED_MODELS = ['gemini-2.5-flash', 'gemini-2.5-pro'];
 const MAX_PROMPT = 100000; // Zeichen-Obergrenze gegen Missbrauch/Kosten
@@ -25,7 +26,7 @@ async function getAccessToken() {
 }
 
 exports.geminiAnalyse = onRequest(
-  { region: LOCATION, cors: true, maxInstances: 5, timeoutSeconds: 120 },
+  { region: FUNC_REGION, cors: true, maxInstances: 5, timeoutSeconds: 120 },
   async (req, res) => {
     if (req.method !== 'POST') { res.status(405).json({ error: 'Nur POST erlaubt' }); return; }
     // Auth-Pflicht: gültiges Firebase-ID-Token mit orgId-Claim (kein offener Endpoint mehr)
@@ -42,7 +43,7 @@ exports.geminiAnalyse = onRequest(
     if (String(prompt).length > MAX_PROMPT) { res.status(413).json({ error: 'Prompt zu lang' }); return; }
     try {
       const token = await getAccessToken();
-      const url = `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT}/locations/${LOCATION}/publishers/google/models/${model}:generateContent`;
+      const url = `https://${VERTEX_LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT}/locations/${VERTEX_LOCATION}/publishers/google/models/${model}:generateContent`;
       const r = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },

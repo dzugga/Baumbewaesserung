@@ -12,7 +12,7 @@ const crypto = require('crypto');
 if (!admin.apps.length) admin.initializeApp();
 const db = admin.firestore();
 
-const REGION = 'us-central1';
+const REGION = 'europe-west3'; // Frankfurt — wie Firestore/Storage (EU-Datenverarbeitung)
 const MAX_FAILS = 5;
 const LOCK_MS = 15 * 60 * 1000; // 15 Min Sperre nach zu vielen Fehlversuchen
 

@@ -588,7 +588,7 @@ async function doLogin() {
   if(!/^\d{6}$/.test(pin)){ _erfErr('PIN muss 6-stellig sein.'); return; }
   _erfBtn('Anmelden…', true);
   try{
-    const res=await firebase.app().functions('us-central1').httpsCallable('driverLogin')({orgCode:orgcode.toUpperCase(),name,pin});
+    const res=await firebase.app().functions('europe-west3').httpsCallable('driverLogin')({orgCode:orgcode.toUpperCase(),name,pin});
     try{ localStorage.setItem('bwt_mobile_orgcode',orgcode.toUpperCase()); localStorage.setItem('bwt_mobile_name',name); }catch(_){}
     await firebase.auth().signInWithCustomToken(res.data.token);
   }catch(e){ const c=e&&e.code||'',m=e&&e.message||''; _erfErr(/permission-denied|not-found|unauthenticated|resource-exhausted/.test(c)?(m||'Name oder PIN falsch'):('Fehler: '+(m||c))); _erfBtn('Anmelden',false); }

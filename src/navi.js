@@ -164,7 +164,7 @@ async function doLogin() {
   if(!/^\d{6}$/.test(pin)){ _loginErr('PIN muss 6-stellig sein.'); return; }
   _setLoginBtn('Anmelden…', true);
   try{
-    const res=await firebase.app().functions('us-central1').httpsCallable('driverLogin')({orgCode:orgcode.toUpperCase(), name, pin});
+    const res=await firebase.app().functions('europe-west3').httpsCallable('driverLogin')({orgCode:orgcode.toUpperCase(), name, pin});
     const data=res.data||{};
     await firebase.auth().signInWithCustomToken(data.token);
     _driverAuth={orgId:data.orgId, name:data.name||name, driverId:data.driverId};
