@@ -1212,7 +1212,7 @@ function renderDepotMarker(){
     iconSize:[36,36],iconAnchor:[18,18]
   });
   depotMarker=L.marker([depot.lat,depot.lng],{icon,zIndexOffset:1000}).addTo(map)
-    .bindTooltip(`<b>Betriebshof</b><br>${depot.address||''}`,{direction:'top',offset:[0,-20]});
+    .bindTooltip(`<b>Betriebshof</b><br>${dlEsc(depot.address||'')}`,{direction:'top',offset:[0,-20]});
 }
 
 // ─── TOUR FOCUS / MEHRFACHAUSWAHL ─────────────────────────────
@@ -1829,7 +1829,7 @@ function openDetail(id){
       <button class="btn btn-primary" style="padding:5px 12px;font-size:12px;width:100%;${isReadonly()?'opacity:.45;cursor:not-allowed;':''}" ${isReadonly()?'disabled title="Nur Lesezugriff"':`onclick="saveInlineFields('${id}')"`}>Touren speichern</button>
     </div>
 
-    ${tree.notiz?`<div style="margin:8px 0;padding:10px;background:var(--surface2);border-radius:var(--radius-sm);font-size:12px;color:var(--text2);">${tree.notiz}</div>`:''}
+    ${tree.notiz?`<div style="margin:8px 0;padding:10px;background:var(--surface2);border-radius:var(--radius-sm);font-size:12px;color:var(--text2);">${dlEsc(tree.notiz)}</div>`:''}
 
     ${(tree.fotos&&tree.fotos.length)?`
     <div class="form-section">Fotos (${tree.fotos.length})</div>
@@ -5427,10 +5427,10 @@ function dashRenderNichtMap(nichtReports){
   const pts=[];
   withCoords.forEach(r=>{
     const d=r.lastReportAt?new Date(r.lastReportAt).toLocaleDateString('de-DE'):'–';
-    const meta=[r.stadtteil,r.baumnr].filter(Boolean).join(' · ');
-    const popup=`<b>${r.name||'Baum'}</b>`+(meta?`<br>${meta}`:'')+(r.art?`<br><i>${r.art}</i>`:'')+
-      `<br>Grund: <b style="color:#dc2626;">${r.lastReason||'nicht angegeben'}</b>`+
-      (r.lastNote?`<br>Notiz: ${r.lastNote}`:'')+(r.lastDriver?`<br>Fahrer: ${r.lastDriver}`:'')+`<br>${d}`;
+    const meta=[r.stadtteil,r.baumnr].filter(Boolean).map(dlEsc).join(' · ');
+    const popup=`<b>${dlEsc(r.name||'Baum')}</b>`+(meta?`<br>${meta}`:'')+(r.art?`<br><i>${dlEsc(r.art)}</i>`:'')+
+      `<br>Grund: <b style="color:#dc2626;">${dlEsc(r.lastReason||'nicht angegeben')}</b>`+
+      (r.lastNote?`<br>Notiz: ${dlEsc(r.lastNote)}`:'')+(r.lastDriver?`<br>Fahrer: ${dlEsc(r.lastDriver)}`:'')+`<br>${d}`;
     L.marker([r.lat,r.lng],{icon:dashNichtIcon()}).bindPopup(popup).addTo(dashNichtLayer);
     pts.push([r.lat,r.lng]);
   });
@@ -6158,7 +6158,8 @@ function openKiPrompt(id){
     const old=gemBtn.textContent; gemBtn.disabled=true; gemBtn.textContent='⏳ Gemini denkt…';
     res.style.display='block'; res.innerHTML='<div style="color:var(--text3);font-size:12px;">Antwort wird generiert…</div>';
     try{
-      const r=await fetch('/api/gemini',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:promptText})});
+      const idToken=await firebase.auth().currentUser?.getIdToken();
+      const r=await fetch('/api/gemini',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+(idToken||'')},body:JSON.stringify({prompt:promptText})});
       let data={}; try{ data=await r.json(); }catch(_){}
       if(!r.ok){
         const det=data.detail?(' – '+esc(typeof data.detail==='string'?data.detail:JSON.stringify(data.detail))):'';

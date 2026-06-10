@@ -11,6 +11,9 @@ const fbApp = firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore(fbApp);
 const storage = firebase.storage(fbApp);
 
+// HTML-Escape gegen Stored-XSS (Baum-Daten aus Firestore in innerHTML/Tooltips)
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
 // Firestore Offline-Persistenz aktivieren
 db.enablePersistence({ synchronizeTabs: false }).catch(err => {
   if (err.code === 'failed-precondition') console.warn('Offline-Persistenz: mehrere Tabs offen');
@@ -251,7 +254,7 @@ function treeTooltipHtml(tree, type) {
   let tag = '';
   if (type === 'koord') tag = '<br><i style="color:#1e40af">Koordinate gesetzt</i>';
   else if (type === 'bestand') tag = '<br><i style="color:#dc2626">Bestand</i>';
-  return `<b>${tree.name || '–'}</b><br><span style="font-family:monospace">${id}</span>${tag}`;
+  return `<b>${esc(tree.name || '–')}</b><br><span style="font-family:monospace">${esc(id)}</span>${tag}`;
 }
 
 function makeKoordIcon() {
@@ -560,7 +563,7 @@ async function loadProjects() {
   const sel = document.getElementById('login-project');
   const docs=snap.docs;
   sel.innerHTML = '<option value="">– Projekt wählen –</option>' +
-    docs.map(d => `<option value="${d.id}">${d.data().name}</option>`).join('');
+    docs.map(d => `<option value="${esc(d.id)}">${esc(d.data().name)}</option>`).join('');
   if (docs.length === 1) sel.value = docs[0].id;
 }
 
@@ -683,10 +686,10 @@ function renderKoordList(q) {
 
   el.innerHTML = list.map(t => `
     <div class="koord-item" data-id="${t.id}">
-      <div class="koord-item-num">${t.baumId || '–'}</div>
+      <div class="koord-item-num">${esc(t.baumId || '–')}</div>
       <div class="koord-item-info">
-        <div class="koord-item-name">${t.name || '–'}</div>
-        <div class="koord-item-meta">${t.art || '–'}${t.stadtteil ? ' · ' + t.stadtteil : ''}${t.baumnr ? ' · ' + t.baumnr : ''}</div>
+        <div class="koord-item-name">${esc(t.name || '–')}</div>
+        <div class="koord-item-meta">${esc(t.art || '–')}${t.stadtteil ? ' · ' + esc(t.stadtteil) : ''}${t.baumnr ? ' · ' + esc(t.baumnr) : ''}</div>
       </div>
       <span class="koord-item-badge">Kein GPS</span>
     </div>

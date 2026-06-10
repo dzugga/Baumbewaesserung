@@ -26,9 +26,11 @@ let trees = [];
 let tours = [];
 let tourHistory = [];
 let tourHistoryLoaded = false;
+// HTML-Escape gegen Stored-XSS (Tour-/Grund-Texte aus Firestore)
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 let unsubTrees = null;
 let unsubTours = null;
-let refreshTimer = null;
+let unsubHistory = null;
 let period = 'month';
 let timelineChart = null;
 let nichtMap = null;
@@ -232,7 +234,7 @@ function renderTourProgress(reported){
     return `<div class="tour-row" data-name="${(t.name||'Tour').toLowerCase().replace(/"/g,'')}">
       <div class="tour-head">
         <span class="tour-dot" style="background:${color};"></span>
-        <span class="tour-name">${t.name||'Tour'}</span>
+        <span class="tour-name">${esc(t.name||'Tour')}</span>
         <span class="tour-pct">${pct}%</span>
       </div>
       <div class="tour-bar">
@@ -260,7 +262,7 @@ function renderReasons(nichtTrees){
   const max=sorted[0][1];
   el.innerHTML=sorted.map(([reason,cnt])=>`
     <div class="reason-row">
-      <div class="reason-head"><span>${reason}</span><b>${cnt}</b></div>
+      <div class="reason-head"><span>${esc(reason)}</span><b>${cnt}</b></div>
       <div class="reason-bar"><div class="fill" style="width:${Math.round(cnt/max*100)}%;"></div></div>
     </div>`).join('');
 }
@@ -399,6 +401,12 @@ function subscribe(){
       tours=snap.docs.map((d,i)=>({id:d.id,color:TOUR_COLORS[i%TOUR_COLORS.length],...d.data()}));
       render();
     }, e=>console.warn('tours:',e));
+  // tourHistory live statt 60s-Polling: nur bei Änderung Reads (kostengünstig)
+  unsubHistory=db.collection('projects').doc(currentProjectId).collection('tourHistory')
+    .onSnapshot(snap=>{
+      tourHistory=snap.docs.map(d=>normalizeHistory({id:d.id,...d.data()}));
+      tourHistoryLoaded=true; render();
+    }, e=>console.warn('tourHistory:',e));
 }
 
 async function manualRefresh(){
@@ -492,16 +500,12 @@ async function startEinsatzleiter(pid){
   document.getElementById('header-project').textContent=currentProjectData.name||pid;
   document.getElementById('screen-login').classList.remove('active');
   document.getElementById('screen-app').classList.add('active');
-  subscribe();
-  loadTourHistory();
-  clearInterval(refreshTimer);
-  refreshTimer=setInterval(loadTourHistory, 60000);
+  subscribe(); // trees + tours + tourHistory live (kein Polling mehr)
 }
 
 async function doLogout(){
   if(!confirm('Abmelden?')) return;
-  if(unsubTrees) unsubTrees(); if(unsubTours) unsubTours();
-  clearInterval(refreshTimer);
+  if(unsubTrees) unsubTrees(); if(unsubTours) unsubTours(); if(unsubHistory) unsubHistory();
   try{ await firebase.auth().signOut(); }catch(_){}
   location.reload();
 }

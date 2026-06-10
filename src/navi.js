@@ -1,3 +1,5 @@
+// HTML-Escape gegen Stored-XSS (Baum-/Tour-/Grund-Daten aus Firestore in innerHTML)
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 // Firebase compat API shims — maps modular API calls to compat SDK
 function initializeApp(cfg){ return firebase.initializeApp(cfg); }
 function getFirestore(app){ return firebase.firestore(app); }
@@ -195,7 +197,7 @@ async function pickTour(orgId, name){
   if(list.length===1){ await startBewässerungLogin(name, list[0].pid, list[0].tid); return; }
   _tourCandidates=list;
   const sel=document.getElementById('login-tour');
-  sel.innerHTML='<option value="">– Tour wählen –</option>'+list.map(c=>`<option value="${c.tid}">${c.projectName} · ${c.tourName}</option>`).join('');
+  sel.innerHTML='<option value="">– Tour wählen –</option>'+list.map(c=>`<option value="${esc(c.tid)}">${esc(c.projectName)} · ${esc(c.tourName)}</option>`).join('');
   document.getElementById('login-tour-group').style.display='';
   ['lg-orgcode','lg-name','lg-pin'].forEach(id=>{ const g=document.getElementById(id); if(g) g.style.display='none'; });
   _setLoginBtn('Tour starten', false);
@@ -1559,8 +1561,8 @@ function renderList(q=''){
     return `<div class="tree-row${st?' done':''}" data-id="${tree.id}">
       <div class="tree-row-num" style="background:${color}22;color:${color};">${idx+1}</div>
       <div class="tree-row-info">
-        <div class="tree-row-name">${tree.name||'–'}</div>
-        <div class="tree-row-meta">${tree.art||'–'} · ${tree.stadtteil||''}</div>
+        <div class="tree-row-name">${esc(tree.name||'–')}</div>
+        <div class="tree-row-meta">${esc(tree.art||'–')} · ${esc(tree.stadtteil||'')}</div>
       </div>
       <div class="status-dot ${dotClass}"></div>
     </div>`;
@@ -1591,7 +1593,7 @@ function openSheet(id){
 
   // Build reason chips
   const reasonChips=reasons.length>0
-    ? reasons.map(r=>`<div class="reason-chip${reasonVal===r.text?' selected':''}" data-reason="${r.text}">${r.text}</div>`).join('')
+    ? reasons.map(r=>`<div class="reason-chip${reasonVal===r.text?' selected':''}" data-reason="${esc(r.text)}">${esc(r.text)}</div>`).join('')
     : '<div style="font-size:12px;color:var(--text3);padding:4px 0;">Keine Gründe hinterlegt — bitte in der Desktop-App unter Verwaltung einrichten.</div>';
 
   document.getElementById('sheet-body').innerHTML=`
@@ -1616,7 +1618,7 @@ function openSheet(id){
     <div id="reason-section" style="display:${statusVal==='nicht'?'block':'none'}">
       <div class="section-title">Grund</div>
       <div class="reason-chips" id="reason-chips">${reasonChips}</div>
-      <input class="prop-input prop-full" id="reason-custom" placeholder="Weitere Bemerkung…" value="${tree.lastNote||''}">
+      <input class="prop-input prop-full" id="reason-custom" placeholder="Weitere Bemerkung…" value="${esc(tree.lastNote||'')}">
     </div>
 
     <!-- Properties -->
@@ -1640,16 +1642,16 @@ function openSheet(id){
       </div>
       <div class="prop-group prop-full">
         <label class="prop-label">Bemerkung</label>
-        <input class="prop-input" id="p-notiz" placeholder="Freitext…" value="${tree.notiz||''}">
+        <input class="prop-input" id="p-notiz" placeholder="Freitext…" value="${esc(tree.notiz||'')}">
       </div>
     </div>
 
     <!-- Info fields -->
     <div class="section-title">Stammdaten</div>
-    <div class="field-row"><span class="field-key">Baumnr.</span><span class="field-val">${tree.baumnr||'–'}</span></div>
-    <div class="field-row"><span class="field-key">Baumart</span><span class="field-val" style="font-style:italic;">${tree.art||'–'}</span></div>
-    <div class="field-row"><span class="field-key">Pflanzjahr</span><span class="field-val">${tree.pflanzjahr||'–'}</span></div>
-    <div class="field-row"><span class="field-key">Pflanzzeit</span><span class="field-val">${tree.pflanzzeitpunkt||'–'}</span></div>
+    <div class="field-row"><span class="field-key">Baumnr.</span><span class="field-val">${esc(tree.baumnr||'–')}</span></div>
+    <div class="field-row"><span class="field-key">Baumart</span><span class="field-val" style="font-style:italic;">${esc(tree.art||'–')}</span></div>
+    <div class="field-row"><span class="field-key">Pflanzjahr</span><span class="field-val">${esc(tree.pflanzjahr||'–')}</span></div>
+    <div class="field-row"><span class="field-key">Pflanzzeit</span><span class="field-val">${esc(tree.pflanzzeitpunkt||'–')}</span></div>
     <div class="field-row"><span class="field-key">Koordinaten</span><span class="field-val" style="font-size:11px;font-family:monospace;">${tree.lat?tree.lat.toFixed(5)+', '+tree.lng.toFixed(5):'–'}</span></div>
     <div class="field-row"><span class="field-key">Route #</span><span class="field-val">#${idx+1}</span></div>
     ${tree.lastStatus?`<div class="field-row"><span class="field-key">Letzte Meldung</span><span class="field-val">${tree.lastStatus==='bewaessert'?'✓ Erledigt':'✕ Nicht erledigt'}</span></div>`:''}
