@@ -1040,9 +1040,18 @@ function updateRouteInfoBar(){
 }
 
 // ─── MARKERS ──────────────────────────────────────────────────
+// Perf: Route-Nummern einmal als Map vorberechnen statt pro Zeile/Marker über tourOrder zu suchen (O(1) statt O(n)).
+let _routeNumMap=null;
+function buildRouteNumMap(){
+  const m=new Map();
+  if(activeTours.size>1) return m; // bei Mehrfachauswahl keine (kollidierenden) Nummern
+  if(activeTourOnMap && tourOrder[activeTourOnMap]) tourOrder[activeTourOnMap].forEach((id,i)=>{ if(!m.has(id)) m.set(id,i+1); });
+  for(const [tid,order] of Object.entries(tourOrder)){ if(tid===activeTourOnMap) continue; order.forEach((id,i)=>{ if(!m.has(id)) m.set(id,i+1); }); }
+  return m;
+}
 function getRouteNum(treeId){
-  if(activeTours.size>1) return null;   // bei Mehrfachauswahl keine (kollidierenden) Nummern
-  // Bei angezeigter Tour deren Reihenfolge bevorzugen (Objekt kann mehreren Touren angehören)
+  if(_routeNumMap) return _routeNumMap.get(treeId) ?? null; // vorberechnete Map während Bulk-Renders
+  if(activeTours.size>1) return null;
   if(activeTourOnMap && tourOrder[activeTourOnMap]){
     const idx=tourOrder[activeTourOnMap].indexOf(treeId);
     if(idx!==-1) return idx+1;
@@ -1187,7 +1196,9 @@ function toggleTourCounts(){
 
 function refreshMarkers(){
   Object.values(mapMarkers).forEach(m=>map.removeLayer(m));mapMarkers={};
-  trees.forEach(tree=>{ if(isActive(tree)&&tree.lat&&tree.lng) mapMarkers[tree.id]=makeMarker(tree); });
+  _routeNumMap=buildRouteNumMap();
+  try{ trees.forEach(tree=>{ if(isActive(tree)&&tree.lat&&tree.lng) mapMarkers[tree.id]=makeMarker(tree); }); }
+  finally{ _routeNumMap=null; }
   setMarkerVisibility();
   renderObjFilterUI();
   loadSavedRoutes();  // load from Firestore, never auto-recalculate
@@ -1198,7 +1209,9 @@ function refreshMarkers(){
 function rebuildMarkersWithNumbers(){
   Object.values(mapMarkers).forEach(m=>map.removeLayer(m));mapMarkers={};
   // makeMarker uses selectedTreeId for highlight — always passes current state
-  trees.forEach(tree=>{ if(isActive(tree)&&tree.lat&&tree.lng) mapMarkers[tree.id]=makeMarker(tree); });
+  _routeNumMap=buildRouteNumMap();
+  try{ trees.forEach(tree=>{ if(isActive(tree)&&tree.lat&&tree.lng) mapMarkers[tree.id]=makeMarker(tree); }); }
+  finally{ _routeNumMap=null; }
   setMarkerVisibility();
 }
 
@@ -1682,6 +1695,12 @@ function setFilter(f,el){
   }
 }
 
+// Perf: Suche entprellen → kein voller Listen-/Tabellen-Rebuild bei jedem Tastendruck
+function _debounce(fn,ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms); }; }
+const renderListDebounced=_debounce(()=>renderList(),160);
+const filterBaeumeTableDebounced=_debounce(v=>filterBaeumeTable(v),160);
+const filterDetailTableDebounced=_debounce(v=>filterDetailTable(v),160);
+
 function renderList(){
   const q=document.getElementById('search-input')?.value.toLowerCase()||'';
   let filtered=trees.filter(t=>{
@@ -1704,8 +1723,11 @@ function renderList(){
   const list=document.getElementById('tree-list');if(!list)return;
   if(filtered.length===0){list.innerHTML=`<div class="empty-state"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22V12"/><path d="M12 12C12 12 7 9 7 5a5 5 0 0 1 10 0c0 4-5 7-5 7z"/></svg><p>Keine Objekte gefunden</p></div>`;
   } else {
+    const tourMap=new Map(tours.map(t=>[t.id,t]));   // Perf: 1× statt tours.find pro Zeile
+    const prevRn=_routeNumMap; _routeNumMap=buildRouteNumMap();
+    try{
     list.innerHTML=filtered.map(tree=>{
-      const treeTours=getTreeTourIds(tree).map(id=>tours.find(t=>t.id===id)).filter(Boolean);
+      const treeTours=getTreeTourIds(tree).map(id=>tourMap.get(id)).filter(Boolean);
       // Bei angezeigter Tour deren Farbe bevorzugen
       const primaryT=(activeTourOnMap&&treeTours.find(t=>t.id===activeTourOnMap))||treeTours[0]||null;
       const color=primaryT?.color||null;
@@ -1714,12 +1736,12 @@ function renderList(){
       const rNum=getRouteNum(tree.id);
       const numBadge=rNum!=null?`<span class="badge" style="background:${color||'#6b6760'}22;color:${color||'#6b6760'};font-family:monospace;">#${rNum}</span>`:'';
       const sel=selectedTreeId===tree.id?' selected':'';
-      const tourBadges=treeTours.map(t=>`<span class="badge" style="background:${t.color}22;color:${t.color};">${t.name}</span>`).join('');
+      const tourBadges=treeTours.map(t=>`<span class="badge" style="background:${t.color}22;color:${t.color};">${dlEsc(t.name)}</span>`).join('');
       return `<div class="tree-item${sel}" data-treeid="${tree.id}">
         <div class="tree-icon" style="background:${bg};">🌳</div>
         <div class="tree-info">
-          <div class="tree-name">${tree.name||'–'}</div>
-          <div class="tree-meta">${tree.art||'Unbekannt'} · ${tree.stadtteil||''}</div>
+          <div class="tree-name">${dlEsc(tree.name||'–')}</div>
+          <div class="tree-meta">${dlEsc(tree.art||'Unbekannt')} · ${dlEsc(tree.stadtteil||'')}</div>
           <div class="tree-badges">
             ${numBadge}
             ${tourBadges}
@@ -1728,6 +1750,7 @@ function renderList(){
         </div>
       </div>`;
     }).join('');
+    } finally { _routeNumMap=prevRn; }
     // Event delegation — reliable, no escaping issues
     list.onclick=e=>{
       const item=e.target.closest('[data-treeid]');
@@ -3123,26 +3146,27 @@ function renderBaeumeTableWith(treeList){
   ).join('');
 
   let rows='';
+  const tourMap=new Map(tours.map(t=>[t.id,t]));   // Perf: 1× statt tours.find pro Zeile
+  const prevRn=_routeNumMap; _routeNumMap=buildRouteNumMap();
   sorted.forEach(tree=>{
-    const tour=tours.find(t=>t.id===tree.tourId);
     const inact=!isActive(tree);
     const zCl={gut:'badge-ok',mittel:'badge-warn',schlecht:'badge-crit'}[tree.zustand]||'badge-gray';
     const zLbl={gut:'Gut',mittel:'Mittel',schlecht:'Schlecht'}[tree.zustand]||tree.zustand||'–';
     const wLbl={gering:'Gering',mittel:'Mittel',hoch:'Hoch'}[tree.wasser]||'–';
     const rNum=getRouteNum(tree.id);
     const pzt=tree.pflanzzeitpunkt||'–';
-    const rowTours=getTreeTourIds(tree).map(id=>tours.find(t=>t.id===id)).filter(Boolean);
+    const rowTours=getTreeTourIds(tree).map(id=>tourMap.get(id)).filter(Boolean);
     rows+=`<tr style="border-top:1px solid var(--border);transition:background .1s;cursor:pointer;${inact?'opacity:.55;':''}" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''" data-treeid="${tree.id}">
       <td style="padding:8px 12px;font-family:'DM Mono',monospace;color:var(--text3);font-size:11px;white-space:nowrap;">${rNum!=null?'<b style=color:var(--green)>#'+rNum+'</b>':'–'}</td>
-      <td style="padding:8px 12px;font-family:'DM Mono',monospace;font-size:11px;font-weight:600;color:var(--green);white-space:nowrap;">${tree.baumId||'–'}</td>
-      <td style="padding:8px 12px;font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${tree.name||''}">${inact?'<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:9px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);margin-right:5px;">INAKTIV</span>':''}${tree.name||'–'}</td>
-      <td style="padding:8px 12px;color:var(--text2);white-space:nowrap;">${tree.stadtteil||'–'}</td>
-      <td style="padding:8px 12px;color:var(--text2);font-family:'DM Mono',monospace;font-size:11px;white-space:nowrap;">${tree.baumnr||'–'}</td>
-      <td style="padding:8px 12px;color:var(--text2);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${tree.art||''}">${tree.art||'–'}</td>
-      <td style="padding:8px 12px;color:var(--text2);white-space:nowrap;">${tree.pflanzjahr||'–'}</td>
-      <td style="padding:8px 12px;color:var(--text2);white-space:nowrap;font-size:12px;">${pzt}</td>
+      <td style="padding:8px 12px;font-family:'DM Mono',monospace;font-size:11px;font-weight:600;color:var(--green);white-space:nowrap;">${dlEsc(tree.baumId||'–')}</td>
+      <td style="padding:8px 12px;font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${dlEsc(tree.name||'')}">${inact?'<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:9px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);margin-right:5px;">INAKTIV</span>':''}${dlEsc(tree.name||'–')}</td>
+      <td style="padding:8px 12px;color:var(--text2);white-space:nowrap;">${dlEsc(tree.stadtteil||'–')}</td>
+      <td style="padding:8px 12px;color:var(--text2);font-family:'DM Mono',monospace;font-size:11px;white-space:nowrap;">${dlEsc(tree.baumnr||'–')}</td>
+      <td style="padding:8px 12px;color:var(--text2);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${dlEsc(tree.art||'')}">${dlEsc(tree.art||'–')}</td>
+      <td style="padding:8px 12px;color:var(--text2);white-space:nowrap;">${dlEsc(tree.pflanzjahr||'–')}</td>
+      <td style="padding:8px 12px;color:var(--text2);white-space:nowrap;font-size:12px;">${dlEsc(pzt)}</td>
       <td style="padding:8px 12px;"><span class="badge ${zCl}">${zLbl}</span></td>
-      <td style="padding:8px 12px;white-space:nowrap;">${rowTours.length?rowTours.map(t=>`<span style="font-size:11px;font-weight:600;color:${t.color};">${t.name}</span>`).join('<br>'):'<span style="color:var(--text3);font-size:12px;">–</span>'}</td>
+      <td style="padding:8px 12px;white-space:nowrap;">${rowTours.length?rowTours.map(t=>`<span style="font-size:11px;font-weight:600;color:${t.color};">${dlEsc(t.name)}</span>`).join('<br>'):'<span style="color:var(--text3);font-size:12px;">–</span>'}</td>
       <td style="padding:8px 12px;color:var(--text2);white-space:nowrap;">${wLbl}</td>
       <td style="padding:8px 12px;color:var(--text2);font-family:'DM Mono',monospace;font-size:11px;white-space:nowrap;">${tree.datum||'–'}</td>
       <td style="padding:8px 12px;">${!tree.lat||!tree.lng?'<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:#fef3c7;color:#b45309;white-space:nowrap;">Kein GPS</span>':''}</td>
@@ -3151,10 +3175,12 @@ function renderBaeumeTableWith(treeList){
       </td>
     </tr>`;
   });
+  _routeNumMap=prevRn;
+  const _atOnMap=tourMap.get(activeTourOnMap);
 
   wrap.innerHTML=`
     <div style="padding:12px 20px 8px;display:flex;align-items:center;gap:16px;flex-shrink:0;border-bottom:1px solid var(--border);background:var(--surface);">
-      <span style="font-size:13px;font-weight:600;color:var(--text);">${sorted.length} Objekte${activeTourOnMap?' — <span style=color:'+tours.find(t=>t.id===activeTourOnMap)?.color+';font-weight:700>'+tours.find(t=>t.id===activeTourOnMap)?.name+'</span>':''}</span>
+      <span style="font-size:13px;font-weight:600;color:var(--text);">${sorted.length} Objekte${activeTourOnMap&&_atOnMap?' — <span style=color:'+_atOnMap.color+';font-weight:700>'+dlEsc(_atOnMap.name)+'</span>':''}</span>
       <span style="font-size:12px;color:var(--text3);">Klick auf Zeile → Karte</span>
     </div>
     <div style="overflow:auto;flex:1;">
@@ -4551,8 +4577,9 @@ function renderDetailTable(reported,skipCache){
     return;
   }
 
+  const tourMap=new Map(tours.map(t=>[t.id,t]));   // Perf: 1× statt tours.find pro Zeile
   body.innerHTML=reported.map((tree,idx)=>{
-    const tour=tours.find(t=>t.id===tree.tourId);
+    const tour=tourMap.get(tree.tourId);
     const st=tree.lastStatus;
     const stHtml=st==='bewaessert'
       ?'<span style="color:#16a34a;font-weight:600;">✓ Erledigt</span>'
@@ -4579,14 +4606,14 @@ function renderDetailTable(reported,skipCache){
     const rowBg=tree._fromHistory?'background:var(--surface2);':'';
     return `<tr style="border-top:1px solid var(--border);${rowBg}" onmouseenter="this.style.background='#f0ede6'" onmouseleave="this.style.background='${tree._fromHistory?'var(--surface2)':''}'"  >
       <td style="padding:8px 12px;font-size:11px;color:var(--text3);font-family:monospace;">${idx+1}</td>
-      <td style="padding:8px 12px;font-size:11px;font-weight:600;color:var(--green);white-space:nowrap;">${tree._projectName||currentProjectData?.name||'–'}</td>
-      <td style="padding:8px 12px;font-size:12px;font-weight:500;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${tree.name||''}">${tree.name||'–'}</td>
-      <td style="padding:8px 12px;font-size:11px;color:var(--text2);font-family:monospace;white-space:nowrap;">${tree.baumnr||'–'}</td>
-      <td style="padding:8px 12px;font-size:12px;color:var(--text2);white-space:nowrap;">${tree.stadtteil||'–'}</td>
-      <td style="padding:8px 12px;font-size:12px;">${tour?`<span style="font-weight:600;color:${tour.color};">${tour.name}</span>`:'–'}</td>
+      <td style="padding:8px 12px;font-size:11px;font-weight:600;color:var(--green);white-space:nowrap;">${dlEsc(tree._projectName||currentProjectData?.name||'–')}</td>
+      <td style="padding:8px 12px;font-size:12px;font-weight:500;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${dlEsc(tree.name||'')}">${dlEsc(tree.name||'–')}</td>
+      <td style="padding:8px 12px;font-size:11px;color:var(--text2);font-family:monospace;white-space:nowrap;">${dlEsc(tree.baumnr||'–')}</td>
+      <td style="padding:8px 12px;font-size:12px;color:var(--text2);white-space:nowrap;">${dlEsc(tree.stadtteil||'–')}</td>
+      <td style="padding:8px 12px;font-size:12px;">${tour?`<span style="font-weight:600;color:${tour.color};">${dlEsc(tour.name)}</span>`:'–'}</td>
       <td style="padding:8px 12px;font-size:12px;white-space:nowrap;">${stHtml}</td>
-      <td style="padding:8px 12px;font-size:12px;color:var(--text2);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${tree.lastReason||''}">${tree.lastReason||'–'}</td>
-      <td style="padding:8px 12px;font-size:12px;color:var(--text2);white-space:nowrap;">${tree.lastDriver||'–'}</td>
+      <td style="padding:8px 12px;font-size:12px;color:var(--text2);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${dlEsc(tree.lastReason||'')}">${dlEsc(tree.lastReason||'–')}</td>
+      <td style="padding:8px 12px;font-size:12px;color:var(--text2);white-space:nowrap;">${dlEsc(tree.lastDriver||'–')}</td>
       <td style="padding:8px 12px;font-size:11px;color:var(--text2);white-space:nowrap;">${dateDisplay}</td>
       <td style="padding:6px 10px;">
         <button onclick="ctrlShowOnMap('${tree.id}')" style="padding:3px 9px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;display:flex;align-items:center;gap:4px;white-space:nowrap;">
@@ -6211,7 +6238,7 @@ Object.assign(window,{
   startAssignMode,setAssignTour,cancelAssign,assignTreeToTour,
   openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,
   addWmsLayer,deleteWmsLayer,renderWmsList,
-  setFilter,pickColor,renderList,
+  setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,toggleTourCounts,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,saveOrgCode,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
