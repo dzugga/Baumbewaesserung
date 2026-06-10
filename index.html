@@ -213,6 +213,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .ctx-item.danger:hover{background:var(--red-light)}
 .ctx-sep{height:1px;background:var(--border);margin:3px 0}
 .hide-tour-counts .tour-count-badge{display:none !important}
+/* Leaflet Ebenen-Umschalter ("Kartenanzeige") an die Karten-Buttons angleichen — oben links */
+.leaflet-top.leaflet-left .leaflet-control-layers{margin:14px 0 0 14px !important;border:none !important;box-shadow:none !important;background:transparent !important}
+.leaflet-control-layers-toggle{width:34px !important;height:34px !important;background-color:var(--surface) !important;background-size:18px 18px !important;background-position:center !important;border:1px solid var(--border) !important;border-radius:var(--radius) !important;box-shadow:var(--shadow-md) !important}
+.leaflet-control-layers-expanded{padding:8px 10px !important;background:var(--surface) !important;border:1px solid var(--border) !important;border-radius:var(--radius) !important;box-shadow:var(--shadow-md) !important}
 </style>
 </head>
 <body>
@@ -393,7 +397,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       <canvas id="lasso-canvas" class="lasso-canvas"></canvas>
 
       <!-- Unified assign banner — outside toolbar so pointer-events work -->
-      <div class="lasso-banner" id="assign-lasso-banner" style="position:absolute;top:12px;left:12px;z-index:1002;pointer-events:all;">
+      <div class="lasso-banner" id="assign-lasso-banner" style="position:absolute;top:12px;left:60px;z-index:1002;pointer-events:all;">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
         Tour zuweisen:
         <div style="display:flex;align-items:center;gap:6px;">
@@ -424,36 +428,36 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       </div>
       <!-- Planen (Objekte den Touren zuweisen) -->
       <button id="btn-planen" onclick="startAssignMode()" title="Planen"
-        style="position:absolute;top:14px;right:14px;z-index:450;display:flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);color:var(--text2);cursor:pointer;">
+        style="position:absolute;top:52px;left:14px;z-index:450;display:flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);color:var(--text2);cursor:pointer;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
       </button>
       <!-- Routenlinien ein-/ausblenden -->
       <button id="btn-toggle-routes" onclick="toggleRouteLines()" title="Routenlinien ausblenden"
-        style="position:absolute;top:52px;right:14px;z-index:450;display:flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);color:var(--text2);cursor:pointer;">
+        style="position:absolute;top:90px;left:14px;z-index:450;display:flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);color:var(--text2);cursor:pointer;">
         <svg id="btn-toggle-routes-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
       </button>
       <!-- Filter ein-/ausblenden -->
       <button id="btn-toggle-filter" onclick="toggleMapFilter()" title="Filter"
-        style="position:absolute;top:90px;right:14px;z-index:450;display:flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);color:var(--text2);cursor:pointer;">
+        style="position:absolute;top:128px;left:14px;z-index:450;display:flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);color:var(--text2);cursor:pointer;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
       </button>
       <!-- Tour-Zähler (orange Badges) ein-/ausblenden -->
       <button id="btn-toggle-counts" onclick="toggleTourCounts()" title="Tour-Zähler ein/aus"
-        style="position:absolute;top:128px;right:14px;z-index:450;display:flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;background:var(--green-light);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);color:var(--text2);cursor:pointer;">
+        style="position:absolute;top:166px;left:14px;z-index:450;display:flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;background:var(--green-light);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);color:var(--text2);cursor:pointer;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>
       </button>
       <!-- Auf ganze Stadt zoomen -->
       <button id="btn-fit-city" onclick="fitToCity()" title="Auf ganze Stadt zoomen"
-        style="position:absolute;top:166px;right:14px;z-index:450;display:flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);color:var(--text2);cursor:pointer;">
+        style="position:absolute;top:204px;left:14px;z-index:450;display:flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);color:var(--text2);cursor:pointer;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/><circle cx="12" cy="12" r="2.5"/></svg>
       </button>
       <!-- Tour simulieren (nur bei 1 Tour mit Route) -->
       <button id="btn-sim-tour" onclick="simulateActiveTour()" title="Tour simulieren"
-        style="display:none;position:absolute;top:204px;right:14px;z-index:450;align-items:center;justify-content:center;width:34px;height:34px;padding:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);color:var(--text2);cursor:pointer;">
+        style="display:none;position:absolute;top:242px;left:14px;z-index:450;align-items:center;justify-content:center;width:34px;height:34px;padding:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);color:var(--text2);cursor:pointer;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
       </button>
-      <!-- Filter-Panel (per JS befüllt) — öffnet links der Knopf-Spalte -->
-      <div id="map-filter-panel" style="display:none;position:absolute;top:90px;right:56px;z-index:460;width:280px;max-width:calc(100% - 70px);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);">
+      <!-- Filter-Panel (per JS befüllt) — öffnet rechts der Knopf-Spalte -->
+      <div id="map-filter-panel" style="display:none;position:absolute;top:128px;left:56px;z-index:460;width:280px;max-width:calc(100% - 70px);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);">
         <div id="obj-filter"></div>
       </div>
       <!-- Abfahr-Simulation (Wiedergabe-Leiste) -->
