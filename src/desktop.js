@@ -5625,12 +5625,22 @@ function dispoSimulate(){
   const cfg=dispoGetConfig();
   const src=trees.filter(t=>t.lat&&t.lng);
   if(src.length<5){ notify('Keine Standorte verfügbar – bitte Projekt mit Objekten öffnen'); return; }
-  const shuffled=[...src].sort(()=>Math.random()-0.5).slice(0, Math.min(cfg.binCount, src.length));
-  const bins=shuffled.map((t,i)=>({
-    id:'pk'+i, name:'Papierkorb '+(i+1), stadtteil:t.stadtteil||'', lat:t.lat, lng:t.lng,
-    fuellstand:Math.floor(Math.random()*101),
-    fillRate:5+Math.floor(Math.random()*26), // %/Tag (simuliert)
-  }));
+  // Gewünschte Anzahl IMMER liefern: erst echte Standorte, darüber hinaus gestreute
+  // Punkte rund um vorhandene Standorte (Simulation ist ohnehin fiktiv).
+  const n=Math.max(1,cfg.binCount|0);
+  const shuffled=[...src].sort(()=>Math.random()-0.5);
+  const bins=[];
+  for(let i=0;i<n;i++){
+    const base=shuffled[i%shuffled.length];
+    const extra=i>=shuffled.length; // über die echten Standorte hinaus → Position streuen (~±600 m)
+    const lat=base.lat+(extra?(Math.random()-0.5)*0.011:0);
+    const lng=base.lng+(extra?(Math.random()-0.5)*0.017:0);
+    bins.push({
+      id:'pk'+i, name:'Papierkorb '+(i+1), stadtteil:base.stadtteil||'', lat:+lat.toFixed(6), lng:+lng.toFixed(6),
+      fuellstand:Math.floor(Math.random()*101),
+      fillRate:5+Math.floor(Math.random()*26), // %/Tag (simuliert)
+    });
+  }
   dispoSetBins(bins);
   window.__dispoPlan=null;
   dispoRenderResults(); dispoRenderMap();
