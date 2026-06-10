@@ -8,10 +8,10 @@ const admin = require('firebase-admin');
 Object.assign(exports, require('./auth'));
 
 const PROJECT = 'baumbewaesserung';
-const FUNC_REGION = 'europe-west3';   // Function läuft in Frankfurt (wie Firestore/Storage)
-const VERTEX_LOCATION = 'us-central1'; // Vertex-AI-Endpunkt (Gemini-Modellverfügbarkeit) — bewusst getrennt
+const FUNC_REGION = 'europe-west3';    // Function läuft in Frankfurt (wie Firestore/Storage)
+const VERTEX_LOCATION = 'europe-west3'; // Vertex-AI-Endpunkt ebenfalls Frankfurt (gemini-2.5-flash dort verfügbar; -pro nicht)
 const DEFAULT_MODEL = 'gemini-2.5-flash';
-const ALLOWED_MODELS = ['gemini-2.5-flash', 'gemini-2.5-pro'];
+const ALLOWED_MODELS = ['gemini-2.5-flash'];
 const MAX_PROMPT = 100000; // Zeichen-Obergrenze gegen Missbrauch/Kosten
 
 // OAuth-Access-Token vom Metadata-Server holen (läuft in Cloud Functions/Run automatisch)

@@ -17,8 +17,8 @@ export const HANDBUCH = [
         text: 'Jede Person hat eine Rolle, die bestimmt, welche Apps und Module sichtbar sind und ob Änderungen erlaubt sind.\n• Standard-Rollen: Administrator (alles), Planer (planen/bearbeiten), Erfasser (Erfassungs-App), Fahrer (Fahrer-App), Nur-Lesen.\n• Eigene Rollen mit Modulfreigaben kann der Administrator unter Admin → Benutzer → Rollen anlegen.' },
       { title: 'Mandanten / Städte', keywords: ['mandant', 'stadt', 'orgid', 'mehrere städte', 'stadtwechsel'],
         text: 'Die Software ist mandantenfähig: Jede Stadt sieht ausschließlich ihre eigenen Daten (Objekte, Touren, Personen, Einstellungen).\nStadt-spezifisch sind u. a.: Stadt-Code, KI-Analyse-Modus, Routing-API-Key, WMS-Kartenebenen und die Personenverwaltung.' },
-      { title: 'Datenstandort & Datenschutz', keywords: ['dsgvo', 'datenschutz', 'frankfurt', 'region', 'server', 'speicherort'],
-        text: 'Datenbank, Dateispeicher (Fotos) und Serverfunktionen laufen in Frankfurt (Google Cloud, Region europe-west3).\nPINs werden ausschließlich als Hash gespeichert; Fahrer-Logins laufen über eine geschützte Serverfunktion.' },
+      { title: 'Datenstandort & Datenschutz', keywords: ['dsgvo', 'datenschutz', 'frankfurt', 'region', 'server', 'speicherort', 'datenschutzhinweise', 'hinweise'],
+        text: 'Datenbank, Dateispeicher (Fotos), Serverfunktionen und auch die KI-Auswertung (Gemini) laufen in Frankfurt (Google Cloud, Region europe-west3).\nPINs werden ausschließlich als Hash gespeichert; Fahrer-Logins laufen über eine geschützte Serverfunktion. Es gibt kein Tracking und keine Werbe-Cookies.\nDie vollständigen Datenschutzhinweise (Art. 13 DSGVO) sind auf jeder Anmeldeseite verlinkt und unter /datenschutz.html erreichbar.' },
     ],
   },
   {
