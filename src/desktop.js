@@ -270,11 +270,13 @@ map.on('click',e=>{
 
 // ─── SYNC INDICATOR ───────────────────────────────────────────
 function setSyncState(state,text){
-  const dot=document.getElementById('app-sync')?.querySelector('.sync-dot');
+  const ind=document.getElementById('app-sync');
+  const dot=ind?.querySelector('.sync-dot');
   const txt=document.getElementById('app-sync-text');
   if(!dot)return;
   dot.className='sync-dot'+(state==='syncing'?' syncing':state==='error'?' error':'');
   if(txt)txt.textContent=text;
+  if(ind&&text)ind.title=text; // Status als Tooltip (Text ausgeblendet)
 }
 
 // ─── PROJECT SCREEN ───────────────────────────────────────────
@@ -5965,9 +5967,15 @@ function showLogin(msg){
 }
 function hideLogin(){ const ls=document.getElementById('login-screen'); if(ls) ls.style.display='none'; }
 function updateUserChip(){
-  const el=document.getElementById('user-chip-text');
-  const roleLbl=(rolesCache[currentRole]?.name)||currentRole;
-  if(el) el.textContent=(currentName||currentUser?.email||'')+(roleLbl?(' · '+roleLbl):'');
+  const roleLbl=(rolesCache[currentRole]?.name)||currentRole||'';
+  const base=(currentName||currentUser?.email||'').trim();
+  const el=document.getElementById('user-chip-text'); if(el) el.textContent=base+(roleLbl?(' · '+roleLbl):'');
+  const av=document.getElementById('user-avatar');
+  if(av){ let ini='–';
+    if(base){ if(/\s/.test(base)){ const p=base.split(/\s+/).filter(Boolean); ini=(p[0][0]+(p[1]?.[0]||'')).toUpperCase(); } else { ini=base.split('@')[0].slice(0,2).toUpperCase(); } }
+    av.textContent=ini; }
+  const nm=document.getElementById('user-menu-name'); if(nm) nm.textContent=(currentUser?.email||currentName||'–');
+  const rl=document.getElementById('user-menu-role'); if(rl) rl.textContent=roleLbl||'–';
 }
 let loginMode='pin';
 function toggleLoginMode(){
