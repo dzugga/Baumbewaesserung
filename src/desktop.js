@@ -338,6 +338,7 @@ async function createProject(){
 async function openProject(projectId){
   if(unsubProjects){ unsubProjects(); unsubProjects=null; } // Projekt-Listener stoppen (spart Hintergrund-Reads)
   _routesCache={};_routesLoadedFor=null; // Routen-Cache für neues Projekt verwerfen
+  _cityFitDone=false; // Karte beim Öffnen einmal auf die Stadt zoomen
   currentProjectId=projectId;
   window._tourHistoryCache=null;   // Historie des alten Projekts verwerfen
   _dataViewProject=null;           // Controlling/Dashboard für neues Projekt neu aufbauen
@@ -406,6 +407,7 @@ function subscribeToProject(){
     trees=snap.docs.map(d=>({id:d.id,...d.data()}));
     refreshMarkers();renderList();
     maybeHealCount('treeCount',trees.length);
+    maybeFitCity(); // beim ersten Laden auf die Stadt zoomen
     if(currentView==='baeume'){
       const artenTab=document.getElementById('baeume-arten');
       if(artenTab && getComputedStyle(artenTab).display!=='none') renderArtenView();
@@ -1168,6 +1170,22 @@ function zoomToUnplanned(){
   const lngs=unplanned.map(t=>t.lng).sort((a,b)=>a-b);
   const q=(arr,p)=>arr[Math.min(arr.length-1,Math.max(0,Math.floor(arr.length*p)))];
   map.fitBounds(L.latLngBounds([[q(lats,0.05),q(lngs,0.05)],[q(lats,0.95),q(lngs,0.95)]]),{padding:[60,60],maxZoom:15});
+}
+// Auf die ganze Stadt (alle aktiven Objekte + Depot) zoomen
+let _cityFitDone=false;
+function fitToCity(){
+  if(!map) return;
+  const pts=trees.filter(t=>isActive(t)&&t.lat&&t.lng).map(t=>[t.lat,t.lng]);
+  const depot=getDepot(); if(depot?.lat&&depot?.lng) pts.push([depot.lat,depot.lng]);
+  if(!pts.length) return;
+  map.invalidateSize();
+  map.fitBounds(L.latLngBounds(pts),{padding:[50,50],maxZoom:16});
+}
+// Einmaliges Auto-Fit beim Öffnen eines Projekts (Standardansicht ohne Tour-Auswahl)
+function maybeFitCity(){
+  if(_cityFitDone || currentView!=='karte') return;
+  if(activeTours.size || showUnplanned){ _cityFitDone=true; return; } // Auswahl bringt eigenen Zoom
+  if(trees.some(t=>isActive(t)&&t.lat&&t.lng)){ fitToCity(); _cityFitDone=true; }
 }
 async function applyTourSelection(fit){
   if(simState.active) stopSimulation();
@@ -2643,7 +2661,7 @@ function switchView(v){
   const planenBtn=document.getElementById('btn-planen');
   if(planenBtn) planenBtn.style.display=v==='karte'?'flex':'none';
   // Karte: always visible underneath, just hidden by overlays
-  if(v==='karte') setTimeout(()=>map.invalidateSize(),10);
+  if(v==='karte') setTimeout(()=>{ map.invalidateSize(); maybeFitCity(); },10);
   if(v==='baeume'){ switchBaeumeTab('objekte'); renderBaeumeTable(); }
   if(v==='touren'){
     document.getElementById('view-touren').style.display='flex';
@@ -5926,7 +5944,7 @@ Object.assign(window,{
   openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,
   addWmsLayer,deleteWmsLayer,renderWmsList,
   setFilter,pickColor,renderList,
-  toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,toggleTourCounts,simulateActiveTour,
+  toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,toggleTourCounts,simulateActiveTour,fitToCity,
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
