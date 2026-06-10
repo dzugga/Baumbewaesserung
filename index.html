@@ -612,6 +612,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 </div>
 
 <!-- BAUM MODAL -->
+<style>
+  /* Objekt-Formular kompakt (alles möglichst auf einen Blick) */
+  #tree-modal .form-group{margin-bottom:8px;}
+  #tree-modal .form-label{font-size:10px;margin-bottom:3px;}
+  #tree-modal .form-control{padding:7px 10px;font-size:13px;}
+  #tree-modal .form-section{margin:10px 0 6px;}
+  #tree-modal .modal-body{padding:12px 18px;}
+</style>
 <div class="modal-backdrop" id="tree-modal">
   <div class="modal" style="width:640px;max-width:96vw;">
     <div class="modal-header">
@@ -619,7 +627,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       <span id="modal-tree-title">Objekt hinzufügen</span>
       <button class="panel-close" style="margin-left:auto;" onclick="closeTreeModal()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
     </div>
-    <div class="modal-body">
+    <div id="modal-tree-tabs" style="display:none;gap:18px;padding:0 18px;border-bottom:1px solid var(--border);flex-shrink:0;">
+      <button id="mtab-form" onclick="switchModalTab('form')" style="background:none;border:none;border-bottom:2px solid var(--green);color:var(--text);font-weight:600;font-size:13px;font-family:inherit;padding:8px 2px;cursor:pointer;">Objekt</button>
+      <button id="mtab-verlauf" onclick="switchModalTab('verlauf')" style="background:none;border:none;border-bottom:2px solid transparent;color:var(--text3);font-weight:400;font-size:13px;font-family:inherit;padding:8px 2px;cursor:pointer;">Verlauf</button>
+    </div>
+    <div class="modal-body" id="modal-body-form">
       <div id="modal-coord-info" style="background:var(--green-light);border-radius:var(--radius-sm);padding:8px 12px;font-size:12px;color:var(--green);margin-bottom:12px;display:none;"></div>
       <div class="form-section">Stammdaten</div>
       <div class="form-group"><label class="form-label" id="label-f-name">Anlage / Straße *</label><input class="form-control" id="f-name" placeholder="z.B. Berliner Platz 23"></div>
@@ -632,12 +644,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <div class="form-group"><label class="form-label" id="label-f-pflanzjahr">Jahr</label><input class="form-control" id="f-pflanzjahr" placeholder="z.B. 2025/2026"></div>
       </div>
       <div class="form-group"><label class="form-label" id="label-f-pflanzzeitpunkt">Zeitpunkt</label><input class="form-control" id="f-pflanzzeitpunkt" placeholder="z.B. 17.03.2026 13:29"></div>
-      <div class="form-section">Standort</div>
-      <div class="form-row">
-        <div class="form-group"><label class="form-label">Breitengrad (Lat)</label><input class="form-control" id="f-lat" type="number" step="0.000001" placeholder="51.050407"></div>
-        <div class="form-group"><label class="form-label">Längengrad (Lng)</label><input class="form-control" id="f-lng" type="number" step="0.000001" placeholder="13.737262"></div>
+      <!-- Standort ausgeblendet (Position wird über die Karte gesetzt); Felder bleiben für die Speichern-Logik erhalten -->
+      <div style="display:none;">
+        <input class="form-control" id="f-lat" type="number" step="0.000001">
+        <input class="form-control" id="f-lng" type="number" step="0.000001">
       </div>
-      <div class="coord-hint">Tipp: Fenster schließen → auf Karte klicken für genaue Platzierung</div>
       <div class="form-section" style="margin-top:10px;">Pflege</div>
       <div class="form-row">
         <div class="form-group"><label class="form-label" id="label-f-wasser">Priorität</label>
@@ -647,11 +658,15 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
           <select class="form-control" id="f-zustand"><option value="gut">Gut</option><option value="mittel" selected>Mittel</option><option value="schlecht">Schlecht</option></select>
         </div>
       </div>
-      <div class="form-group"><label class="form-label">Letzte Bewässerung</label><input class="form-control" id="f-datum" type="date"></div>
-      <div class="form-group"><label class="form-label">Tour zuweisen</label><select class="form-control" id="f-tour"><option value="">– Keine Tour –</option></select></div>
+      <!-- Letzte Bewässerung + Tour ausgeblendet (laufen über Verlauf bzw. Planung); Felder bleiben für die Speichern-Logik erhalten -->
+      <div style="display:none;">
+        <input class="form-control" id="f-datum" type="date">
+        <select class="form-control" id="f-tour"><option value="">– Keine Tour –</option></select>
+      </div>
       <div class="form-group"><label class="form-label">Bemerkungen</label><textarea class="form-control" id="f-notiz" rows="2" style="resize:vertical;"></textarea></div>
       <div id="modal-media" style="display:none;"></div>
     </div>
+    <div class="modal-body" id="modal-verlauf" style="display:none;"></div>
     <div class="modal-footer" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
       <div id="tree-danger" style="display:none;gap:8px;align-items:center;">
         <button class="btn btn-secondary" id="btn-tree-map" onclick="showTreeOnMapFromModal()" title="Auf Karte zeigen">

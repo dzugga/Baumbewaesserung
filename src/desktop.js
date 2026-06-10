@@ -1916,9 +1916,9 @@ function switchDetailTab(tab) {
   }
 }
 
-function renderVerlaufDesktop(id) {
+function renderVerlaufDesktop(id, targetEl) {
   const tree = trees.find(t => t.id === id);
-  const body = document.getElementById('panel-body-verlauf');
+  const body = targetEl || document.getElementById('panel-body-verlauf');
   if(!tree || !body) return;
   const history = [...(tree.history || [])].reverse();
   const bew = history.filter(e => e.status === 'bewaessert' || (!e.status && e.note)).length;
@@ -2083,6 +2083,22 @@ async function docAddLink(treeId){
     refreshMediaViews(treeId);
   }catch(e){ notify('Fehler: '+(e.message||e.code)); }
 }
+// Reiter „Objekt | Verlauf" im Bearbeiten-Formular (Verlauf wie im Detail-Panel)
+function switchModalTab(t){
+  const form=document.getElementById('modal-body-form'), verlauf=document.getElementById('modal-verlauf');
+  const tf=document.getElementById('mtab-form'), tv=document.getElementById('mtab-verlauf');
+  const on=el=>{ el.style.borderBottom='2px solid var(--green)'; el.style.color='var(--text)'; el.style.fontWeight='600'; };
+  const off=el=>{ el.style.borderBottom='2px solid transparent'; el.style.color='var(--text3)'; el.style.fontWeight='400'; };
+  if(t==='verlauf'){
+    form.style.display='none'; verlauf.style.display='';
+    off(tf); on(tv);
+    renderVerlaufDesktop(editingTreeId, verlauf);
+  } else {
+    form.style.display=''; verlauf.style.display='none';
+    on(tf); off(tv);
+  }
+}
+
 // Fotos & Dokumente im Bearbeiten-Formular („Objekt bearbeiten") — gleiche Funktionen wie im Detail-Panel
 function renderModalMedia(treeId){
   const el=document.getElementById('modal-media'); if(!el) return;
@@ -2167,6 +2183,8 @@ function openAddTree(lat,lng){
   editingTreeId=null;
   document.getElementById('modal-tree-title').textContent='Objekt hinzufügen';
   renderModalMedia(null); // Medien erst nach dem Anlegen (kein Objekt vorhanden)
+  const tabs=document.getElementById('modal-tree-tabs'); if(tabs) tabs.style.display='none'; // kein Verlauf bei Neuanlage
+  switchModalTab('form');
   ['f-name','f-stadtteil','f-baumnr','f-pflanzjahr','f-pflanzzeitpunkt','f-notiz'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   fillArtSelect('');
   document.getElementById('f-wasser').value='mittel';
@@ -2198,6 +2216,8 @@ async function openEditTree(id){
   editingTreeId=id;
   document.getElementById('modal-tree-title').textContent='Objekt bearbeiten';
   renderModalMedia(id); // Fotos ansehen + Dokumente öffnen/hinterlegen direkt im Formular
+  const tabs=document.getElementById('modal-tree-tabs'); if(tabs) tabs.style.display='flex';
+  switchModalTab('form');
   document.getElementById('f-name').value=tree.name||'';
   document.getElementById('f-stadtteil').value=tree.stadtteil||'';
   document.getElementById('f-baumnr').value=tree.baumnr||'';
@@ -6590,7 +6610,7 @@ Object.assign(window,{
   createProject,openProject,showProjectScreen,
   switchView,openDetail,closePanel,logWatering,
   openFoto,stepFoto,closeFoto,deleteFoto,
-  docUploadStart,docUploadFiles,docAddLink,docDelete,
+  docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
   openAddTree,openEditTree,closeTreeModal,saveTree,deleteTree,
   archiveTree,reactivateTree,archiveTreeFromModal,reactivateTreeFromModal,deleteTreeFromModal,toggleShowInactive,showTreeOnMapFromModal,
   openTourModal,closeTourModal,saveTour,deleteTour,filterTourenGrid,
