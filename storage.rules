@@ -1,0 +1,19 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Objektfotos: Pfad objektfotos/{orgId}/{projectId}/{treeId}/{datei}
+    // Mandanten-isoliert über Custom Claim orgId; Superadmin darf alles.
+    match /objektfotos/{orgId}/{rest=**} {
+      function ok() {
+        return request.auth != null
+               && (request.auth.token.orgId == orgId || request.auth.token.role == 'superadmin');
+      }
+      allow read: if ok();
+      // write deckt create/update/delete ab; bei delete ist request.resource == null
+      allow write: if ok()
+                   && (request.resource == null
+                       || (request.resource.size < 5 * 1024 * 1024
+                           && request.resource.contentType.matches('image/.*')));
+    }
+  }
+}

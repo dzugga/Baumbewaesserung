@@ -9,6 +9,7 @@ const firebaseConfig = {
 };
 const fbApp = firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore(fbApp);
+const storage = firebase.storage(fbApp);
 
 // Firestore Offline-Persistenz aktivieren
 db.enablePersistence({ synchronizeTabs: false }).catch(err => {
@@ -65,7 +66,18 @@ async function syncQueue() {
   for (const entry of q) {
     try {
       if (entry.type === 'newTree') {
-        await db.collection('projects').doc(entry.projectId).collection('trees').add(entry.data);
+        const col = db.collection('projects').doc(entry.projectId).collection('trees');
+        let treeId = entry.treeId;
+        if (treeId) await col.doc(treeId).set(entry.data, { merge: true });
+        else { treeId = (await col.add(entry.data)).id; }
+        if (entry.hasPhotos) {
+          const photos = await idbGetPhotos(treeId);
+          if (photos.length) {
+            const urls = await uploadPhotos(entry.orgId || entry.data.orgId, entry.projectId, treeId, photos.map(p => p.blob));
+            await col.doc(treeId).set({ fotos: firebase.firestore.FieldValue.arrayUnion(...urls) }, { merge: true });
+            await idbDeletePhotos(treeId);
+          }
+        }
       } else if (entry.type === 'updateCoords') {
         await db.collection('projects').doc(entry.projectId).collection('trees').doc(entry.treeId)
           .set(entry.data, { merge: true });
@@ -75,6 +87,95 @@ async function syncQueue() {
   localStorage.setItem(QUEUE_KEY, JSON.stringify(failed));
   if (q.length - failed.length > 0) toast(`✓ ${q.length - failed.length} Einträge synchronisiert`);
   updateNetworkBadge();
+}
+
+// ─── FOTOS ────────────────────────────────────────────────────
+// Bild im Browser verkleinern/komprimieren (Kosten & Bandbreite gering halten)
+function compressImage(file, maxDim = 1280, quality = 0.65) {
+  return new Promise((resolve, reject) => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let w = img.width, h = img.height;
+      if (w > h && w > maxDim) { h = Math.round(h * maxDim / w); w = maxDim; }
+      else if (h > maxDim) { w = Math.round(w * maxDim / h); h = maxDim; }
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      c.toBlob(b => b ? resolve(b) : reject(new Error('toBlob')), 'image/jpeg', quality);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Bild konnte nicht geladen werden')); };
+    img.src = url;
+  });
+}
+
+// Upload nach Storage; gibt [{u:downloadURL, t:ts}] zurück (1-Jahr-Cache → erneutes Ansehen kostet nichts)
+async function uploadPhotos(orgId, projectId, treeId, blobs) {
+  const urls = [];
+  for (const blob of blobs) {
+    const fn = Date.now().toString(36) + Math.random().toString(36).slice(2, 7) + '.jpg';
+    const ref = storage.ref(`objektfotos/${orgId}/${projectId}/${treeId}/${fn}`);
+    await ref.put(blob, { contentType: 'image/jpeg', cacheControl: 'public, max-age=31536000, immutable' });
+    urls.push({ u: await ref.getDownloadURL(), t: Date.now() });
+  }
+  return urls;
+}
+
+// Offline-Fotospeicher (IndexedDB — localStorage wäre für Bild-Blobs zu klein)
+const PHOTO_DB = 'bwt_fotos', PHOTO_STORE = 'pending';
+function idbOpen() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open(PHOTO_DB, 1);
+    r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains(PHOTO_STORE)) r.result.createObjectStore(PHOTO_STORE, { keyPath: 'key' }); };
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+}
+async function idbPutPhotos(treeId, blobs) {
+  const dbi = await idbOpen();
+  return new Promise((res, rej) => {
+    const tx = dbi.transaction(PHOTO_STORE, 'readwrite'), st = tx.objectStore(PHOTO_STORE);
+    blobs.forEach((b, i) => st.put({ key: `${treeId}|${i}`, treeId, blob: b }));
+    tx.oncomplete = () => { dbi.close(); res(); }; tx.onerror = () => { dbi.close(); rej(tx.error); };
+  });
+}
+async function idbGetPhotos(treeId) {
+  const dbi = await idbOpen();
+  return new Promise((res) => {
+    const tx = dbi.transaction(PHOTO_STORE, 'readonly'), rq = tx.objectStore(PHOTO_STORE).getAll();
+    rq.onsuccess = () => { dbi.close(); res((rq.result || []).filter(p => p.treeId === treeId)); };
+    rq.onerror = () => { dbi.close(); res([]); };
+  });
+}
+async function idbDeletePhotos(treeId) {
+  const photos = await idbGetPhotos(treeId); if (!photos.length) return;
+  const dbi = await idbOpen();
+  return new Promise((res) => {
+    const tx = dbi.transaction(PHOTO_STORE, 'readwrite'), st = tx.objectStore(PHOTO_STORE);
+    photos.forEach(p => st.delete(p.key));
+    tx.oncomplete = () => { dbi.close(); res(); }; tx.onerror = () => { dbi.close(); res(); };
+  });
+}
+
+// Foto-Aufnahme im Formular (nur „Neues Objekt")
+let pendingPhotos = []; // {blob, preview}
+function renderFotoStrip() {
+  const strip = document.getElementById('foto-strip'); if (!strip) return;
+  strip.innerHTML = pendingPhotos.map((p, i) => `
+    <div style="position:relative;width:64px;height:64px;border-radius:8px;overflow:hidden;border:1px solid var(--border);">
+      <img src="${p.preview}" style="width:100%;height:100%;object-fit:cover;">
+      <button type="button" data-i="${i}" class="foto-rm" style="position:absolute;top:2px;right:2px;width:18px;height:18px;border:none;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:13px;line-height:1;cursor:pointer;padding:0;">×</button>
+    </div>`).join('');
+}
+function clearPendingPhotos() {
+  pendingPhotos.forEach(p => { try { URL.revokeObjectURL(p.preview); } catch (e) {} });
+  pendingPhotos = []; renderFotoStrip();
+}
+async function onFotoSelected(e) {
+  const files = [...(e.target.files || [])]; e.target.value = '';
+  for (const f of files) {
+    try { const blob = await compressImage(f); pendingPhotos.push({ blob, preview: URL.createObjectURL(blob) }); }
+    catch (err) { toast('Foto konnte nicht verarbeitet werden'); }
+  }
+  renderFotoStrip();
 }
 
 // ─── STATE ────────────────────────────────────────────────────
@@ -678,6 +779,8 @@ function openFormSheet() {
   });
   document.getElementById('f-zustand').value = 'mittel';
   document.getElementById('f-wasser').value = 'mittel';
+  clearPendingPhotos();
+  const ff = document.getElementById('foto-field'); if (ff) ff.style.display = '';
   document.getElementById('form-backdrop').classList.add('open');
   document.getElementById('form-sheet').classList.add('open');
   setTimeout(() => document.getElementById('f-name').focus(), 400);
@@ -726,6 +829,7 @@ function openKoordEditSheet() {
   document.querySelector('#form-sheet .sheet-title').textContent = 'Eigenschaften bearbeiten';
   document.getElementById('form-coords-display').textContent = selectedTree.baumId || 'Eigenschaften';
   fillFormFromTree(selectedTree);
+  const ff = document.getElementById('foto-field'); if (ff) ff.style.display = 'none';
   document.getElementById('form-backdrop').classList.add('open');
   document.getElementById('form-sheet').classList.add('open');
   setTimeout(() => document.getElementById('f-name').focus(), 400);
@@ -756,6 +860,7 @@ function openOverviewEditSheet(tree, marker, type) {
   document.getElementById('form-coords-display').textContent =
     (type === 'bestand' ? (tree.baumnr || '') : (tree.baumId || '')) || (tree.name || '');
   fillFormFromTree(tree);
+  const ff = document.getElementById('foto-field'); if (ff) ff.style.display = 'none';
   document.getElementById('form-backdrop').classList.add('open');
   document.getElementById('form-sheet').classList.add('open');
   setTimeout(() => document.getElementById('f-name').focus(), 400);
@@ -806,9 +911,15 @@ async function saveNewTree() {
   localStorage.setItem('bwt_local_baumid', String(localCounter));
   const baumId = 'B-' + String(localCounter).padStart(5, '0') + '-L'; // -L = lokal
 
+  // Dokument-ID vorab erzeugen → Foto-Pfad steht vor dem Speichern fest (1 Write inkl. Foto-URLs)
+  const colRef = db.collection('projects').doc(currentProjectId).collection('trees');
+  const ref = colRef.doc();
+  const treeId = ref.id;
+  const orgId = currentProjectData?.orgId || currentOrg;
+
   // Daten VOR dem try-Block aufbauen (damit catch darauf zugreifen kann)
   const data = {
-    baumId, name,
+    id: treeId, baumId, name,
     stadtteil: document.getElementById('f-stadtteil').value,
     baumnr: document.getElementById('f-baumnr').value,
     art: document.getElementById('f-art').value,
@@ -822,8 +933,12 @@ async function saveNewTree() {
     tourId: '', datum: '', history: [],
     erfasstVon: currentErfasser,
     createdAt: new Date().toISOString(),
-    orgId: currentProjectData?.orgId || currentOrg,
+    orgId,
   };
+
+  // Fotos übernehmen (Strip leeren, damit nächstes Objekt sauber startet)
+  const photoBlobs = pendingPhotos.map(p => p.blob);
+  clearPendingPhotos();
 
   // UI sofort aktualisieren (optimistic)
   _erfassteData.push(data);
@@ -835,14 +950,12 @@ async function saveNewTree() {
 
   try {
     if (!isOnline) throw new Error('offline');
-    const docRef = await db.collection('projects').doc(currentProjectId).collection('trees').add({
-      ...data,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-    });
-    data.id = docRef.id; // id merken → nachträgliches Bearbeiten in der Übersicht möglich
-    toast(`✓ ${name} gespeichert`);
+    if (photoBlobs.length) data.fotos = await uploadPhotos(orgId, currentProjectId, treeId, photoBlobs);
+    await ref.set({ ...data, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+    toast(`✓ ${name} gespeichert${photoBlobs.length ? ` · ${photoBlobs.length} Foto(s)` : ''}`);
   } catch (e) {
-    addToQueue({ type: 'newTree', projectId: currentProjectId, data });
+    if (photoBlobs.length) { try { await idbPutPhotos(treeId, photoBlobs); } catch (_) {} }
+    addToQueue({ type: 'newTree', projectId: currentProjectId, treeId, data, orgId, hasPhotos: photoBlobs.length > 0 });
     toast(`📦 Offline gespeichert — wird synchronisiert`);
     console.warn(e);
   } finally {
@@ -898,6 +1011,14 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-save-koord').addEventListener('click', saveKoordPosition);
   document.getElementById('btn-gps-koord').addEventListener('click', () => {
     centerOnGPS(mapKoord, null, null);
+  });
+
+  // Fotos
+  document.getElementById('btn-foto-add')?.addEventListener('click', () => document.getElementById('foto-input')?.click());
+  document.getElementById('foto-input')?.addEventListener('change', onFotoSelected);
+  document.getElementById('foto-strip')?.addEventListener('click', e => {
+    const rm = e.target.closest('.foto-rm'); if (!rm) return;
+    const i = +rm.dataset.i; if (pendingPhotos[i]) { try { URL.revokeObjectURL(pendingPhotos[i].preview); } catch (_) {} pendingPhotos.splice(i, 1); renderFotoStrip(); }
   });
 
   // Modus 1

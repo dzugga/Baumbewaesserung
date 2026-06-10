@@ -378,6 +378,15 @@ button,input,select{touch-action:manipulation;}
       <label class="field-label">Notiz</label>
       <input class="field-input" id="f-notiz" placeholder="Freitext…">
     </div>
+    <div class="field-group" id="foto-field">
+      <label class="field-label">Fotos</label>
+      <div id="foto-strip" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;"></div>
+      <button type="button" class="btn btn-secondary" id="btn-foto-add" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        Foto aufnehmen
+      </button>
+      <input type="file" id="foto-input" accept="image/*" capture="environment" multiple style="display:none;">
+    </div>
   </div>
   <div class="sheet-footer">
     <button class="btn btn-secondary" style="flex:1;" id="btn-form-cancel">Abbrechen</button>
@@ -395,6 +404,7 @@ button,input,select{touch-action:manipulation;}
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
 <script type="module" src="/src/erfassung.js"></script>
 </body>
 </html>

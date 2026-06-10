@@ -36,6 +36,7 @@ const firebaseConfig = {
 };
 const app = initializeApp(firebaseConfig);
 const db  = getFirestore(app);
+const storage = firebase.storage(app);
 
 // ─── NUTZUNGS-ZÄHLUNG je Mandant (Näherung; zählt nur App-Vorgänge) ──────────
 let _usageByOrg = {};
@@ -1801,6 +1802,12 @@ function openDetail(id){
 
     ${tree.notiz?`<div style="margin:8px 0;padding:10px;background:var(--surface2);border-radius:var(--radius-sm);font-size:12px;color:var(--text2);">${tree.notiz}</div>`:''}
 
+    ${(tree.fotos&&tree.fotos.length)?`
+    <div class="form-section">Fotos (${tree.fotos.length})</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;padding:4px 0 8px;">
+      ${tree.fotos.map((f,i)=>`<img src="${f.u}" loading="lazy" onclick="openFoto('${id}',${i})" title="Foto öffnen" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--border);cursor:pointer;">`).join('')}
+    </div>`:''}
+
 `;
   document.getElementById('panel-body').innerHTML=body;
   const noCoords = !tree.lat || !tree.lng;
@@ -1902,6 +1909,59 @@ function closePanel(){
     if(pt&&pt.lat&&pt.lng) mapMarkers[prev]=makeMarker(pt);
   }
 }
+
+// ─── FOTO-LIGHTBOX ───────────────────────────────────────────────────────────
+let _fotoState=null; // {treeId, idx}
+function openFoto(treeId, idx){
+  const tree=trees.find(t=>t.id===treeId); if(!tree||!tree.fotos||!tree.fotos[idx]) return;
+  _fotoState={treeId, idx}; renderFotoLightbox();
+}
+function stepFoto(d){ if(_fotoState){ _fotoState.idx+=d; renderFotoLightbox(); } }
+function closeFoto(){ _fotoState=null; document.getElementById('foto-lightbox')?.remove(); }
+function renderFotoLightbox(){
+  if(!_fotoState) return;
+  const tree=trees.find(t=>t.id===_fotoState.treeId);
+  if(!tree||!tree.fotos||!tree.fotos.length){ closeFoto(); return; }
+  const n=tree.fotos.length; let i=((_fotoState.idx%n)+n)%n; _fotoState.idx=i;
+  const f=tree.fotos[i]; const dateStr=f.t?new Date(f.t).toLocaleDateString('de-DE'):'';
+  let ov=document.getElementById('foto-lightbox');
+  if(!ov){ ov=document.createElement('div'); ov.id='foto-lightbox'; document.body.appendChild(ov); }
+  ov.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;';
+  ov.innerHTML=`
+    <div style="position:absolute;inset:0;" onclick="closeFoto()"></div>
+    <div style="position:relative;max-width:92vw;max-height:90vh;display:flex;flex-direction:column;align-items:center;gap:12px;">
+      <img src="${f.u}" style="max-width:92vw;max-height:78vh;object-fit:contain;border-radius:8px;box-shadow:0 8px 40px rgba(0,0,0,.5);">
+      <div style="display:flex;align-items:center;gap:14px;color:#fff;font-size:13px;">
+        ${n>1?`<button onclick="stepFoto(-1)" style="background:rgba(255,255,255,.15);border:none;color:#fff;width:34px;height:34px;border-radius:50%;cursor:pointer;font-size:18px;">‹</button>`:''}
+        <span>${i+1} / ${n}${dateStr?' · '+dateStr:''}</span>
+        ${n>1?`<button onclick="stepFoto(1)" style="background:rgba(255,255,255,.15);border:none;color:#fff;width:34px;height:34px;border-radius:50%;cursor:pointer;font-size:18px;">›</button>`:''}
+        <a href="${f.u}" target="_blank" rel="noopener" style="color:#fff;">Original ↗</a>
+        ${isReadonly()?'':`<button onclick="deleteFoto()" style="background:var(--red);border:none;color:#fff;padding:6px 12px;border-radius:6px;cursor:pointer;">Löschen</button>`}
+      </div>
+    </div>
+    <button onclick="closeFoto()" style="position:absolute;top:18px;right:22px;background:rgba(255,255,255,.15);border:none;color:#fff;width:38px;height:38px;border-radius:50%;cursor:pointer;font-size:22px;">×</button>`;
+}
+async function deleteFoto(){
+  if(!_fotoState) return;
+  const tree=trees.find(t=>t.id===_fotoState.treeId); if(!tree||!tree.fotos) return;
+  const f=tree.fotos[_fotoState.idx]; if(!f) return;
+  if(!confirm('Dieses Foto endgültig löschen?')) return;
+  try{
+    try{ await storage.refFromURL(f.u).delete(); }catch(e){ if(e.code!=='storage/object-not-found') throw e; }
+    await db.collection('projects').doc(currentProjectId).collection('trees').doc(tree.id)
+      .set({fotos: firebase.firestore.FieldValue.arrayRemove(f)},{merge:true});
+    tree.fotos=tree.fotos.filter(x=>x.u!==f.u);
+    notify('✓ Foto gelöscht');
+    if(!tree.fotos.length) closeFoto(); else renderFotoLightbox();
+    if(selectedTreeId===tree.id) openDetail(tree.id);
+  }catch(e){ notify('Fehler beim Löschen: '+(e.message||e.code)); }
+}
+document.addEventListener('keydown',e=>{
+  if(!_fotoState) return;
+  if(e.key==='Escape') closeFoto();
+  else if(e.key==='ArrowLeft') stepFoto(-1);
+  else if(e.key==='ArrowRight') stepFoto(1);
+});
 
 async function saveInlineFields(id){
   if(isReadonly()){ notify('Nur Lesezugriff'); return; }
@@ -6099,6 +6159,7 @@ Object.assign(window,{
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,
   createProject,openProject,showProjectScreen,
   switchView,openDetail,closePanel,logWatering,
+  openFoto,stepFoto,closeFoto,deleteFoto,
   openAddTree,openEditTree,closeTreeModal,saveTree,deleteTree,
   archiveTree,reactivateTree,archiveTreeFromModal,reactivateTreeFromModal,deleteTreeFromModal,toggleShowInactive,showTreeOnMapFromModal,
   openTourModal,closeTourModal,saveTour,deleteTour,filterTourenGrid,
