@@ -379,6 +379,9 @@ async function openProject(projectId){
   currentProjectId=projectId;
   window._tourHistoryCache=null;   // Historie des alten Projekts verwerfen
   _dataViewProject=null;           // Controlling/Dashboard für neues Projekt neu aufbauen
+  // Suchfelder der vorigen Stadt zurücksetzen
+  ['search-input','baeume-search','tour-legend-search'].forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
+  tourLegendQuery='';
   const snap=await getDoc(doc(db,'projects',projectId));
   currentProjectData={id:projectId,...snap.data()};
   document.getElementById('active-project-name').textContent=currentProjectData.name;
