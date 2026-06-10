@@ -1809,20 +1809,21 @@ function openDetail(id){
   const currentTourIds=getTreeTourIds(tree);
   const tourOptions=tours.map(t=>`<option value="${t.id}"${currentTourIds.includes(t.id)?' selected':''}>${t.name}</option>`).join('');
 
+  // Kompakt: leere Felder ausblenden (kein „–"-Rauschen), Koordinaten ganz raus
+  const drow=(k,v,vs)=>v?`<div class="detail-field" style="padding:5px 0;"><span class="detail-key">${k}</span><span class="detail-val"${vs?` style="${vs}"`:''}>${dlEsc(''+v)}</span></div>`:'';
   let body=`
     <div class="status-bar" style="background:${statusBg};color:${statusColor};">${zLabel} — Zustand</div>
 
     <div class="form-section">Identifikation</div>
-    <div class="detail-field"><span class="detail-key">Objekt-ID</span><span class="detail-val" style="font-family:monospace;font-weight:700;color:var(--green);">${tree.baumId||'–'}</span></div>
-    <div class="detail-field"><span class="detail-key">Baumnummer</span><span class="detail-val">${tree.baumnr||'–'}</span></div>
-    <div class="detail-field"><span class="detail-key">${FL.stadtteil}</span><span class="detail-val">${tree.stadtteil||'–'}</span></div>
-    <div class="detail-field"><span class="detail-key">${FL.art}</span><span class="detail-val" style="font-style:italic;">${tree.art||'–'}</span></div>
-    <div class="detail-field"><span class="detail-key">${FL.pflanzjahr}</span><span class="detail-val">${tree.pflanzjahr||'–'}</span></div>
-    <div class="detail-field"><span class="detail-key">Pflanzzeitpunkt</span><span class="detail-val">${tree.pflanzzeitpunkt||'–'}</span></div>
-    <div class="detail-field"><span class="detail-key">Koordinaten</span><span class="detail-val" style="font-size:11px;font-family:monospace;">${tree.lat?`${tree.lat.toFixed(5)}, ${tree.lng.toFixed(5)}`:'–'}</span></div>
+    <div class="detail-field" style="padding:5px 0;"><span class="detail-key">Objekt-ID</span><span class="detail-val" style="font-family:monospace;font-weight:700;color:var(--green);">${tree.baumId||'–'}</span></div>
+    ${drow(FL.baumnr||'Baumnummer',tree.baumnr)}
+    ${drow(FL.stadtteil,tree.stadtteil)}
+    ${drow(FL.art,tree.art,'font-style:italic;')}
+    ${drow(FL.pflanzjahr,tree.pflanzjahr)}
+    ${drow(FL.pflanzzeitpunkt||'Pflanzzeitpunkt',tree.pflanzzeitpunkt)}
 
     <div class="form-section">Pflege</div>
-    <div class="detail-field">
+    <div class="detail-field" style="padding:4px 0;">
       <span class="detail-key">${FL.wasser}</span>
       <select class="form-control" id="inline-wasser" style="width:auto;padding:3px 8px;font-size:12px;">
         <option value="gering"${tree.wasser==='gering'?' selected':''}>Gering</option>
@@ -1830,7 +1831,7 @@ function openDetail(id){
         <option value="hoch"${tree.wasser==='hoch'?' selected':''}>Hoch</option>
       </select>
     </div>
-    <div class="detail-field">
+    <div class="detail-field" style="padding:4px 0;">
       <span class="detail-key">Zustand</span>
       <select class="form-control" id="inline-zustand" style="width:auto;padding:3px 8px;font-size:12px;">
         <option value="gut"${tree.zustand==='gut'?' selected':''}>Gut</option>
