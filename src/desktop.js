@@ -1862,6 +1862,20 @@ function openDetail(id){
       ${tree.fotos.map((f,i)=>`<img src="${f.u}" loading="lazy" onclick="openFoto('${id}',${i})" title="Foto öffnen" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--border);cursor:pointer;">`).join('')}
     </div>`:''}
 
+    <div class="form-section">Dokumente${(tree.dokumente&&tree.dokumente.length)?` (${tree.dokumente.length})`:''}</div>
+    <div style="display:flex;flex-direction:column;gap:5px;padding:4px 0 8px;">
+      ${(tree.dokumente||[]).map((d,i)=>`<div style="display:flex;align-items:center;gap:8px;background:var(--surface2);border-radius:8px;padding:7px 10px;">
+        <span style="flex-shrink:0;">${d.typ==='link'?'🔗':docIcon(d.name)}</span>
+        <a href="${dlEsc(d.u)}" target="_blank" rel="noopener" title="${dlEsc(d.name||'')}" style="flex:1;min-width:0;font-size:12px;font-weight:600;color:var(--text);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(d.name||'Dokument')}</a>
+        ${d.size?`<span style="font-size:10px;color:var(--text3);flex-shrink:0;">${fmtBytes(d.size)}</span>`:''}
+        ${isReadonly()?'':`<button onclick="docDelete('${id}',${i})" title="Entfernen" style="border:none;background:none;cursor:pointer;color:var(--red);font-size:15px;line-height:1;padding:0 2px;flex-shrink:0;">×</button>`}
+      </div>`).join('')}
+      ${isReadonly()?((tree.dokumente&&tree.dokumente.length)?'':'<div style="font-size:11px;color:var(--text3);">Keine Dokumente.</div>'):`<div style="display:flex;gap:6px;">
+        <button class="btn btn-secondary" style="flex:1;padding:6px;font-size:12px;" onclick="docUploadStart('${id}')">📎 Datei hochladen</button>
+        <button class="btn btn-secondary" style="flex:1;padding:6px;font-size:12px;" onclick="docAddLink('${id}')">🔗 Link hinzufügen</button>
+      </div>`}
+    </div>
+
 `;
   document.getElementById('panel-body').innerHTML=body;
   const noCoords = !tree.lat || !tree.lng;
@@ -2016,6 +2030,72 @@ document.addEventListener('keydown',e=>{
   else if(e.key==='ArrowLeft') stepFoto(-1);
   else if(e.key==='ArrowRight') stepFoto(1);
 });
+
+// ─── DOKUMENTE AM OBJEKT (Storage-Upload wie Fotos + externe Links) ─────────
+const DOC_MAX_BYTES=20*1024*1024;
+const DOC_TYPES={pdf:'application/pdf',doc:'application/msword',docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',xls:'application/vnd.ms-excel',xlsx:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',txt:'text/plain',csv:'text/csv'};
+function docIcon(n){ const e=(n||'').split('.').pop().toLowerCase(); return {pdf:'📄',doc:'📝',docx:'📝',xls:'📊',xlsx:'📊',csv:'📊',png:'🖼️',jpg:'🖼️',jpeg:'🖼️',txt:'📃'}[e]||'📎'; }
+function fmtBytes(b){ if(!b)return''; return b>1048576?(b/1048576).toFixed(1)+' MB':Math.max(1,Math.round(b/1024))+' KB'; }
+function docUploadStart(treeId){
+  if(isReadonly()){ notify('Nur Lesezugriff'); return; }
+  const inp=document.createElement('input');
+  inp.type='file'; inp.multiple=true;
+  inp.accept='.pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.txt,.csv';
+  inp.onchange=()=>docUploadFiles(treeId,[...inp.files]);
+  inp.click();
+}
+async function docUploadFiles(treeId,files){
+  const tree=trees.find(t=>t.id===treeId); if(!tree||!files.length) return;
+  const org=currentProjectData?.orgId||currentOrg;
+  const added=[];
+  for(const f of files){
+    const ext=(f.name.split('.').pop()||'').toLowerCase();
+    if(!DOC_TYPES[ext]){ notify(`„${f.name}": Dateityp nicht erlaubt (PDF, Word, Excel, Bild, Text)`); continue; }
+    if(f.size>DOC_MAX_BYTES){ notify(`„${f.name}" ist größer als 20 MB`); continue; }
+    notify(`Lade „${f.name}" hoch…`);
+    try{
+      const safe=f.name.replace(/[^\w.\-äöüÄÖÜß ]+/g,'_').slice(0,80);
+      const ref=storage.ref(`objektdokumente/${org}/${currentProjectId}/${treeId}/${Date.now().toString(36)}_${safe}`);
+      await ref.put(f,{contentType:DOC_TYPES[ext],cacheControl:'public, max-age=31536000, immutable'});
+      added.push({u:await ref.getDownloadURL(),name:f.name,size:f.size,typ:'file',t:Date.now()});
+    }catch(e){ notify(`Fehler bei „${f.name}": `+(e.message||e.code)); }
+  }
+  if(!added.length) return;
+  await db.collection('projects').doc(currentProjectId).collection('trees').doc(treeId)
+    .set({dokumente:firebase.firestore.FieldValue.arrayUnion(...added)},{merge:true});
+  tree.dokumente=[...(tree.dokumente||[]),...added];
+  notify(`✓ ${added.length} Dokument(e) hinzugefügt`);
+  if(selectedTreeId===treeId) openDetail(treeId);
+}
+async function docAddLink(treeId){
+  if(isReadonly()){ notify('Nur Lesezugriff'); return; }
+  const tree=trees.find(t=>t.id===treeId); if(!tree) return;
+  const url=(prompt('Web-Adresse des Dokuments (https://…):')||'').trim();
+  if(!url) return;
+  if(!/^https:\/\/.+/i.test(url)){ notify('Bitte eine vollständige https://-Adresse angeben'); return; }
+  const name=(prompt('Bezeichnung des Dokuments:','')||'').trim()||url.replace(/^https:\/\//i,'').slice(0,60);
+  const entry={u:url,name,typ:'link',t:Date.now()};
+  try{
+    await db.collection('projects').doc(currentProjectId).collection('trees').doc(treeId)
+      .set({dokumente:firebase.firestore.FieldValue.arrayUnion(entry)},{merge:true});
+    tree.dokumente=[...(tree.dokumente||[]),entry];
+    notify('✓ Link hinzugefügt');
+    if(selectedTreeId===treeId) openDetail(treeId);
+  }catch(e){ notify('Fehler: '+(e.message||e.code)); }
+}
+async function docDelete(treeId,idx){
+  if(isReadonly()){ notify('Nur Lesezugriff'); return; }
+  const tree=trees.find(t=>t.id===treeId); const d=tree?.dokumente?.[idx]; if(!d) return;
+  if(!confirm(`„${d.name||'Dokument'}" entfernen?${d.typ==='link'?'':' Die Datei wird endgültig gelöscht.'}`)) return;
+  try{
+    if(d.typ!=='link'){ try{ await storage.refFromURL(d.u).delete(); }catch(e){ if(e.code!=='storage/object-not-found') throw e; } }
+    await db.collection('projects').doc(currentProjectId).collection('trees').doc(treeId)
+      .set({dokumente:firebase.firestore.FieldValue.arrayRemove(d)},{merge:true});
+    tree.dokumente=tree.dokumente.filter((_,i)=>i!==idx);
+    notify('✓ Entfernt');
+    if(selectedTreeId===treeId) openDetail(treeId);
+  }catch(e){ notify('Fehler: '+(e.message||e.code)); }
+}
 
 async function saveInlineFields(id){
   if(isReadonly()){ notify('Nur Lesezugriff'); return; }
@@ -6476,6 +6556,7 @@ Object.assign(window,{
   createProject,openProject,showProjectScreen,
   switchView,openDetail,closePanel,logWatering,
   openFoto,stepFoto,closeFoto,deleteFoto,
+  docUploadStart,docUploadFiles,docAddLink,docDelete,
   openAddTree,openEditTree,closeTreeModal,saveTree,deleteTree,
   archiveTree,reactivateTree,archiveTreeFromModal,reactivateTreeFromModal,deleteTreeFromModal,toggleShowInactive,showTreeOnMapFromModal,
   openTourModal,closeTourModal,saveTour,deleteTour,filterTourenGrid,

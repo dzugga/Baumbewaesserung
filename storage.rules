@@ -3,6 +3,26 @@ service firebase.storage {
   match /b/{bucket}/o {
     // Objektfotos: Pfad objektfotos/{orgId}/{projectId}/{treeId}/{datei}
     // Mandanten-isoliert über Custom Claim orgId; Superadmin darf alles.
+    // Objektdokumente: Pfad objektdokumente/{orgId}/{projectId}/{treeId}/{datei}
+    // PDF/Office/Bilder/Text bis 20 MB; mandantenisoliert wie die Fotos.
+    match /objektdokumente/{orgId}/{rest=**} {
+      function okDoc() {
+        return request.auth != null
+               && (request.auth.token.orgId == orgId || request.auth.token.role == 'superadmin');
+      }
+      allow read: if okDoc();
+      allow write: if okDoc()
+                   && (request.resource == null
+                       || (request.resource.size < 20 * 1024 * 1024
+                           && (request.resource.contentType.matches('application/pdf')
+                               || request.resource.contentType.matches('image/.*')
+                               || request.resource.contentType.matches('application/msword')
+                               || request.resource.contentType.matches('application/vnd.openxmlformats-officedocument..*')
+                               || request.resource.contentType.matches('application/vnd.ms-excel')
+                               || request.resource.contentType.matches('text/plain')
+                               || request.resource.contentType.matches('text/csv'))));
+    }
+
     match /objektfotos/{orgId}/{rest=**} {
       function ok() {
         return request.auth != null
