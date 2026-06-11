@@ -350,7 +350,7 @@ function initProjectScreen(){
         ? `${data.treeCount??0} Objekte · ${data.tourCount??0} Touren`
         : 'beim Öffnen aktualisieren';
       return `<div class="ps-item" onclick="openProject('${d.id}')">
-        <div class="ps-item-icon">🌳</div>
+        <div class="ps-item-icon">${data.icon||'🌳'}</div>
         <div class="ps-item-info">
           <div class="ps-item-name">${data.name}</div>
           <div class="ps-item-meta">${meta}</div>
@@ -399,7 +399,9 @@ async function openProject(projectId){
   subscribeToProject();
   // Gründe des neuen Projekts laden (verhindert projektübergreifendes Hängenbleiben)
   reasons=[]; loadReasons().then(()=>{ if(currentView==='verwaltung') renderReasonsMgmt(); });
-  artenList=[]; // Arten-Liste pro Projekt verwerfen (kein projektübergreifendes Hängenbleiben)
+  artenList=[]; _artIconMap=null; // Arten-Liste pro Projekt verwerfen (kein projektübergreifendes Hängenbleiben)
+  // Arten laden, damit Marker individuelle Art-Symbole zeigen; nur neu rendern, wenn welche gesetzt sind
+  loadArten().then(()=>{ _artIconMap=null; if(artenList.some(a=>a.icon)){ refreshMarkers(); renderList(); } });
 }
 
 // Baut die aktive datengetriebene Ansicht (Controlling/Dashboard) nach einem
@@ -1096,7 +1098,7 @@ function makeMarker(tree){
   const sz=isHighlighted?36:28;
   const shadow=isHighlighted?'0 0 0 3px '+color+', 0 4px 12px rgba(0,0,0,.4)':'0 2px 6px rgba(0,0,0,.3)';
 
-  const circleHtml=`<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${color};border:${isHighlighted?4:3}px solid white;box-shadow:${shadow};display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:${isHighlighted?16:13}px;transform:${isHighlighted?'scale(1.15)':'scale(1)'};transition:all .2s;">🌳</div>`;
+  const circleHtml=`<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${color};border:${isHighlighted?4:3}px solid white;box-shadow:${shadow};display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:${isHighlighted?16:13}px;transform:${isHighlighted?'scale(1.15)':'scale(1)'};transition:all .2s;">${objIcon(tree)}</div>`;
 
   // Tour-Zähler = Anzahl der Tourzuordnungen (fix), per Button nur ausblendbar
   const multiBadge=isMulti
@@ -1747,7 +1749,7 @@ function renderList(){
       const sel=selectedTreeId===tree.id?' selected':'';
       const tourBadges=treeTours.map(t=>`<span class="badge" style="background:${t.color}22;color:${t.color};">${dlEsc(t.name)}</span>`).join('');
       return `<div class="tree-item${sel}" data-treeid="${tree.id}">
-        <div class="tree-icon" style="background:${bg};">🌳</div>
+        <div class="tree-icon" style="background:${bg};">${objIcon(tree)}</div>
         <div class="tree-info">
           <div class="tree-name">${dlEsc(tree.name||'–')}</div>
           <div class="tree-meta">${dlEsc(tree.art||'Unbekannt')} · ${dlEsc(tree.stadtteil||'')}</div>
@@ -2748,6 +2750,46 @@ function toggleRoutePlanning(){
   if(document.getElementById('touren-grid')) renderTourenGrid();
 }
 
+// ─── OBJEKT-SYMBOLE (je Projekt-Standard, je Typ/Art überschreibbar) ─────────
+const PROJ_ICON_DEFAULT='🌳';
+const ICON_CHOICES=['🌳','🌲','🌴','🌿','🍀','🌸','🌷','🌻','🪴','🍂','🗑️','🚮','🪣','♻️','💧','⛲','🚿','🪑','🛝','⚽','🚏','🅿️','🚧','💡','📍','⭐'];
+function projIcon(){ return currentProjectData?.icon||PROJ_ICON_DEFAULT; }
+let _artIconMap=null; // Art-Name -> Symbol (aus artenList)
+function objIcon(tree){
+  if(!_artIconMap){ _artIconMap={}; artenList.forEach(a=>{ if(a.icon&&a.name) _artIconMap[a.name]=a.icon; }); }
+  return (tree&&tree.art&&_artIconMap[tree.art])||projIcon();
+}
+// Symbol-Auswahl: Raster + freie Eingabe; allowDefault → „Projekt-Standard verwenden" (= Symbol entfernen)
+function pickIcon(current,cb,allowDefault){
+  const m=document.createElement('div');
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  m.innerHTML=`<div style="background:var(--surface);border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:340px;max-width:94vw;padding:16px 18px;">
+    <div style="font-size:14px;font-weight:700;margin-bottom:10px;">Symbol wählen</div>
+    <div style="display:grid;grid-template-columns:repeat(8,1fr);gap:5px;margin-bottom:12px;">
+      ${ICON_CHOICES.map(i=>`<button type="button" data-ic="${i}" style="height:34px;font-size:17px;padding:0;border:1.5px solid ${i===current?'var(--green)':'var(--border)'};border-radius:8px;background:${i===current?'var(--green-light)':'var(--bg)'};cursor:pointer;">${i}</button>`).join('')}
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:12px;">
+      <input id="ic-free" placeholder="Eigenes Symbol…" maxlength="4" style="flex:1;padding:7px 10px;font-size:14px;border:1px solid var(--border);border-radius:8px;background:var(--bg);font-family:inherit;">
+      <button type="button" id="ic-free-ok" class="btn btn-secondary" style="padding:7px 12px;font-size:12px;">Übernehmen</button>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      ${allowDefault?'<button type="button" id="ic-default" class="btn btn-secondary" style="padding:6px 12px;font-size:12px;margin-right:auto;">Projekt-Standard verwenden</button>':''}
+      <button type="button" id="ic-cancel" class="btn btn-secondary" style="padding:6px 12px;font-size:12px;">Abbrechen</button>
+    </div>
+  </div>`;
+  document.body.appendChild(m);
+  const close=()=>m.remove();
+  m.addEventListener('click',e=>{ if(e.target===m) close(); });
+  m.querySelector('#ic-cancel').onclick=close;
+  m.querySelectorAll('[data-ic]').forEach(b=>{ b.onclick=()=>{ close(); cb(b.dataset.ic); }; });
+  m.querySelector('#ic-free-ok').onclick=()=>{ const v=m.querySelector('#ic-free').value.trim(); if(!v){ notify('Bitte ein Symbol eingeben'); return; } close(); cb(v); };
+  const def=m.querySelector('#ic-default'); if(def) def.onclick=()=>{ close(); cb(null); };
+}
+function pickProjIcon(){
+  const btn=document.getElementById('s-proj-icon'); if(!btn) return;
+  pickIcon(btn.textContent.trim(),ic=>{ if(ic) btn.textContent=ic; },false);
+}
+
 function openSettings(){
   // Hide bottom route bar to avoid overlap
   document.getElementById('route-info-bar')?.classList.remove('visible');
@@ -2756,6 +2798,7 @@ function openSettings(){
   document.getElementById('s-depot-lat').value=depot?.lat||'';
   document.getElementById('s-depot-lng').value=depot?.lng||'';
   document.getElementById('s-depot-mode').value=getDepotMode();
+  const _pi=document.getElementById('s-proj-icon'); if(_pi) _pi.textContent=projIcon();
   const _ro=document.getElementById('s-route-opt'); if(_ro) _ro.value=getRouteOptMode();
   const _routeOn = getRoutePlanningEnabled();
   const _rtBtn = document.getElementById('s-toggle-route');
@@ -2885,6 +2928,7 @@ async function applySettings(){
   const addr=document.getElementById('s-depot-addr').value.trim();
   const updates={
     depotMode:document.getElementById('s-depot-mode').value,
+    icon:document.getElementById('s-proj-icon')?.textContent.trim()||PROJ_ICON_DEFAULT,
     routeOptMode:document.getElementById('s-route-opt')?.value||getRouteOptMode(),
     bewDuration:parseInt(document.getElementById('s-bew-duration')?.value)||5,
     routePlanning:getRoutePlanningEnabled(),
@@ -2895,6 +2939,7 @@ async function applySettings(){
   document.getElementById('active-project-name').textContent=updates.name;
   closeSettings();renderDepotMarker();
   await loadSavedRoutes();
+  refreshMarkers();renderList(); // neues Standard-Symbol sofort auf Karte/Liste anwenden
   notify('Einstellungen gespeichert — Route neu berechnen wenn gewünscht');
 }
 
@@ -3111,6 +3156,7 @@ async function loadArten(){
   artenList=[];
   if(!currentProjectId) return;
   try{ const qs=await getDocs(collection(db,'projects',currentProjectId,'arten')); artenList=qs.docs.map(d=>({id:d.id,...d.data()})); }catch(e){ console.warn('loadArten',e); }
+  _artIconMap=null; // Symbol-Zuordnung neu aufbauen
 }
 function artCountById(){
   const m={}; trees.forEach(t=>{ if(t.artId) m[t.artId]=(m[t.artId]||0)+1; }); return m;
@@ -3141,6 +3187,9 @@ function renderArtenList(){
   const rows=sorted.map(a=>{
     const c=byId[a.id]||0;
     return `<tr style="border-top:1px solid var(--border);">
+      <td style="padding:4px 8px 4px 12px;width:46px;">
+        <button type="button" ${ro?'disabled':`onclick="artSetIcon('${dlEsc(a.id)}')"`} title="${a.icon?'Eigenes Symbol — ändern':'Projekt-Standard — eigenes Symbol setzen'}" style="width:32px;height:32px;font-size:16px;padding:0;border:1.5px solid ${a.icon?'var(--green-mid)':'var(--border)'};border-radius:8px;background:${a.icon?'var(--green-light)':'var(--bg)'};cursor:${ro?'default':'pointer'};${a.icon?'':'opacity:.55;'}">${a.icon||projIcon()}</button>
+      </td>
       <td style="padding:7px 12px;font-weight:500;">${dlEsc(a.name)}</td>
       <td style="padding:7px 12px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text2);">${c}</td>
       <td style="padding:7px 12px;white-space:nowrap;text-align:right;">${ro?'<span style="font-size:11px;color:var(--text3);">nur Lesezugriff</span>':`
@@ -3162,6 +3211,7 @@ function renderArtenList(){
     ${artenList.length===0?'<div style="color:var(--text3);font-size:13px;padding:10px 0;">Noch keine Arten-Liste. Klicke „aufbauen/aktualisieren", um sie aus den Objekten zu erzeugen.</div>':`
     <table style="width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:13px;">
       <thead><tr style="background:var(--surface2);">
+        <th style="padding:8px 8px 8px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Symbol</th>
         <th style="padding:8px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">${FL.art}</th>
         <th style="padding:8px 12px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Häufigkeit</th>
         <th style="padding:8px 12px;"></th>
@@ -3173,6 +3223,18 @@ function renderArtenList(){
       <button class="btn btn-primary" style="padding:6px 12px;font-size:12px;white-space:nowrap;" onclick="addArt()">+ Hinzufügen</button>
     </div>`}
   </div>`;
+}
+async function artSetIcon(id){
+  if(isReadonly()) return;
+  const art=artenList.find(a=>a.id===id); if(!art) return;
+  pickIcon(art.icon||null, async ic=>{
+    try{
+      await updateDoc(doc(db,'projects',currentProjectId,'arten',id), ic?{icon:ic}:{icon:firebase.firestore.FieldValue.delete()});
+      await loadArten(); _artIconMap=null;
+      renderArtenList(); refreshMarkers(); renderList();
+      notify(ic?'✓ Symbol gesetzt':'✓ Symbol entfernt — Projekt-Standard gilt');
+    }catch(e){ notify(dlErr(e)); }
+  }, true);
 }
 async function addArt(){
   if(isReadonly()) return;
@@ -6626,6 +6688,7 @@ Object.assign(window,{
   startPlacement,cancelMode,setDepotOnMap,
   startAssignMode,setAssignTour,cancelAssign,assignTreeToTour,
   openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,
+  pickProjIcon,artSetIcon,
   addWmsLayer,deleteWmsLayer,renderWmsList,
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,toggleTourCounts,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
