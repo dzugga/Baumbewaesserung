@@ -254,18 +254,16 @@ const WMS_DEFAULTS=[
    layers:'CP.CadastralParcel', type:'overlay', format:'image/png', version:'1.1.1', transparent:true, maxZoom:20,
    attribution:'Geobasisdaten © HVBG Hessen'},
 ];
-// WMS stadtscharf: liegt am Mandanten (orgs/{orgId}.wmsLayers), in loadOrgSettings geladen.
-let currentOrgWmsLayers = null; // null = noch nicht geladen / Mandant ohne eigene Ebenen
+// WMS projektscharf: liegt am Projekt (projects/{id}.wmsLayers) — bewusst NICHT am Mandanten,
+// damit Projekte derselben Stadt (z. B. Grünpflege vs. Behälterleerung) eigene Karten haben.
 function getWmsLayers(){
-  if(Array.isArray(currentOrgWmsLayers)) return currentOrgWmsLayers.map(x=>({...x})); // stadtweit
-  if(Array.isArray(currentProjectData?.wmsLayers)) return currentProjectData.wmsLayers.map(x=>({...x})); // Legacy projektweit
-  return []; // keine region-fremden Defaults mehr (früher Hessen-fest)
+  if(Array.isArray(currentProjectData?.wmsLayers)) return currentProjectData.wmsLayers.map(x=>({...x}));
+  return []; // keine region-fremden Defaults
 }
 function saveWmsLayers(arr){
-  currentOrgWmsLayers=arr.map(x=>({...x}));
-  const org=currentProjectData?.orgId; if(!org) return;
+  if(!currentProjectId){ notify('Kein Projekt geöffnet'); return; }
   if(!(currentRole==='superadmin'||currentCap==='admin')){ notify('Nur Administratoren'); return; }
-  dlFnCall('setOrgWmsLayers',{orgId:org,layers:arr}).catch(e=>notify(fnErr(e)));
+  saveProjectSettings({wmsLayers:arr.map(x=>({...x}))}).catch(e=>notify(dlErr(e)));
 }
 function buildWmsLayer(cfg){
   return L.tileLayer.wms(cfg.url, {
@@ -515,12 +513,11 @@ function getKiMode(){ return currentKiMode || 'manual'; }
 // Mandanten-Einstellungen (KI-Modus + ORS-Key) in EINEM Org-Read laden — stadtscharf, beim Projektwechsel
 async function loadOrgSettings(){
   const org=currentProjectData?.orgId;
-  currentKiMode='manual'; currentOrgOrsKey=''; currentOrgWmsLayers=null; currentDispoConfig=null; currentDispoResources=null;
+  currentKiMode='manual'; currentOrgOrsKey=''; currentDispoConfig=null; currentDispoResources=null;
   if(org){
     try{ const os=await db.collection('orgs').doc(org).get(); if(os.exists){ const d=os.data();
       currentKiMode=d.kiMode||'manual';
       currentOrgOrsKey=d.orsKey||'';
-      currentOrgWmsLayers=Array.isArray(d.wmsLayers)?d.wmsLayers:null;
       currentDispoConfig=(d.dispoConfig&&typeof d.dispoConfig==='object')?d.dispoConfig:null;
       currentDispoResources=Array.isArray(d.dispoResources)?d.dispoResources:null;
     } }catch(e){}
