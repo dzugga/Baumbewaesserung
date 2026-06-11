@@ -365,16 +365,20 @@ async function initProjectScreen(){
     // Gespeicherte Zähler nutzen (kein Lesen der Unterkollektionen) — heilen sich beim Öffnen
     psList.innerHTML=docs.map(d=>{
       const data=d.data();
-      let meta=(data.treeCount!=null||data.tourCount!=null)
+      const meta=(data.treeCount!=null||data.tourCount!=null)
         ? `${data.treeCount??0} Objekte · ${data.tourCount??0} Touren`
         : 'beim Öffnen aktualisieren';
-      if(currentRole==='superadmin') meta+=` · ${dlEsc(_psOrgNames[data.orgId]||data.orgId||'ohne Mandant')}`;
+      // Superadmin: Mandant als deutliches Badge (Projektname muss nicht der Stadtname sein)
+      const orgBadge=currentRole==='superadmin'
+        ? `<span style="flex-shrink:0;font-size:11px;font-weight:700;background:var(--green-light);color:var(--green);padding:3px 10px;border-radius:99px;white-space:nowrap;">${dlEsc(_psOrgNames[data.orgId]||data.orgId||'ohne Mandant')}</span>`
+        : '';
       return `<div class="ps-item" onclick="openProject('${d.id}')">
         <div class="ps-item-icon">${data.icon||'🌳'}</div>
         <div class="ps-item-info">
-          <div class="ps-item-name">${data.name}</div>
+          <div class="ps-item-name">${dlEsc(data.name||'')}</div>
           <div class="ps-item-meta">${meta}</div>
         </div>
+        ${orgBadge}
         <svg class="ps-item-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg>
       </div>`;
     }).join('');
