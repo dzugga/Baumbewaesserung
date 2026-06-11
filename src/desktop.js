@@ -3,6 +3,7 @@ const APP_VERSION = '1.0';
 
 import { HANDBUCH } from './handbuch-daten.js';
 import { SI_DSGVO, SI_STACK, SI_REGIONEN, SI_APPS, SI_SICHERHEIT } from './systeminfo-daten.js';
+import { initAppCheck } from './appcheck.js';
 
 function initializeApp(cfg){ return firebase.initializeApp(cfg); }
 function getFirestore(app){ return firebase.firestore(app); }
@@ -38,6 +39,7 @@ const firebaseConfig = {
   appId: "1:1001991004222:web:1405d80d0788bd6548f16f"
 };
 const app = initializeApp(firebaseConfig);
+initAppCheck();
 const db  = getFirestore(app);
 const storage = firebase.storage(app);
 

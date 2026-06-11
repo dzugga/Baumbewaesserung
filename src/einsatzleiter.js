@@ -1,3 +1,4 @@
+import { initAppCheck } from './appcheck.js';
 // ─── FIREBASE CONFIG ──────────────────────────────────────────
 const firebaseConfig = {
   apiKey: "AIzaSyBShCcASfAG26EDyax6er6SIiqeSBrFWek",
@@ -8,6 +9,7 @@ const firebaseConfig = {
   appId: "1:1001991004222:web:1405d80d0788bd6548f16f"
 };
 const fbApp = firebase.initializeApp(firebaseConfig);
+initAppCheck();
 const db = firebase.firestore(fbApp);
 
 const TOUR_COLORS = ['#2d6a4f','#1e40af','#7c3aed','#be123c','#b45309','#0e7490','#064e3b','#b91c1c'];

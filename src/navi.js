@@ -1,3 +1,4 @@
+import { initAppCheck } from './appcheck.js';
 // HTML-Escape gegen Stored-XSS (Baum-/Tour-/Grund-Daten aus Firestore in innerHTML)
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 // Firebase compat API shims — maps modular API calls to compat SDK
@@ -51,6 +52,7 @@ const firebaseConfig = {
   appId: "1:1001991004222:web:1405d80d0788bd6548f16f"
 };
 const fbApp = initializeApp(firebaseConfig);
+initAppCheck();
 const db = getFirestore(fbApp);
 
 // ─── NAVIGATIONS-/KARTEN-ENDPUNKTE ────────────────────────────

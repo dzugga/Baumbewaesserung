@@ -1,3 +1,4 @@
+import { initAppCheck } from './appcheck.js';
 // ─── FIREBASE CONFIG ──────────────────────────────────────────
 const firebaseConfig = {
   apiKey: "AIzaSyBShCcASfAG26EDyax6er6SIiqeSBrFWek",
@@ -8,6 +9,7 @@ const firebaseConfig = {
   appId: "1:1001991004222:web:1405d80d0788bd6548f16f"
 };
 const fbApp = firebase.initializeApp(firebaseConfig);
+initAppCheck();
 const db = firebase.firestore(fbApp);
 const storage = firebase.storage(fbApp);
 
