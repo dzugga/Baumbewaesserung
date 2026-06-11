@@ -11,7 +11,7 @@
 //      App Check pro Dienst (Firestore/Storage/Functions) „erzwingen".
 //
 // Solange APP_CHECK_SITE_KEY leer ist, passiert NICHTS — sicher deploybar.
-export const APP_CHECK_SITE_KEY = ""; // ← reCAPTCHA-v3-Site-Key hier eintragen
+export const APP_CHECK_SITE_KEY = "6Le_3RktAAAAALLHmpGKCKiqj8s0JPdQJYDUcfG6"; // reCAPTCHA-v3-Site-Key (öffentlich)
 
 export function initAppCheck() {
   try {
