@@ -164,6 +164,36 @@ exports.setOrgOrsKey = onCall({ region: REGION }, async (req) => {
   return { ok: true };
 });
 
+// ── Superadmin verschiebt ein Projekt in einen anderen Mandanten ────────────
+// Aktualisiert orgId am Projekt und auf ALLEN Dokumenten der Unterkollektionen
+// (trees/tours/routes/reasons/arten/tourHistory — denormalisiert für die Rules).
+// Hinweis: Bereits hochgeladene Fotos/Dokumente bleiben unter dem alten Storage-Pfad;
+// ihre Download-URLs funktionieren weiter (Token-basiert), Löschen erfordert Superadmin.
+exports.moveProjectToOrg = onCall({ region: REGION, timeoutSeconds: 300 }, async (req) => {
+  const { role } = requireAdmin(req.auth);
+  if (role !== 'superadmin') throw new HttpsError('permission-denied', 'Nur der Superadmin kann Projekte verschieben');
+  const { projectId, targetOrgId } = req.data || {};
+  if (!projectId || !targetOrgId) throw new HttpsError('invalid-argument', 'projectId und targetOrgId erforderlich');
+  const orgSnap = await db.collection('orgs').doc(targetOrgId).get();
+  if (!orgSnap.exists) throw new HttpsError('not-found', 'Ziel-Mandant nicht gefunden');
+  const projRef = db.collection('projects').doc(projectId);
+  const projSnap = await projRef.get();
+  if (!projSnap.exists) throw new HttpsError('not-found', 'Projekt nicht gefunden');
+  await projRef.update({ orgId: targetOrgId });
+  let moved = 0;
+  const subs = await projRef.listCollections();
+  for (const col of subs) {
+    const docs = await col.get();
+    for (let i = 0; i < docs.docs.length; i += 400) {
+      const batch = db.batch();
+      docs.docs.slice(i, i + 400).forEach(d => batch.update(d.ref, { orgId: targetOrgId }));
+      await batch.commit();
+    }
+    moved += docs.size;
+  }
+  return { ok: true, moved };
+});
+
 // ── Admin setzt die WMS-Kartenebenen seines Mandanten (stadtscharf) ─────────
 exports.setOrgWmsLayers = onCall({ region: REGION }, async (req) => {
   const { role, callerOrg } = requireAdmin(req.auth);

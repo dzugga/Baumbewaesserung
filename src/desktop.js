@@ -322,9 +322,17 @@ function setSyncState(state,text){
 let unsubProjects=null;
 function initProjectScreen(){
   document.getElementById('project-screen').style.display='flex';
-  // „Neue Stadt erstellen" nur für Superadmin
+  // „Neues Projekt erstellen" nur für Superadmin — inkl. Mandanten-Auswahl
   const psNew=document.getElementById('ps-new');
   if(psNew) psNew.style.display=(currentRole==='superadmin')?'':'none';
+  const psOrg=document.getElementById('ps-new-org');
+  if(psOrg && currentRole==='superadmin'){
+    db.collection('orgs').get().then(qs=>{
+      const orgs=qs.docs.map(d=>({id:d.id,name:d.data().name||d.id})).sort((a,b)=>a.name.localeCompare(b.name));
+      psOrg.innerHTML=orgs.map(o=>`<option value="${dlEsc(o.id)}"${o.id===currentOrg?' selected':''}>${dlEsc(o.name)}</option>`).join('');
+      psOrg.style.display=orgs.length>1?'':'none';
+    }).catch(()=>{});
+  }
   if(unsubProjects)unsubProjects();
   // Superadmin sieht alle Mandanten; sonst nur die eigene Org
   const q = (currentRole==='superadmin')
@@ -367,9 +375,10 @@ async function createProject(){
   const name=document.getElementById('ps-new-name').value.trim();
   if(!name)return;
   try{
+    const targetOrg=document.getElementById('ps-new-org')?.value||currentOrg;
     const ref=await addDoc(collection(db,'projects'),{
       name, treeCount:0, tourCount:0, depot:null, orsKey:'', depotMode:'round',
-      createdAt:serverTimestamp(), orgId: currentOrg
+      createdAt:serverTimestamp(), orgId: targetOrg
     });
     document.getElementById('ps-new-name').value='';
     openProject(ref.id);
@@ -3004,6 +3013,7 @@ function switchView(v){
   const kiconfig=document.getElementById('view-kiconfig');
   const handbuch=document.getElementById('view-handbuch'); if(handbuch) handbuch.style.display=v==='handbuch'?'flex':'none';
   const wmskarten=document.getElementById('view-wmskarten'); if(wmskarten) wmskarten.style.display=v==='wmskarten'?'flex':'none';
+  const mandanten=document.getElementById('view-mandanten'); if(mandanten) mandanten.style.display=v==='mandanten'?'flex':'none';
   const disposition=document.getElementById('view-disposition');
   const verwaltung=document.getElementById('view-verwaltung');
   const usage=document.getElementById('view-usage'); if(usage) usage.style.display=v==='usage'?'block':'none';
@@ -3042,6 +3052,7 @@ function switchView(v){
   if(v==='kiconfig') renderKiConfig();
   if(v==='handbuch') renderHandbuch();
   if(v==='wmskarten') renderWmsList();
+  if(v==='mandanten') renderMandanten();
   if(v==='disposition') initDispo();
   if(v==='verwaltung') initVerwaltung();
   if(v==='feldbezeichnungen') initFeldbezeichnungen();
@@ -6586,6 +6597,77 @@ function renderKiConfig(){
   </button>`).join('');
 }
 
+// ─── MANDANTEN-VERWALTUNG (nur Superadmin) ───────────────────────────────────
+async function renderMandanten(){
+  const el=document.getElementById('mandanten-body'); if(!el) return;
+  if(currentRole!=='superadmin'){ el.innerHTML='<div style="padding:24px;color:var(--text3);font-size:13px;">Nur der Superadmin kann Mandanten verwalten.</div>'; return; }
+  el.innerHTML='<div style="color:var(--text3);font-size:13px;">Lade…</div>';
+  let orgs=[],projs=[],drvCount={};
+  try{
+    const [oq,pq,dq]=await Promise.all([db.collection('orgs').get(),db.collection('projects').get(),db.collection('drivers').get()]);
+    orgs=oq.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.name||a.id).localeCompare(b.name||b.id));
+    projs=pq.docs.map(d=>({id:d.id,...d.data()}));
+    dq.forEach(d=>{ const o=d.data().orgId; drvCount[o]=(drvCount[o]||0)+1; });
+  }catch(e){ el.innerHTML='<div style="color:var(--red);font-size:13px;">Fehler beim Laden: '+dlEsc(e.message||'')+'</div>'; return; }
+  const orgIds=new Set(orgs.map(o=>o.id));
+  const orphan=projs.filter(p=>!orgIds.has(p.orgId));
+  const projRow=(p,org)=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 10px;background:var(--bg);border-radius:6px;margin-bottom:4px;">
+      <span style="font-size:14px;">${p.icon||'🌳'}</span>
+      <span style="flex:1;font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(p.name||p.id)}</span>
+      <span style="font-size:11px;color:var(--text3);">${p.treeCount??'–'} Objekte</span>
+      <select onchange="if(this.value){moveProjectUi('${dlEsc(p.id)}','${dlEsc(p.name||'')}',this.value);this.selectedIndex=0;}" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-family:inherit;">
+        <option value="">→ verschieben…</option>
+        ${orgs.filter(o=>o.id!==org).map(o=>`<option value="${dlEsc(o.id)}">${dlEsc(o.name||o.id)}</option>`).join('')}
+      </select>
+    </div>`;
+  el.innerHTML=`
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:16px;">
+      <div style="font-size:13px;font-weight:700;margin-bottom:8px;">+ Neuen Mandanten anlegen</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <input id="org-new-name" class="form-control" placeholder="Name (z. B. Ahlen)" style="flex:1;min-width:160px;padding:7px 10px;font-size:13px;">
+        <input id="org-new-code" class="form-control" placeholder="Stadt-Code (z. B. AHLEN)" maxlength="12" style="width:170px;padding:7px 10px;font-size:13px;text-transform:uppercase;">
+        <button class="btn btn-primary" style="padding:7px 14px;font-size:13px;" onclick="createOrgUi()">Anlegen</button>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px;">Danach unter Admin → Benutzer Personen für den neuen Mandanten anlegen.</div>
+    </div>
+    ${orgs.map(o=>`<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 16px;margin-bottom:12px;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
+        <span style="font-size:14px;font-weight:700;">${dlEsc(o.name||o.id)}</span>
+        ${o.code?`<span style="font-size:10px;font-weight:700;background:var(--green-light);color:var(--green);padding:2px 8px;border-radius:99px;">${dlEsc(o.code)}</span>`:''}
+        <span style="font-size:11px;color:var(--text3);margin-left:auto;">${drvCount[o.id]||0} Personen · ${projs.filter(p=>p.orgId===o.id).length} Projekte</span>
+      </div>
+      ${projs.filter(p=>p.orgId===o.id).map(p=>projRow(p,o.id)).join('')||'<div style="font-size:12px;color:var(--text3);padding:2px 0;">Keine Projekte.</div>'}
+    </div>`).join('')}
+    ${orphan.length?`<div style="background:#fef3c7;border:1px solid #b45309;border-radius:12px;padding:12px 16px;">
+      <div style="font-size:12px;font-weight:700;color:#7a4a06;margin-bottom:6px;">Projekte ohne gültigen Mandanten</div>
+      ${orphan.map(p=>projRow(p,p.orgId)).join('')}
+    </div>`:''}`;
+}
+async function createOrgUi(){
+  const name=(document.getElementById('org-new-name')?.value||'').trim();
+  const code=(document.getElementById('org-new-code')?.value||'').trim().toUpperCase();
+  if(!name){ notify('Bitte Name eingeben'); return; }
+  if(!/^[A-Z0-9]{2,12}$/.test(code)){ notify('Stadt-Code: 2–12 Zeichen, nur A–Z und 0–9'); return; }
+  const id='org_'+name.toLowerCase().replace(/[äöüß]/g,m=>({'ä':'ae','ö':'oe','ü':'ue','ß':'ss'}[m])).replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,40);
+  try{
+    const ex=await db.collection('orgs').doc(id).get();
+    if(ex.exists){ notify('Ein Mandant mit diesem Namen existiert bereits'); return; }
+    await db.collection('orgs').doc(id).set({name});
+    await dlFnCall('setOrgCode',{orgId:id,code}); // prüft Eindeutigkeit des Codes
+    notify('✓ Mandant „'+name+'" angelegt');
+    renderMandanten();
+  }catch(e){ notify(fnErr(e)); }
+}
+async function moveProjectUi(projectId,projectName,targetOrgId){
+  if(!confirm(`Projekt „${projectName}" wirklich in einen anderen Mandanten verschieben?\nAlle Objekte, Touren und Verläufe ziehen mit um.`)){ renderMandanten(); return; }
+  notify('Verschiebe Projekt…');
+  try{
+    const r=await dlFnCall('moveProjectToOrg',{projectId,targetOrgId});
+    notify(`✓ Projekt verschoben (${r.data?.moved??'?'} Einträge aktualisiert)`);
+  }catch(e){ notify(fnErr(e)); }
+  renderMandanten();
+}
+
 // ─── HANDBUCH (durchsuchbar; „Aktualisierungen" automatisch aus Git-Historie) ──
 let _hbTab='handbuch', _hbChangelog=null;
 const hbSearchDebounced=_debounce(()=>renderHandbuch(),140);
@@ -6688,6 +6770,7 @@ Object.assign(window,{
   startAssignMode,setAssignTour,cancelAssign,assignTreeToTour,
   openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,
   pickProjIcon,artSetIcon,
+  renderMandanten,createOrgUi,moveProjectUi,
   addWmsLayer,deleteWmsLayer,renderWmsList,
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,toggleTourCounts,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
