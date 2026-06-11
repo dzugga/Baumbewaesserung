@@ -320,18 +320,31 @@ function setSyncState(state,text){
 
 // ─── PROJECT SCREEN ───────────────────────────────────────────
 let unsubProjects=null;
-function initProjectScreen(){
+let _psOrgNames={}; // orgId -> Anzeigename (für Mandanten-Badges in der Projektliste)
+async function initProjectScreen(){
   document.getElementById('project-screen').style.display='flex';
+  // Mandant des angemeldeten Nutzers anzeigen
+  const mEl=document.getElementById('ps-mandant');
+  if(mEl){
+    if(currentRole==='superadmin') mEl.textContent='Superadmin — alle Mandanten';
+    else if(currentOrg) orgDisplayName(currentOrg).then(n=>{ mEl.textContent='Mandant: '+n; });
+    else mEl.textContent='';
+  }
   // „Neues Projekt erstellen" nur für Superadmin — inkl. Mandanten-Auswahl
   const psNew=document.getElementById('ps-new');
   if(psNew) psNew.style.display=(currentRole==='superadmin')?'':'none';
-  const psOrg=document.getElementById('ps-new-org');
-  if(psOrg && currentRole==='superadmin'){
-    db.collection('orgs').get().then(qs=>{
+  _psOrgNames={};
+  if(currentRole==='superadmin'){
+    try{
+      const qs=await db.collection('orgs').get(); // vor dem Listen-Render, damit Badges sofort stimmen
       const orgs=qs.docs.map(d=>({id:d.id,name:d.data().name||d.id})).sort((a,b)=>a.name.localeCompare(b.name));
-      psOrg.innerHTML=orgs.map(o=>`<option value="${dlEsc(o.id)}"${o.id===currentOrg?' selected':''}>${dlEsc(o.name)}</option>`).join('');
-      psOrg.style.display=orgs.length>1?'':'none';
-    }).catch(()=>{});
+      orgs.forEach(o=>{ _psOrgNames[o.id]=o.name; });
+      const psOrg=document.getElementById('ps-new-org');
+      if(psOrg){
+        psOrg.innerHTML=orgs.map(o=>`<option value="${dlEsc(o.id)}"${o.id===currentOrg?' selected':''}>${dlEsc(o.name)}</option>`).join('');
+        psOrg.style.display=orgs.length>1?'':'none';
+      }
+    }catch(e){}
   }
   if(unsubProjects)unsubProjects();
   // Superadmin sieht alle Mandanten; sonst nur die eigene Org
@@ -352,9 +365,10 @@ function initProjectScreen(){
     // Gespeicherte Zähler nutzen (kein Lesen der Unterkollektionen) — heilen sich beim Öffnen
     psList.innerHTML=docs.map(d=>{
       const data=d.data();
-      const meta=(data.treeCount!=null||data.tourCount!=null)
+      let meta=(data.treeCount!=null||data.tourCount!=null)
         ? `${data.treeCount??0} Objekte · ${data.tourCount??0} Touren`
         : 'beim Öffnen aktualisieren';
+      if(currentRole==='superadmin') meta+=` · ${dlEsc(_psOrgNames[data.orgId]||data.orgId||'ohne Mandant')}`;
       return `<div class="ps-item" onclick="openProject('${d.id}')">
         <div class="ps-item-icon">${data.icon||'🌳'}</div>
         <div class="ps-item-info">
