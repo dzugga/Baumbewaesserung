@@ -3006,6 +3006,7 @@ function switchView(v){
   const ki=document.getElementById('view-ki');
   const kiconfig=document.getElementById('view-kiconfig');
   const handbuch=document.getElementById('view-handbuch'); if(handbuch) handbuch.style.display=v==='handbuch'?'flex':'none';
+  const wmskarten=document.getElementById('view-wmskarten'); if(wmskarten) wmskarten.style.display=v==='wmskarten'?'flex':'none';
   const disposition=document.getElementById('view-disposition');
   const verwaltung=document.getElementById('view-verwaltung');
   const usage=document.getElementById('view-usage'); if(usage) usage.style.display=v==='usage'?'block':'none';
@@ -3043,6 +3044,7 @@ function switchView(v){
   if(v==='ki') renderKi();
   if(v==='kiconfig') renderKiConfig();
   if(v==='handbuch') renderHandbuch();
+  if(v==='wmskarten') renderWmsList();
   if(v==='disposition') initDispo();
   if(v==='verwaltung') initVerwaltung();
   if(v==='feldbezeichnungen') initFeldbezeichnungen();
