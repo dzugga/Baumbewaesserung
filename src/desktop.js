@@ -2752,7 +2752,7 @@ function toggleRoutePlanning(){
 
 // ─── OBJEKT-SYMBOLE (je Projekt-Standard, je Typ/Art überschreibbar) ─────────
 const PROJ_ICON_DEFAULT='🌳';
-const ICON_CHOICES=['🌳','🌲','🌴','🌿','🍀','🌸','🌷','🌻','🪴','🍂','🗑️','🚮','🪣','♻️','💧','⛲','🚿','🪑','🛝','⚽','🚏','🅿️','🚧','💡','📍','⭐'];
+const ICON_CHOICES=['🌳','🌲','🌴','🌿','🍀','🌸','🌷','🌻','🪴','🍂','🗑️','🚮','🪣','♻️','🐕','💧','⛲','🚿','🪑','🛝','⚽','🚏','🅷','🅿️','🚧','💡','📍','⭐'];
 function projIcon(){ return currentProjectData?.icon||PROJ_ICON_DEFAULT; }
 let _artIconMap=null; // Art-Name -> Symbol (aus artenList)
 function objIcon(tree){
