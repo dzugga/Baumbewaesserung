@@ -321,6 +321,38 @@ function setSyncState(state,text){
 // ─── PROJECT SCREEN ───────────────────────────────────────────
 let unsubProjects=null;
 let _psOrgNames={}; // orgId -> Anzeigename (für Mandanten-Badges in der Projektliste)
+let _psOrgFilter=''; // Superadmin: ausgewählter Mandant ('' = alle)
+let _psDocs=[]; // letzter Snapshot, damit der Filter ohne neuen Read rendern kann
+function psSetOrgFilter(v){ _psOrgFilter=v; renderPsList(); }
+function renderPsList(){
+  const psList=document.getElementById('ps-list');
+  if(!psList)return;
+  const docs=_psOrgFilter?_psDocs.filter(d=>d.data().orgId===_psOrgFilter):_psDocs;
+  if(!docs.length){
+    psList.innerHTML=`<div class="ps-empty">${_psOrgFilter?'Keine Projekte in diesem Mandanten.':'Noch keine Projekte. Erstelle dein erstes Projekt unten.'}</div>`;
+    return;
+  }
+  // Gespeicherte Zähler nutzen (kein Lesen der Unterkollektionen) — heilen sich beim Öffnen
+  psList.innerHTML=docs.map(d=>{
+    const data=d.data();
+    const meta=(data.treeCount!=null||data.tourCount!=null)
+      ? `${data.treeCount??0} Objekte · ${data.tourCount??0} Touren`
+      : 'beim Öffnen aktualisieren';
+    // Superadmin: Mandant als deutliches Badge (Projektname muss nicht der Stadtname sein)
+    const orgBadge=currentRole==='superadmin'
+      ? `<span style="flex-shrink:0;font-size:11px;font-weight:700;background:var(--green-light);color:var(--green);padding:3px 10px;border-radius:99px;white-space:nowrap;">${dlEsc(_psOrgNames[data.orgId]||data.orgId||'ohne Mandant')}</span>`
+      : '';
+    return `<div class="ps-item" onclick="openProject('${d.id}')">
+      <div class="ps-item-icon">${data.icon||'🌳'}</div>
+      <div class="ps-item-info">
+        <div class="ps-item-name">${dlEsc(data.name||'')}</div>
+        <div class="ps-item-meta">${meta}</div>
+      </div>
+      ${orgBadge}
+      <svg class="ps-item-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg>
+    </div>`;
+  }).join('');
+}
 async function initProjectScreen(){
   document.getElementById('project-screen').style.display='flex';
   // Mandant des angemeldeten Nutzers anzeigen
@@ -334,6 +366,9 @@ async function initProjectScreen(){
   const psNew=document.getElementById('ps-new');
   if(psNew) psNew.style.display=(currentRole==='superadmin')?'':'none';
   _psOrgNames={};
+  _psOrgFilter='';
+  const psFilter=document.getElementById('ps-org-filter');
+  if(psFilter)psFilter.style.display='none';
   if(currentRole==='superadmin'){
     try{
       const qs=await db.collection('orgs').get(); // vor dem Listen-Render, damit Badges sofort stimmen
@@ -344,6 +379,11 @@ async function initProjectScreen(){
         psOrg.innerHTML=orgs.map(o=>`<option value="${dlEsc(o.id)}"${o.id===currentOrg?' selected':''}>${dlEsc(o.name)}</option>`).join('');
         psOrg.style.display=orgs.length>1?'':'none';
       }
+      // Filter über der Projektliste (nur sinnvoll bei mehreren Mandanten)
+      if(psFilter&&orgs.length>1){
+        psFilter.innerHTML='<option value="">Alle Mandanten</option>'+orgs.map(o=>`<option value="${dlEsc(o.id)}">${dlEsc(o.name)}</option>`).join('');
+        psFilter.style.display='';
+      }
     }catch(e){}
   }
   if(unsubProjects)unsubProjects();
@@ -352,36 +392,12 @@ async function initProjectScreen(){
     ? db.collection('projects').orderBy('createdAt')
     : db.collection('projects').where('orgId','==',currentOrg);
   unsubProjects=onSnapshot(q,snap=>{
-    const psList=document.getElementById('ps-list');
     const sync=document.getElementById('ps-sync');
     sync.innerHTML='<div class="sync-dot"></div> Verbunden';
-    if(snap.empty){
-      psList.innerHTML='<div class="ps-empty">Noch keine Projekte. Erstelle dein erstes Projekt unten.</div>';
-      return;
-    }
     // bei nicht-Superadmin clientseitig nach createdAt sortieren (vermeidet Composite-Index)
-    const docs=[...snap.docs];
-    if(currentRole!=='superadmin') docs.sort((a,b)=>(a.data().createdAt?.seconds||0)-(b.data().createdAt?.seconds||0));
-    // Gespeicherte Zähler nutzen (kein Lesen der Unterkollektionen) — heilen sich beim Öffnen
-    psList.innerHTML=docs.map(d=>{
-      const data=d.data();
-      const meta=(data.treeCount!=null||data.tourCount!=null)
-        ? `${data.treeCount??0} Objekte · ${data.tourCount??0} Touren`
-        : 'beim Öffnen aktualisieren';
-      // Superadmin: Mandant als deutliches Badge (Projektname muss nicht der Stadtname sein)
-      const orgBadge=currentRole==='superadmin'
-        ? `<span style="flex-shrink:0;font-size:11px;font-weight:700;background:var(--green-light);color:var(--green);padding:3px 10px;border-radius:99px;white-space:nowrap;">${dlEsc(_psOrgNames[data.orgId]||data.orgId||'ohne Mandant')}</span>`
-        : '';
-      return `<div class="ps-item" onclick="openProject('${d.id}')">
-        <div class="ps-item-icon">${data.icon||'🌳'}</div>
-        <div class="ps-item-info">
-          <div class="ps-item-name">${dlEsc(data.name||'')}</div>
-          <div class="ps-item-meta">${meta}</div>
-        </div>
-        ${orgBadge}
-        <svg class="ps-item-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg>
-      </div>`;
-    }).join('');
+    _psDocs=[...snap.docs];
+    if(currentRole!=='superadmin') _psDocs.sort((a,b)=>(a.data().createdAt?.seconds||0)-(b.data().createdAt?.seconds||0));
+    renderPsList();
   },err=>{
     document.getElementById('ps-sync').innerHTML='<div class="sync-dot error"></div> Fehler';
     console.error(err);
@@ -6776,7 +6792,7 @@ Object.assign(window,{
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,
-  createProject,openProject,showProjectScreen,
+  createProject,openProject,showProjectScreen,psSetOrgFilter,
   switchView,openDetail,closePanel,logWatering,
   openFoto,stepFoto,closeFoto,deleteFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
