@@ -1012,6 +1012,7 @@ function updateRouteInfoBar(){
       document.getElementById('sidebar-route-tour-name').textContent=`${activeTours.size} Touren`;
       document.getElementById('sidebar-route-km').textContent=km?km.toFixed(1)+' km':'–';
       document.getElementById('sidebar-route-drive').textContent=dur?fmtDuration(dur):'–';
+      document.getElementById('sidebar-route-taet').textContent=cnt?fmtBewTime(cnt):'–';
       document.getElementById('sidebar-route-total').textContent=km?fmtTotalTime(dur,cnt):'–';
       document.getElementById('sidebar-route-cnt').textContent=cnt+' Objekte';
       sidePanel.style.display='block';
@@ -1032,6 +1033,7 @@ function updateRouteInfoBar(){
     document.getElementById('sidebar-route-tour-name').textContent=tour?.name||'';
     document.getElementById('sidebar-route-km').textContent=km.toFixed(1)+' km';
     document.getElementById('sidebar-route-drive').textContent=fmtDuration(durationSec);
+    document.getElementById('sidebar-route-taet').textContent=bewTime;
     document.getElementById('sidebar-route-total').textContent=totalTime;
     document.getElementById('sidebar-route-cnt').textContent=cnt+' Objekte';
     sidePanel.style.display='block';
@@ -1326,6 +1328,7 @@ async function applyTourSelection(fit){
 
 // ─── LEGEND ───────────────────────────────────────────────────
 let tourLegendQuery='';
+let legendExpanded=new Set(); // je Tour aufgeklappte Detail-Zeile (Session)
 function applyTourLegendFilter(){
   const q=(tourLegendQuery||'').trim().toLowerCase();
   document.querySelectorAll('#tour-legend .legend-item[data-tourname]').forEach(row=>{
@@ -1351,7 +1354,6 @@ function renderLegend(){
     html+=`<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:${activeTour.color};">
       <span style="width:14px;height:3px;border-radius:2px;background:${activeTour.color};display:inline-block;"></span>
       ${activeTour.name}
-      ${(()=>{const m=tourMetrics(activeTour.id);return m?'· '+m.km.toFixed(1)+' km':'';})()}
     </span>${unpTag}`;
   } else if(selCount>1){
     html+=`<span style="font-size:11px;font-weight:600;color:var(--green);">${selCount} ausgewählt</span>${unpTag}`;
@@ -1372,17 +1374,43 @@ function renderLegend(){
     html+=`<div style="padding:2px 8px 6px;"><input id="tour-legend-search" type="text" placeholder="Tour suchen…" style="width:100%;padding:4px 8px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;box-sizing:border-box;"></div>`;
   }
 
-  // Tour rows — compact
+  // Tour rows — kompakt: Name + Gesamtzeit; Details je Tour aufklappbar (Pfeil)
   html+=`<div style="padding:0 8px 4px;">`;
   tours.forEach(t=>{
-    const _tm=tourMetrics(t.id); const km=_tm?_tm.km.toFixed(1):'–';
+    const _tm=tourMetrics(t.id);
+    const cnt=trees.filter(x=>treeInTour(x,t.id)&&x.lat&&x.lng&&isActive(x)).length;
+    const total=_tm?fmtTotalTime(_tm.durationSec,cnt):'';
     const isSel=activeTours.has(t.id);
+    const isExp=legendExpanded.has(t.id);
     html+=`<div class="legend-item${isSel?' active-tour':''}" data-tourid="${t.id}" data-tourname="${(t.name||'').toLowerCase().replace(/"/g,'&quot;')}" style="padding:3px 6px;margin-bottom:1px;">
       <input type="checkbox" class="tour-check"${isSel?' checked':''} style="margin:0 4px 0 0;cursor:pointer;flex-shrink:0;accent-color:${t.color};">
       <div class="legend-line" style="background:${t.color};width:16px;height:3px;"></div>
-      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">${t.name}</span>
-      <span class="legend-km" style="font-size:10px;">${km} km</span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">${dlEsc(t.name)}</span>
+      <span class="legend-km" style="font-size:10px;">${total}</span>
+      <svg data-expand="${t.id}" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2.5" style="flex-shrink:0;cursor:pointer;padding:1px;transition:transform .15s;transform:rotate(${isExp?180:0}deg);"><path d="M6 9l6 6 6-6"/></svg>
     </div>`;
+    if(isExp){
+      if(_tm){
+        const driveMin=Math.round(_tm.durationSec/60), bewMin=cnt*getBewDuration();
+        const base=Math.max(driveMin+bewMin,1), dw=Math.round(driveMin/base*100);
+        html+=`<div data-tourname="${(t.name||'').toLowerCase().replace(/"/g,'&quot;')}" style="margin:0 6px 4px 30px;padding:5px 8px;background:var(--surface2);border-radius:6px;">
+          <div style="display:flex;height:4px;border-radius:2px;overflow:hidden;margin-bottom:4px;">
+            <div style="width:${dw}%;background:${t.color};"></div>
+            <div style="width:${100-dw}%;background:var(--green-mid);"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);">
+            <span>Fahrt ${fmtDuration(_tm.durationSec)}</span><span>Tätigkeit ${fmtBewTime(cnt)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:1px;">
+            <span>${_tm.km.toFixed(1)} km</span><span>${cnt} Objekte</span>
+          </div>
+        </div>`;
+      } else {
+        html+=`<div data-tourname="${(t.name||'').toLowerCase().replace(/"/g,'&quot;')}" style="margin:0 6px 4px 30px;padding:5px 8px;background:var(--surface2);border-radius:6px;font-size:10px;color:var(--text3);">
+          ${cnt} Objekte — noch keine Route berechnet
+        </div>`;
+      }
+    }
   });
   // All tours row — aktiv nur wenn weder Tour noch Unverplant gewählt
   html+=`<div class="legend-item${(!activeTours.size&&!showUnplanned)?' active-tour':''}" data-tourid="__all__" style="padding:3px 6px;margin-top:2px;border-top:1px solid var(--border);">
@@ -1444,6 +1472,13 @@ function renderLegend(){
       body.style.display=open?'block':'none';
       el.dataset.open=open?'true':'false';
       if(svg)svg.style.transform=`rotate(${open?180:0}deg)`;
+      return;
+    }
+    const exp=e.target.closest('[data-expand]');
+    if(exp){ // Pfeil: Detailzeile der Tour auf-/zuklappen (ohne die Auswahl zu ändern)
+      const tid=exp.dataset.expand;
+      if(legendExpanded.has(tid)) legendExpanded.delete(tid); else legendExpanded.add(tid);
+      renderLegend();
       return;
     }
     const item=e.target.closest('[data-tourid]');

@@ -377,24 +377,26 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <div id="tour-legend" style="border-bottom:1px solid var(--border);flex-shrink:0;display:none;"></div>
     <!-- Route info inside sidebar -->
     <div id="sidebar-route-info" style="display:none;border-bottom:1px solid var(--border);background:var(--green-light);flex-shrink:0;">
-      <div style="padding:6px 14px 4px;display:flex;align-items:center;justify-content:space-between;">
-        <span id="sidebar-route-tour-name" style="font-size:10px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.05em;"></span>
-        <span id="sidebar-route-cnt" style="font-size:11px;color:var(--green);font-weight:600;"></span>
+      <div style="padding:4px 12px 2px;display:flex;align-items:center;justify-content:space-between;">
+        <span id="sidebar-route-tour-name" style="font-size:9px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.05em;"></span>
+        <span id="sidebar-route-cnt" style="font-size:10px;color:var(--green);font-weight:600;"></span>
       </div>
-      <div style="padding:0 14px 8px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
-        <!-- km -->
-        <div style="background:rgba(255,255,255,.6);border-radius:6px;padding:5px 8px;text-align:center;">
-          <div style="font-size:15px;font-weight:700;color:var(--green);line-height:1;" id="sidebar-route-km">–</div>
-          <div style="font-size:9px;color:var(--green);opacity:.7;margin-top:2px;text-transform:uppercase;letter-spacing:.04em;">Strecke</div>
+      <div style="padding:0 10px 5px;display:grid;grid-template-columns:repeat(4,1fr);gap:4px;">
+        <div style="background:rgba(255,255,255,.6);border-radius:5px;padding:3px 4px;text-align:center;">
+          <div style="font-size:11px;font-weight:700;color:var(--green);line-height:1.1;" id="sidebar-route-km">–</div>
+          <div style="font-size:8px;color:var(--green);opacity:.7;text-transform:uppercase;letter-spacing:.03em;">Strecke</div>
         </div>
-        <!-- Fahrzeit + Bewässerung + Gesamt -->
-        <div style="background:rgba(255,255,255,.6);border-radius:6px;padding:5px 8px;text-align:center;" id="sidebar-route-drive-box">
-          <div style="font-size:13px;font-weight:700;color:var(--green);line-height:1;" id="sidebar-route-drive">–</div>
-          <div style="font-size:9px;color:var(--green);opacity:.7;margin-top:2px;text-transform:uppercase;letter-spacing:.04em;">Fahrt</div>
+        <div style="background:rgba(255,255,255,.6);border-radius:5px;padding:3px 4px;text-align:center;" id="sidebar-route-drive-box">
+          <div style="font-size:11px;font-weight:700;color:var(--green);line-height:1.1;" id="sidebar-route-drive">–</div>
+          <div style="font-size:8px;color:var(--green);opacity:.7;text-transform:uppercase;letter-spacing:.03em;">Fahrt</div>
         </div>
-        <div style="background:rgba(255,255,255,.9);border-radius:6px;padding:5px 8px;text-align:center;border:1.5px solid var(--green-mid);">
-          <div style="font-size:13px;font-weight:700;color:var(--green);line-height:1;" id="sidebar-route-total">–</div>
-          <div style="font-size:9px;color:var(--green);opacity:.7;margin-top:2px;text-transform:uppercase;letter-spacing:.04em;">Gesamt</div>
+        <div style="background:rgba(255,255,255,.6);border-radius:5px;padding:3px 4px;text-align:center;">
+          <div style="font-size:11px;font-weight:700;color:var(--green);line-height:1.1;" id="sidebar-route-taet">–</div>
+          <div style="font-size:8px;color:var(--green);opacity:.7;text-transform:uppercase;letter-spacing:.03em;">Tätigkeit</div>
+        </div>
+        <div style="background:rgba(255,255,255,.95);border-radius:5px;padding:3px 4px;text-align:center;border:1.5px solid var(--green-mid);">
+          <div style="font-size:11px;font-weight:700;color:var(--green);line-height:1.1;" id="sidebar-route-total">–</div>
+          <div style="font-size:8px;color:var(--green);opacity:.7;text-transform:uppercase;letter-spacing:.03em;">Gesamt</div>
         </div>
       </div>
     </div>
