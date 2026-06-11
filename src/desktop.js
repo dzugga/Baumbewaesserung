@@ -1427,29 +1427,7 @@ function renderLegend(){
   </div>`;
   html+=`</div>`;
 
-  // Route berechnen button — compact
-  if(activeTours.size===1){
-    const onlyTid=[...activeTours][0];
-    html+=`<div style="padding:4px 8px 8px;display:flex;flex-direction:column;gap:6px;">
-      <button data-action="calc-active"${rpDisAttr()} style="width:100%;padding:5px 10px;font-size:11px;font-weight:600;background:var(--green);color:#fff;border:none;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;${rpDisStyle()}">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
-        Route berechnen
-      </button>
-    </div>`;
-  } else if(activeTours.size>1){
-    html+=`<div style="padding:4px 8px 8px;">
-      <button data-action="calc-selected"${rpDisAttr()} style="width:100%;padding:5px 10px;font-size:11px;font-weight:600;background:var(--green);color:#fff;border:none;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;${rpDisStyle()}">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
-        Routen berechnen (${activeTours.size})
-      </button>
-    </div>`;
-  } else {
-    html+=`<div style="padding:4px 8px 8px;">
-      <button data-action="calc-all"${rpDisAttr()} style="width:100%;padding:5px 10px;font-size:11px;font-weight:600;background:var(--surface2);color:var(--text2);border:1px solid var(--border);border-radius:6px;cursor:pointer;${rpDisStyle()}">
-        Alle Routen berechnen
-      </button>
-    </div>`;
-  }
+  // Kein „Route berechnen"-Button mehr — Berechnung läuft über Rechtsklick auf die Karte (spart Platz)
   html+=`</div>`; // end legend-body
 
   el.innerHTML=html;
@@ -1487,12 +1465,6 @@ function renderLegend(){
       else if(tid==='__none__')toggleUnplanned();
       else toggleTourSelection(tid);
       return;}
-    const btn=e.target.closest('[data-action]');
-    if(btn){
-      if(btn.dataset.action==='calc-active'&&activeTourOnMap)calculateAndSaveRoute(activeTourOnMap);
-      else if(btn.dataset.action==='calc-selected'){ (async()=>{ for(const tid of [...activeTours]) await calculateAndSaveRoute(tid); })(); }
-      else if(btn.dataset.action==='calc-all')calculateAllRoutes();
-    }
   };
   updateSimButton();
 }
