@@ -433,6 +433,9 @@ async function openProject(projectId){
   const snap=await getDoc(doc(db,'projects',projectId));
   currentProjectData={id:projectId,...snap.data()};
   document.getElementById('active-project-name').textContent=currentProjectData.name;
+  // Mandant neben dem Projektnamen (gecacht, max. 1 Read)
+  const apOrg=document.getElementById('active-project-org');
+  if(apOrg){ apOrg.textContent=''; const _oid=currentProjectData.orgId; if(_oid) orgDisplayName(_oid).then(n=>{ if(n&&currentProjectData?.orgId===_oid) apOrg.textContent='· '+n; }); }
   document.getElementById('project-screen').style.display='none';
   loadFieldLabels();
   await loadOrgSettings(); // KI-Modus + ORS-Key + WMS + Dispo dieser Stadt (1 Org-Read) — vor dem Kartenaufbau

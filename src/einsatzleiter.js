@@ -497,7 +497,13 @@ async function startEinsatzleiter(pid){
   const snap=await db.collection('projects').doc(pid).get();
   currentProjectId=pid;
   currentProjectData={id:pid,...snap.data()};
-  document.getElementById('header-project').textContent=currentProjectData.name||pid;
+  const _hp=document.getElementById('header-project');
+  _hp.textContent=currentProjectData.name||pid;
+  // Mandant neben dem Projektnamen (1 Read)
+  if(currentProjectData.orgId) db.collection('orgs').doc(currentProjectData.orgId).get().then(s=>{
+    const o=s.exists&&s.data().name;
+    if(o) _hp.innerHTML=esc(currentProjectData.name||pid)+' <span style="font-size:12px;font-weight:500;color:var(--text3);">· '+esc(o)+'</span>';
+  }).catch(()=>{});
   document.getElementById('screen-login').classList.remove('active');
   document.getElementById('screen-app').classList.add('active');
   subscribe(); // trees + tours + tourHistory live (kein Polling mehr)

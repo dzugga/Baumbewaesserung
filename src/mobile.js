@@ -245,7 +245,14 @@ async function startBewässerungLogin(name, pid, tid) {
     document.getElementById('screen-login').classList.remove('active');
     document.getElementById('screen-app').classList.add('active');
     const _ht=document.getElementById('header-tour-name'); if(_ht) _ht.textContent = currentTour?.name||'Tour';
-    const _hd=document.getElementById('header-driver'); if(_hd) _hd.textContent = 'Fahrer: '+name;
+    const _hd=document.getElementById('header-driver'); if(_hd){
+      _hd.textContent = 'Fahrer: '+name+' · '+(currentProjectData.name||'');
+      // Mandant ergänzen (1 Read; offline bleibt die Zeile ohne Mandant)
+      if(currentProjectData.orgId) getDoc(doc(db,'orgs',currentProjectData.orgId)).then(s=>{
+        const o=s.exists&&s.data().name;
+        if(o) _hd.textContent='Fahrer: '+name+' · '+(currentProjectData.name||'')+' · '+o;
+      }).catch(()=>{});
+    }
 
     // Show all tabs
     ['tab-btn-map','tab-btn-list'].forEach(id=>{
