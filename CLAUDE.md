@@ -71,6 +71,11 @@ Nach Änderungen immer per **Claude in Chrome Extension** prüfen:
 - Reiter „Aktualisierungen" entsteht automatisch aus Git-Commits (`scripts/gen-changelog.mjs`, läuft bei `npm run build`) → Commit-Betreffzeilen deutsch und endnutzer-verständlich halten.
 - Screenshots (public/handbuch/) bei UI-Änderungen neu erzeugen: Demo-Daten anlegen (Mandant org_demo_hb, Projekt demo_handbuch, Logins „Demo Admin"/135790 + „Max Muster"/246800 — siehe Kopf von `scripts/handbuch-screenshots.mjs`) → `node scripts/handbuch-screenshots.mjs` (Dev-Server :3001 nötig) → Demo-Daten wieder löschen. Symbol-Screenshots separat: Projekt demo_symbole (icon 🗑️, Arten mit/ohne Symbol) → `node scripts/symbol-screenshots.mjs`.
 
+## System & Compliance (Pflegepflicht)
+- Superadmin-Bereich „System & Compliance" (Avatar-Menü, Desktop); Inhalte in `src/systeminfo-daten.js`.
+- **Bei Änderungen an Technik-Stack, Regionen, Sicherheitsmaßnahmen oder DSGVO-Status diese Datei mitpflegen** (DSGVO-Punkte: status 'ok'/'offen').
+- Bibliotheks- und App-Versionen werden zur Laufzeit live ausgelesen — nicht manuell pflegen.
+
 ## Entwicklungshinweise für Claude
 - JS-Logik liegt in `src/desktop.js` (Desktop) und `src/mobile.js` (Fahrer-App) – nicht in den HTML-Dateien.
 - **Niemals `firebase deploy` ausführen** ohne explizite Aufforderung.

@@ -2,6 +2,7 @@
 const APP_VERSION = '1.0';
 
 import { HANDBUCH } from './handbuch-daten.js';
+import { SI_DSGVO, SI_STACK, SI_REGIONEN, SI_APPS, SI_SICHERHEIT } from './systeminfo-daten.js';
 
 function initializeApp(cfg){ return firebase.initializeApp(cfg); }
 function getFirestore(app){ return firebase.firestore(app); }
@@ -3048,6 +3049,7 @@ function switchView(v){
   const handbuch=document.getElementById('view-handbuch'); if(handbuch) handbuch.style.display=v==='handbuch'?'flex':'none';
   const wmskarten=document.getElementById('view-wmskarten'); if(wmskarten) wmskarten.style.display=v==='wmskarten'?'flex':'none';
   const mandanten=document.getElementById('view-mandanten'); if(mandanten) mandanten.style.display=v==='mandanten'?'flex':'none';
+  const systeminfo=document.getElementById('view-systeminfo'); if(systeminfo) systeminfo.style.display=v==='systeminfo'?'flex':'none';
   const disposition=document.getElementById('view-disposition');
   const verwaltung=document.getElementById('view-verwaltung');
   const usage=document.getElementById('view-usage'); if(usage) usage.style.display=v==='usage'?'block':'none';
@@ -3087,6 +3089,7 @@ function switchView(v){
   if(v==='handbuch') renderHandbuch();
   if(v==='wmskarten') renderWmsList();
   if(v==='mandanten') renderMandanten();
+  if(v==='systeminfo') renderSystemInfo();
   if(v==='disposition') initDispo();
   if(v==='verwaltung') initVerwaltung();
   if(v==='feldbezeichnungen') initFeldbezeichnungen();
@@ -6702,6 +6705,88 @@ async function moveProjectUi(projectId,projectName,targetOrgId){
   renderMandanten();
 }
 
+// ─── SYSTEM & COMPLIANCE (nur Superadmin, Avatar-Menü) ────────
+let _siTab='dsgvo', _siAppVersions=null, _siStand=null;
+const SI_TABS=[
+  {id:'dsgvo',label:'DSGVO-Checkliste'},
+  {id:'stack',label:'Technik-Stack'},
+  {id:'regionen',label:'Datenstandorte'},
+  {id:'apps',label:'Apps & Versionen'},
+  {id:'sicherheit',label:'Sicherheit'},
+];
+function setSiTab(t){ _siTab=t; renderSystemInfo(); }
+// Live-Versionen der eingebundenen Bibliotheken — passen sich bei Updates automatisch an
+function siLibVersion(key){
+  try{
+    if(key==='leaflet') return window.L?.version||'';
+    if(key==='chartjs') return window.Chart?.version||'';
+    if(key==='sheetjs') return window.XLSX?.version||'';
+    if(key==='firebase') return window.firebase?.SDK_VERSION?('SDK '+window.firebase.SDK_VERSION):'';
+  }catch(_){}
+  return '';
+}
+async function siLoadDynamic(){
+  if(_siStand===null){
+    _siStand='';
+    try{ const cl=await fetch('/changelog.json').then(r=>r.json()); _siStand=cl?.[0]?.d||''; }catch(_){}
+    const el=document.getElementById('si-stand');
+    if(el&&_siStand) el.textContent='Letzte Aktualisierung: '+_siStand;
+  }
+  if(!_siAppVersions){
+    const v={};
+    await Promise.all(SI_APPS.map(async a=>{
+      try{
+        const t=await fetch('/'+a.file,{cache:'no-store'}).then(r=>r.text());
+        const m=t.slice(0,300).match(/<!--[^>]*?\b(v-?\d[^\s·>]*)/); // Versions-Kommentar im Kopf der HTML-Datei (z.B. „v7.3", „v-35", „erfassung v1.0")
+        v[a.file]=m?m[1]:'';
+      }catch(_){ v[a.file]=''; }
+    }));
+    _siAppVersions=v;
+    if(_siTab==='apps') renderSystemInfo(); // Versionen nachtragen, sobald geladen
+  }
+}
+function siVerBadge(txt){
+  return txt?`<span style="flex-shrink:0;font-size:11px;font-weight:700;font-family:'DM Mono',monospace;background:var(--surface2);color:var(--text2);padding:3px 10px;border-radius:99px;white-space:nowrap;">${dlEsc(txt)}</span>`:'';
+}
+function siRow(title,note,badge){
+  return `<div style="display:flex;gap:10px;align-items:flex-start;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:6px;">
+    <div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:600;">${dlEsc(title)}</div>
+    <div style="font-size:12px;color:var(--text2);margin-top:2px;line-height:1.5;">${dlEsc(note)}</div></div>
+    ${badge||''}
+  </div>`;
+}
+function renderSystemInfo(){
+  if(currentRole!=='superadmin') return;
+  const tabs=document.getElementById('si-tabs'), cont=document.getElementById('si-content');
+  if(!tabs||!cont) return;
+  tabs.innerHTML=SI_TABS.map(t=>{
+    const on=_siTab===t.id;
+    return `<button onclick="setSiTab('${t.id}')" style="border:none;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;background:${on?'var(--surface)':'transparent'};color:${on?'var(--text)':'var(--text3)'};box-shadow:${on?'0 1px 2px rgba(0,0,0,.08)':'none'};">${t.label}</button>`;
+  }).join('');
+  siLoadDynamic();
+  if(_siTab==='dsgvo'){
+    const ok=SI_DSGVO.filter(i=>i.status==='ok').length;
+    cont.innerHTML=`<div style="font-size:13px;color:var(--text2);margin-bottom:14px;">Stand der Umsetzung: <b>${ok} von ${SI_DSGVO.length}</b> Punkten technisch umgesetzt — offene Punkte sind organisatorisch durch den Betreiber zu erledigen.</div>`
+      +SI_DSGVO.map(i=>`<div style="display:flex;gap:10px;align-items:flex-start;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:6px;">
+        <span style="flex-shrink:0;font-size:11px;font-weight:700;padding:3px 10px;border-radius:99px;background:${i.status==='ok'?'var(--green-light)':'var(--amber-light)'};color:${i.status==='ok'?'var(--green)':'var(--amber)'};">${i.status==='ok'?'✓ umgesetzt':'⏳ offen'}</span>
+        <div><div style="font-size:13px;font-weight:600;">${dlEsc(i.label)}</div>
+        <div style="font-size:12px;color:var(--text2);margin-top:2px;line-height:1.5;">${dlEsc(i.note)}</div></div>
+      </div>`).join('');
+  }else if(_siTab==='stack'){
+    cont.innerHTML=SI_STACK.map(g=>`
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin:14px 0 8px;">${dlEsc(g.gruppe)}</div>
+      ${g.items.map(it=>siRow(it.name,it.zweck,siVerBadge(it.versionKey?siLibVersion(it.versionKey):''))).join('')}`).join('');
+  }else if(_siTab==='regionen'){
+    cont.innerHTML=`<div style="font-size:13px;color:var(--text2);margin-bottom:14px;">Alle Nutzdaten werden in der EU verarbeitet und gespeichert.</div>`
+      +SI_REGIONEN.map(r=>siRow(r.dienst,r.ort,siVerBadge(r.region))).join('');
+  }else if(_siTab==='apps'){
+    cont.innerHTML=SI_APPS.map(a=>siRow(a.name,a.zweck,siVerBadge(_siAppVersions?.[a.file]||''))).join('')
+      +`<div style="font-size:11px;color:var(--text3);margin-top:10px;">Versionen werden live aus den ausgelieferten Apps gelesen.</div>`;
+  }else if(_siTab==='sicherheit'){
+    cont.innerHTML=SI_SICHERHEIT.map(s=>siRow(s.label,s.note)).join('');
+  }
+}
+
 // ─── HANDBUCH (durchsuchbar; „Aktualisierungen" automatisch aus Git-Historie) ──
 let _hbTab='handbuch', _hbChangelog=null;
 const hbSearchDebounced=_debounce(()=>renderHandbuch(),140);
@@ -6792,7 +6877,7 @@ Object.assign(window,{
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,
-  createProject,openProject,showProjectScreen,psSetOrgFilter,
+  createProject,openProject,showProjectScreen,psSetOrgFilter,setSiTab,
   switchView,openDetail,closePanel,logWatering,
   openFoto,stepFoto,closeFoto,deleteFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
