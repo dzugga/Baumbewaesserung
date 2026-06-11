@@ -1,6 +1,6 @@
 import { initAppCheck } from './appcheck.js';
-// HTML-Escape gegen Stored-XSS (Baum-/Tour-/Grund-Daten aus Firestore in innerHTML)
-function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+import { firebaseConfig } from './firebase-config.js';
+import { esc } from './esc.js';
 // Firebase compat API shims — maps modular API calls to compat SDK
 function initializeApp(cfg){ return firebase.initializeApp(cfg); }
 function getFirestore(app){ return firebase.firestore(app); }
@@ -43,14 +43,6 @@ function serverTimestamp(){ return firebase.firestore.FieldValue.serverTimestamp
 function query(ref){ return ref; }
 function orderBy(field, dir='asc'){ return ref => ref.orderBy(field, dir); }
 
-const firebaseConfig = {
-  apiKey: "AIzaSyBShCcASfAG26EDyax6er6SIiqeSBrFWek",
-  authDomain: "baumbewaesserung.firebaseapp.com",
-  projectId: "baumbewaesserung",
-  storageBucket: "baumbewaesserung.firebasestorage.app",
-  messagingSenderId: "1001991004222",
-  appId: "1:1001991004222:web:1405d80d0788bd6548f16f"
-};
 const fbApp = initializeApp(firebaseConfig);
 initAppCheck();
 const db = getFirestore(fbApp);

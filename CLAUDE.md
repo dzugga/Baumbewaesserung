@@ -80,6 +80,9 @@ Nach Änderungen immer per **Claude in Chrome Extension** prüfen:
 - JS-Logik liegt in `src/desktop.js` (Desktop) und `src/mobile.js` (Fahrer-App) – nicht in den HTML-Dateien.
 - **Niemals `firebase deploy` ausführen** ohne explizite Aufforderung.
 - Firebase compat SDK (nicht modular) – `firebase.firestore()`, `db.collection()`, `db.batch()`.
+- **Geteilte Module:** Firebase-Konfiguration (`src/firebase-config.js`), HTML-Escape (`src/esc.js` → im Desktop als `dlEsc` importiert), App Check (`src/appcheck.js`) liegen zentral und werden in alle Apps importiert — dort NICHT erneut definieren.
+- **Compat-Shims (`collection`/`doc`/`getDoc`/`onSnapshot`…) bewusst NICHT zentralisiert:** Desktop instrumentiert sie mit `_bumpUsage` (Nutzungszählung); `_injectOrg` hängt per Closure an der Modul-Variable `currentProjectData` (orgId-Denormalisierung für Rules). Ein Auslagern bräche entweder die Nutzungszählung oder die orgId-Injektion → Schreibvorgänge würden von den Rules abgelehnt.
+- **Fehlerbehandlung:** `catch` nur stumm lassen, wenn das Scheitern erwartbar/folgenlos ist (best-effort localStorage, optionales Nachladen). Bei unerwarteten Fehlern `catch(e){ console.warn('Kontext', e); }` — nicht still verschlucken.
 - Inline-CSS bevorzugen (Projekt-Konvention); keine externen CSS-Dateien anlegen.
 - Token sparsam: keine ausschweifenden Erklärungen, kein redundantes Code-Echo.
 - Änderungen minimal halten – nur das Notwendige anpassen.

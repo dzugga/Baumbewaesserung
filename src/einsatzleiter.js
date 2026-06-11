@@ -1,13 +1,7 @@
 import { initAppCheck } from './appcheck.js';
-// ─── FIREBASE CONFIG ──────────────────────────────────────────
-const firebaseConfig = {
-  apiKey: "AIzaSyBShCcASfAG26EDyax6er6SIiqeSBrFWek",
-  authDomain: "baumbewaesserung.firebaseapp.com",
-  projectId: "baumbewaesserung",
-  storageBucket: "baumbewaesserung.firebasestorage.app",
-  messagingSenderId: "1001991004222",
-  appId: "1:1001991004222:web:1405d80d0788bd6548f16f"
-};
+import { firebaseConfig } from './firebase-config.js';
+import { esc } from './esc.js';
+// ─── FIREBASE CONFIG (zentral in firebase-config.js) ──────────
 const fbApp = firebase.initializeApp(firebaseConfig);
 initAppCheck();
 const db = firebase.firestore(fbApp);
@@ -28,8 +22,6 @@ let trees = [];
 let tours = [];
 let tourHistory = [];
 let tourHistoryLoaded = false;
-// HTML-Escape gegen Stored-XSS (Tour-/Grund-Texte aus Firestore)
-function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 let unsubTrees = null;
 let unsubTours = null;
 let unsubHistory = null;

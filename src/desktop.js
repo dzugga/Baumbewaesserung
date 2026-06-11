@@ -4,6 +4,8 @@ const APP_VERSION = '1.0';
 import { HANDBUCH } from './handbuch-daten.js';
 import { SI_DSGVO, SI_STACK, SI_REGIONEN, SI_APPS, SI_SICHERHEIT } from './systeminfo-daten.js';
 import { initAppCheck } from './appcheck.js';
+import { firebaseConfig } from './firebase-config.js';
+import { esc as dlEsc } from './esc.js'; // dlEsc = projektweites HTML-Escape (zentral in esc.js)
 
 function initializeApp(cfg){ return firebase.initializeApp(cfg); }
 function getFirestore(app){ return firebase.firestore(app); }
@@ -29,15 +31,7 @@ function query(ref,...constraints){ constraints.forEach(c=>{ if(typeof c==='func
 function orderBy(field,dir='asc'){ return ref=>ref.orderBy(field,dir); }
 function arrayUnion(...items){ return firebase.firestore.FieldValue.arrayUnion(...items); }
 
-// ─── FIREBASE CONFIG ──────────────────────────────────────────
-const firebaseConfig = {
-  apiKey: "AIzaSyBShCcASfAG26EDyax6er6SIiqeSBrFWek",
-  authDomain: "baumbewaesserung.firebaseapp.com",
-  projectId: "baumbewaesserung",
-  storageBucket: "baumbewaesserung.firebasestorage.app",
-  messagingSenderId: "1001991004222",
-  appId: "1:1001991004222:web:1405d80d0788bd6548f16f"
-};
+// ─── FIREBASE CONFIG (zentral in firebase-config.js) ──────────
 const app = initializeApp(firebaseConfig);
 initAppCheck();
 const db  = getFirestore(app);
@@ -3698,7 +3692,6 @@ let driverLoginsOrg = '';
 let benutzerOrg = ''; // zentraler Stadt-/Mandanten-Umschalter (Benutzer-Seite)
 let dtaProjectId = ''; // Schritt 4: gewähltes Projekt für Tour-Zuweisung
 let dlPinEdit = null;
-const dlEsc = s => (''+(s??'')).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 function dlFnCall(name,data){
   try{
     if(!window.firebase?.app || !firebase.app().functions) return Promise.reject({code:'unavailable'});
