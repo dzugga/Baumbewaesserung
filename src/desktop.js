@@ -2,7 +2,7 @@
 const APP_VERSION = '1.0';
 
 import { HANDBUCH } from './handbuch-daten.js';
-import { SI_DSGVO, SI_STACK, SI_REGIONEN, SI_APPS, SI_SICHERHEIT } from './systeminfo-daten.js';
+import { SI_DSGVO, SI_STACK, SI_REGIONEN, SI_APPS, SI_SICHERHEIT, SI_DIENSTE } from './systeminfo-daten.js';
 import { initAppCheck } from './appcheck.js';
 import { firebaseConfig } from './firebase-config.js';
 import { esc as dlEsc } from './esc.js'; // dlEsc = projektweites HTML-Escape (zentral in esc.js)
@@ -6872,6 +6872,7 @@ const SI_TABS=[
   {id:'regionen',label:'Datenstandorte'},
   {id:'apps',label:'Apps & Versionen'},
   {id:'sicherheit',label:'Sicherheit'},
+  {id:'dienste',label:'Lizenzen & Dienste'},
 ];
 function setSiTab(t){ _siTab=t; renderSystemInfo(); }
 // Live-Versionen der eingebundenen Bibliotheken — passen sich bei Updates automatisch an
@@ -6943,6 +6944,31 @@ function renderSystemInfo(){
       +`<div style="font-size:11px;color:var(--text3);margin-top:10px;">Versionen werden live aus den ausgelieferten Apps gelesen.</div>`;
   }else if(_siTab==='sicherheit'){
     cont.innerHTML=SI_SICHERHEIT.map(s=>siRow(s.label,s.note)).join('');
+  }else if(_siTab==='dienste'){
+    const all=SI_DIENSTE.flatMap(g=>g.items);
+    const n=k=>all.filter(i=>i.status===k).length;
+    const map={ok:['✓ unbedenklich','var(--green-light)','var(--green)'],achtung:['⚠ Bedingung beachten','var(--amber-light)','var(--amber)'],risiko:['⚠ vor Produktiv klären','var(--red-light)','var(--red)']};
+    cont.innerHTML=`<div style="font-size:13px;color:var(--text2);margin-bottom:6px;">Überblick über alle extern genutzten Komponenten und Dienste — Lizenz, Kostenrahmen und rechtliche Einordnung für den kommerziellen/kommunalen Einsatz.</div>
+      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+        <span style="font-size:12px;font-weight:700;padding:3px 10px;border-radius:99px;background:var(--green-light);color:var(--green);">${n('ok')}× unbedenklich</span>
+        <span style="font-size:12px;font-weight:700;padding:3px 10px;border-radius:99px;background:var(--amber-light);color:var(--amber);">${n('achtung')}× Bedingung beachten</span>
+        <span style="font-size:12px;font-weight:700;padding:3px 10px;border-radius:99px;background:var(--red-light);color:var(--red);">${n('risiko')}× vor Produktiv klären</span>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:16px;">Hinweis: Diese Übersicht ist eine Hilfestellung, keine Rechtsberatung. Im Zweifel die jeweiligen Nutzungsbedingungen prüfen.</div>`
+      +SI_DIENSTE.map(g=>`
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin:16px 0 8px;">${dlEsc(g.gruppe)}</div>
+        ${g.items.map(it=>{const m=map[it.status]||map.ok;return `<div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid ${m[2]};border-radius:var(--radius-sm);padding:11px 14px;margin-bottom:7px;">
+          <div style="display:flex;gap:10px;align-items:flex-start;">
+            <div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:600;">${dlEsc(it.name)}</div>
+            <div style="font-size:12px;color:var(--text2);margin-top:1px;">${dlEsc(it.zweck)}</div></div>
+            <span style="flex-shrink:0;font-size:11px;font-weight:700;padding:3px 9px;border-radius:99px;background:${m[1]};color:${m[2]};white-space:nowrap;">${m[0]}</span>
+          </div>
+          <div style="font-size:12px;color:var(--text2);margin-top:7px;line-height:1.55;">
+            <div><b>Lizenz/Recht:</b> ${dlEsc(it.lizenz)}</div>
+            <div><b>Kostenlos:</b> ${dlEsc(it.frei)}</div>
+            <div style="margin-top:3px;color:${it.status==='ok'?'var(--text2)':m[2]};">${dlEsc(it.hinweis)}</div>
+          </div>
+        </div>`;}).join('')}`).join('');
   }
 }
 

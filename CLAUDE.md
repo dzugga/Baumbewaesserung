@@ -74,6 +74,7 @@ Nach Änderungen immer per **Claude in Chrome Extension** prüfen:
 ## System & Compliance (Pflegepflicht)
 - Superadmin-Bereich „System & Compliance" (Avatar-Menü, Desktop); Inhalte in `src/systeminfo-daten.js`.
 - **Bei Änderungen an Technik-Stack, Regionen, Sicherheitsmaßnahmen oder DSGVO-Status diese Datei mitpflegen** (DSGVO-Punkte: status 'ok'/'offen').
+- **Reiter „Lizenzen & Dienste" (`SI_DIENSTE`):** Bei jeder NEUEN externen Bibliothek, Karten-/Routing-/Geocoding-Quelle, CDN oder Cloud-Dienst dort einen Eintrag ergänzen (status 'ok'/'achtung'/'risiko', Lizenz, Kostenrahmen, Hinweis) — Ziel: rechtliche/Kosten-Transparenz für den kommunalen Einsatz.
 - Bibliotheks- und App-Versionen werden zur Laufzeit live ausgelesen — nicht manuell pflegen.
 
 ## Entwicklungshinweise für Claude

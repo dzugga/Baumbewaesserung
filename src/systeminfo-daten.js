@@ -79,3 +79,29 @@ export const SI_SICHERHEIT = [
   { label: 'API-Schlüssel-Beschränkung', note: 'Der öffentliche Web-Schlüssel akzeptiert nur Anfragen von den freigegebenen Domains (baumbewaesserung.web.app u. a.).' },
   { label: 'Transportverschlüsselung', note: 'Sämtliche Verbindungen ausschließlich über HTTPS.' },
 ];
+
+// ── Lizenzen & Dienste (Komponenten-Compliance) ──────────────
+// status: 'ok' (rechtlich/kommerziell unbedenklich) | 'achtung' (Bedingung/Restrisiko beachten) | 'risiko' (vor breitem Produktiveinsatz klären)
+// Gruppen je Einsatzgebiet. Pflegepflicht: bei neuer externer Bibliothek/Dienst hier ergänzen.
+export const SI_DIENSTE = [
+  { gruppe: 'Programmbibliotheken (im Browser)', items: [
+    { name: 'Leaflet', zweck: 'Kartendarstellung in allen Apps', lizenz: 'BSD-2-Clause (Open Source)', frei: 'Ja, dauerhaft – auch kommerziell', status: 'ok', hinweis: 'Frei nutzbar, keine Lizenzkosten. Keine Auflagen außer Copyright-Hinweis im Quellcode.' },
+    { name: 'Chart.js', zweck: 'Diagramme (Controlling, Einsatzleiter)', lizenz: 'MIT (Open Source)', frei: 'Ja, dauerhaft – auch kommerziell', status: 'ok', hinweis: 'Frei nutzbar, keine Auflagen.' },
+    { name: 'SheetJS (Community)', zweck: 'Excel-Import', lizenz: 'Apache-2.0 (Open Source)', frei: 'Ja – Community-Edition kommerziell frei', status: 'ok', hinweis: 'Die genutzte Community-Edition ist frei; nur die optionale „Pro"-Variante kostet.' },
+    { name: 'Firebase JS SDK', zweck: 'Verbindung zur Datenbank/Anmeldung', lizenz: 'Apache-2.0 (Client-Bibliothek)', frei: 'Ja – Kosten nur über die Dienste (s. u.)', status: 'ok', hinweis: 'Die Bibliothek ist frei; Kosten entstehen nur durch die Nutzung der Google-Dienste.' },
+  ]},
+  { gruppe: 'Karten & Geodaten', items: [
+    { name: 'OpenStreetMap-Kartenkacheln', zweck: 'Standard-Hintergrundkarte („Karte")', lizenz: 'Kartendaten ODbL; Kacheln über die OSMF Tile-Usage-Policy', frei: 'Ja, aber NICHT für Dauer-/Massennutzung gedacht', status: 'risiko', hinweis: 'Die öffentlichen OSM-Kachelserver sind laut Nutzungsrichtlinie nicht für intensive/kommerzielle Dauernutzung vorgesehen. Für den Produktiveinsatz: eigener Kachel-Server ODER kommerzieller Anbieter (z. B. MapTiler) ODER amtliche Geobasis-Karten als Standard verwenden.' },
+    { name: 'Esri World Imagery („Satellit")', zweck: 'Satelliten-Basiskarte', lizenz: 'Esri-Nutzungsbedingungen', frei: 'Für kommerziell/kommunal nur eingeschränkt', status: 'risiko', hinweis: 'Die Einbindung ohne Esri-Konto/Lizenz ist für den kommerziellen Einsatz rechtlich heikel. Empfehlung: durch amtliche Luftbilder (Geobasis-WMS der jeweiligen Stadt/Bundesland) ersetzen.' },
+    { name: 'Amtliche Luftbilder/WMS (z. B. RLP DOP20)', zweck: 'Luftbild je Projekt (z. B. Ludwigshafen)', lizenz: 'Datenlizenz Deutschland – Namensnennung 2.0 (dl-de/by-2-0)', frei: 'Ja – auch kommerziell, mit Quellenangabe', status: 'ok', hinweis: 'Amtliche Geobasisdaten sind die rechtlich sauberste Kartenquelle. Quellenangabe ist hinterlegt. Je Stadt den passenden Landesdienst eintragen.' },
+    { name: 'OpenRouteService (Routing)', zweck: 'Berechnung der Tour-Fahrstrecken', lizenz: 'Dienst von HeiGIT; Daten OSM/ODbL', frei: 'Kostenloser Plan mit Tageslimit (ca. 2.000 Routen/Tag, 500 Matrix/Tag)', status: 'achtung', hinweis: 'Je Stadt eigener API-Schlüssel. Bei Überschreitung der Limits oder intensiver Nutzung: kostenpflichtiger Plan oder eigener ORS-Server. Für stark wachsende Nutzung einplanen.' },
+    { name: 'Nominatim (Adresssuche)', zweck: 'Betriebshof-Adresse → Koordinaten (selten)', lizenz: 'OSMF; Nutzungsrichtlinie', frei: 'Ja, aber max. 1 Anfrage/Sek., kein Massenbetrieb', status: 'achtung', hinweis: 'Nur für gelegentliche Einzelabfragen genutzt – das ist zulässig. KEIN Massen-Geocoding über diesen öffentlichen Dienst.' },
+  ]},
+  { gruppe: 'Plattform & Sicherheit', items: [
+    { name: 'Google Firebase / Cloud (Datenbank, Hosting, Speicher, Anmeldung, Funktionen, KI)', zweck: 'Gesamtes Backend', lizenz: 'Kommerzieller Google-Cloud-Vertrag (Pay-as-you-go)', frei: 'Großzügiges Gratis-Kontingent, danach nutzungsbasiert', status: 'ok', hinweis: 'Rechtlich sauber (kommerzieller Anbieter, EU-Region Frankfurt). Für DSGVO Auftragsverarbeitungsvertrag mit Google abschließen (s. DSGVO-Checkliste).' },
+    { name: 'Google reCAPTCHA v3 (App Check)', zweck: 'Schutz vor fremden Clients', lizenz: 'Google-Nutzungsbedingungen', frei: 'Gratis bis 1 Mio Prüfungen/Monat', status: 'achtung', hinweis: 'Kostenlos im erwartbaren Rahmen. Datenschutz: reCAPTCHA bindet einen Google-Dienst ein – in der Datenschutzerklärung erwähnen.' },
+  ]},
+  { gruppe: 'Schriften', items: [
+    { name: 'Google Fonts (vom Google-CDN)', zweck: 'Schriftarten DM Sans / DM Mono', lizenz: 'SIL Open Font License (Schrift gratis)', frei: 'Ja – aber Nachladen vom Google-Server', status: 'achtung', hinweis: 'DSGVO: Das Nachladen vom Google-CDN überträgt die IP-Adresse an Google (Abmahnrisiko, vgl. LG München 2022). Empfehlung: Schriften lokal selbst hosten statt vom Google-CDN laden.' },
+  ]},
+];
