@@ -478,7 +478,7 @@ function showProjectScreen(){
   Object.values(mapMarkers).forEach(m=>map.removeLayer(m));mapMarkers={};
   Object.values(tourRoutes).forEach(r=>map.removeLayer(r.layer));tourRoutes={};
   if(depotMarker){map.removeLayer(depotMarker);depotMarker=null;}
-  tours=[];trees=[];tourOrder={};activeTours.clear();showUnplanned=false;activeTourOnMap=null;filterTour='all';showOverviewInLegend=false;showOverviewInGrid=false;
+  tours=[];trees=[];tourOrder={};activeTours.clear();showUnplanned=false;activeTourOnMap=null;filterTour='all';showOverviewInLegend=false;showOverviewInGrid=false;showOverviewInAssign=false;
   reasons=[]; // Gründe des Projekts verwerfen (kein projektübergreifendes Hängenbleiben)
   _routesCache={};_routesLoadedFor=null; // Routen-Cache verwerfen
   initProjectScreen();
@@ -1420,6 +1420,7 @@ let tourLegendQuery='';
 let legendExpanded=new Set(); // je Tour aufgeklappte Detail-Zeile (Session)
 let showOverviewInLegend=false; // Übersichtstouren in der Legende eingeblendet? (Session, Standard: aus)
 let showOverviewInGrid=false;   // Übersichtstouren im Touren-Reiter eingeblendet? (Session, Standard: aus)
+let showOverviewInAssign=false; // Übersichtstouren in der Ziel-Tour-Auswahl (Planen) eingeblendet?
 function applyTourLegendFilter(){
   const q=(tourLegendQuery||'').trim().toLowerCase();
   document.querySelectorAll('#tour-legend .legend-item[data-tourname]').forEach(row=>{
@@ -2551,7 +2552,9 @@ function toggleLassoMode() {
 function startAssignMode(){
   if(!currentProjectId){notify('Bitte zuerst ein Projekt öffnen');return;}
   if(tours.length===0){notify('Bitte zuerst eine Tour anlegen');return;}
-  assignMode=true;lassoMode=false;assignTourId=tours[0].id;lassoTourId=tours[0].id;
+  showOverviewInAssign=false;
+  const startTour=(tours.find(t=>!t.uebersicht)||tours[0]).id; // bevorzugt erste ECHTE Tour
+  assignMode=true;lassoMode=false;assignTourId=startTour;lassoTourId=startTour;
   lassoPoints=[];lassoDrawing=false;
   _lassoActive=false;
 
@@ -2634,16 +2637,28 @@ function startAssignMode(){
 function rebuildAssignPills(){
   const sel = document.getElementById('assign-tour-select');
   if(!sel) return;
-  sel.innerHTML = tours.map(t =>
-    `<option value="${t.id}" style="color:#111;background:#fff;">${t.name}</option>`
-  ).join('');
-  // Set initial value
-  if(assignTourId) sel.value = assignTourId;
-  else if(tours.length) { sel.value = tours[0].id; assignTourId = tours[0].id; }
+  const echte=tours.filter(t=>!t.uebersicht);
+  const ueb=tours.filter(t=>t.uebersicht);
+  const opt=t=>`<option value="${t.id}" style="color:#111;background:#fff;">${dlEsc(t.name)}</option>`;
+  let html=echte.map(opt).join('');
+  // Übersichtstouren nur nach Bedarf (eigene Gruppe), per Umschalt-Eintrag ein-/ausblendbar
+  if(showOverviewInAssign && ueb.length) html+=`<optgroup label="Übersichtstouren" style="color:#111;">${ueb.map(opt).join('')}</optgroup>`;
+  if(ueb.length) html+=`<option value="__toggle_overview__" style="color:#2d6a4f;background:#fff;">${showOverviewInAssign?'− Übersichtstouren ausblenden':'+ Übersichtstouren einblenden…'}</option>`;
+  sel.innerHTML=html;
+  // Gültige Auswahl sicherstellen (keine ausgeblendete Übersichtstour aktiv lassen)
+  const valid=tours.some(t=>t.id===assignTourId) && (showOverviewInAssign || !isOverviewTour(assignTourId));
+  if(!valid) assignTourId=(echte[0]||ueb[0])?.id||null;
+  lassoTourId=assignTourId;
+  if(assignTourId) sel.value=assignTourId;
   updateAssignSwatch();
 }
 
 function setAssignTour(id){
+  if(id==='__toggle_overview__'){ // Umschalt-Eintrag: Übersichtstouren ein-/ausblenden, Auswahl behalten
+    showOverviewInAssign=!showOverviewInAssign;
+    rebuildAssignPills(); renderLassoActions();
+    return;
+  }
   assignTourId=id;lassoTourId=id;
   const sel=document.getElementById('assign-tour-select');
   if(sel) sel.value=id;
