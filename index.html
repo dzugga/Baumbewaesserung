@@ -427,7 +427,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       <!-- Unified assign banner — outside toolbar so pointer-events work -->
       <div class="lasso-banner" id="assign-lasso-banner" style="position:absolute;top:12px;left:60px;z-index:1002;pointer-events:all;">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-        Tour zuweisen:
+        Ziel-Tour:
         <div style="display:flex;align-items:center;gap:6px;">
           <div style="position:relative;">
             <select id="assign-tour-select" onchange="setAssignTour(this.value)" style="background:rgba(255,255,255,.12);border:1.5px solid rgba(255,255,255,.35);border-radius:6px;color:#fff;font-size:12px;padding:4px 28px 4px 10px;cursor:pointer;appearance:none;-webkit-appearance:none;outline:none;min-width:140px;"></select>
@@ -441,6 +441,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         </button>
         <button class="btn btn-secondary" style="padding:3px 10px;font-size:12px;color:#fff;border-color:rgba(255,255,255,.4);background:rgba(255,255,255,.15);" onclick="cancelAssign()">Fertig</button>
       </div>
+      <!-- Lasso-Vorauswahl: Aktionsleiste (erscheint, sobald Objekte ausgewählt sind) -->
+      <div class="lasso-banner" id="lasso-action-bar" style="position:absolute;top:52px;left:60px;z-index:1002;pointer-events:all;gap:8px;"></div>
 
       <div class="map-toolbar">
         <div class="mode-banner" id="mode-banner">

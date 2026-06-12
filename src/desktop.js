@@ -199,6 +199,7 @@ let unsubTrees = null;
 
 let currentView = 'karte';
 let selectedTreeId = null;
+let lassoSelection = new Set(); // Lasso-Vorauswahl (tree-IDs) im Planen-Modus
 let filterTour = 'all';
 // Eigenschaften-Filter (Planung). objFilterOnMap = optional auch Marker filtern.
 let objFilter = {stadtteil:'',art:'',pflanzjahr:'',zustand:'',wasser:'',status:''};
@@ -1134,6 +1135,7 @@ function makeMarker(tree){
   }
   const num=getRouteNum(tree.id);
   const isHighlighted=selectedTreeId===tree.id;
+  const isPreselected=lassoSelection.size>0 && lassoSelection.has(tree.id); // Lasso-Vorauswahl
   const numColor=multiActive?'#a16207':color; // lesbarer Reihenfolge-Zähler auf Gelb
 
   const badge=num!=null
@@ -1152,16 +1154,21 @@ function makeMarker(tree){
   const multiBadge=isMulti
     ?`<div class="tour-count-badge" style="position:absolute;top:-6px;right:-6px;min-width:16px;height:16px;border-radius:8px;background:#f59e0b;border:2px solid #fff;color:#fff;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 2px;z-index:10;">${treeTourIds.length}</div>`:'';
 
+  // Lasso-Vorauswahl: deutlicher durchgehender Ring (Akzent), zusätzlich zum evtl. Highlight
+  const selRing=isPreselected
+    ?`<div style="position:absolute;inset:-6px;border-radius:50%;border:3px solid #7c3aed;box-shadow:0 0 0 2px #fff;"></div>`
+    :'';
+
   const icon=L.divIcon({
     className:'',
     html:`<div style="position:relative;width:${sz}px;height:${sz}px;transition:all .2s;">
-      ${ring}
+      ${ring}${selRing}
       ${circleHtml}
       ${badge}${multiBadge}</div>`,
     iconSize:[sz,sz], iconAnchor:[sz/2,sz/2]
   });
-  return L.marker([tree.lat,tree.lng],{icon,zIndexOffset:isHighlighted?500:0}).addTo(map)
-    .on('click',()=>{ if(assignMode&&!lassoDrawing) assignTreeToTour(tree.id,assignTourId); else if(!assignMode) selectTree(tree.id,false); })
+  return L.marker([tree.lat,tree.lng],{icon,zIndexOffset:isHighlighted?500:(isPreselected?300:0)}).addTo(map)
+    .on('click',()=>{ if(assignMode&&!lassoDrawing) toggleLassoSelect(tree.id); else if(!assignMode) selectTree(tree.id,false); })
     .on('contextmenu', e=>showTreeTourContextMenu(tree, e));
 }
 
@@ -2567,7 +2574,7 @@ function startAssignMode(){
       });
       lassoCtx.clearRect(0,0,canvas.width,canvas.height);
       lassoPoints=[];
-      if(nearestTree) assignTreeToTour(nearestTree.id,assignTourId);
+      if(nearestTree) toggleLassoSelect(nearestTree.id); // Einzelklick toggelt die Vorauswahl
     } else {
       applyLasso();
       // Auto-deactivate after draw so map is pannable again
@@ -2610,6 +2617,7 @@ function setAssignTour(id){
   const sel=document.getElementById('assign-tour-select');
   if(sel) sel.value=id;
   updateAssignSwatch();
+  renderLassoActions(); // Ziel-Tour-Name in den Aktions-Buttons aktualisieren
 }
 
 function updateAssignSwatch(){
@@ -2622,6 +2630,9 @@ function cancelAssign(){
   _lassoActive=false;
   assignMode=false;lassoMode=false;lassoDrawing=false;lassoPoints=[];
   assignTourId=null;lassoTourId=null;
+  // Vorauswahl verwerfen + Auswahl-Ringe entfernen
+  if(lassoSelection.size){ const ids=[...lassoSelection]; lassoSelection.clear(); remakeMarkers(ids); }
+  document.getElementById('lasso-action-bar')?.classList.remove('visible');
   const canvas=document.getElementById('lasso-canvas');
   if(lassoCtx)lassoCtx.clearRect(0,0,canvas.width,canvas.height);
   canvas.classList.remove('active');
@@ -5390,98 +5401,108 @@ async function applyLasso(){
   lassoPoints=[];
   if(selected.length===0){notify('Keine Objekte im Lasso-Bereich');return;}
 
-  // Konflikte (bereits in anderer Tour) vs. frei/bereits in Ziel-Tour
-  const conflicts=selected.filter(t=>getTreeTourIds(t).length>0&&!treeInTour(t,tourId));
-  const clean=selected.filter(t=>getTreeTourIds(t).length===0||treeInTour(t,tourId));
+  // NEU: Lasso trifft nur eine VORAUSWAHL — mehrere Lassos addieren sich. Geschrieben wird
+  // erst, wenn der Nutzer in der Aktionsleiste Hinzufügen/Verschieben/Entfernen wählt.
+  let added=0;
+  selected.forEach(t=>{ if(!lassoSelection.has(t.id)){ lassoSelection.add(t.id); added++; } });
+  remakeMarkers(selected.map(t=>t.id)); // Auswahl-Ringe zeigen
+  renderLassoActions();
+  notify(`${lassoSelection.size} Objekte ausgewählt${added<selected.length?` (${added} neu)`:''}`);
+}
 
-  // Bei Konflikten: gleicher Hinweisdialog wie beim Einzelklick (3 Optionen)
-  let mode='add'; // 'add' = zusätzlich zuordnen | 'move' = aus bisherigen Touren entfernen
-  if(conflicts.length>0){
-    const choice=await showLassoConflictDialog(conflicts,tour?.name||'');
-    if(choice==='cancel'){ notify('Abgebrochen — keine Änderungen'); return; }
-    mode=choice;
-  }
+// Nur die genannten Marker neu zeichnen (für Auswahl-Ring) — Routen-Nummern-Map einmal vorberechnen
+function remakeMarkers(ids){
+  _routeNumMap=buildRouteNumMap();
+  try{
+    ids.forEach(id=>{
+      if(mapMarkers[id]){ map.removeLayer(mapMarkers[id]); delete mapMarkers[id]; }
+      const tree=trees.find(t=>t.id===id);
+      if(tree&&isActive(tree)&&tree.lat&&tree.lng) mapMarkers[id]=makeMarker(tree);
+    });
+  } finally { _routeNumMap=null; }
+  setMarkerVisibility();
+}
 
-  const targets=[...clean,...conflicts];
-  if(targets.length===0){notify('Keine Objekte zugewiesen');return;}
+// Einzelnes Objekt in die Vorauswahl auf-/abwählen (Marker-Klick im Planen-Modus)
+function toggleLassoSelect(id){
+  if(lassoSelection.has(id)) lassoSelection.delete(id); else lassoSelection.add(id);
+  remakeMarkers([id]);
+  renderLassoActions();
+}
 
-  const conflictSet=new Set(conflicts.map(t=>t.id));
-  // Sofortiges Feedback VOR der Schreibphase — bei tausenden Objekten dauert sie spürbar
-  notify(`${targets.length} Objekte ausgewählt — werden zugewiesen…`);
-  setSyncState('syncing',`Zuweisen… 0/${targets.length}`);
-  // Batch statt n Einzel-Writes: schneller und kein stiller Teilabbruch, wenn ein Write scheitert.
-  // Render-Pause: jeder Batch-Commit löst einen Snapshot aus — ohne Pause würde die Karte
-  // pro Paket komplett neu gebaut (bei 3.400 Objekten ~9 Voll-Renders → UI friert ein).
+function clearLassoSelection(){
+  if(!lassoSelection.size){ renderLassoActions(); return; }
+  const ids=[...lassoSelection]; lassoSelection.clear();
+  remakeMarkers(ids);
+  renderLassoActions();
+}
+
+// Aktionsleiste unter dem Planen-Banner: erscheint, sobald etwas ausgewählt ist
+function renderLassoActions(){
+  const bar=document.getElementById('lasso-action-bar'); if(!bar) return;
+  const n=lassoSelection.size;
+  if(n===0){ bar.classList.remove('visible'); bar.innerHTML=''; return; }
+  const tour=tours.find(t=>t.id===(assignTourId||lassoTourId));
+  const tn=dlEsc(tour?.name||'Tour');
+  const btn=(act,label,bg)=>`<button onclick="lassoAction('${act}')" style="padding:4px 11px;font-size:12px;font-weight:600;border:none;border-radius:var(--radius-sm);background:${bg};color:#fff;cursor:pointer;white-space:nowrap;">${label}</button>`;
+  bar.innerHTML=`<span style="font-weight:700;">${n} ausgewählt</span>
+    ${btn('add','➕ Zu „'+tn+'“ hinzufügen','rgba(255,255,255,.18)')}
+    ${btn('move','➡ Nach „'+tn+'“ verschieben','rgba(255,255,255,.18)')}
+    ${btn('unplan','⊘ Aus Tour(en) entfernen','rgba(255,255,255,.18)')}
+    <button onclick="clearLassoSelection()" style="padding:4px 11px;font-size:12px;border:1px solid rgba(255,255,255,.4);background:transparent;color:#fff;border-radius:var(--radius-sm);cursor:pointer;white-space:nowrap;">Auswahl aufheben</button>`;
+  bar.classList.add('visible');
+}
+
+// Aktion auf die Vorauswahl anwenden: 'add' | 'move' | 'unplan'
+async function lassoAction(mode){
+  const targets=[...lassoSelection].map(id=>trees.find(t=>t.id===id)).filter(Boolean);
+  if(!targets.length){ renderLassoActions(); return; }
+  const tourId=assignTourId||lassoTourId;
+  const tour=tours.find(t=>t.id===tourId);
+  if((mode==='add'||mode==='move')&&!tourId){ notify('Bitte zuerst eine Ziel-Tour wählen'); return; }
+  const verbing=mode==='add'?'hinzufügen':mode==='move'?'verschieben':'aus Tour(en) entfernen';
+  notify(`${targets.length} Objekte – ${verbing}…`);
+  setSyncState('syncing',`${verbing}… 0/${targets.length}`);
+  // Batch + Render-Pause (wie bei der früheren Zuweisung): grosse Mengen flüssig, kein Teilabbruch
   _suppressTreeRender=true;
   try{
     for(let i=0;i<targets.length;i+=400){
       const chunk=targets.slice(i,i+400);
       const batch=db.batch();
       chunk.forEach(tree=>{
-        const newIds=((mode==='move'&&conflictSet.has(tree.id))
-          ? [tourId]                                              // aus bisherigen Touren entfernen
-          : [...new Set([...getTreeTourIds(tree),tourId])]        // zusätzlich zuordnen
-        ).filter(Boolean);
+        let newIds;
+        if(mode==='add') newIds=[...new Set([...getTreeTourIds(tree),tourId])];
+        else if(mode==='move') newIds=[tourId];
+        else newIds=[]; // unplan → unverplant
+        newIds=newIds.filter(Boolean);
         batch.update(doc(db,'projects',currentProjectId,'trees',tree.id),{tourIds:newIds,tourId:newIds[0]||''});
       });
       await batch.commit();
       _bumpUsage('writes',chunk.length);
-      setSyncState('syncing',`Zuweisen… ${Math.min(i+400,targets.length)}/${targets.length}`);
+      setSyncState('syncing',`${verbing}… ${Math.min(i+400,targets.length)}/${targets.length}`);
     }
   }catch(e){
-    console.warn('Lasso-Zuweisung',e);
+    console.warn('Lasso-Aktion',e);
     setSyncState('error','Fehler');
-    notify(`⚠ Zuweisung fehlgeschlagen — bitte erneut versuchen (${e.message||e})`);
-    return;
+    notify(`⚠ Fehlgeschlagen — bitte erneut versuchen (${e.message||e})`);
+    return; // Auswahl bleibt erhalten, damit man es erneut versuchen kann
   }finally{
     _suppressTreeRender=false;
-    if(_pendingTreeRender){ _pendingTreeRender=false; refreshMarkers(); renderList(); }
   }
   routeCache={};
+  const doneIds=[...lassoSelection]; lassoSelection.clear();
+  if(_pendingTreeRender){ _pendingTreeRender=false; refreshMarkers(); renderList(); }
+  else remakeMarkers(doneIds); // Auswahl-Ringe weg + neue Farben sofort
   rebuildAssignPills();
+  renderLassoActions();
   setSyncState('ok','Synchronisiert');
-  notify(`✓ ${targets.length} Objekte → ${tour?.name||'Tour'}`);
+  const verb=mode==='add'?`→ „${tour?.name||'Tour'}“ hinzugefügt`:mode==='move'?`→ „${tour?.name||'Tour'}“ verschoben`:'aus Tour(en) entfernt';
+  notify(`✓ ${targets.length} Objekte ${verb}`);
 }
 
 // cancelLasso merged into cancelAssign
-
-// ─── CONFLICT DIALOGS ────────────────────────────────────────
-// Lasso-Variante des Konflikt-Dialogs – gleiche Optik & Optionen wie beim
-// Einzelklick (showTourConflictDialog), angewandt auf mehrere Objekte.
-// Liefert: 'move' (aus bisherigen entfernen) | 'add' (zusätzlich) | 'cancel'
-function showLassoConflictDialog(conflicts, toTour){
-  return new Promise(resolve=>{
-    const existing=document.getElementById('conflict-modal'); if(existing) existing.remove();
-    const names=conflicts.slice(0,4).map(t=>t.name).filter(Boolean).join(', ')+(conflicts.length>4?` +${conflicts.length-4} weitere`:'');
-    const curName=toTour||'aktuelle Tour';
-    const n=conflicts.length;
-    const modal=document.createElement('div');
-    modal.id='conflict-modal';
-    modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;';
-    const done=v=>{ modal.remove(); resolve(v); };
-    const opt=(id,title,desc,color)=>`<button id="${id}" style="display:block;width:100%;text-align:left;padding:11px 13px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);cursor:pointer;font-family:inherit;transition:background .12s;" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='var(--surface)'">
-      <div style="font-size:13px;font-weight:600;color:${color};">${title}</div>
-      <div style="font-size:11px;color:var(--text3);margin-top:2px;">${desc}</div></button>`;
-    modal.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);width:460px;max-width:92vw;overflow:hidden;">
-      <div style="padding:18px 20px 12px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;color:var(--amber);">⚠ ${n} Objekte bereits verplant</div>
-      <div style="padding:16px 20px;font-size:13px;color:var(--text2);line-height:1.6;">
-        ${n} der ausgewählten Objekte sind bereits anderen Touren zugeordnet:<br>
-        <b style="color:var(--text);">${names}</b><br><br>
-        Möchten Sie diese in die Tour <b style="color:var(--text);">„${curName}"</b> übernehmen?
-      </div>
-      <div style="padding:0 20px 18px;display:flex;flex-direction:column;gap:8px;">
-        ${opt('lc-move','Übernehmen und aus bisheriger Tour entfernen',`Werden „${curName}" zugeordnet und aus ihren bisherigen Touren entfernt.`,'var(--green)')}
-        ${opt('lc-add','Zusätzlich zur aktuellen Tour zuordnen',`Bleiben in ihren bisherigen Touren und werden zusätzlich „${curName}" zugeordnet.`,'var(--text)')}
-        ${opt('lc-cancel','Abbrechen','Es werden keine Änderungen vorgenommen.','var(--text2)')}
-      </div>
-    </div>`;
-    document.body.appendChild(modal);
-    modal.querySelector('#lc-move').onclick=()=>done('move');
-    modal.querySelector('#lc-add').onclick=()=>done('add');
-    modal.querySelector('#lc-cancel').onclick=()=>done('cancel');
-    modal.addEventListener('click',e=>{ if(e.target===modal) done('cancel'); });
-  });
-}
+// (Lasso-Konfliktdialog entfällt — Hinzufügen/Verschieben/Entfernen wählt der Nutzer
+//  jetzt direkt über die Aktionsleiste der Vorauswahl.)
 
 // ─── CONTEXT MENU ────────────────────────────────────────────
 let ctxPendingLat=null,ctxPendingLng=null;
@@ -6938,7 +6959,7 @@ Object.assign(window,{
   dispoSimulate,dispoPlan,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
-  importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,
+  importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,clearLassoSelection,
   createProject,openProject,showProjectScreen,psSetOrgFilter,setSiTab,
   switchView,openDetail,closePanel,logWatering,
   openFoto,stepFoto,closeFoto,deleteFoto,
