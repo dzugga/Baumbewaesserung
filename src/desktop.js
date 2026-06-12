@@ -2464,6 +2464,10 @@ function toggleLassoMode() {
   const btn = document.getElementById('lasso-toggle-btn');
   const canvas = document.getElementById('lasso-canvas');
   if(_lassoActive) {
+    // Canvas ist ein replaced element — CSS left/right/bottom strecken es NICHT, daher
+    // explizit auf Kartengröße setzen (auch Schutz gegen zwischenzeitliches Fenster-Resize)
+    const mc = map.getContainer();
+    canvas.width = mc.offsetWidth; canvas.height = mc.offsetHeight;
     canvas.style.pointerEvents = 'all';
     map.getContainer().style.cursor = 'crosshair';
     if(btn) { btn.style.background = 'rgba(255,255,255,.35)'; btn.style.borderColor = '#fff'; }
@@ -2484,6 +2488,7 @@ function startAssignMode(){
   _lassoActive=false;
 
   // Setup lasso canvas (hidden until user activates)
+  // Canvas ist ein replaced element — CSS streckt es nicht, Größe explizit = Kartengröße
   const canvas=document.getElementById('lasso-canvas');
   const mapEl=document.getElementById('map');
   canvas.width=mapEl.offsetWidth;canvas.height=mapEl.offsetHeight;
@@ -2521,9 +2526,9 @@ function startAssignMode(){
       lassoPoints[lassoPoints.length-1].x-lassoPoints[0].x,
       lassoPoints[lassoPoints.length-1].y-lassoPoints[0].y):0;
     if(dist<5){
-      // Single click: find nearest marker
-      const r=canvas.getBoundingClientRect();
-      const clickPt=map.containerPointToLatLng(L.point(e.clientX-r.left,e.clientY-r.top));
+      // Single click: find nearest marker — Klickpunkt relativ zur KARTE (nicht zum versetzten Canvas)
+      const mr=map.getContainer().getBoundingClientRect();
+      const clickPt=map.containerPointToLatLng(L.point(e.clientX-mr.left,e.clientY-mr.top));
       let nearestTree=null,nearestDist=Infinity;
       trees.forEach(tree=>{
         if(!tree.lat||!tree.lng)return;
@@ -5225,7 +5230,7 @@ function startLassoMode(){
   lassoTourId=tours[0].id;
   lassoPoints=[];
 
-  // Setup canvas
+  // Setup canvas — Canvas ist ein replaced element, CSS streckt es nicht: Größe = Kartengröße
   const canvas=document.getElementById('lasso-canvas');
   const mapEl=document.getElementById('map');
   canvas.width=mapEl.offsetWidth;
@@ -5341,10 +5346,15 @@ async function applyLasso(){
   }
 
   const MARKER_RADIUS=20; // px — generous touch zone
+  // Lasso-Punkte sind relativ zum CANVAS erfasst, Marker-Punkte relativ zum KARTEN-Container.
+  // Das Canvas sitzt per CSS versetzt über der Karte (top:55px) — ohne Versatz-Korrektur
+  // verschiebt sich die Treffer-Zone gegenüber der gezeichneten Fläche.
+  const _mr=map.getContainer().getBoundingClientRect(), _cr=canvas.getBoundingClientRect();
+  const offX=_mr.left-_cr.left, offY=_mr.top-_cr.top;
   trees.forEach(tree=>{
     if(!tree.lat||!tree.lng)return;
     const pt=map.latLngToContainerPoint(L.latLng(tree.lat,tree.lng));
-    if(touchesLasso(pt.x,pt.y,MARKER_RADIUS)) selected.push(tree);
+    if(touchesLasso(pt.x+offX,pt.y+offY,MARKER_RADIUS)) selected.push(tree);
   });
 
   lassoPoints=[];
@@ -5367,11 +5377,26 @@ async function applyLasso(){
 
   const conflictSet=new Set(conflicts.map(t=>t.id));
   setSyncState('syncing',`${targets.length} Objekte werden zugewiesen…`);
-  for(const tree of targets){
-    const newIds=(mode==='move'&&conflictSet.has(tree.id))
-      ? [tourId]                                              // aus bisherigen Touren entfernen
-      : [...new Set([...getTreeTourIds(tree),tourId])];       // zusätzlich zuordnen
-    await setTreeTourIds(tree.id,newIds);
+  // Batch statt n Einzel-Writes: schneller und kein stiller Teilabbruch, wenn ein Write scheitert
+  try{
+    for(let i=0;i<targets.length;i+=400){
+      const chunk=targets.slice(i,i+400);
+      const batch=db.batch();
+      chunk.forEach(tree=>{
+        const newIds=((mode==='move'&&conflictSet.has(tree.id))
+          ? [tourId]                                              // aus bisherigen Touren entfernen
+          : [...new Set([...getTreeTourIds(tree),tourId])]        // zusätzlich zuordnen
+        ).filter(Boolean);
+        batch.update(doc(db,'projects',currentProjectId,'trees',tree.id),{tourIds:newIds,tourId:newIds[0]||''});
+      });
+      await batch.commit();
+      _bumpUsage('writes',chunk.length);
+    }
+  }catch(e){
+    console.warn('Lasso-Zuweisung',e);
+    setSyncState('error','Fehler');
+    notify(`⚠ Zuweisung fehlgeschlagen — bitte erneut versuchen (${e.message||e})`);
+    return;
   }
   routeCache={};
   rebuildAssignPills();
