@@ -478,7 +478,7 @@ function showProjectScreen(){
   Object.values(mapMarkers).forEach(m=>map.removeLayer(m));mapMarkers={};
   Object.values(tourRoutes).forEach(r=>map.removeLayer(r.layer));tourRoutes={};
   if(depotMarker){map.removeLayer(depotMarker);depotMarker=null;}
-  tours=[];trees=[];tourOrder={};activeTours.clear();showUnplanned=false;activeTourOnMap=null;filterTour='all';showOverviewInLegend=false;
+  tours=[];trees=[];tourOrder={};activeTours.clear();showUnplanned=false;activeTourOnMap=null;filterTour='all';showOverviewInLegend=false;showOverviewInGrid=false;
   reasons=[]; // Gründe des Projekts verwerfen (kein projektübergreifendes Hängenbleiben)
   _routesCache={};_routesLoadedFor=null; // Routen-Cache verwerfen
   initProjectScreen();
@@ -1419,6 +1419,7 @@ async function applyTourSelection(fit){
 let tourLegendQuery='';
 let legendExpanded=new Set(); // je Tour aufgeklappte Detail-Zeile (Session)
 let showOverviewInLegend=false; // Übersichtstouren in der Legende eingeblendet? (Session, Standard: aus)
+let showOverviewInGrid=false;   // Übersichtstouren im Touren-Reiter eingeblendet? (Session, Standard: aus)
 function applyTourLegendFilter(){
   const q=(tourLegendQuery||'').trim().toLowerCase();
   document.querySelectorAll('#tour-legend .legend-item[data-tourname]').forEach(row=>{
@@ -2780,6 +2781,9 @@ async function saveTour(){
   }catch(e){ notify('Fehler: '+e.message); }
 }
 
+// Übersichtstouren im Touren-Reiter ein-/ausblenden
+function toggleOverviewInGrid(){ showOverviewInGrid=!showOverviewInGrid; renderTourenGrid(); }
+
 // Übersichtstour-Markierung umschalten (Inline-Checkbox im Touren-Reiter)
 async function toggleTourUebersicht(id,checked){
   const t=tours.find(x=>x.id===id); if(t) t.uebersicht=!!checked; // sofort lokal wirksam
@@ -3555,13 +3559,26 @@ function renderTourenGrid(){
     return;
   }
 
-  const q=(_tourenSearch||'').trim().toLowerCase();
-  const list=q ? tours.filter(t=>(t.name||'').toLowerCase().includes(q)||(t.desc||'').toLowerCase().includes(q)) : tours;
   const ovCount=tours.filter(t=>t.uebersicht).length, echtCount=tours.length-ovCount;
+  // Standardmäßig nur echte Touren; Übersichtstouren erst nach Klick auf den Umschalter
+  const base=showOverviewInGrid ? tours : tours.filter(t=>!t.uebersicht);
+  const q=(_tourenSearch||'').trim().toLowerCase();
+  const list=q ? base.filter(t=>(t.name||'').toLowerCase().includes(q)||(t.desc||'').toLowerCase().includes(q)) : base;
   if(countEl)countEl.textContent=q?`${list.length} von ${tours.length} Touren`:`${echtCount} Touren${ovCount?` · ${ovCount} Übersicht`:''}`;
+  // Umschalter nur zeigen, wenn es überhaupt Übersichtstouren gibt
+  const ovBtn=document.getElementById('btn-toggle-overview-grid');
+  if(ovBtn){
+    ovBtn.style.display=ovCount?'':'none';
+    const lbl=document.getElementById('toggle-overview-grid-label');
+    if(lbl) lbl.textContent=showOverviewInGrid?'Übersichtstouren ausblenden':`Übersichtstouren anzeigen (${ovCount})`;
+    ovBtn.style.background=showOverviewInGrid?'var(--green-light)':'';
+    ovBtn.style.color=showOverviewInGrid?'var(--green)':'';
+  }
 
   if(list.length===0){
-    grid.innerHTML=`<tr><td colspan="8" style="padding:40px;text-align:center;color:var(--text3);">Keine Tour gefunden für „${_tourenSearch}"</td></tr>`;
+    const msg=q ? `Keine Tour gefunden für „${_tourenSearch}"`
+                : 'Nur Übersichtstouren vorhanden — über „Übersichtstouren anzeigen" oben rechts einblenden.';
+    grid.innerHTML=`<tr><td colspan="8" style="padding:40px;text-align:center;color:var(--text3);">${msg}</td></tr>`;
     return;
   }
 
@@ -7006,7 +7023,7 @@ Object.assign(window,{
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
   openAddTree,openEditTree,closeTreeModal,saveTree,deleteTree,
   archiveTree,reactivateTree,archiveTreeFromModal,reactivateTreeFromModal,deleteTreeFromModal,toggleShowInactive,showTreeOnMapFromModal,
-  openTourModal,closeTourModal,saveTour,deleteTour,toggleTourUebersicht,filterTourenGrid,
+  openTourModal,closeTourModal,saveTour,deleteTour,toggleTourUebersicht,toggleOverviewInGrid,filterTourenGrid,
   focusTour,focusTourAndSwitch,
   startPlacement,cancelMode,setDepotOnMap,
   startAssignMode,setAssignTour,cancelAssign,assignTreeToTour,
