@@ -86,6 +86,10 @@ function getTreeTourIds(tree){
   if(tree.tourId) return [tree.tourId];
   return [];
 }
+// Übersichtstouren (z.B. Stadtteil-Touren) sind keine „echten" Touren: kein Marker-Zähler,
+// keine Routenberechnung, auf der Karte standardmäßig ausgeblendet.
+function isOverviewTour(tourId){ const t=tours.find(x=>x.id===tourId); return !!(t&&t.uebersicht); }
+function realTourIds(tree){ return getTreeTourIds(tree).filter(id=>!isOverviewTour(id)); } // ohne Übersichtstouren
 function treeInTour(tree, tourId){
   return getTreeTourIds(tree).includes(tourId);
 }
@@ -471,7 +475,7 @@ function showProjectScreen(){
   Object.values(mapMarkers).forEach(m=>map.removeLayer(m));mapMarkers={};
   Object.values(tourRoutes).forEach(r=>map.removeLayer(r.layer));tourRoutes={};
   if(depotMarker){map.removeLayer(depotMarker);depotMarker=null;}
-  tours=[];trees=[];tourOrder={};activeTours.clear();showUnplanned=false;activeTourOnMap=null;filterTour='all';
+  tours=[];trees=[];tourOrder={};activeTours.clear();showUnplanned=false;activeTourOnMap=null;filterTour='all';showOverviewInLegend=false;
   reasons=[]; // Gründe des Projekts verwerfen (kein projektübergreifendes Hängenbleiben)
   _routesCache={};_routesLoadedFor=null; // Routen-Cache verwerfen
   initProjectScreen();
@@ -950,6 +954,7 @@ async function loadSavedRoutes(force=false){
 async function calculateAndSaveRoute(tourId){
   if(isReadonly()){ notify('Nur Lesezugriff'); return; }
   if(!getRoutePlanningEnabled()){ notify('Reihenfolgeplanung ist deaktiviert'); return; }
+  if(isOverviewTour(tourId)){ notify('Übersichtstouren erhalten keine Route'); return; }
   const tour=tours.find(t=>t.id===tourId);if(!tour)return;
   const trs=trees.filter(t=>treeInTour(t,tourId)&&t.lat&&t.lng&&t.aktiv!==false);
   if(trs.length<1){notify('Keine Objekte in dieser Tour');return;}
@@ -1021,6 +1026,7 @@ async function calculateAllRoutes(){
   if(isReadonly()){ notify('Nur Lesezugriff'); return; }
   if(!getRoutePlanningEnabled()){ notify('Reihenfolgeplanung ist deaktiviert'); return; }
   for(const tour of tours){
+    if(tour.uebersicht) continue; // Übersichtstouren überspringen
     await calculateAndSaveRoute(tour.id);
   }
 }
@@ -1120,7 +1126,8 @@ function getRouteNum(treeId){
 
 function makeMarker(tree){
   const treeTourIds=getTreeTourIds(tree);
-  const isMulti=treeTourIds.length>1;                         // mehrere Tourzuordnungen → Zähler
+  const realIds=realTourIds(tree);                            // Übersichtstouren zählen nicht mit
+  const isMulti=realIds.length>1;                             // mehrere ECHTE Tourzuordnungen → Zähler
   const activeForTree=treeTourIds.filter(id=>activeTours.has(id));
   const multiActive=activeForTree.length>=2;                  // mehrere gleichzeitig eingeblendet → gelb
   // Farbe: mehrere gleichzeitig aktive Touren → gelb; sonst aktive/Primär-Tourfarbe
@@ -1152,7 +1159,7 @@ function makeMarker(tree){
 
   // Tour-Zähler = Anzahl der Tourzuordnungen (fix), per Button nur ausblendbar
   const multiBadge=isMulti
-    ?`<div class="tour-count-badge" style="position:absolute;top:-6px;right:-6px;min-width:16px;height:16px;border-radius:8px;background:#f59e0b;border:2px solid #fff;color:#fff;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 2px;z-index:10;">${treeTourIds.length}</div>`:'';
+    ?`<div class="tour-count-badge" style="position:absolute;top:-6px;right:-6px;min-width:16px;height:16px;border-radius:8px;background:#f59e0b;border:2px solid #fff;color:#fff;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 2px;z-index:10;">${realIds.length}</div>`:'';
 
   // Lasso-Vorauswahl: deutlicher durchgehender Ring (Akzent), zusätzlich zum evtl. Highlight
   const selRing=isPreselected
@@ -1408,6 +1415,7 @@ async function applyTourSelection(fit){
 // ─── LEGEND ───────────────────────────────────────────────────
 let tourLegendQuery='';
 let legendExpanded=new Set(); // je Tour aufgeklappte Detail-Zeile (Session)
+let showOverviewInLegend=false; // Übersichtstouren in der Legende eingeblendet? (Session, Standard: aus)
 function applyTourLegendFilter(){
   const q=(tourLegendQuery||'').trim().toLowerCase();
   document.querySelectorAll('#tour-legend .legend-item[data-tourname]').forEach(row=>{
@@ -1418,7 +1426,9 @@ function renderLegend(){
   const el=document.getElementById('tour-legend');if(!el)return;
   if(tours.length===0){el.style.display='none';return;}
   el.style.display='block';
-  if(tours.length<8) tourLegendQuery='';
+  const echteTouren=tours.filter(t=>!t.uebersicht);
+  const overviewTouren=tours.filter(t=>t.uebersicht);
+  if(echteTouren.length<8) tourLegendQuery='';
 
   const selCount=activeTours.size;
   const activeTour=selCount===1?tours.find(t=>t.id===[...activeTours][0]):null;
@@ -1439,7 +1449,7 @@ function renderLegend(){
   } else if(showUnplanned){
     html+=`<span style="font-size:11px;font-weight:600;color:var(--green);">Nicht verplant</span>`;
   } else {
-    html+=`<span style="font-size:11px;color:var(--text3);">${tours.length} Touren</span>`;
+    html+=`<span style="font-size:11px;color:var(--text3);">${echteTouren.length} Touren</span>`;
   }
   const isOpen=el.dataset.open!=='false';
   html+=`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="color:var(--text3);transition:transform .2s;transform:rotate(${isOpen?'180':'0'}deg);flex-shrink:0;"><path d="M6 9l6 6 6-6"/></svg>
@@ -1449,30 +1459,31 @@ function renderLegend(){
   html+=`<div id="legend-body" style="display:${isOpen?'block':'none'};">`;
 
   // Tour-Suchfeld — erst ab vielen Touren
-  if(tours.length>=8){
+  if(echteTouren.length>=8){
     html+=`<div style="padding:2px 8px 6px;"><input id="tour-legend-search" type="text" placeholder="Tour suchen…" style="width:100%;padding:4px 8px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;box-sizing:border-box;"></div>`;
   }
 
   // Tour rows — kompakt: Name + Gesamtzeit; Details je Tour aufklappbar (Pfeil)
-  html+=`<div style="padding:0 8px 4px;">`;
-  tours.forEach(t=>{
+  function tourRow(t){
     const _tm=tourMetrics(t.id);
     const cnt=trees.filter(x=>treeInTour(x,t.id)&&x.lat&&x.lng&&isActive(x)).length;
     const total=_tm?fmtTotalTime(_tm.durationSec,cnt):'';
     const isSel=activeTours.has(t.id);
     const isExp=legendExpanded.has(t.id);
-    html+=`<div class="legend-item${isSel?' active-tour':''}" data-tourid="${t.id}" data-tourname="${(t.name||'').toLowerCase().replace(/"/g,'&quot;')}" style="padding:3px 6px;margin-bottom:1px;">
+    // Übersichtstouren: kein Aufklapp-Pfeil (keine Route/Zeiten), nur Objektzahl
+    const ov=!!t.uebersicht;
+    let r=`<div class="legend-item${isSel?' active-tour':''}" data-tourid="${t.id}" data-tourname="${(t.name||'').toLowerCase().replace(/"/g,'&quot;')}" style="padding:3px 6px;margin-bottom:1px;">
       <input type="checkbox" class="tour-check"${isSel?' checked':''} style="margin:0 4px 0 0;cursor:pointer;flex-shrink:0;accent-color:${t.color};">
       <div class="legend-line" style="background:${t.color};width:16px;height:3px;"></div>
       <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">${dlEsc(t.name)}</span>
-      <span class="legend-km" style="font-size:10px;">${total}</span>
-      <svg data-expand="${t.id}" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2.5" style="flex-shrink:0;cursor:pointer;padding:1px;transition:transform .15s;transform:rotate(${isExp?180:0}deg);"><path d="M6 9l6 6 6-6"/></svg>
+      <span class="legend-km" style="font-size:10px;">${ov?cnt:total}</span>
+      ${ov?'':`<svg data-expand="${t.id}" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2.5" style="flex-shrink:0;cursor:pointer;padding:1px;transition:transform .15s;transform:rotate(${isExp?180:0}deg);"><path d="M6 9l6 6 6-6"/></svg>`}
     </div>`;
-    if(isExp){
+    if(isExp && !ov){
       if(_tm){
         const driveMin=Math.round(_tm.durationSec/60), bewMin=cnt*getBewDuration();
         const base=Math.max(driveMin+bewMin,1), dw=Math.round(driveMin/base*100);
-        html+=`<div data-tourname="${(t.name||'').toLowerCase().replace(/"/g,'&quot;')}" style="margin:0 6px 4px 30px;padding:5px 8px;background:var(--surface2);border-radius:6px;">
+        r+=`<div data-tourname="${(t.name||'').toLowerCase().replace(/"/g,'&quot;')}" style="margin:0 6px 4px 30px;padding:5px 8px;background:var(--surface2);border-radius:6px;">
           <div style="display:flex;height:4px;border-radius:2px;overflow:hidden;margin-bottom:4px;">
             <div style="width:${dw}%;background:${t.color};"></div>
             <div style="width:${100-dw}%;background:var(--green-mid);"></div>
@@ -1485,12 +1496,25 @@ function renderLegend(){
           </div>
         </div>`;
       } else {
-        html+=`<div data-tourname="${(t.name||'').toLowerCase().replace(/"/g,'&quot;')}" style="margin:0 6px 4px 30px;padding:5px 8px;background:var(--surface2);border-radius:6px;font-size:10px;color:var(--text3);">
+        r+=`<div data-tourname="${(t.name||'').toLowerCase().replace(/"/g,'&quot;')}" style="margin:0 6px 4px 30px;padding:5px 8px;background:var(--surface2);border-radius:6px;font-size:10px;color:var(--text3);">
           ${cnt} Objekte — noch keine Route berechnet
         </div>`;
       }
     }
-  });
+    return r;
+  }
+  html+=`<div style="padding:0 8px 4px;">`;
+  echteTouren.forEach(t=>{ html+=tourRow(t); });
+  // Übersichtstouren (z.B. Stadtteile): standardmäßig eingeklappt, per Klick einblendbar
+  if(overviewTouren.length){
+    html+=`<div data-action="toggle-overview" style="display:flex;align-items:center;gap:6px;padding:5px 6px;margin-top:3px;border-top:1px solid var(--border);cursor:pointer;">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text2)" stroke-width="2.5" style="flex-shrink:0;transition:transform .15s;transform:rotate(${showOverviewInLegend?90:0}deg);"><path d="M9 18l6-6-6-6"/></svg>
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+      <span style="font-size:11px;font-weight:600;color:var(--text2);flex:1;">Übersichtstouren</span>
+      <span style="font-size:10px;color:var(--text3);">${overviewTouren.length}</span>
+    </div>`;
+    if(showOverviewInLegend) overviewTouren.forEach(t=>{ html+=tourRow(t); });
+  }
   // All tours row — aktiv nur wenn weder Tour noch Unverplant gewählt
   html+=`<div class="legend-item${(!activeTours.size&&!showUnplanned)?' active-tour':''}" data-tourid="__all__" style="padding:3px 6px;margin-top:2px;border-top:1px solid var(--border);">
     <div style="width:16px;height:3px;border-radius:2px;background:#ccc;flex-shrink:0;"></div>
@@ -1530,6 +1554,9 @@ function renderLegend(){
       el.dataset.open=open?'true':'false';
       if(svg)svg.style.transform=`rotate(${open?180:0}deg)`;
       return;
+    }
+    if(e.target.closest('[data-action="toggle-overview"]')){ // Übersichtstouren ein-/ausklappen
+      showOverviewInLegend=!showOverviewInLegend; renderLegend(); return;
     }
     const exp=e.target.closest('[data-expand]');
     if(exp){ // Pfeil: Detailzeile der Tour auf-/zuklappen (ohne die Auswahl zu ändern)
@@ -2750,6 +2777,14 @@ async function saveTour(){
   }catch(e){ notify('Fehler: '+e.message); }
 }
 
+// Übersichtstour-Markierung umschalten (Inline-Checkbox im Touren-Reiter)
+async function toggleTourUebersicht(id,checked){
+  const t=tours.find(x=>x.id===id); if(t) t.uebersicht=!!checked; // sofort lokal wirksam
+  refreshMarkers(); renderLegend(); if(currentView==='touren') renderTourenGrid();
+  try{ await updateDoc(doc(db,'projects',currentProjectId,'tours',id),{uebersicht:!!checked}); }
+  catch(e){ console.warn('toggleTourUebersicht',e); notify('Fehler: '+(e.message||e)); }
+}
+
 async function deleteTour(id){
   const tour=tours.find(t=>t.id===id);
   const name=tour?.name||'';
@@ -3510,7 +3545,7 @@ function renderTourenGrid(){
   if(!grid)return;
 
   if(tours.length===0){
-    grid.innerHTML=`<tr><td colspan="7" style="padding:60px;text-align:center;color:var(--text3);">
+    grid.innerHTML=`<tr><td colspan="8" style="padding:60px;text-align:center;color:var(--text3);">
       <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="display:block;margin:0 auto 12px;opacity:.3"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
       Noch keine Touren angelegt</td></tr>`;
     if(countEl)countEl.textContent='Touren';
@@ -3519,10 +3554,11 @@ function renderTourenGrid(){
 
   const q=(_tourenSearch||'').trim().toLowerCase();
   const list=q ? tours.filter(t=>(t.name||'').toLowerCase().includes(q)||(t.desc||'').toLowerCase().includes(q)) : tours;
-  if(countEl)countEl.textContent=q?`${list.length} von ${tours.length} Touren`:`${tours.length} Touren`;
+  const ovCount=tours.filter(t=>t.uebersicht).length, echtCount=tours.length-ovCount;
+  if(countEl)countEl.textContent=q?`${list.length} von ${tours.length} Touren`:`${echtCount} Touren${ovCount?` · ${ovCount} Übersicht`:''}`;
 
   if(list.length===0){
-    grid.innerHTML=`<tr><td colspan="7" style="padding:40px;text-align:center;color:var(--text3);">Keine Tour gefunden für „${_tourenSearch}"</td></tr>`;
+    grid.innerHTML=`<tr><td colspan="8" style="padding:40px;text-align:center;color:var(--text3);">Keine Tour gefunden für „${_tourenSearch}"</td></tr>`;
     return;
   }
 
@@ -3548,8 +3584,9 @@ function renderTourenGrid(){
       :'<span style="color:var(--text3);font-size:12px;">–</span>';
     return `<tr style="border-top:1px solid var(--border);" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''">
       <td style="padding:10px 16px;"><div style="width:14px;height:14px;border-radius:3px;background:${tour.color};flex-shrink:0;"></div></td>
-      <td style="padding:10px 16px;font-weight:600;white-space:nowrap;">${tour.name}</td>
+      <td style="padding:10px 16px;font-weight:600;white-space:nowrap;">${tour.name}${tour.uebersicht?' <span style="font-size:10px;font-weight:600;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Übersicht</span>':''}</td>
       <td style="padding:10px 16px;color:var(--text2);font-size:12px;">${tour.desc||'–'}</td>
+      <td style="padding:10px 16px;text-align:center;"><input type="checkbox" ${tour.uebersicht?'checked':''} onchange="toggleTourUebersicht('${tour.id}',this.checked)" style="cursor:pointer;width:16px;height:16px;" title="Als Übersichtstour markieren (keine echte Tour)"></td>
       <td style="padding:10px 16px;text-align:right;font-weight:600;">${cnt}</td>
       <td style="padding:10px 16px;text-align:right;color:var(--text2);font-size:12px;">${km}</td>
       <td style="padding:10px 16px;text-align:right;font-size:12px;">
@@ -3560,7 +3597,7 @@ function renderTourenGrid(){
       <td style="padding:10px 16px;">
         <div style="display:flex;gap:5px;justify-content:flex-end;align-items:center;">
           <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" data-action="karte" data-tid="${tour.id}">Karte</button>
-          <button class="btn btn-primary" style="padding:3px 9px;font-size:11px;${rpDisStyle()}" data-action="route" data-tid="${tour.id}"${rpDisAttr()}>Route</button>
+          ${tour.uebersicht?'':`<button class="btn btn-primary" style="padding:3px 9px;font-size:11px;${rpDisStyle()}" data-action="route" data-tid="${tour.id}"${rpDisAttr()}>Route</button>`}
           <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" data-action="edit" data-tid="${tour.id}">✎</button>
           <button class="btn btn-danger" style="padding:3px 9px;font-size:11px;" data-action="delete" data-tid="${tour.id}">✕</button>
         </div>
@@ -5578,7 +5615,7 @@ map.on('contextmenu',e=>{
   const calcAll=document.getElementById('ctx-calc-all');
   const rpOn=getRoutePlanningEnabled();
   if(calcAll) calcAll.style.display=rpOn?'flex':'none'; // ohne Reihenfolgeplanung keine Routenberechnung
-  if(activeTourOnMap && rpOn){
+  if(activeTourOnMap && rpOn && !isOverviewTour(activeTourOnMap)){
     const t=tours.find(x=>x.id===activeTourOnMap);
     calcItem.style.display='flex';
     calcItem.innerHTML=`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>Route berechnen: ${t?.name||''}`;
@@ -6966,7 +7003,7 @@ Object.assign(window,{
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
   openAddTree,openEditTree,closeTreeModal,saveTree,deleteTree,
   archiveTree,reactivateTree,archiveTreeFromModal,reactivateTreeFromModal,deleteTreeFromModal,toggleShowInactive,showTreeOnMapFromModal,
-  openTourModal,closeTourModal,saveTour,deleteTour,filterTourenGrid,
+  openTourModal,closeTourModal,saveTour,deleteTour,toggleTourUebersicht,filterTourenGrid,
   focusTour,focusTourAndSwitch,
   startPlacement,cancelMode,setDepotOnMap,
   startAssignMode,setAssignTour,cancelAssign,assignTreeToTour,
