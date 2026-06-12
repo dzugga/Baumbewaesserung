@@ -495,8 +495,16 @@ function subscribeToProject(){
   const treesRef=collection(db,'projects',currentProjectId,'trees');
   unsubTrees=onSnapshot(treesRef,snap=>{
     trees=snap.docs.map(d=>({id:d.id,...d.data()}));
-    refreshMarkers();renderList();
     maybeHealCount('treeCount',trees.length);
+    if(_suppressTreeRender){
+      _pendingTreeRender=true; // Massen-Schreibvorgang läuft — EIN Render am Ende statt je Batch
+    }else{
+      const changes=snap.docChanges();
+      // Erstladung/Projektwechsel (alles neu) → Voll-Aufbau; sonst nur Geändertes anfassen
+      if(Object.keys(mapMarkers).length===0 || changes.length>=snap.size) refreshMarkers();
+      else diffMarkers(changes);
+      renderListDebounced();
+    }
     maybeFitCity(); // beim ersten Laden auf die Stadt zoomen
     if(currentView==='baeume'){
       const artenTab=document.getElementById('baeume-arten');
@@ -1250,6 +1258,28 @@ function refreshMarkers(){
   loadSavedRoutes();  // load from Firestore, never auto-recalculate
   renderDepotMarker();
   renderLegend();
+}
+
+// Render-Pause bei Massen-Schreibvorgängen (z.B. Lasso-Zuweisung): Snapshots kommen je
+// Batch-Commit — ohne Pause würde die Karte pro Paket komplett neu aufgebaut (n × alle Marker).
+let _suppressTreeRender=false,_pendingTreeRender=false;
+
+// Nur die GEÄNDERTEN Marker anfassen statt alle neu zu bauen — entscheidend bei großen
+// Projekten (z.B. 3.400 Objekte): eine Statusmeldung ändert 1 Marker, nicht 3.400.
+function diffMarkers(changes){
+  _routeNumMap=buildRouteNumMap();
+  try{
+    changes.forEach(c=>{
+      const id=c.doc.id;
+      if(mapMarkers[id]){ map.removeLayer(mapMarkers[id]); delete mapMarkers[id]; }
+      if(c.type!=='removed'){
+        const tree={id,...c.doc.data()};
+        if(isActive(tree)&&tree.lat&&tree.lng) mapMarkers[id]=makeMarker(tree);
+      }
+    });
+  } finally { _routeNumMap=null; }
+  setMarkerVisibility();
+  renderLegend(); // Zähler/Zeiten je Tour können sich geändert haben
 }
 
 function rebuildMarkersWithNumbers(){
@@ -5376,8 +5406,13 @@ async function applyLasso(){
   if(targets.length===0){notify('Keine Objekte zugewiesen');return;}
 
   const conflictSet=new Set(conflicts.map(t=>t.id));
-  setSyncState('syncing',`${targets.length} Objekte werden zugewiesen…`);
-  // Batch statt n Einzel-Writes: schneller und kein stiller Teilabbruch, wenn ein Write scheitert
+  // Sofortiges Feedback VOR der Schreibphase — bei tausenden Objekten dauert sie spürbar
+  notify(`${targets.length} Objekte ausgewählt — werden zugewiesen…`);
+  setSyncState('syncing',`Zuweisen… 0/${targets.length}`);
+  // Batch statt n Einzel-Writes: schneller und kein stiller Teilabbruch, wenn ein Write scheitert.
+  // Render-Pause: jeder Batch-Commit löst einen Snapshot aus — ohne Pause würde die Karte
+  // pro Paket komplett neu gebaut (bei 3.400 Objekten ~9 Voll-Renders → UI friert ein).
+  _suppressTreeRender=true;
   try{
     for(let i=0;i<targets.length;i+=400){
       const chunk=targets.slice(i,i+400);
@@ -5391,12 +5426,16 @@ async function applyLasso(){
       });
       await batch.commit();
       _bumpUsage('writes',chunk.length);
+      setSyncState('syncing',`Zuweisen… ${Math.min(i+400,targets.length)}/${targets.length}`);
     }
   }catch(e){
     console.warn('Lasso-Zuweisung',e);
     setSyncState('error','Fehler');
     notify(`⚠ Zuweisung fehlgeschlagen — bitte erneut versuchen (${e.message||e})`);
     return;
+  }finally{
+    _suppressTreeRender=false;
+    if(_pendingTreeRender){ _pendingTreeRender=false; refreshMarkers(); renderList(); }
   }
   routeCache={};
   rebuildAssignPills();
