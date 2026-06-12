@@ -21,6 +21,7 @@ export const SI_DSGVO = [
   { status: 'offen', label: 'Verzeichnis von Verarbeitungstätigkeiten (VVT)', note: 'Verarbeitung in das VVT des Betreibers aufnehmen.' },
   { status: 'offen', label: 'Personalrat / Betriebsvereinbarung', note: 'Meldungen sind personenbezogen auswertbar (Leistungskontrolle möglich) — Beteiligung klären.' },
   { status: 'offen', label: 'Datenschutz-Folgenabschätzung (DSFA) prüfen', note: 'Bei GPS-Ortung der Fahrer ggf. erforderlich — Einschätzung des DSB einholen.' },
+  { status: 'offen', label: 'Google Fonts lokal hosten', note: 'Die Schriften (DM Sans/DM Mono) werden noch vom Google-CDN nachgeladen → überträgt die IP-Adresse an Google (Abmahnrisiko, vgl. LG München 2022). Schriften lokal mit der App ausliefern, dann entfällt die Übertragung. Siehe Reiter „Lizenzen & Dienste".' },
 ];
 
 // ── Technik-Stack ────────────────────────────────────────────
