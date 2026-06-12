@@ -96,7 +96,9 @@ function treeInTour(tree, tourId){
 // Archiv: tree.aktiv===false → inaktiv (gefällt/abgegangen). Default = aktiv.
 function isActive(tree){ return !tree || tree.aktiv!==false; }
 function primaryTour(tree){
-  const ids = getTreeTourIds(tree);
+  // Übersichtstouren bestimmen NICHT die Standardfarbe — sonst erschiene ein nur einer
+  // Stadtteil-Übersichtstour zugeordnetes (real unverplantes) Objekt eingefärbt statt grau.
+  const ids = realTourIds(tree);
   return ids.length>0 ? tours.find(t=>t.id===ids[0]) : null;
 }
 async function setTreeTourIds(treeId, tourIds){
@@ -214,7 +216,8 @@ let showUnplanned = false;            // zusätzlich unverplante Objekte einblen
 let activeTourOnMap = null;           // abgeleitet: nur gesetzt, wenn GENAU eine Tour gewählt ist (für Detail-Ansicht/Nummern)
 function syncActiveTour(){ activeTourOnMap = activeTours.size===1 ? [...activeTours][0] : null; }
 function treeInAnyActiveTour(t){ for(const tid of activeTours){ if(treeInTour(t,tid)) return true; } return false; }
-function treeIsUnplanned(t){ return isActive(t) && getTreeTourIds(t).length===0; }
+// „Nicht verplant" = in keiner ECHTEN Tour (Übersichtstouren zählen nicht als Verplanung)
+function treeIsUnplanned(t){ return isActive(t) && realTourIds(t).length===0; }
 // Sichtbarkeit nach aktueller Auswahl: nichts gewählt = alles; sonst Tour-Objekte ODER (optional) unverplante
 function treeVisibleSel(t){
   if(!activeTours.size && !showUnplanned) return true;
