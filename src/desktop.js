@@ -79,6 +79,9 @@ const TOUR_COLORS=[
   '#be185d','#9f1239','#1e3a8a','#166534','#92400e','#155e75','#5b21b6','#374151'
 ];
 
+// Basis-Durchmesser der Objektkreise auf der Karte (px). Vorher 28 — etwas kleiner gestellt.
+let markerSize=23;
+
 // ─── n:m TOUR-HILFSFUNKTIONEN ─────────────────────────────────
 // Rückwärtskompatibel: liest tourIds[] oder fällt auf altes tourId zurück
 function getTreeTourIds(tree){
@@ -1155,10 +1158,11 @@ function makeMarker(tree){
     ?`<div style="position:absolute;inset:-5px;border-radius:50%;border:3px solid ${color};animation:pulse-ring .8s ease-in-out infinite;opacity:.7;"></div>`
     :'';
 
-  const sz=isHighlighted?36:28;
+  const sz=isHighlighted?Math.round(markerSize*1.3):markerSize; // Basisgröße zentral in markerSize
+  const fs=Math.round(sz*0.46); // Symbolgröße proportional
   const shadow=isHighlighted?'0 0 0 3px '+color+', 0 4px 12px rgba(0,0,0,.4)':'0 2px 6px rgba(0,0,0,.3)';
 
-  const circleHtml=`<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${color};border:${isHighlighted?4:3}px solid white;box-shadow:${shadow};display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:${isHighlighted?16:13}px;transform:${isHighlighted?'scale(1.15)':'scale(1)'};transition:all .2s;">${objIcon(tree)}</div>`;
+  const circleHtml=`<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${color};border:${isHighlighted?4:3}px solid white;box-shadow:${shadow};display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:${fs}px;transform:${isHighlighted?'scale(1.15)':'scale(1)'};transition:all .2s;">${objIcon(tree)}</div>`;
 
   // Tour-Zähler = Anzahl der Tourzuordnungen (fix), per Button nur ausblendbar
   const multiBadge=isMulti
