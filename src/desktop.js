@@ -2043,6 +2043,7 @@ function openDetail(id){
         ${rankList('zustand').map(e=>`<option value="${dlEsc(e.id)}"${tree.zustand===e.id?' selected':''}>${dlEsc(e.label)}</option>`).join('')}
       </select>
     </div>
+    ${typeof tree.lastFuellgrad==='number'?`<div class="detail-field" style="padding:4px 0;"><span class="detail-key">Füllgrad (zuletzt)</span><span class="detail-val" style="font-weight:600;">${fgLabelD(tree.lastFuellgrad)}</span></div>`:''}
 
     <div class="form-section">Touren (Mehrfachauswahl)</div>
     <div style="padding:6px 0 4px;">
@@ -2125,6 +2126,8 @@ function switchDetailTab(tab) {
   }
 }
 
+const FUELLGRAD_LABELS={0:'leer',25:'25 %',50:'50 %',75:'75 %',100:'voll',120:'übervoll'};
+function fgLabelD(v){ return (typeof v!=='number')?'':(FUELLGRAD_LABELS[v]||v+' %'); }
 function renderVerlaufDesktop(id, targetEl) {
   const tree = trees.find(t => t.id === id);
   const body = targetEl || document.getElementById('panel-body-verlauf');
@@ -2167,6 +2170,7 @@ function renderVerlaufDesktop(id, targetEl) {
           <span style="font-size:11px;color:var(--text3);white-space:nowrap;">${date}</span>
         </div>
         ${sub ? `<div style="font-size:12px;color:var(--text3);margin-top:1px;">${sub}</div>` : ''}
+        ${typeof e.fuellgrad==='number' ? `<div style="margin-top:3px;"><span class="badge" style="background:var(--surface2);color:var(--text2);font-size:11px;">Füllgrad: ${fgLabelD(e.fuellgrad)}</span></div>` : ''}
       </div>`;
     });
     html += '</div>';
