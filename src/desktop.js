@@ -330,6 +330,18 @@ document.getElementById('basemap-btn')?.addEventListener('click',e=>{
   p.style.display=open?'block':'none'; e.currentTarget.classList.toggle('open',open);
 });
 map.on('click',closeBasemapPanel); // Klick auf die Karte schließt das Auswahlfeld
+// Adress-Suchfeld: Enter sucht (kein Tippen-Sturm), Treffer anklicken springt hin
+const _msInput=document.getElementById('map-search-input');
+if(_msInput){
+  _msInput.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); doMapSearch(); } });
+  _msInput.addEventListener('input',()=>{ const c=document.getElementById('map-search-clear'); if(c) c.style.display=_msInput.value?'block':'none'; });
+}
+document.getElementById('map-search-clear')?.addEventListener('click',clearMapSearch);
+document.getElementById('map-search-results')?.addEventListener('click',e=>{
+  const it=e.target.closest('.ms-item'); if(!it) return;
+  const box=document.getElementById('map-search-results'); const r=box._results?.[+it.dataset.idx];
+  if(r) gotoSearchResult(r);
+});
 
 map.on('click',e=>{
   if(placingTree){ cancelMode(); openAddTree(e.latlng.lat,e.latlng.lng); }
@@ -2635,6 +2647,57 @@ function _cleanupMove(){
   remakeMarkers([treeId]); // echten Marker wiederherstellen (an alter bzw. bereits aktualisierter Position)
 }
 function canEditObjects(){ return currentCap==='admin'||currentCap==='editor'||currentRole==='superadmin'; }
+
+// ─── ADRESS-/STRASSENSUCHE auf der Karte ──────────────────────
+// GEKAPSELT: nutzt aktuell den OpenStreetMap-Dienst Nominatim (kostenfrei, nur Einzelsuchen
+// bei Enter — policy-konform). Soll eine Kommune später den amtlichen BKG-Geokodierungsdienst
+// nutzen, wird NUR diese eine Funktion umgestellt — die Oberfläche bleibt gleich.
+let _searchMarker=null, _searching=false;
+async function geocodeSearch(query){
+  const b=map.getBounds(); // Vorrang für das aktuelle Stadtgebiet, deutschlandweiter Fallback
+  const vb=`${b.getWest().toFixed(5)},${b.getNorth().toFixed(5)},${b.getEast().toFixed(5)},${b.getSouth().toFixed(5)}`;
+  const url=`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&countrycodes=de&limit=6&viewbox=${vb}&q=${encodeURIComponent(query)}`;
+  const res=await fetch(url,{headers:{'Accept-Language':'de'}});
+  if(!res.ok) throw new Error('Suchdienst nicht erreichbar ('+res.status+')');
+  return res.json();
+}
+async function doMapSearch(){
+  const inp=document.getElementById('map-search-input'); const q=(inp?.value||'').trim();
+  const box=document.getElementById('map-search-results'); if(!box) return;
+  if(q.length<3){ box.style.display='none'; return; }
+  if(_searching) return; _searching=true;
+  box.innerHTML='<div class="ms-empty">Suche…</div>'; box.style.display='block';
+  try{
+    const rs=await geocodeSearch(q);
+    // Treffer nach Nähe zum aktuellen Kartenausschnitt sortieren → lokaler Treffer zuerst,
+    // ferne (gleichnamige) Straßen bleiben als Fallback in der Liste.
+    try{ const c=map.getCenter(); rs.sort((a,b)=>map.distance(c,[+a.lat,+a.lon])-map.distance(c,[+b.lat,+b.lon])); }catch(_){}
+    if(!rs.length){ box.innerHTML=`<div class="ms-empty">Keine Treffer für „${dlEsc(q)}"</div>`; }
+    else{
+      box.innerHTML=rs.map((r,i)=>{
+        const a=r.address||{};
+        const main=[a.road,a.house_number].filter(Boolean).join(' ') || (r.display_name||'').split(',')[0];
+        const sub=[a.postcode,(a.city||a.town||a.village||a.municipality||a.county)].filter(Boolean).join(' ') || (r.display_name||'').split(',').slice(1,3).join(',').trim();
+        return `<div class="ms-item" data-idx="${i}"><div class="ms-main">${dlEsc(main)}</div><div class="ms-sub">${dlEsc(sub)}</div></div>`;
+      }).join('')+`<div class="ms-foot">Adressdaten © OpenStreetMap-Mitwirkende (ODbL)</div>`;
+      box._results=rs;
+    }
+  }catch(e){ console.warn('Adresssuche',e); box.innerHTML='<div class="ms-empty">Suche momentan nicht verfügbar</div>'; }
+  finally{ _searching=false; }
+}
+function gotoSearchResult(r){
+  const lat=parseFloat(r.lat), lng=parseFloat(r.lon); if(isNaN(lat)||isNaN(lng)) return;
+  map.setView([lat,lng], 18);
+  if(_searchMarker) map.removeLayer(_searchMarker);
+  _searchMarker=L.marker([lat,lng],{zIndexOffset:2000,icon:L.divIcon({className:'',html:`<div style="width:24px;height:24px;border-radius:50% 50% 50% 0;background:var(--blue);border:2.5px solid #fff;transform:rotate(-45deg);box-shadow:0 2px 7px rgba(0,0,0,.45);"></div>`,iconSize:[24,24],iconAnchor:[12,24]})}).addTo(map);
+  document.getElementById('map-search-results').style.display='none';
+}
+function clearMapSearch(){
+  const inp=document.getElementById('map-search-input'); if(inp) inp.value='';
+  const box=document.getElementById('map-search-results'); if(box) box.style.display='none';
+  const cl=document.getElementById('map-search-clear'); if(cl) cl.style.display='none';
+  if(_searchMarker){ map.removeLayer(_searchMarker); _searchMarker=null; }
+}
 
 
 let _lassoActive = false;

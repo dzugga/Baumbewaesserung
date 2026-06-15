@@ -209,6 +209,21 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .bm-opt.active{background:var(--green-light);font-weight:600;color:var(--green);}
 .bm-opt.active .chk{opacity:1;}
 
+/* ── ADRESS-SUCHE auf der Karte (oben rechts) ── */
+#map-search{position:absolute;top:12px;right:12px;z-index:1001;width:300px;max-width:44%;}
+.ms-box{display:flex;align-items:center;gap:7px;background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:7px 10px;box-shadow:var(--shadow-md);}
+.ms-box input{flex:1;min-width:0;border:none;outline:none;background:none;font-family:inherit;font-size:13px;color:var(--text);}
+.ms-clear{border:none;background:none;cursor:pointer;color:var(--text3);display:none;padding:0;line-height:0;}
+.ms-clear:hover{color:var(--text);}
+#map-search-results{margin-top:6px;background:var(--surface);border:1px solid var(--border);border-radius:9px;box-shadow:var(--shadow-md);overflow:hidden;display:none;max-height:330px;overflow-y:auto;}
+.ms-item{padding:9px 11px;cursor:pointer;border-bottom:1px solid var(--border);}
+.ms-item:last-child{border-bottom:none;}
+.ms-item:hover{background:var(--surface2);}
+.ms-main{font-size:13px;font-weight:500;color:var(--text);}
+.ms-sub{font-size:11px;color:var(--text3);margin-top:1px;}
+.ms-foot{padding:6px 11px;font-size:10px;color:var(--text3);background:var(--surface2);}
+.ms-empty{padding:11px;font-size:12px;color:var(--text3);text-align:center;}
+
 ::-webkit-scrollbar{width:5px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
@@ -439,6 +454,16 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <!-- KARTE -->
     <div class="view active" id="view-karte" style="position:relative;min-height:0;">
       <div id="map"></div>
+      <!-- Adress-/Straßensuche auf der Karte -->
+      <div id="map-search">
+        <div class="ms-box">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2.2" style="flex-shrink:0;"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input id="map-search-input" type="text" placeholder="Adresse oder Straße suchen…" autocomplete="off">
+          <button class="ms-clear" id="map-search-clear" type="button" aria-label="Leeren"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        </div>
+        <div id="map-search-results"></div>
+      </div>
+
       <!-- Karten-Steuerung unten links: Zoom + Karten-Auswahl-Button (klappt Liste auf) -->
       <div id="map-controls">
         <div class="map-zoom">
