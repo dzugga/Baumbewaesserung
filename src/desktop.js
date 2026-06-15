@@ -486,6 +486,7 @@ async function openProject(projectId){
   if(apOrg){ apOrg.textContent=''; const _oid=currentProjectData.orgId; if(_oid) orgDisplayName(_oid).then(n=>{ if(n&&currentProjectData?.orgId===_oid) apOrg.textContent='· '+n; }); }
   document.getElementById('project-screen').style.display='none';
   loadFieldLabels();
+  loadListValues();
   await loadOrgSettings(); // KI-Modus + ORS-Key + WMS + Dispo dieser Stadt (1 Org-Read) — vor dem Kartenaufbau
   rebuildLayerControl(); // WMS-Kartenebenen der Stadt laden
   // Subscribe to tours & trees
@@ -560,7 +561,7 @@ function subscribeToProject(){
     maybeFitCity(); // beim ersten Laden auf die Stadt zoomen
     if(currentView==='baeume'){
       const artenTab=document.getElementById('baeume-arten');
-      if(artenTab && getComputedStyle(artenTab).display!=='none') renderArtenView();
+      if(artenTab && getComputedStyle(artenTab).display!=='none') renderFieldCatalogView();
       else renderBaeumeTable();
     }
     syncDataViewToProject();
@@ -2353,8 +2354,12 @@ function openAddTree(lat,lng){
   renderModalMedia(null); // Medien erst nach dem Anlegen (kein Objekt vorhanden)
   const tabs=document.getElementById('modal-tree-tabs'); if(tabs) tabs.style.display='none'; // kein Verlauf bei Neuanlage
   switchModalTab('form');
-  ['f-name','f-stadtteil','f-baumnr','f-pflanzjahr','f-pflanzzeitpunkt','f-notiz'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  ['f-name','f-baumnr','f-notiz'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   fillArtSelect('');
+  fillListSelect('stadtteil','');
+  fillListSelect('pflanzjahr','');
+  fillListSelect('pflanzzeitpunkt','');
+  renderCustomFieldInputs(null);
   document.getElementById('f-wasser').value='mittel';
   document.getElementById('f-zustand').value='mittel';
   document.getElementById('f-datum').value='';
@@ -2379,6 +2384,27 @@ async function fillArtSelect(current){
   sel.value=current||'';
 }
 
+// Generisches Listen-Dropdown aus listValues füllen (bestehenden Wert nie verlieren)
+function _listOptions(fieldKey,current){
+  let labels=[...new Set((listValues[fieldKey]||[]).map(e=>e.label).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  current=(current||'').trim();
+  if(current && !labels.includes(current)) labels.unshift(current);
+  return `<option value="">— bitte wählen —</option>`+labels.map(n=>`<option value="${dlEsc(n)}"${n===current?' selected':''}>${dlEsc(n)}</option>`).join('');
+}
+function fillListSelect(fieldKey,current){
+  const sel=document.getElementById('f-'+fieldKey); if(!sel) return;
+  sel.innerHTML=_listOptions(fieldKey,current);
+  sel.value=(current||'').trim();
+}
+// Kundenfelder dynamisch ins Formular rendern (je Feld ein Dropdown)
+function renderCustomFieldInputs(tree){
+  const wrap=document.getElementById('f-custom-fields'); if(!wrap) return;
+  wrap.innerHTML=customFields.map(c=>{
+    const cur=((tree?tree[c.key]:'')||'');
+    return `<div class="form-group"><label class="form-label">${dlEsc(c.label)}</label><select class="form-control" id="f-${c.key}">${_listOptions(c.key,cur)}</select></div>`;
+  }).join('');
+}
+
 async function openEditTree(id){
   const tree=trees.find(t=>t.id===id);if(!tree)return;
   editingTreeId=id;
@@ -2387,11 +2413,12 @@ async function openEditTree(id){
   const tabs=document.getElementById('modal-tree-tabs'); if(tabs) tabs.style.display='flex';
   switchModalTab('form');
   document.getElementById('f-name').value=tree.name||'';
-  document.getElementById('f-stadtteil').value=tree.stadtteil||'';
+  fillListSelect('stadtteil',tree.stadtteil||'');
   document.getElementById('f-baumnr').value=tree.baumnr||'';
   fillArtSelect(tree.art||'');
-  document.getElementById('f-pflanzjahr').value=tree.pflanzjahr||'';
-  document.getElementById('f-pflanzzeitpunkt').value=tree.pflanzzeitpunkt||'';
+  fillListSelect('pflanzjahr',tree.pflanzjahr||'');
+  fillListSelect('pflanzzeitpunkt',tree.pflanzzeitpunkt||'');
+  renderCustomFieldInputs(tree);
   document.getElementById('f-lat').value=tree.lat||'';
   document.getElementById('f-lng').value=tree.lng||'';
   document.getElementById('f-wasser').value=tree.wasser||'mittel';
@@ -2438,6 +2465,7 @@ async function saveTree(){
     tourIds:document.getElementById('f-tour').value?[document.getElementById('f-tour').value]:[],
     notiz:document.getElementById('f-notiz').value,
   };
+  customFields.forEach(c=>{ const el=document.getElementById('f-'+c.key); data[c.key]=el?el.value:''; });
   try{
     if(editingTreeId){
       await updateDoc(doc(db,'projects',currentProjectId,'trees',editingTreeId),data);
@@ -3508,6 +3536,8 @@ function renderBaeumeTable(){
 
 // ─── ARTEN-STAMMDATEN (Typ/Art als pflegbare Liste je Projekt) ───────
 let artenList=[];
+let _artenMountId='arten-mount';     // Ziel-Container der Arten-Tabelle (im Felder-&-Listen-Bildschirm)
+let listValues={}, customFields=[];  // generische Wertelisten + Kundenfelder (am Projekt-Doc)
 async function loadArten(){
   artenList=[];
   if(!currentProjectId) return;
@@ -3525,7 +3555,7 @@ function switchBaeumeTab(tab){
   if(a) a.style.display=isArten?'block':'none';
   [to,ta].forEach(b=>{ if(!b) return; b.style.borderBottomColor='transparent'; b.style.color='var(--text3)'; b.style.fontWeight='600'; });
   const act=isArten?ta:to; if(act){ act.style.borderBottomColor='var(--green)'; act.style.color='var(--green)'; act.style.fontWeight='700'; }
-  if(isArten) renderArtenView();
+  if(isArten) renderFieldCatalogView();
 }
 async function renderArtenView(){
   const el=document.getElementById('baeume-arten'); if(!el) return;
@@ -3534,7 +3564,7 @@ async function renderArtenView(){
   renderArtenList();
 }
 function renderArtenList(){
-  const el=document.getElementById('baeume-arten'); if(!el) return;
+  const el=document.getElementById(_artenMountId); if(!el) return;
   const byId=artCountById();
   const validIds=new Set(artenList.map(a=>a.id));
   const unmapped=trees.filter(t=>(t.art||'').trim() && !(t.artId&&validIds.has(t.artId))).length;
@@ -3663,6 +3693,165 @@ async function deleteArt(id){
   await deleteDoc(doc(db,'projects',currentProjectId,'arten',id));
   await loadArten(); renderArtenList();
   notify('✓ Gelöscht');
+}
+
+// ─── GENERISCHE WERTELISTEN (Listenfelder am Projekt-Doc) ────────────
+// art bleibt in eigener Subcollection (oben). Die übrigen Listenfelder
+// (stadtteil, pflanzjahr, pflanzzeitpunkt, Kundenfelder feld1..feld5)
+// liegen kompakt unter projects/{id}.listValues[fieldKey] = [{id,label}].
+// Der Wert wird am Objekt als Label gespeichert (wie heute Freitext) →
+// keine Datenmigration nötig, „Aus Objekten aufbauen" sammelt Bestand ein.
+function loadListValues(){
+  listValues = JSON.parse(JSON.stringify(currentProjectData?.listValues || {}));
+  customFields = (currentProjectData?.customFields || []).map(c=>({...c}));
+}
+function listFor(fieldKey){ return listValues[fieldKey] || []; }
+function _genId(){ return 'v'+Math.random().toString(36).slice(2,9); }
+function _treesUsing(fieldKey,label){ const l=(label||'').trim(); return trees.filter(t=>(t[fieldKey]||'').trim()===l); }
+async function saveListValues(){
+  if(!currentProjectId) return;
+  try{
+    await updateDoc(doc(db,'projects',currentProjectId), {listValues, customFields});
+    if(currentProjectData){ currentProjectData.listValues=listValues; currentProjectData.customFields=customFields; }
+  }catch(e){ console.warn('saveListValues',e); notify(dlErr(e)); }
+}
+async function addListVal(fieldKey){
+  if(isReadonly()) return;
+  const inp=document.getElementById('lv-new-'+fieldKey); const name=(inp?.value||'').trim();
+  if(!name) return;
+  if((listValues[fieldKey]||[]).some(e=>e.label===name)){ notify('„'+name+'" existiert bereits'); return; }
+  (listValues[fieldKey]=listValues[fieldKey]||[]).push({id:_genId(),label:name});
+  await saveListValues(); renderFieldCatalog(); notify('✓ Wert hinzugefügt');
+}
+async function renameListVal(fieldKey,id){
+  if(isReadonly()) return;
+  const e=(listValues[fieldKey]||[]).find(x=>x.id===id); if(!e) return;
+  const neu=prompt('Neuer Wert für „'+e.label+'":',e.label); if(neu==null) return;
+  const name=neu.trim(); if(!name||name===e.label) return;
+  const dup=(listValues[fieldKey]||[]).find(x=>x.id!==id&&x.label===name);
+  if(dup){ if(confirm('„'+name+'" existiert bereits — stattdessen zusammenführen?')) return mergeListVal(fieldKey,id,dup.id); return; }
+  const old=e.label; e.label=name;
+  const ups=_treesUsing(fieldKey,old).map(t=>{ t[fieldKey]=name; return {id:t.id,data:{[fieldKey]:name}}; });
+  await _chunkedTreeUpdate(ups); await saveListValues(); renderFieldCatalog();
+  notify(`✓ Umbenannt — ${ups.length} Objekte aktualisiert`);
+}
+async function mergeListVal(fieldKey,srcId,tgtId){
+  if(isReadonly()||srcId===tgtId) return;
+  const src=(listValues[fieldKey]||[]).find(x=>x.id===srcId), tgt=(listValues[fieldKey]||[]).find(x=>x.id===tgtId);
+  if(!src||!tgt) return;
+  if(!confirm(`„${src.label}" in „${tgt.label}" zusammenführen? Zugehörige Objekte werden umgehängt.`)) return;
+  const ups=_treesUsing(fieldKey,src.label).map(t=>{ t[fieldKey]=tgt.label; return {id:t.id,data:{[fieldKey]:tgt.label}}; });
+  await _chunkedTreeUpdate(ups);
+  listValues[fieldKey]=(listValues[fieldKey]||[]).filter(x=>x.id!==srcId);
+  await saveListValues(); renderFieldCatalog();
+  notify(`✓ Zusammengeführt — ${ups.length} Objekte umgehängt`);
+}
+async function deleteListVal(fieldKey,id){
+  if(isReadonly()) return;
+  const e=(listValues[fieldKey]||[]).find(x=>x.id===id); if(!e) return;
+  if(_treesUsing(fieldKey,e.label).length>0){ notify('Nur löschbar, wenn kein Objekt den Wert nutzt'); return; }
+  if(!confirm('„'+e.label+'" löschen?')) return;
+  listValues[fieldKey]=(listValues[fieldKey]||[]).filter(x=>x.id!==id);
+  await saveListValues(); renderFieldCatalog(); notify('✓ Gelöscht');
+}
+async function buildListFromObjects(fieldKey){
+  if(isReadonly()) return notify('Nur Lesezugriff');
+  const have=new Set((listValues[fieldKey]||[]).map(e=>e.label));
+  const found=[...new Set(trees.map(t=>(t[fieldKey]||'').trim()).filter(Boolean))];
+  let added=0;
+  found.forEach(lbl=>{ if(!have.has(lbl)){ (listValues[fieldKey]=listValues[fieldKey]||[]).push({id:_genId(),label:lbl}); have.add(lbl); added++; } });
+  await saveListValues(); renderFieldCatalog();
+  notify(`✓ ${added} Wert(e) aus Objekten ergänzt`);
+}
+// Kundenfelder (max. 5, frei benennbar; ebenfalls Wertelisten)
+async function addCustomField(){
+  if(isReadonly()) return;
+  if(customFields.length>=5){ notify('Maximal 5 Kundenfelder'); return; }
+  const label=(prompt('Bezeichnung des neuen Kundenfeldes:','')||'').trim(); if(!label) return;
+  const used=new Set(customFields.map(c=>c.key));
+  let key=''; for(let i=1;i<=5;i++){ if(!used.has('feld'+i)){ key='feld'+i; break; } }
+  if(!key){ notify('Maximal 5 Kundenfelder'); return; }
+  customFields.push({key,label,aktiv:true});
+  await saveListValues(); renderFieldCatalog(); notify('✓ Kundenfeld angelegt');
+}
+async function renameCustomField(key){
+  if(isReadonly()) return;
+  const c=customFields.find(x=>x.key===key); if(!c) return;
+  const neu=prompt('Neue Bezeichnung für „'+c.label+'":',c.label); if(neu==null) return;
+  const l=neu.trim(); if(!l||l===c.label) return;
+  c.label=l; await saveListValues(); renderFieldCatalog(); notify('✓ Umbenannt');
+}
+async function removeCustomField(key){
+  if(isReadonly()) return;
+  const c=customFields.find(x=>x.key===key); if(!c) return;
+  if(!confirm(`Kundenfeld „${c.label}" entfernen? Die Werteliste wird gelöscht; bereits an Objekten gespeicherte Werte bleiben erhalten, das Feld wird ausgeblendet.`)) return;
+  customFields=customFields.filter(x=>x.key!==key);
+  delete listValues[key];
+  await saveListValues(); renderFieldCatalog(); notify('✓ Kundenfeld entfernt');
+}
+
+// Eine Karte für ein Listenfeld (anlegen/umbenennen/mergen/löschen/aufbauen)
+function _fieldCatalogCard(fieldKey, title, opts={}){
+  const vals=[...(listValues[fieldKey]||[])].sort((a,b)=>(a.label||'').localeCompare(b.label||''));
+  const ro=isReadonly();
+  const rows=vals.map(e=>{
+    const c=_treesUsing(fieldKey,e.label).length;
+    return `<tr style="border-top:1px solid var(--border);">
+      <td style="padding:7px 12px;font-weight:500;">${dlEsc(e.label)}</td>
+      <td style="padding:7px 12px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text2);">${c}</td>
+      <td style="padding:7px 12px;white-space:nowrap;text-align:right;">${ro?'':`
+        <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" onclick="renameListVal('${fieldKey}','${e.id}')">Umbenennen</button>
+        <select onchange="if(this.value)mergeListVal('${fieldKey}','${e.id}',this.value);this.selectedIndex=0;" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
+          <option value="">→ zusammenführen…</option>${vals.filter(x=>x.id!==e.id).map(x=>`<option value="${x.id}">${dlEsc(x.label)}</option>`).join('')}
+        </select>
+        <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;${c===0?'color:#c0392b;':'opacity:.45;cursor:not-allowed;'}" ${c===0?`onclick="deleteListVal('${fieldKey}','${e.id}')"`:'disabled title="Nur löschbar bei Häufigkeit 0"'}>Löschen</button>`}
+      </td></tr>`;
+  }).join('');
+  return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:14px;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
+      <div style="font-size:14px;font-weight:700;">${dlEsc(title)}</div>
+      <span style="font-size:11px;color:var(--text3);background:var(--surface2);padding:2px 7px;border-radius:5px;">Liste · ${vals.length}</span>
+      ${opts.custom&&!ro?`<button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" onclick="renameCustomField('${fieldKey}')">Feld umbenennen</button><button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;color:#c0392b;" onclick="removeCustomField('${fieldKey}')">Feld entfernen</button>`:''}
+      ${ro?'':`<button class="btn btn-secondary" style="margin-left:auto;padding:4px 10px;font-size:11px;" onclick="buildListFromObjects('${fieldKey}')">Aus Objekten aufbauen</button>`}
+    </div>
+    ${vals.length?`<table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr style="background:var(--surface2);"><th style="padding:6px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Wert</th><th style="padding:6px 12px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Häufigkeit</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table>`:`<div style="color:var(--text3);font-size:12px;padding:4px 0;">Noch keine Werte. „Aus Objekten aufbauen" oder unten hinzufügen.</div>`}
+    ${ro?'':`<div style="display:flex;gap:6px;margin-top:8px;">
+      <input id="lv-new-${fieldKey}" class="form-control" placeholder="Neuer Wert…" style="flex:1;padding:6px 10px;font-size:13px;" onkeydown="if(event.key==='Enter')addListVal('${fieldKey}')">
+      <button class="btn btn-primary" style="padding:6px 12px;font-size:12px;white-space:nowrap;" onclick="addListVal('${fieldKey}')">+ Hinzufügen</button>
+    </div>`}
+  </div>`;
+}
+
+async function renderFieldCatalogView(){
+  const el=document.getElementById('baeume-arten'); if(!el) return;
+  el.innerHTML='<div style="color:var(--text3);font-size:13px;">Lade…</div>';
+  loadListValues();
+  await loadArten();
+  renderFieldCatalog();
+}
+function renderFieldCatalog(){
+  const el=document.getElementById('baeume-arten'); if(!el) return;
+  const ro=isReadonly();
+  let html=`<div style="max-width:820px;margin:0 auto;">
+    <div style="font-size:16px;font-weight:700;margin-bottom:4px;">Felder & Listen</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:16px;">Auswahllisten pro Feld pflegen — anlegen, umbenennen (zieht Objekte mit), zusammenführen, aus vorhandenen Objekten aufbauen. Die Feldbezeichnungen selbst änderst du unter Verwaltung → Projekt.</div>
+    <div id="arten-mount"></div>`;
+  html+=_fieldCatalogCard('stadtteil', FL.stadtteil);
+  html+=_fieldCatalogCard('pflanzjahr', FL.pflanzjahr);
+  html+=_fieldCatalogCard('pflanzzeitpunkt', FL.pflanzzeitpunkt);
+  html+=`<div style="font-size:13px;font-weight:700;margin:18px 0 8px;">Kundenfelder (frei belegbar)</div>`;
+  customFields.forEach(c=>{ html+=_fieldCatalogCard(c.key, c.label, {custom:true}); });
+  if(!customFields.length) html+=`<div style="color:var(--text3);font-size:12px;margin-bottom:8px;">Noch keine Kundenfelder angelegt.</div>`;
+  if(!ro && customFields.length<5) html+=`<button class="btn btn-secondary" style="padding:6px 12px;font-size:12px;margin-bottom:14px;" onclick="addCustomField()">+ Kundenfeld hinzufügen (${customFields.length}/5)</button>`;
+  html+=`<div style="background:var(--surface2);border:1px dashed var(--border);border-radius:10px;padding:12px 16px;margin:6px 0 14px;color:var(--text3);font-size:12px;">
+    <b style="color:var(--text2);">${dlEsc(FL.zustand)} &amp; ${dlEsc(FL.wasser)}</b> — geordnete Listen mit Rang &amp; Farbe; Bearbeitung folgt im nächsten Schritt.</div>`;
+  html+=`<div style="font-size:11px;color:var(--text3);margin-top:6px;">Freitext-Felder (keine Liste): ${dlEsc(FL.name)}, ${dlEsc(FL.baumnr)}, ${dlEsc(FL.notiz)}.</div>`;
+  html+=`</div>`;
+  el.innerHTML=html;
+  _artenMountId='arten-mount';
+  renderArtenList();
 }
 
 function renderBaeumeTableWith(treeList){
@@ -7263,7 +7452,9 @@ Object.assign(window,{
   renderHandbuch,setHbTab,hbSearchDebounced,openHbImg,closeHbImg,
   dispoSimulate,dispoPlan,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
-  saveInlineFields,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
+  saveInlineFields,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
+  renderFieldCatalogView,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,
+  saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,clearLassoSelection,
   createProject,openProject,showProjectScreen,psSetOrgFilter,setSiTab,
   switchView,openDetail,closePanel,logWatering,
