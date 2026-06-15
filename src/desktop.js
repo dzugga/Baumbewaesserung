@@ -3174,19 +3174,29 @@ function openImport(){
   const m=document.createElement('div');
   m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;';
   m.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:440px;max-width:94vw;overflow:hidden;">
-    <div style="padding:16px 20px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;display:flex;justify-content:space-between;align-items:center;">Import<button id="imp-x" style="border:none;background:none;cursor:pointer;font-size:20px;line-height:1;color:var(--text3);">×</button></div>
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;display:flex;justify-content:space-between;align-items:center;">Import / Export<button id="imp-x" style="border:none;background:none;cursor:pointer;font-size:20px;line-height:1;color:var(--text3);">×</button></div>
     <div style="padding:18px 20px;">
+      <button class="btn btn-secondary" id="imp-tpl" style="width:100%;margin-bottom:8px;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 3v12"/><polyline points="7 10 12 15 17 10"/><path d="M5 21h14"/></svg>
+        Importvorlage herunterladen
+      </button>
       <button class="btn btn-secondary" id="imp-btn" style="width:100%;margin-bottom:8px;">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-        Import (Excel)
+        Excel importieren
       </button>
-      <div style="font-size:11px;color:var(--text3);line-height:1.6;">A=Anlage/Str. · B=Stadtteil · C=Baumart · D=Baumnr. · E=Pflanzjahr · F=Pflanzzeitpunkt · G=Bemerkung · H=Lat · I=Lng</div>
+      <button class="btn btn-secondary" id="imp-export" style="width:100%;margin-bottom:8px;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 15V3"/><polyline points="7 8 12 3 17 8"/><path d="M5 21h14"/></svg>
+        Alle Objekte exportieren (Excel)
+      </button>
+      <div style="font-size:11px;color:var(--text3);line-height:1.6;">Die <b>erste Zeile</b> muss Spaltenüberschriften enthalten — Reihenfolge egal. Am einfachsten die Vorlage herunterladen, ausfüllen und importieren. Erkannt werden u. a. ${dlEsc(FL.name)}, ${dlEsc(FL.stadtteil)}, ${dlEsc(FL.art)}, ${dlEsc(FL.baumnr)}, ${dlEsc(FL.pflanzjahr)}, ${dlEsc(FL.pflanzzeitpunkt)}, ${dlEsc(FL.zustand)}, ${dlEsc(FL.wasser)}, ${dlEsc(FL.notiz)}, Kundenfelder sowie Koordinaten (Lat/Lng oder ETRS89/UTM).</div>
     </div></div>`;
   document.body.appendChild(m);
   const close=()=>m.remove();
   m.querySelector('#imp-x').onclick=close;
   m.addEventListener('click',e=>{ if(e.target===m) close(); });
   m.querySelector('#imp-btn').onclick=()=>{ close(); document.getElementById('excel-import-input').click(); };
+  m.querySelector('#imp-tpl').onclick=()=>{ downloadImportTemplate(); };
+  m.querySelector('#imp-export').onclick=()=>{ downloadObjectsExport(); };
 }
 
 // Allgemein (ORS API-Key) – eigenes Menü unter „INFA-Admin“
@@ -4869,7 +4879,80 @@ async function saveDriverAssignment(tourId,driver){
 }
 
 // ─── EXCEL IMPORT (mit Vorschau/Koordinaten-Kontrolle) ───────
-let _importRows=[], _importSwap=false, _impMap=null, _impLayer=null;
+let _importRows=[], _importSwap=false, _impMap=null, _impLayer=null, _importNew={};
+// Spaltenüberschriften normalisieren (Umlaute/Sonderzeichen/Groß-klein egal)
+function _normH(s){ return String(s==null?'':s).toLowerCase().replace(/ß/g,'ss').replace(/ä/g,'a').replace(/ö/g,'o').replace(/ü/g,'u').replace(/[^a-z0-9]/g,''); }
+// Excel-Spaltenüberschriften → Feldschlüssel (Reihenfolge egal, Label ODER Alias erlaubt)
+function buildImportMapping(headerRow){
+  const map={}, coordCols=[];
+  const labelFor={name:FL.name,stadtteil:FL.stadtteil,art:FL.art,baumnr:FL.baumnr,pflanzjahr:FL.pflanzjahr,pflanzzeitpunkt:FL.pflanzzeitpunkt,notiz:FL.notiz,zustand:FL.zustand,wasser:FL.wasser};
+  const aliases={
+    name:['name','anlage','anlagestrasse','strasse','objekt','objektname'],
+    stadtteil:['stadtteil','bezirk','ortsteil','ortsbezirk'],
+    art:['art','typ','typart','baumart','objektart'],
+    baumnr:['baumnr','baumnummer','objektnummer','objektnr','nummer','nr'],
+    pflanzjahr:['pflanzjahr','jahr'],
+    pflanzzeitpunkt:['pflanzzeitpunkt','zeitpunkt'],
+    notiz:['notiz','notizen','bemerkung','bemerkungen'],
+    zustand:['zustand'],
+    wasser:['wasser','wasserbedarf','prioritat','bedarf'],
+  };
+  const coordAliases=['lat','lng','latitude','longitude','breite','breitengrad','lange','langengrad','koordinate1','koordinate2','koordinate','rechtswert','hochwert','ostwert','nordwert','easting','northing','east','north','utm','gps','x','y','e','n'];
+  const baumIdAliases=['objektid','baumid','interneid'];
+  (headerRow||[]).forEach((h,i)=>{
+    const n=_normH(h); if(!n) return;
+    if(baumIdAliases.includes(n)){ if(map.baumId==null) map.baumId=i; return; }
+    if(coordAliases.includes(n)){ coordCols.push(i); return; }
+    for(const k of Object.keys(labelFor)){ if(n===_normH(labelFor[k]) || (aliases[k]||[]).includes(n)){ if(map[k]==null) map[k]=i; return; } }
+    for(const c of customFields){ if(n===_normH(c.label)){ if(map[c.key]==null) map[c.key]=i; return; } }
+  });
+  map._coord=coordCols.slice(0,2);
+  return map;
+}
+// Zustand/Priorität-Zelle (Label oder Schlüssel) → stabile id; leer/unbekannt → 'mittel'
+function mapRankImport(fk,val){
+  const v=_normH(val); if(!v) return 'mittel';
+  const e=rankList(fk).find(x=>_normH(x.id)===v||_normH(x.label)===v);
+  return e?e.id:'mittel';
+}
+// Welche Listenwerte aus dem Import sind neu (würden angelegt)?
+function detectNewListValues(parsed){
+  const res={};
+  ['stadtteil','pflanzjahr','pflanzzeitpunkt',...customFields.map(c=>c.key)].forEach(k=>{
+    const have=new Set((listValues[k]||[]).map(e=>e.label));
+    const news=[...new Set(parsed.map(r=>(r[k]||'').toString().trim()).filter(Boolean))].filter(v=>!have.has(v));
+    if(news.length) res[k]=news;
+  });
+  const haveArt=new Set(artenList.map(a=>a.name));
+  const newArt=[...new Set(parsed.map(r=>(r.art||'').trim()).filter(Boolean))].filter(v=>!haveArt.has(v));
+  if(newArt.length) res.art=newArt;
+  return res;
+}
+// Importvorlage (Excel) mit aktuellen Überschriften + Beispielzeile
+function downloadImportTemplate(){
+  const XLSX=window.XLSX; if(!XLSX){ notify('SheetJS nicht geladen'); return; }
+  const headers=[FL.name,FL.stadtteil,FL.baumnr,FL.art,FL.pflanzjahr,FL.pflanzzeitpunkt,FL.zustand,FL.wasser,...customFields.map(c=>c.label),FL.notiz,'Koordinate 1','Koordinate 2'];
+  const ex=['Berliner Platz 23','Innenstadt','118-0044','Ahorn','2020','Frühjahr',(rankList('zustand')[0]?.label||'Gut'),(rankList('wasser')[0]?.label||'Gering'),...customFields.map(()=>''),'Beispiel-Notiz','49.4830','8.4450'];
+  const ws=XLSX.utils.aoa_to_sheet([headers,ex]);
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Objekte');
+  XLSX.writeFile(wb,'Importvorlage.xlsx');
+}
+// Voll-Export aller (aktiven) Objekte — spiegelbildlich zur Vorlage; Objekt-ID ermöglicht Re-Import als Update
+function downloadObjectsExport(){
+  const XLSX=window.XLSX; if(!XLSX){ notify('SheetJS nicht geladen'); return; }
+  const headers=[FL.name,FL.stadtteil,FL.baumnr,FL.art,FL.pflanzjahr,FL.pflanzzeitpunkt,FL.zustand,FL.wasser,...customFields.map(c=>c.label),FL.notiz,'Koordinate 1','Koordinate 2','Objekt-ID'];
+  const list=trees.filter(isActive);
+  const rows=list.map(t=>[
+    t.name||'', t.stadtteil||'', t.baumnr||'', t.art||'', t.pflanzjahr||'', t.pflanzzeitpunkt||'',
+    rankLabel('zustand',t.zustand), rankLabel('wasser',t.wasser),
+    ...customFields.map(c=>t[c.key]||''),
+    t.notiz||'', (t.lat==null?'':t.lat), (t.lng==null?'':t.lng), t.baumId||'',
+  ]);
+  const ws=XLSX.utils.aoa_to_sheet([headers,...rows]);
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Objekte');
+  XLSX.writeFile(wb, ((currentProjectData?.name||'Objekte').replace(/[^\w-]+/g,'_'))+'_Export.xlsx');
+  notify(`✓ ${list.length} Objekte exportiert`);
+}
 // Zahl robust parsen (auch Dezimal-Komma "52,28")
 function impNum(v){ if(v==null)return NaN; if(typeof v==='number')return v; return parseFloat(String(v).trim().replace(',','.')); }
 // Plausibel in Deutschland?
@@ -4917,19 +5000,35 @@ async function importExcel(input){
   const ws=wb.Sheets[wb.SheetNames[0]];
   const rows=XLSX.utils.sheet_to_json(ws,{header:1});
   input.value='';
+  if(rows.length<2){ notify('Keine Datenzeilen gefunden'); return; }
+  const map=buildImportMapping(rows[0]);
+  if(map.name==null){ notify('Spalte „'+FL.name+'" nicht gefunden — bitte Überschriften prüfen (Vorlage nutzen).'); return; }
+  const [c0,c1]=map._coord;
+  const get=(row,k)=> map[k]!=null ? row[map[k]] : undefined;
   const parsed=[];
   for(let i=1;i<rows.length;i++){
-    const row=rows[i]; if(!row||row.length<1)continue;
-    const {lat,lng}=impCoords(impNum(row[7]),impNum(row[8])); // Dezimalgrad ODER ETRS89/UTM
-    parsed.push({
-      name:row[0]||'Unbekannt', stadtteil:row[1]||'', art:row[2]||'',
-      baumnr:row[3]?.toString()||'', pflanzjahr:row[4]?.toString()||'',
-      pflanzzeitpunkt:row[5]?.toString()||'', notiz:row[6]||'',
+    const row=rows[i]; if(!row||!row.length) continue;
+    if(row.every(c=>c==null||String(c).trim()==='')) continue; // Leerzeile
+    const {lat,lng}=(c0!=null&&c1!=null)?impCoords(impNum(row[c0]),impNum(row[c1])):{lat:null,lng:null};
+    const o={
+      name:(get(row,'name')??'')||'Unbekannt',
+      stadtteil:String(get(row,'stadtteil')??'').trim(),
+      art:String(get(row,'art')??'').trim(),
+      baumnr:String(get(row,'baumnr')??'').trim(),
+      pflanzjahr:String(get(row,'pflanzjahr')??'').trim(),
+      pflanzzeitpunkt:String(get(row,'pflanzzeitpunkt')??'').trim(),
+      notiz:get(row,'notiz')??'',
+      zustand:mapRankImport('zustand',get(row,'zustand')),
+      wasser:mapRankImport('wasser',get(row,'wasser')),
+      baumId:String(get(row,'baumId')??'').trim(),
       lat, lng,
-    });
+    };
+    customFields.forEach(c=>{ if(map[c.key]!=null) o[c.key]=String(row[map[c.key]]??'').trim(); });
+    parsed.push(o);
   }
   if(!parsed.length){ notify('Keine Datenzeilen gefunden'); return; }
   _importRows=parsed;
+  _importNew=detectNewListValues(parsed);
   // Auto-Empfehlung: tauschen, wenn dadurch mehr Punkte in DE liegen
   let normalIn=0, swapIn=0;
   parsed.forEach(r=>{ if(r.lat!=null&&r.lng!=null){ if(impInDE(r.lat,r.lng))normalIn++; if(impInDE(r.lng,r.lat))swapIn++; } });
@@ -4954,6 +5053,7 @@ function showImportPreview(){
       <button id="imp-x" style="border:none;background:none;font-size:22px;color:var(--text2);cursor:pointer;line-height:1;">×</button>
     </div>
     <div id="imp-warn" style="display:none;padding:8px 18px;background:var(--red-light);color:var(--red);font-size:12px;font-weight:600;"></div>
+    <div id="imp-newvals" style="display:none;padding:8px 18px;background:var(--green-light);color:var(--text2);font-size:11px;line-height:1.5;border-bottom:1px solid var(--border);"></div>
     <div style="padding:10px 18px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border);">
       <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
         <input type="checkbox" id="imp-swap"> Längen-/Breitengrad tauschen (lat ↔ lng)
@@ -4967,6 +5067,13 @@ function showImportPreview(){
     </div>
   </div>`;
   document.body.appendChild(m);
+  // Hinweis auf neue Listenwerte, die beim Import angelegt werden
+  const nv=document.getElementById('imp-newvals');
+  if(nv){
+    const lblFor=k=> k==='art'?FL.art:(customFields.find(c=>c.key===k)?.label||({stadtteil:FL.stadtteil,pflanzjahr:FL.pflanzjahr,pflanzzeitpunkt:FL.pflanzzeitpunkt}[k]||k));
+    const parts=Object.entries(_importNew||{}).map(([k,vals])=>`<b>${dlEsc(lblFor(k))}</b>: ${vals.slice(0,8).map(dlEsc).join(', ')}${vals.length>8?` … (+${vals.length-8})`:''}`);
+    if(parts.length){ nv.style.display='block'; nv.innerHTML='Neue Listenwerte, die beim Import automatisch angelegt werden:<br>'+parts.join('<br>'); }
+  }
   const sw=document.getElementById('imp-swap'); sw.checked=_importSwap;
   sw.onchange=()=>{ _importSwap=sw.checked; renderImportPreview(); };
   document.getElementById('imp-x').onclick=closeImportPreview;
@@ -5005,37 +5112,55 @@ function renderImportPreview(){
 
 async function doImport(){
   const btn=document.getElementById('imp-go'); if(btn){ btn.textContent='Importiert…'; btn.disabled=true; }
-  let imported=0;
+  let imported=0, updated=0;
   try{
     // Baum-Zähler EINMAL lesen, lokal hochzählen, am Ende EINMAL schreiben (statt pro Objekt)
     const projRef=doc(db,'projects',currentProjectId);
     const projSnap=await getDoc(projRef);
     let counter=projSnap.data()?.lastBaumId||0;
     const colRef=collection(db,'projects',currentProjectId,'trees');
+    // Bestehende Objekt-IDs → Dok-ID (für Re-Import als Update aus dem Export-Kreislauf)
+    const byBaumId=new Map(trees.filter(t=>t.baumId).map(t=>[t.baumId,t.id]));
     const CH=450; // Firestore-Batch-Limit ist 500
     for(let i=0;i<_importRows.length;i+=CH){
       const batch=db.batch();
       for(const r of _importRows.slice(i,i+CH)){
-        counter++;
-        const baumId='B-'+String(counter).padStart(5,'0');
         const la=_importSwap?r.lng:r.lat, lo=_importSwap?r.lat:r.lng;
-        batch.set(colRef.doc(),{
+        const fields={
           name:r.name, stadtteil:r.stadtteil, art:r.art, baumnr:r.baumnr,
           pflanzjahr:r.pflanzjahr, pflanzzeitpunkt:r.pflanzzeitpunkt, notiz:r.notiz,
           lat:(la==null?null:la), lng:(lo==null?null:lo),
-          wasser:'mittel',zustand:'mittel', datum:'',tourId:'',tourIds:[],history:[],
-          baumId, createdAt:serverTimestamp(),
-          orgId: currentProjectData?.orgId || currentOrg,
-        });
-        imported++;
+          wasser:r.wasser||'mittel', zustand:r.zustand||'mittel',
+        };
+        customFields.forEach(c=>{ if(r[c.key]!=null) fields[c.key]=r[c.key]; });
+        const existId = r.baumId && byBaumId.get(r.baumId);
+        if(existId){ batch.update(colRef.doc(existId), fields); updated++; }
+        else {
+          counter++;
+          batch.set(colRef.doc(),{
+            ...fields, datum:'',tourId:'',tourIds:[],history:[],
+            baumId:'B-'+String(counter).padStart(5,'0'), createdAt:serverTimestamp(),
+            orgId: currentProjectData?.orgId || currentOrg,
+          });
+          imported++;
+        }
       }
-      if(btn) btn.textContent=`Importiert… ${Math.min(imported,_importRows.length)}/${_importRows.length}`;
+      if(btn) btn.textContent=`Verarbeitet… ${Math.min(imported+updated,_importRows.length)}/${_importRows.length}`;
       await batch.commit();
     }
     await updateDoc(projRef,{lastBaumId:counter}); // Zähler einmal final setzen
+    // Neue Listenwerte (außer Typ/Art — das übernimmt buildArten) anlegen
+    let lvChanged=false;
+    Object.entries(_importNew||{}).forEach(([k,vals])=>{
+      if(k==='art') return;
+      listValues[k]=listValues[k]||[];
+      const have=new Set(listValues[k].map(e=>e.label));
+      vals.forEach(v=>{ if(!have.has(v)){ listValues[k].push({id:_genId(),label:v}); have.add(v); lvChanged=true; } });
+    });
+    if(lvChanged) await saveListValues();
   }catch(e){ notify('Import-Fehler: '+e.message); }
   closeImportPreview();
-  notify(`✓ ${imported} Objekte importiert${_importSwap?' · Koordinaten getauscht':''}`);
+  notify(`✓ ${imported} neu${updated?` · ${updated} aktualisiert`:''}${_importSwap?' · Koordinaten getauscht':''}`);
   // Arten-Liste nachziehen (neue Typen bekommen IDs); verzögert, bis Snapshot da ist
   if(!isReadonly()) setTimeout(()=>{ if(currentProjectId) buildArten().catch(()=>{}); }, 1800);
 }

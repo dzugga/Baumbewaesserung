@@ -192,6 +192,7 @@ async function onFotoSelected(e) {
 // ─── STATE ────────────────────────────────────────────────────
 let currentProjectId = null;
 let currentProjectData = null;
+let artenE = [];   // Typ/Art-Namen des Projekts (für Dropdown)
 let currentErfasser = null;
 let currentUser = null;     // Firebase-Auth-Nutzer
 let currentRole = '';       // Custom Claims
@@ -614,6 +615,9 @@ async function startErfassung(pid){
   const snap = await db.collection('projects').doc(pid).get();
   currentProjectData = { id: pid, ...snap.data() };
   currentProjectId = pid;
+  // Typ/Art-Liste laden (1 Read; für Dropdown). Offline → leer, Dropdown zeigt nur den Bestandswert.
+  try { const as = await db.collection('projects').doc(pid).collection('arten').get(); artenE = as.docs.map(d => d.data().name).filter(Boolean); }
+  catch(_) { artenE = []; }
 
   await watchTrees(pid);
   if (!allTrees.length) {
@@ -814,8 +818,15 @@ function _listOptsE(fk, cur) {
 function _rankOptsE(fk, cur) {
   return _rankE(fk).map(e=>`<option value="${esc(e.id)}"${e.id===cur?' selected':''}>${esc(e.label)}</option>`).join('');
 }
+function _artOptsE(cur) {
+  let labels = [...new Set(artenE.filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  cur = (cur||'').trim();
+  if (cur && !labels.includes(cur)) labels.unshift(cur);
+  return `<option value="">— bitte wählen —</option>` + labels.map(n=>`<option value="${esc(n)}"${n===cur?' selected':''}>${esc(n)}</option>`).join('');
+}
 // Listen-Dropdowns des Formulars füllen; t=null → Neuanlage (Standardwerte)
 function populateErfForm(t) {
+  const a = document.getElementById('f-art'); if (a) a.innerHTML = _artOptsE(t ? t.art : '');
   const z = document.getElementById('f-zustand'); if (z) z.innerHTML = _rankOptsE('zustand', t ? (t.zustand||'mittel') : 'mittel');
   const w = document.getElementById('f-wasser');  if (w) w.innerHTML = _rankOptsE('wasser',  t ? (t.wasser||t.wasserbedarf||'mittel') : 'mittel');
   const s = document.getElementById('f-stadtteil'); if (s) s.innerHTML = _listOptsE('stadtteil', t ? t.stadtteil : '');
@@ -834,7 +845,7 @@ function openFormSheet() {
   document.getElementById('form-coords-display').textContent =
     `📍 ${pendingCoords.lat.toFixed(5)}, ${pendingCoords.lng.toFixed(5)}`;
   // Felder leeren
-  ['f-name','f-baumnr','f-art','f-notiz'].forEach(id => {
+  ['f-name','f-baumnr','f-notiz'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
   populateErfForm(null);
@@ -859,7 +870,6 @@ function closeFormSheet() {
 function fillFormFromTree(t) {
   document.getElementById('f-name').value = t.name || '';
   document.getElementById('f-baumnr').value = t.baumnr || '';
-  document.getElementById('f-art').value = t.art || '';
   document.getElementById('f-notiz').value = t.notiz || '';
   populateErfForm(t);
 }
