@@ -361,6 +361,8 @@ if(_msInput){
   _msInput.addEventListener('input',()=>{ const c=document.getElementById('map-search-clear'); if(c) c.style.display=_msInput.value?'block':'none'; });
 }
 document.getElementById('map-search-clear')?.addEventListener('click',clearMapSearch);
+document.getElementById('map-search-toggle')?.addEventListener('click',()=>{ document.getElementById('map-search')?.classList.remove('collapsed'); _msInput?.focus(); });
+_msInput?.addEventListener('keydown',e=>{ if(e.key==='Escape'){ clearMapSearch(); document.getElementById('map-search')?.classList.add('collapsed'); } });
 document.getElementById('map-search-results')?.addEventListener('click',e=>{
   const it=e.target.closest('.ms-item'); if(!it) return;
   const box=document.getElementById('map-search-results'); const r=box._results?.[+it.dataset.idx];
@@ -2723,8 +2725,9 @@ function canEditObjects(){ return currentCap==='admin'||currentCap==='editor'||c
 // bei Enter — policy-konform). Soll eine Kommune später den amtlichen BKG-Geokodierungsdienst
 // nutzen, wird NUR diese eine Funktion umgestellt — die Oberfläche bleibt gleich.
 let _searchMarker=null, _searching=false;
-async function geocodeSearch(query){
-  const b=map.getBounds(); // Vorrang für das aktuelle Stadtgebiet, deutschlandweiter Fallback
+async function geocodeSearch(query, m){
+  m=m||map;
+  const b=m.getBounds(); // Vorrang für das aktuelle Stadtgebiet, deutschlandweiter Fallback
   const vb=`${b.getWest().toFixed(5)},${b.getNorth().toFixed(5)},${b.getEast().toFixed(5)},${b.getSouth().toFixed(5)}`;
   const url=`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&countrycodes=de&limit=6&viewbox=${vb}&q=${encodeURIComponent(query)}`;
   const res=await fetch(url,{headers:{'Accept-Language':'de'}});
@@ -2761,6 +2764,7 @@ function gotoSearchResult(r){
   if(_searchMarker) map.removeLayer(_searchMarker);
   _searchMarker=L.marker([lat,lng],{zIndexOffset:2000,icon:L.divIcon({className:'',html:`<div style="width:24px;height:24px;border-radius:50% 50% 50% 0;background:var(--blue);border:2.5px solid #fff;transform:rotate(-45deg);box-shadow:0 2px 7px rgba(0,0,0,.45);"></div>`,iconSize:[24,24],iconAnchor:[12,24]})}).addTo(map);
   document.getElementById('map-search-results').style.display='none';
+  document.getElementById('map-search')?.classList.add('collapsed');
 }
 function clearMapSearch(){
   const inp=document.getElementById('map-search-input'); if(inp) inp.value='';
@@ -6737,6 +6741,25 @@ function _initDispoControls(){
   document.getElementById('dispo-zoom-out').onclick=()=>dispoMap.zoomOut();
   document.getElementById('dispo-basemap-btn').onclick=e=>{ const p=document.getElementById('dispo-basemap-panel'); const open=p.style.display==='none'; p.style.display=open?'block':'none'; e.currentTarget.classList.toggle('open',open); };
   dispoMap.on('click',closeDispoBasemapPanel);
+  // Werkzeuge oben links: Adresssuche (einklappbar) + Stadt-Zoom + Routenlinien (nur Dispo-Karte)
+  const tools=document.createElement('div'); tools.id='dispo-tools';
+  tools.innerHTML=`<div id="dispo-search" class="collapsed">
+      <button id="dispo-search-toggle" type="button" class="ms-toggle" title="Adresse oder Straße suchen" aria-label="Suchen"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg></button>
+      <div class="ms-box"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2.2" style="flex-shrink:0;"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg><input id="dispo-search-input" type="text" placeholder="Adresse oder Straße suchen…" autocomplete="off"><button class="ms-clear" id="dispo-search-clear" type="button" aria-label="Leeren"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+      <div id="dispo-search-results"></div>
+    </div>
+    <button id="dispo-fit" class="ms-toggle" type="button" title="Auf ganze Stadt zoomen" aria-label="Auf ganze Stadt zoomen"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/><circle cx="12" cy="12" r="2.5"/></svg></button>
+    <button id="dispo-routes" class="ms-toggle" type="button" title="Routenlinien ein/aus" aria-label="Routenlinien ein/aus"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>`;
+  cont.appendChild(tools);
+  L.DomEvent.disableClickPropagation(tools); L.DomEvent.disableScrollPropagation(tools);
+  document.getElementById('dispo-search-toggle').onclick=()=>{ document.getElementById('dispo-search').classList.remove('collapsed'); document.getElementById('dispo-search-input').focus(); };
+  const di=document.getElementById('dispo-search-input');
+  di.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); doDispoSearch(); } else if(e.key==='Escape'){ clearDispoSearch(); document.getElementById('dispo-search').classList.add('collapsed'); } });
+  di.addEventListener('input',()=>{ const c=document.getElementById('dispo-search-clear'); if(c) c.style.display=di.value?'block':'none'; });
+  document.getElementById('dispo-search-clear').onclick=clearDispoSearch;
+  document.getElementById('dispo-search-results').addEventListener('click',e=>{ const it=e.target.closest('.ms-item'); if(!it) return; const box=document.getElementById('dispo-search-results'); const r=box._results?.[+it.dataset.idx]; if(r) gotoDispoResult(r); });
+  document.getElementById('dispo-fit').onclick=dispoFitBins;
+  document.getElementById('dispo-routes').onclick=toggleDispoRoutes;
   _dispoControlsReady=true;
 }
 let dispoVisible=null; // null = alle Fahrzeuge sichtbar; sonst Set sichtbarer Ressourcen-IDs
@@ -7197,6 +7220,47 @@ function dispoOpenObjectDetail(id){
   if(!trees.find(t=>t.id===id)){ notify('Objekt nicht gefunden (nur bei echten Füllständen verfügbar)'); return; }
   try{ openDetail(id); }catch(e){ console.warn('dispoOpenObjectDetail',e); } // Leiste erscheint in der Dispo (kein Ansichtswechsel)
 }
+// ── Werkzeuge NUR für die Füllstandskarte: Adresssuche, Stadt-Zoom, Routenlinien ──
+let _dispoSearchMarker=null, _dispoSearching=false, _dispoRoutesVisible=true;
+async function doDispoSearch(){
+  const inp=document.getElementById('dispo-search-input'); const q=(inp?.value||'').trim();
+  const box=document.getElementById('dispo-search-results'); if(!box||!dispoMap) return;
+  if(q.length<3){ box.style.display='none'; return; }
+  if(_dispoSearching) return; _dispoSearching=true;
+  box.innerHTML='<div class="ms-empty">Suche…</div>'; box.style.display='block';
+  try{
+    const rs=await geocodeSearch(q, dispoMap);
+    try{ const c=dispoMap.getCenter(); rs.sort((a,b)=>dispoMap.distance(c,[+a.lat,+a.lon])-dispoMap.distance(c,[+b.lat,+b.lon])); }catch(_){}
+    if(!rs.length){ box.innerHTML=`<div class="ms-empty">Keine Treffer für „${dlEsc(q)}"</div>`; }
+    else{
+      box.innerHTML=rs.map((r,i)=>{ const a=r.address||{}; const main=[a.road,a.house_number].filter(Boolean).join(' ')||(r.display_name||'').split(',')[0]; const sub=[a.postcode,(a.city||a.town||a.village||a.municipality||a.county)].filter(Boolean).join(' ')||(r.display_name||'').split(',').slice(1,3).join(',').trim(); return `<div class="ms-item" data-idx="${i}"><div class="ms-main">${dlEsc(main)}</div><div class="ms-sub">${dlEsc(sub)}</div></div>`; }).join('')+`<div class="ms-foot">Adressdaten © OpenStreetMap-Mitwirkende (ODbL)</div>`;
+      box._results=rs;
+    }
+  }catch(e){ console.warn('Dispo-Adresssuche',e); box.innerHTML='<div class="ms-empty">Suche momentan nicht verfügbar</div>'; }
+  finally{ _dispoSearching=false; }
+}
+function gotoDispoResult(r){
+  const lat=parseFloat(r.lat),lng=parseFloat(r.lon); if(isNaN(lat)||isNaN(lng)||!dispoMap) return;
+  dispoMap.setView([lat,lng],18);
+  if(_dispoSearchMarker) dispoMap.removeLayer(_dispoSearchMarker);
+  _dispoSearchMarker=L.marker([lat,lng],{zIndexOffset:2000,icon:L.divIcon({className:'',html:`<div style="width:24px;height:24px;border-radius:50% 50% 50% 0;background:var(--blue);border:2.5px solid #fff;transform:rotate(-45deg);box-shadow:0 2px 7px rgba(0,0,0,.45);"></div>`,iconSize:[24,24],iconAnchor:[12,24]})}).addTo(dispoMap);
+  document.getElementById('dispo-search-results').style.display='none';
+  document.getElementById('dispo-search')?.classList.add('collapsed');
+}
+function clearDispoSearch(){
+  const inp=document.getElementById('dispo-search-input'); if(inp) inp.value='';
+  const box=document.getElementById('dispo-search-results'); if(box) box.style.display='none';
+  const cl=document.getElementById('dispo-search-clear'); if(cl) cl.style.display='none';
+  if(_dispoSearchMarker&&dispoMap){ dispoMap.removeLayer(_dispoSearchMarker); _dispoSearchMarker=null; }
+}
+function dispoFitBins(){
+  if(!dispoMap) return;
+  const pts=dispoGetBins().filter(b=>b.lat&&b.lng).map(b=>[b.lat,b.lng]);
+  if(!pts.length) return;
+  dispoMap.invalidateSize();
+  dispoMap.fitBounds(L.latLngBounds(pts),{padding:[50,50],maxZoom:16});
+}
+function toggleDispoRoutes(){ _dispoRoutesVisible=!_dispoRoutesVisible; const b=document.getElementById('dispo-routes'); if(b) b.classList.toggle('off',!_dispoRoutesVisible); dispoRenderMap(); }
 function dispoRenderMap(){
   const L=window.L, wrap=document.getElementById('dispo-map'); if(!L||!wrap) return;
   if(!dispoMap){
@@ -7218,7 +7282,7 @@ function dispoRenderMap(){
   let visBinIds=null;
   if(filtered){ visBinIds=new Set(); plan.R.forEach(r=>{ if(dispoResVisible(r.id)) r.route.forEach(s=>visBinIds.add(s.id)); }); }
   // Routen (nur sichtbare Fahrzeuge)
-  if(plan){
+  if(plan && _dispoRoutesVisible){
     plan.R.forEach((r,i)=>{
       if(!dispoResVisible(r.id)) return;
       const col=dispoResColor(i);
