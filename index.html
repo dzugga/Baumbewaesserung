@@ -1169,7 +1169,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 <div id="view-disposition" style="display:none;position:fixed;top:54px;left:0;right:0;bottom:0;z-index:1500;background:var(--bg);flex-direction:column;overflow:hidden;">
   <div class="dispo-toolbar">
     <span style="font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;">Disposition – Papierkorb-Tagesplanung</span>
-    <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px;" onclick="dispoSimulate()" title="Füllstände neu simulieren">🔄 Füllstände simulieren</button>
+    <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px;" onclick="dispoLoadReal()" title="Füllstände aus echten Füllgrad-Meldungen + gelernter Rate">📊 Echte Füllstände</button>
+    <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px;" onclick="dispoSimulate()" title="Füllstände zufällig simulieren (für Demo/Akquise)">🔄 Simulieren</button>
     <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px;" onclick="dispoOpenSettings()">⚙ Einstellungen</button>
     <button class="btn btn-primary" style="padding:5px 12px;font-size:12px;" onclick="dispoPlan()">▶ Tag automatisch planen</button>
     <span class="dispo-legend">

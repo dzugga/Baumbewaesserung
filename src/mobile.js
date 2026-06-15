@@ -1206,6 +1206,7 @@ async function saveReport(id){
 
   const histEntry={
     date:new Date().toISOString().slice(0,10),
+    status:status||null,
     note:`${status==='bewaessert'?'Bewässert':'Nicht bewässert'}${reason?' — '+reason:''}${note?' ('+note+')':''}${fuellgrad!=null?' · Füllgrad: '+fgLabel(fuellgrad):''}`,
     driver:currentDriver
   };

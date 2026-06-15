@@ -6664,7 +6664,7 @@ function dispoShowAllVehicles(){ dispoVisible=null; dispoRenderResults(); dispoR
 
 // Dispo-Konfig stadtscharf: orgs/{orgId}.dispoConfig + .dispoResources (in loadOrgSettings geladen).
 // Bins bleiben lokal (transiente Simulations-Ausgabe, wird je Lauf neu erzeugt).
-const DISPO_DEFAULT_CFG={kritisch:80, planbar:50, aus:50, emptyMin:3, reservePct:10, speedKmh:25, binCount:40};
+const DISPO_DEFAULT_CFG={kritisch:80, planbar:50, aus:50, emptyMin:3, reservePct:10, speedKmh:25, binCount:40, defaultRate:10};
 const DISPO_DEFAULT_RES=[
   {id:'r1', name:'Fahrzeug 1', arbeitszeitMin:420, depot:null, maxBins:0},
   {id:'r2', name:'Fahrzeug 2', arbeitszeitMin:420, depot:null, maxBins:0},
@@ -6724,6 +6724,51 @@ function dispoSimulate(){
   window.__dispoPlan=null;
   dispoRenderResults(); dispoRenderMap();
   notify(`${bins.length} Papierkörbe simuliert`);
+}
+
+// ── Echtdaten-Modus: Bins aus realen Objekten + gelernter Füllrate ──────
+// Letztes Melde-/Verlaufsdatum eines Objekts
+function _dispoLastDate(t){
+  let d=t.lastReportAt||null;
+  if(!d){ const h=(t.history||[]).filter(x=>x.date); if(h.length) d=h[h.length-1].date; }
+  if(!d) return null; const dt=new Date(d); return isNaN(dt)?null:dt;
+}
+// Gelernte Füllrate (%/Tag) aus der history-Zeitreihe: zwischen zwei Leerungen (status erledigt)
+// füllt sich der Korb von ~0 auf den gemeldeten Wert → Rate = Füllgrad / Tage. Mittel über letzte 5.
+function _dispoFillRate(t){
+  const ev=(t.history||[]).filter(h=>typeof h.fuellgrad==='number' && h.date && (h.status==='bewaessert' || /^Bewässert/.test(h.note||'')))
+    .map(h=>({d:new Date(h.date), f:h.fuellgrad})).filter(x=>!isNaN(+x.d)).sort((a,b)=>a.d-b.d);
+  if(ev.length<2) return null;
+  const rates=[];
+  for(let i=1;i<ev.length;i++){ const days=(ev[i].d-ev[i-1].d)/86400000; if(days>=0.5 && ev[i].f>0) rates.push(ev[i].f/days); }
+  if(!rates.length) return null;
+  const last=rates.slice(-5);
+  return last.reduce((s,x)=>s+x,0)/last.length;
+}
+function dispoLoadReal(){
+  const cfg=dispoGetConfig();
+  const src=trees.filter(t=>isActive(t)&&t.lat&&t.lng);
+  if(!src.length){ notify('Keine Objekte mit Koordinaten – bitte Projekt mit Objekten öffnen'); return; }
+  // Eigene Raten + Typ/Art-Schnitt für Kaltstart
+  const rateById={}, ratesByArt={};
+  src.forEach(t=>{ const r=_dispoFillRate(t); if(r!=null){ rateById[t.id]=r; const a=(t.art||'').trim(); (ratesByArt[a]=ratesByArt[a]||[]).push(r); } });
+  const artAvg={}; Object.entries(ratesByArt).forEach(([a,arr])=>{ artAvg[a]=arr.reduce((s,x)=>s+x,0)/arr.length; });
+  const allRates=Object.values(rateById);
+  const globalAvg=allRates.length?allRates.reduce((s,x)=>s+x,0)/allRates.length:(cfg.defaultRate||10);
+  const now=Date.now();
+  const bins=src.map(t=>{
+    let rate=rateById[t.id];
+    if(rate==null){ const a=(t.art||'').trim(); rate=(artAvg[a]!=null?artAvg[a]:globalAvg); }
+    rate=Math.max(1, Math.min(60, rate));
+    const base=(typeof t.lastFuellgrad==='number')?t.lastFuellgrad:0;
+    const last=_dispoLastDate(t);
+    const days=last?Math.max(0,(now-last.getTime())/86400000):0;
+    const fuell=Math.max(0, Math.min(130, Math.round(base + rate*days)));
+    return { id:t.id, name:t.name||t.baumId||'Objekt', stadtteil:t.stadtteil||'', lat:t.lat, lng:t.lng, fuellstand:fuell, fillRate:Math.round(rate), _real:true };
+  });
+  dispoSetBins(bins);
+  window.__dispoPlan=null; dispoRenderResults(); dispoRenderMap();
+  notify(`${bins.length} Objekte aus echten Daten · ${Object.keys(rateById).length} mit gelernter Füllrate (Rest Kaltstart)`);
 }
 
 function dispoTravelMin(a,b,speed){ return haversine(a.lat,a.lng,b.lat,b.lng)/speed*60; }
@@ -7726,7 +7771,7 @@ async function renderHbUpdates(q){
 Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,
   renderHandbuch,setHbTab,hbSearchDebounced,openHbImg,closeHbImg,
-  dispoSimulate,dispoPlan,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
+  dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
   renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,
