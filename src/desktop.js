@@ -6689,6 +6689,56 @@ function initDashboard(){
 // Alles lokal (localStorage) – verändert keine echten Projektdaten.
 const DISPO_BINS_KEY='dispo_bins'; // nur Bins lokal (transient); Config/Resources liegen am Mandanten
 let dispoMap=null, dispoLayer=null, dispoPickCleanup=null, dispoMarkers={};
+// Karten-Steuerung der Dispo (wie in der manuellen Planung: Zoom + Ebenen-Umschalter)
+let dispoBaseFarbe=null, dispoBaseGrau=null, dispoBasemaps={}, dispoOverlays={}, dispoWmsInstances={}, _dispoControlsReady=false;
+function closeDispoBasemapPanel(){ const p=document.getElementById('dispo-basemap-panel'),b=document.getElementById('dispo-basemap-btn'); if(p)p.style.display='none'; if(b)b.classList.remove('open'); }
+function dispoRebuildLayers(){
+  if(!dispoMap) return;
+  const active=new Set();
+  Object.entries(dispoWmsInstances).forEach(([id,lyr])=>{ if(dispoMap.hasLayer(lyr)) active.add(id); dispoMap.removeLayer(lyr); });
+  dispoWmsInstances={};
+  dispoBasemaps={'Karte':dispoBaseFarbe,'Graustufen':dispoBaseGrau};
+  dispoOverlays={};
+  let customBase=false;
+  getWmsLayers().forEach(c=>{
+    const lyr=buildWmsLayer(c); dispoWmsInstances[c.id]=lyr;
+    if(c.type==='overlay'){ dispoOverlays[c.name]=lyr; if(active.has(c.id)) lyr.addTo(dispoMap); }
+    else { dispoBasemaps[c.name]=lyr; if(active.has(c.id)){ lyr.addTo(dispoMap); customBase=true; } }
+  });
+  if(customBase){ dispoMap.removeLayer(dispoBaseFarbe); dispoMap.removeLayer(dispoBaseGrau); }
+  else if(!dispoMap.hasLayer(dispoBaseFarbe)&&!dispoMap.hasLayer(dispoBaseGrau)){ dispoBaseFarbe.addTo(dispoMap); }
+  dispoRenderBasemapSwitcher();
+}
+function dispoRenderBasemapSwitcher(){
+  const panel=document.getElementById('dispo-basemap-panel'); if(!panel) return;
+  const baseNames=Object.keys(dispoBasemaps);
+  let activeBase=baseNames.find(n=>dispoMap.hasLayer(dispoBasemaps[n]));
+  if(!activeBase){ dispoBasemaps['Karte'].addTo(dispoMap); activeBase='Karte'; }
+  const opt=(label,attr,act)=>`<button ${attr} class="bm-opt${act?' active':''}"><svg class="chk" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 7"/></svg><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(label)}</span></button>`;
+  let html=`<div class="bm-plabel">Hintergrundkarte</div>`;
+  html+=baseNames.map(n=>opt(n,`data-base="${(n+'').replace(/"/g,'&quot;')}"`,n===activeBase)).join('');
+  const ovNames=Object.keys(dispoOverlays);
+  if(ovNames.length) html+=`<div class="bm-plabel" style="margin-top:3px;border-top:1px solid var(--border);padding-top:6px;">Zusatz-Ebenen</div>`+ovNames.map(n=>opt(n,`data-overlay="${(n+'').replace(/"/g,'&quot;')}"`,dispoMap.hasLayer(dispoOverlays[n]))).join('');
+  panel.innerHTML=html;
+  panel.onclick=e=>{
+    const b=e.target.closest('[data-base]'),o=e.target.closest('[data-overlay]');
+    if(b){ const n=b.dataset.base; if(dispoBasemaps[n]){ Object.values(dispoBasemaps).forEach(l=>dispoMap.removeLayer(l)); dispoBasemaps[n].addTo(dispoMap); dispoRenderBasemapSwitcher(); closeDispoBasemapPanel(); } }
+    else if(o){ const n=o.dataset.overlay,l=dispoOverlays[n]; if(l){ dispoMap.hasLayer(l)?dispoMap.removeLayer(l):l.addTo(dispoMap); dispoRenderBasemapSwitcher(); } }
+  };
+}
+function _initDispoControls(){
+  if(_dispoControlsReady||!dispoMap) return;
+  const cont=dispoMap.getContainer();
+  const el=document.createElement('div'); el.id='dispo-controls';
+  el.innerHTML=`<div class="map-zoom"><button id="dispo-zoom-in" type="button" aria-label="Vergrößern"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button><button id="dispo-zoom-out" type="button" aria-label="Verkleinern"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14"/></svg></button></div><div class="map-picker"><div id="dispo-basemap-panel" style="display:none;"></div><button id="dispo-basemap-btn" type="button" aria-label="Karte wählen" title="Karte wählen"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg></button></div>`;
+  cont.appendChild(el);
+  L.DomEvent.disableClickPropagation(el); L.DomEvent.disableScrollPropagation(el);
+  document.getElementById('dispo-zoom-in').onclick=()=>dispoMap.zoomIn();
+  document.getElementById('dispo-zoom-out').onclick=()=>dispoMap.zoomOut();
+  document.getElementById('dispo-basemap-btn').onclick=e=>{ const p=document.getElementById('dispo-basemap-panel'); const open=p.style.display==='none'; p.style.display=open?'block':'none'; e.currentTarget.classList.toggle('open',open); };
+  dispoMap.on('click',closeDispoBasemapPanel);
+  _dispoControlsReady=true;
+}
 let dispoVisible=null; // null = alle Fahrzeuge sichtbar; sonst Set sichtbarer Ressourcen-IDs
 function dispoResVisible(id){ return !dispoVisible || dispoVisible.has(id); }
 function dispoFocusVehicle(id){ // Klick auf Fahrzeug: isolieren – erneuter Klick: wieder alle
@@ -7150,9 +7200,12 @@ function dispoOpenObjectDetail(id){
 function dispoRenderMap(){
   const L=window.L, wrap=document.getElementById('dispo-map'); if(!L||!wrap) return;
   if(!dispoMap){
-    dispoMap=L.map('dispo-map',{zoomControl:true,attributionControl:false}).setView([50.0,8.42],12);
-    L.tileLayer(BASEMAP_FARBE,{maxZoom:20,maxNativeZoom:18}).addTo(dispoMap);
+    dispoMap=L.map('dispo-map',{zoomControl:false,attributionControl:false}).setView([50.0,8.42],12);
+    dispoBaseFarbe=basemapLayer('farbe').addTo(dispoMap);
+    dispoBaseGrau=basemapLayer('grau');
     dispoLayer=L.layerGroup().addTo(dispoMap);
+    _initDispoControls();   // Zoom + Ebenen-Umschalter wie in der manuellen Planung
+    dispoRebuildLayers();   // Karte/Graustufen + Projekt-WMS-Ebenen
     setTimeout(()=>dispoMap.invalidateSize(),150);
   }
   dispoLayer.clearLayers();

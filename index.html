@@ -195,15 +195,16 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 
 /* ── KARTEN-STEUERUNG unten links (Zoom + Karten-Auswahl) ── */
 #map-controls{position:absolute;left:10px;bottom:22px;z-index:600;display:flex;flex-direction:column;gap:8px;align-items:flex-start;}
+#dispo-controls{position:absolute;left:10px;bottom:22px;z-index:1000;display:flex;flex-direction:column;gap:8px;align-items:flex-start;}
 .map-zoom{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;box-shadow:var(--shadow-md);}
 .map-zoom button{width:34px;height:32px;display:flex;align-items:center;justify-content:center;background:var(--surface);border:none;cursor:pointer;color:var(--text);}
 .map-zoom button:hover{background:var(--surface2);}
 .map-zoom button:first-child{border-bottom:1px solid var(--border);}
 .map-picker{position:relative;}
-#basemap-btn{display:flex;align-items:center;justify-content:center;width:36px;height:34px;background:var(--surface);border:1px solid var(--border);border-radius:8px;cursor:pointer;color:var(--text2);box-shadow:var(--shadow-md);}
-#basemap-btn:hover{color:var(--text);}
-#basemap-btn.open{border-color:var(--green);color:var(--green);}
-#basemap-panel{position:absolute;bottom:calc(100% + 8px);left:0;width:228px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:5px;box-shadow:var(--shadow-md);}
+#basemap-btn,#dispo-basemap-btn{display:flex;align-items:center;justify-content:center;width:36px;height:34px;background:var(--surface);border:1px solid var(--border);border-radius:8px;cursor:pointer;color:var(--text2);box-shadow:var(--shadow-md);}
+#basemap-btn:hover,#dispo-basemap-btn:hover{color:var(--text);}
+#basemap-btn.open,#dispo-basemap-btn.open{border-color:var(--green);color:var(--green);}
+#basemap-panel,#dispo-basemap-panel{position:absolute;bottom:calc(100% + 8px);left:0;width:228px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:5px;box-shadow:var(--shadow-md);}
 .bm-plabel{font-size:10px;color:var(--text3);font-weight:700;padding:4px 8px 6px;text-transform:uppercase;letter-spacing:.04em;}
 .bm-opt{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:none;border:none;border-radius:6px;padding:8px;cursor:pointer;font-family:inherit;font-size:13px;color:var(--text);}
 .bm-opt:hover{background:var(--surface2);}
