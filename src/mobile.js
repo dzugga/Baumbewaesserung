@@ -54,6 +54,14 @@ let currentProjectData = null;
 // Füllgrad-Stufen (je Projekt aktivierbar; v = Prozent für die Dispo-Lernlogik)
 const FUELLGRAD_OPTS = [{v:0,l:'leer'},{v:25,l:'25 %'},{v:50,l:'50 %'},{v:75,l:'75 %'},{v:100,l:'voll'},{v:120,l:'übervoll'}];
 function fgLabel(v){ const o=FUELLGRAD_OPTS.find(x=>x.v===v); return o?o.l:''; }
+// Zustand/Priorität-Wertelisten aus dem Projekt (gleiche wie Desktop) mit Standard-Fallback
+const RANK_SEED_M = {
+  zustand:[{id:'gut',label:'Gut'},{id:'mittel',label:'Mittel'},{id:'schlecht',label:'Schlecht'}],
+  wasser:[{id:'gering',label:'Gering'},{id:'mittel',label:'Mittel'},{id:'hoch',label:'Hoch'}],
+};
+function _rankM(fk){ const l=currentProjectData?.listValues?.[fk]; return (l&&l.length)?[...l].sort((a,b)=>(a.rang||0)-(b.rang||0)):(RANK_SEED_M[fk]||[]); }
+function _rankOptsM(fk,cur){ return _rankM(fk).map(e=>`<option value="${esc(e.id)}"${cur===e.id?' selected':''}>${esc(e.label)}</option>`).join(''); }
+function _flM(fk,def){ return (currentProjectData?.fieldLabels?.[fk])||def; }
 let currentProjectId = null;
 let currentTourId = null;
 let currentTour = null;
@@ -1085,20 +1093,12 @@ function openSheet(id){
     <div class="section-title" style="margin-top:16px;">Eigenschaften erfassen</div>
     <div class="prop-grid">
       <div class="prop-group">
-        <label class="prop-label">Zustand</label>
-        <select class="prop-input" id="p-zustand">
-          <option value="gut"${tree.zustand==='gut'?' selected':''}>Gut</option>
-          <option value="mittel"${(!tree.zustand||tree.zustand==='mittel')?' selected':''}>Mittel</option>
-          <option value="schlecht"${tree.zustand==='schlecht'?' selected':''}>Schlecht</option>
-        </select>
+        <label class="prop-label">${esc(_flM('zustand','Zustand'))}</label>
+        <select class="prop-input" id="p-zustand">${_rankOptsM('zustand', tree.zustand||'mittel')}</select>
       </div>
       <div class="prop-group">
-        <label class="prop-label">Bedarf</label>
-        <select class="prop-input" id="p-wasser">
-          <option value="gering"${tree.wasser==='gering'?' selected':''}>Gering</option>
-          <option value="mittel"${(!tree.wasser||tree.wasser==='mittel')?' selected':''}>Mittel</option>
-          <option value="hoch"${tree.wasser==='hoch'?' selected':''}>Hoch</option>
-        </select>
+        <label class="prop-label">${esc(_flM('wasser','Bedarf'))}</label>
+        <select class="prop-input" id="p-wasser">${_rankOptsM('wasser', tree.wasser||'mittel')}</select>
       </div>
       <div class="prop-group prop-full">
         <label class="prop-label">Bemerkung</label>
