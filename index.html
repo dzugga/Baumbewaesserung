@@ -6,6 +6,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Planungsmanager</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -617,6 +619,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
             <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;color:var(--text2);">
               <input type="checkbox" id="s-fuellgrad" style="width:16px;height:16px;cursor:pointer;">
               Fahrer melden zusätzlich den Füllgrad (z. B. Papierkörbe: leer … übervoll)
+            </label>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Marker gruppieren (Cluster)</label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;color:var(--text2);">
+              <input type="checkbox" id="s-cluster" style="width:16px;height:16px;cursor:pointer;">
+              Bei vielen Objekten nahe Marker zu Clustern zusammenfassen (flüssiger; beim Reinzoomen wieder einzeln)
             </label>
           </div>
           <div id="s-routing-sub">
@@ -1413,6 +1422,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 
 <!-- Leaflet (must load before module) -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <!-- Chart.js for Controlling -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <!-- SheetJS for Excel import -->

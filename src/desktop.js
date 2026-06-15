@@ -251,6 +251,30 @@ map.attributionControl.setPosition('bottomright').setPrefix(false);
 const baseFarbe = basemapLayer('farbe').addTo(map);
 const baseGrau  = basemapLayer('grau');
 
+// ── Marker-Zielebene: AUS (Standard) = direkt die Karte (identisch zu bisher);
+//    EIN = Cluster-Gruppe (lagert Off-Screen-Marker aus → flüssig bei großen Projekten).
+//    Der restliche Marker-Code nutzt nur _mAdd/_mDel und bleibt dadurch unverändert.
+let _clusterOn=false, _clusterGroup=null;
+function _mAdd(m){ (_clusterOn&&_clusterGroup?_clusterGroup:map).addLayer(m); return m; }
+function _mDel(m){ if(_clusterGroup) _clusterGroup.removeLayer(m); if(map.hasLayer(m)) map.removeLayer(m); }
+function _makeClusterGroup(){
+  if(!(window.L&&L.markerClusterGroup)) return null;
+  return L.markerClusterGroup({ chunkedLoading:true, removeOutsideVisibleBounds:true, disableClusteringAtZoom:17, spiderfyOnMaxZoom:false, showCoverageOnHover:false, maxClusterRadius:55 });
+}
+// Cluster-Modus für das aktuelle Projekt setzen (initial beim Öffnen, oder per Schalter)
+function applyClusterMode(on, rebuild){
+  Object.values(mapMarkers).forEach(m=>_mDel(m));
+  if(_clusterGroup) _clusterGroup.clearLayers();
+  _clusterOn=!!on && !!(window.L&&L.markerClusterGroup);
+  if(_clusterOn){
+    if(!_clusterGroup) _clusterGroup=_makeClusterGroup();
+    if(_clusterGroup&&!map.hasLayer(_clusterGroup)) map.addLayer(_clusterGroup);
+  } else if(_clusterGroup&&map.hasLayer(_clusterGroup)){
+    map.removeLayer(_clusterGroup);
+  }
+  if(rebuild) refreshMarkers();
+}
+
 // ── WMS-Kartenebenen (vom Nutzer verwaltbar, stadtscharf am Mandanten) ──
 const WMS_DEFAULTS=[
   {id:'he-dop20', name:'Luftbild Hessen (DOP20)',
@@ -487,6 +511,7 @@ async function openProject(projectId){
   document.getElementById('project-screen').style.display='none';
   loadFieldLabels();
   loadListValues();
+  applyClusterMode(currentProjectData?.clusterAktiv, false); // Marker-Zielebene fürs Projekt (vor erstem Marker-Render)
   await loadOrgSettings(); // KI-Modus + ORS-Key + WMS + Dispo dieser Stadt (1 Org-Read) — vor dem Kartenaufbau
   rebuildLayerControl(); // WMS-Kartenebenen der Stadt laden
   // Subscribe to tours & trees
@@ -520,7 +545,7 @@ function showProjectScreen(){
   if(unsubTrees){unsubTrees();unsubTrees=null;}
   // clear map
   if(simState.active) stopSimulation();
-  Object.values(mapMarkers).forEach(m=>map.removeLayer(m));mapMarkers={};
+  Object.values(mapMarkers).forEach(m=>_mDel(m));mapMarkers={};
   Object.values(tourRoutes).forEach(r=>map.removeLayer(r.layer));tourRoutes={};
   if(depotMarker){map.removeLayer(depotMarker);depotMarker=null;}
   tours=[];trees=[];tourOrder={};activeTours.clear();showUnplanned=false;activeTourOnMap=null;filterTour='all';showOverviewInLegend=false;showOverviewInGrid=false;showOverviewInAssign=false;
@@ -1223,9 +1248,10 @@ function makeMarker(tree){
       ${badge}${multiBadge}</div>`,
     iconSize:[sz,sz], iconAnchor:[sz/2,sz/2]
   });
-  return L.marker([tree.lat,tree.lng],{icon,zIndexOffset:isHighlighted?500:(isPreselected?300:0)}).addTo(map)
+  const m=L.marker([tree.lat,tree.lng],{icon,zIndexOffset:isHighlighted?500:(isPreselected?300:0)})
     .on('click',()=>{ if(assignMode&&!lassoDrawing) toggleLassoSelect(tree.id); else if(!assignMode) selectTree(tree.id,false); })
     .on('contextmenu', e=>showTreeTourContextMenu(tree, e));
+  return _mAdd(m);
 }
 
 function setMarkerVisibility(){
@@ -1234,7 +1260,7 @@ function setMarkerVisibility(){
     let show=treeVisibleSel(tree);
     // Optional: Eigenschaften-Filter auch auf der Karte anwenden
     if(show && objFilterOnMap && !objMatchesPropFilter(tree)) show=false;
-    if(show) map.addLayer(m); else map.removeLayer(m);
+    if(show) _mAdd(m); else _mDel(m);
   });
 }
 
@@ -1316,7 +1342,8 @@ function toggleTourCounts(){
 }
 
 function refreshMarkers(){
-  Object.values(mapMarkers).forEach(m=>map.removeLayer(m));mapMarkers={};
+  Object.values(mapMarkers).forEach(m=>_mDel(m));mapMarkers={};
+  if(_clusterOn&&_clusterGroup) _clusterGroup.clearLayers();
   _routeNumMap=buildRouteNumMap();
   try{ trees.forEach(tree=>{ if(isActive(tree)&&tree.lat&&tree.lng) mapMarkers[tree.id]=makeMarker(tree); }); }
   finally{ _routeNumMap=null; }
@@ -1338,7 +1365,7 @@ function diffMarkers(changes){
   try{
     changes.forEach(c=>{
       const id=c.doc.id;
-      if(mapMarkers[id]){ map.removeLayer(mapMarkers[id]); delete mapMarkers[id]; }
+      if(mapMarkers[id]){ _mDel(mapMarkers[id]); delete mapMarkers[id]; }
       if(c.type!=='removed'){
         const tree={id,...c.doc.data()};
         if(isActive(tree)&&tree.lat&&tree.lng) mapMarkers[id]=makeMarker(tree);
@@ -1350,7 +1377,7 @@ function diffMarkers(changes){
 }
 
 function rebuildMarkersWithNumbers(){
-  Object.values(mapMarkers).forEach(m=>map.removeLayer(m));mapMarkers={};
+  Object.values(mapMarkers).forEach(m=>_mDel(m));mapMarkers={};
   // makeMarker uses selectedTreeId for highlight — always passes current state
   _routeNumMap=buildRouteNumMap();
   try{ trees.forEach(tree=>{ if(isActive(tree)&&tree.lat&&tree.lng) mapMarkers[tree.id]=makeMarker(tree); }); }
@@ -1936,12 +1963,12 @@ function selectTree(id, pan=true){
 
   // Rebuild only the two affected markers
   if(prev&&prev!==id&&mapMarkers[prev]){
-    map.removeLayer(mapMarkers[prev]);
+    _mDel(mapMarkers[prev]);
     const pt=trees.find(t=>t.id===prev);
     if(pt&&pt.lat&&pt.lng) mapMarkers[prev]=makeMarker(pt);
   }
   const tree=trees.find(t=>t.id===id);if(!tree)return;
-  if(mapMarkers[id]) map.removeLayer(mapMarkers[id]);
+  if(mapMarkers[id]) _mDel(mapMarkers[id]);
   if(tree.lat&&tree.lng) mapMarkers[id]=makeMarker(tree);
 
   renderList();
@@ -2143,7 +2170,7 @@ function closePanel(){
   renderList();
   // Un-highlight marker
   if(prev&&mapMarkers[prev]){
-    map.removeLayer(mapMarkers[prev]);
+    _mDel(mapMarkers[prev]);
     const pt=trees.find(t=>t.id===prev);
     if(pt&&pt.lat&&pt.lng) mapMarkers[prev]=makeMarker(pt);
   }
@@ -2614,7 +2641,7 @@ function startMoveObject(treeId){
   if(_moveState) _cleanupMove();
   closePanel();
   const old=[tree.lat,tree.lng];
-  if(mapMarkers[treeId]) map.removeLayer(mapMarkers[treeId]); // echten Marker während des Verschiebens ausblenden
+  if(mapMarkers[treeId]) _mDel(mapMarkers[treeId]); // echten Marker während des Verschiebens ausblenden
   const tour=primaryTour(tree); const color=tour?tour.color:'#6b6760';
   const sz=Math.round(markerSize*1.25);
   const ic=L.divIcon({className:'',html:`<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${color};border:3px solid #fff;box-shadow:0 0 0 3px ${color},0 4px 12px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;font-size:${Math.round(sz*0.5)}px;cursor:move;">${objIcon(tree)}</div>`,iconSize:[sz,sz],iconAnchor:[sz/2,sz/2]});
@@ -3156,6 +3183,7 @@ function openSettings(){
   // Projektname wird unter Verwaltung → Projekte verwaltet
   document.getElementById('s-bew-duration').value=getBewDuration();
   const _fg=document.getElementById('s-fuellgrad'); if(_fg) _fg.checked=!!currentProjectData?.fuellgradAktiv;
+  const _cl=document.getElementById('s-cluster'); if(_cl) _cl.checked=!!currentProjectData?.clusterAktiv;
   loadReasons();
   renderDriverAssignment();
   const el=document.getElementById('depot-status');
@@ -3323,6 +3351,7 @@ async function applySettings(){
     routeOptMode:document.getElementById('s-route-opt')?.value||getRouteOptMode(),
     bewDuration:parseInt(document.getElementById('s-bew-duration')?.value)||5,
     fuellgradAktiv:document.getElementById('s-fuellgrad')?.checked||false,
+    clusterAktiv:document.getElementById('s-cluster')?.checked||false,
     routePlanning:getRoutePlanningEnabled(),
     name:currentProjectData?.name||'', // Projektname wird unter Verwaltung → Projekte verwaltet
   };
@@ -3331,6 +3360,7 @@ async function applySettings(){
   document.getElementById('active-project-name').textContent=updates.name;
   closeSettings();renderDepotMarker();
   await loadSavedRoutes();
+  applyClusterMode(updates.clusterAktiv, false); // Cluster-Modus umschalten (Marker werden gleich neu gebaut)
   refreshMarkers();renderList(); // neues Standard-Symbol sofort auf Karte/Liste anwenden
   notify('Einstellungen gespeichert — Route neu berechnen wenn gewünscht');
 }
@@ -6160,7 +6190,7 @@ function remakeMarkers(ids){
   _routeNumMap=buildRouteNumMap();
   try{
     ids.forEach(id=>{
-      if(mapMarkers[id]){ map.removeLayer(mapMarkers[id]); delete mapMarkers[id]; }
+      if(mapMarkers[id]){ _mDel(mapMarkers[id]); delete mapMarkers[id]; }
       const tree=trees.find(t=>t.id===id);
       if(tree&&isActive(tree)&&tree.lat&&tree.lng) mapMarkers[id]=makeMarker(tree);
     });
@@ -7779,7 +7809,7 @@ Object.assign(window,{
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,clearLassoSelection,
   createProject,openProject,showProjectScreen,psSetOrgFilter,setSiTab,
-  switchView,openDetail,closePanel,logWatering,
+  switchView,openDetail,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
   openAddTree,openEditTree,closeTreeModal,saveTree,deleteTree,
