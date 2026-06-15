@@ -191,6 +191,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .lasso-banner{background:#374151;color:#fff;border-radius:var(--radius-sm);padding:7px 13px;font-size:13px;font-weight:500;box-shadow:var(--shadow-md);display:none;align-items:center;gap:8px;pointer-events:all;flex-wrap:wrap;}
 .lasso-banner.visible{display:flex;}
 
+/* ── KARTEN-AUSWAHL (Basiskarten/Luftbild als Chips) ── */
+#basemap-switcher{position:absolute;bottom:14px;right:14px;z-index:600;display:none;gap:5px;flex-wrap:wrap;justify-content:flex-end;max-width:60%;background:rgba(255,255,255,.92);padding:5px;border-radius:11px;box-shadow:var(--shadow-md);backdrop-filter:blur(4px);}
+.bm-chip{border:1.5px solid var(--border);background:var(--surface);color:var(--text2);font-size:12px;font-weight:600;font-family:inherit;padding:6px 12px;border-radius:8px;cursor:pointer;white-space:nowrap;transition:background .12s,border-color .12s,color .12s;}
+.bm-chip:hover{border-color:var(--green-mid);color:var(--text);}
+.bm-chip.active{background:var(--green);border-color:var(--green);color:#fff;}
+.bm-chip.overlay.active{background:var(--blue);border-color:var(--blue);}
+.bm-sep{width:1px;align-self:stretch;background:var(--border);margin:2px 1px;}
+
 ::-webkit-scrollbar{width:5px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
@@ -421,6 +429,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <!-- KARTE -->
     <div class="view active" id="view-karte" style="position:relative;min-height:0;">
       <div id="map"></div>
+      <!-- Sichtbare Karten-Auswahl (Basiskarten/Luftbild als Chips) -->
+      <div id="basemap-switcher"></div>
       <!-- Lasso canvas overlay -->
       <canvas id="lasso-canvas" class="lasso-canvas"></canvas>
 
@@ -1189,7 +1199,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <div style="max-width:560px;margin:0 auto;">
       <div id="wms-list" style="margin-bottom:12px;"></div>
       <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;background:var(--surface);">
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin-bottom:8px;">Neue Ebene hinzufügen</div>
+        <div id="wms-form-title" style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin-bottom:8px;">Neue Ebene hinzufügen</div>
         <div class="form-group" style="margin-bottom:8px;">
           <label class="form-label">Name</label>
           <input class="form-control" id="wms-add-name" placeholder="z.B. Luftbild NRW">
@@ -1218,7 +1228,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
             </select>
           </div>
         </div>
-        <button class="btn btn-primary" style="width:100%;" onclick="addWmsLayer()">+ WMS-Ebene hinzufügen</button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-primary" style="flex:1;" id="wms-add-btn" onclick="addWmsLayer()">+ WMS-Ebene hinzufügen</button>
+          <button class="btn btn-secondary" id="wms-cancel-btn" style="display:none;" onclick="cancelWmsEdit()">Abbrechen</button>
+        </div>
       </div>
     </div>
   </div>

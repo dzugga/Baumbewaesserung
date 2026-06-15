@@ -250,10 +250,6 @@ map.attributionControl.setPosition('bottomleft').setPrefix(false);
 // kommunal nutzbar (CC BY 4.0), DSGVO-konform. Ersetzt OSM-Kachelserver + Esri-Satellit.
 const baseFarbe = basemapLayer('farbe').addTo(map);
 const baseGrau  = basemapLayer('grau');
-// Bundesweites Satellitenbild (Sentinel-2, BKG) — kostenfrei, DSGVO-konform, gilt für ALLE Städte.
-// Grobe Auflösung (~10 m); für scharfe Details das projektscharfe Luftbild (WMS-Karten) nutzen.
-const baseSat = L.tileLayer.wms('https://sgx.geodatenzentrum.de/wms_sentinel2_de',
-  {layers:'rgb', format:'image/jpeg', version:'1.3.0', maxZoom:20, attribution:'© GeoBasis-DE / BKG · Sentinel-2'});
 
 // ── WMS-Kartenebenen (vom Nutzer verwaltbar, stadtscharf am Mandanten) ──
 const WMS_DEFAULTS=[
@@ -283,25 +279,42 @@ function buildWmsLayer(cfg){
     transparent:!!cfg.transparent, maxZoom:cfg.maxZoom||20, attribution:cfg.attribution||''});
 }
 
-let layerControl=null;
 let wmsLayerInstances={}; // id -> aktuelle Leaflet-Ebene
+let _basemaps={}, _overlayLayers={}; // Anzeigename -> Leaflet-Ebene (für die Chip-Leiste)
 function rebuildLayerControl(){
   // aktive Custom-Ebenen merken, dann alle entfernen
   const active=new Set();
   Object.entries(wmsLayerInstances).forEach(([id,lyr])=>{ if(map.hasLayer(lyr)) active.add(id); map.removeLayer(lyr); });
   wmsLayerInstances={};
-  if(layerControl){ map.removeControl(layerControl); layerControl=null; }
-  const bases={'Karte':baseFarbe,'Graustufen':baseGrau,'Satellit (bundesweit)':baseSat};
-  const overlays={};
+  _basemaps={'Karte':baseFarbe,'Graustufen':baseGrau};
+  _overlayLayers={};
   let customBaseActive=false;
   getWmsLayers().forEach(c=>{
     const lyr=buildWmsLayer(c); wmsLayerInstances[c.id]=lyr;
-    if(c.type==='overlay'){ overlays[c.name]=lyr; if(active.has(c.id)) lyr.addTo(map); }
-    else { bases[c.name]=lyr; if(active.has(c.id)){ lyr.addTo(map); customBaseActive=true; } }
+    if(c.type==='overlay'){ _overlayLayers[c.name]=lyr; if(active.has(c.id)) lyr.addTo(map); }
+    else { _basemaps[c.name]=lyr; if(active.has(c.id)){ lyr.addTo(map); customBaseActive=true; } }
   });
-  if(customBaseActive){ map.removeLayer(baseFarbe); map.removeLayer(baseGrau); map.removeLayer(baseSat); }
-  else if(!map.hasLayer(baseFarbe)&&!map.hasLayer(baseGrau)&&!map.hasLayer(baseSat)){ baseFarbe.addTo(map); } // Standard: Karte (Farbe)
-  layerControl=L.control.layers(bases, overlays, {position:'topleft', collapsed:true}).addTo(map);
+  if(customBaseActive){ map.removeLayer(baseFarbe); map.removeLayer(baseGrau); }
+  else if(!map.hasLayer(baseFarbe)&&!map.hasLayer(baseGrau)){ baseFarbe.addTo(map); } // Standard: Karte (Farbe)
+  renderBasemapSwitcher();
+}
+// Sichtbare Karten-Auswahl als Chip-Leiste (statt des unscheinbaren Leaflet-Umschalters)
+function renderBasemapSwitcher(){
+  const el=document.getElementById('basemap-switcher'); if(!el) return;
+  const baseNames=Object.keys(_basemaps);
+  let activeBase=baseNames.find(n=>map.hasLayer(_basemaps[n]));
+  if(!activeBase){ _basemaps['Karte'].addTo(map); activeBase='Karte'; }
+  const chip=(label,attr,act,cls='')=>`<button ${attr} class="bm-chip${act?' active':''} ${cls}">${dlEsc(label)}</button>`;
+  let html=baseNames.map(n=>chip(n,`data-base="${(n+'').replace(/"/g,'&quot;')}"`,n===activeBase)).join('');
+  const ovNames=Object.keys(_overlayLayers);
+  if(ovNames.length) html+=`<span class="bm-sep"></span>`+ovNames.map(n=>chip(n,`data-overlay="${(n+'').replace(/"/g,'&quot;')}"`,map.hasLayer(_overlayLayers[n]),'overlay')).join('');
+  el.innerHTML=html;
+  el.style.display='flex';
+  el.onclick=e=>{
+    const b=e.target.closest('[data-base]'), o=e.target.closest('[data-overlay]');
+    if(b){ const n=b.dataset.base; if(_basemaps[n]){ Object.values(_basemaps).forEach(l=>map.removeLayer(l)); _basemaps[n].addTo(map); renderBasemapSwitcher(); } }
+    else if(o){ const n=o.dataset.overlay, l=_overlayLayers[n]; if(l){ map.hasLayer(l)?map.removeLayer(l):l.addTo(map); renderBasemapSwitcher(); } }
+  };
 }
 rebuildLayerControl();
 L.control.zoom({position:'bottomleft'}).addTo(map);
@@ -3028,17 +3041,44 @@ function openAllgemein(){
 }
 
 // ── WMS-Verwaltung (Einstellungen) ──
+let editingWmsId=null; // beim Bearbeiten gesetzt
 function renderWmsList(){
   const el=document.getElementById('wms-list'); if(!el) return;
   const list=getWmsLayers();
-  if(!list.length){ el.innerHTML='<div style="font-size:12px;color:var(--text3);">Noch keine WMS-Ebenen.</div>'; return; }
-  el.innerHTML=list.map(l=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:6px;background:var(--surface);">
-    <span style="flex:1;min-width:0;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${l.name}</span>
-    <span style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;flex-shrink:0;">${l.type==='overlay'?'Overlay':'Basis'}</span>
-    <button onclick="deleteWmsLayer('${l.id}')" title="Löschen" style="border:none;background:none;cursor:pointer;color:var(--red);padding:2px 4px;flex-shrink:0;">
+  let html=`<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin-bottom:8px;">Vorhandene Kartenebenen${list.length?' ('+list.length+')':''}</div>`;
+  if(!list.length){
+    el.innerHTML=html+'<div style="font-size:12px;color:var(--text3);padding:4px 0 14px;">Für dieses Projekt sind noch keine eigenen Kartenebenen hinterlegt. Unten eine hinzufügen.</div>';
+    return;
+  }
+  html+=list.map(l=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:6px;background:var(--surface);">
+    <div style="flex:1;min-width:0;">
+      <div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(l.name)}</div>
+      <div style="font-size:10px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${l.type==='overlay'?'Overlay':'Basiskarte'} · Layer: ${dlEsc(l.layers||'')}</div>
+    </div>
+    <button onclick="editWmsLayer('${l.id}')" style="border:1px solid var(--border);background:var(--surface);cursor:pointer;color:var(--text2);padding:5px 11px;border-radius:6px;font-size:12px;font-weight:600;font-family:inherit;flex-shrink:0;">Bearbeiten</button>
+    <button onclick="deleteWmsLayer('${l.id}')" title="Löschen" style="border:1px solid var(--red-light);background:var(--surface);cursor:pointer;color:var(--red);padding:5px 8px;border-radius:6px;flex-shrink:0;display:flex;">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
     </button>
   </div>`).join('');
+  el.innerHTML=html;
+}
+function editWmsLayer(id){
+  const l=getWmsLayers().find(x=>x.id===id); if(!l) return;
+  editingWmsId=id;
+  const set=(i,v)=>{ const e=document.getElementById(i); if(e) e.value=v; };
+  set('wms-add-name',l.name||''); set('wms-add-url',l.url||''); set('wms-add-layers',l.layers||'');
+  set('wms-add-type',l.type||'overlay'); set('wms-add-version',l.version||'1.3.0');
+  const t=document.getElementById('wms-form-title'); if(t) t.textContent='Ebene bearbeiten';
+  const b=document.getElementById('wms-add-btn'); if(b) b.textContent='Änderungen speichern';
+  const c=document.getElementById('wms-cancel-btn'); if(c) c.style.display='';
+  document.getElementById('wms-add-name')?.scrollIntoView({behavior:'smooth',block:'center'});
+}
+function cancelWmsEdit(){
+  editingWmsId=null;
+  ['wms-add-name','wms-add-url','wms-add-layers'].forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
+  const t=document.getElementById('wms-form-title'); if(t) t.textContent='Neue Ebene hinzufügen';
+  const b=document.getElementById('wms-add-btn'); if(b) b.textContent='+ WMS-Ebene hinzufügen';
+  const c=document.getElementById('wms-cancel-btn'); if(c) c.style.display='none';
 }
 function addWmsLayer(){
   const v=id=>document.getElementById(id)?.value.trim()||'';
@@ -3046,6 +3086,12 @@ function addWmsLayer(){
         type=v('wms-add-type')||'overlay', version=v('wms-add-version')||'1.3.0';
   if(!name||!url||!layers){ notify('Name, URL und Layer-Name sind erforderlich'); return; }
   const list=getWmsLayers();
+  if(editingWmsId){ // bestehende Ebene aktualisieren
+    const l=list.find(x=>x.id===editingWmsId);
+    if(l){ Object.assign(l,{name,url,layers,type,version,transparent:type==='overlay'}); }
+    saveWmsLayers(list); rebuildLayerControl(); cancelWmsEdit(); renderWmsList();
+    notify('WMS-Ebene aktualisiert'); return;
+  }
   list.push({ id:(window.crypto?.randomUUID?crypto.randomUUID():'w'+Date.now()),
     name, url, layers, type, format:'image/png', version, transparent:type==='overlay', maxZoom:20, attribution:'' });
   saveWmsLayers(list); rebuildLayerControl(); renderWmsList();
@@ -3053,6 +3099,7 @@ function addWmsLayer(){
   notify('WMS-Ebene hinzugefügt');
 }
 function deleteWmsLayer(id){
+  if(editingWmsId===id) cancelWmsEdit();
   saveWmsLayers(getWmsLayers().filter(l=>l.id!==id));
   rebuildLayerControl(); renderWmsList();
   notify('WMS-Ebene gelöscht');
@@ -7079,7 +7126,7 @@ Object.assign(window,{
   openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,
   pickProjIcon,artSetIcon,
   renderMandanten,createOrgUi,moveProjectUi,
-  addWmsLayer,deleteWmsLayer,renderWmsList,
+  addWmsLayer,deleteWmsLayer,editWmsLayer,cancelWmsEdit,renderWmsList,
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,toggleTourCounts,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,saveOrgCode,
