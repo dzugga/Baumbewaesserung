@@ -51,6 +51,9 @@ const db = getFirestore(fbApp);
 // ─── STATE ────────────────────────────────────────────────────
 let currentDriver = null;
 let currentProjectData = null;
+// Füllgrad-Stufen (je Projekt aktivierbar; v = Prozent für die Dispo-Lernlogik)
+const FUELLGRAD_OPTS = [{v:0,l:'leer'},{v:25,l:'25 %'},{v:50,l:'50 %'},{v:75,l:'75 %'},{v:100,l:'voll'},{v:120,l:'übervoll'}];
+function fgLabel(v){ const o=FUELLGRAD_OPTS.find(x=>x.v===v); return o?o.l:''; }
 let currentProjectId = null;
 let currentTourId = null;
 let currentTour = null;
@@ -1071,6 +1074,13 @@ function openSheet(id){
       <input class="prop-input prop-full" id="reason-custom" placeholder="Weitere Bemerkung…" value="${esc(tree.lastNote||'')}">
     </div>
 
+    ${currentProjectData?.fuellgradAktiv?`
+    <!-- Füllgrad -->
+    <div class="section-title" style="margin-top:16px;">Füllgrad</div>
+    <div class="reason-chips" id="fuellgrad-chips">
+      ${FUELLGRAD_OPTS.map(o=>`<div class="reason-chip${tree.lastFuellgrad===o.v?' selected':''}" data-fg="${o.v}">${o.l}</div>`).join('')}
+    </div>`:''}
+
     <!-- Properties -->
     <div class="section-title" style="margin-top:16px;">Eigenschaften erfassen</div>
     <div class="prop-grid">
@@ -1111,9 +1121,11 @@ function openSheet(id){
   document.getElementById('reason-chips').onclick=e=>{
     const chip=e.target.closest('[data-reason]');
     if(!chip)return;
-    document.querySelectorAll('.reason-chip').forEach(c=>c.classList.remove('selected'));
+    document.querySelectorAll('#reason-chips .reason-chip').forEach(c=>c.classList.remove('selected'));
     chip.classList.add('selected');
   };
+  const fgc=document.getElementById('fuellgrad-chips');
+  if(fgc) fgc.onclick=e=>{ const chip=e.target.closest('[data-fg]'); if(!chip)return; fgc.querySelectorAll('.reason-chip').forEach(c=>c.classList.remove('selected')); chip.classList.add('selected'); };
 
   document.getElementById('sheet-footer').innerHTML=`
     <button class="btn btn-secondary" style="flex:1;" onclick="closeSheet()">Abbrechen</button>
@@ -1175,6 +1187,11 @@ async function saveReport(id){
   const zustand=document.getElementById('p-zustand')?.value||tree.zustand;
   const wasser=document.getElementById('p-wasser')?.value||tree.wasser;
   const notiz=document.getElementById('p-notiz')?.value||tree.notiz||'';
+  let fuellgrad=null;
+  if(currentProjectData?.fuellgradAktiv){
+    const fgSel=document.querySelector('#fuellgrad-chips .reason-chip.selected');
+    if(fgSel) fuellgrad=Number(fgSel.dataset.fg);
+  }
 
   const updates={
     zustand,wasser,notiz,
@@ -1185,12 +1202,14 @@ async function saveReport(id){
     lastReportAt:new Date().toISOString(),
   };
   if(status==='bewaessert') updates.datum=new Date().toISOString().slice(0,10);
+  if(fuellgrad!=null) updates.lastFuellgrad=fuellgrad;
 
   const histEntry={
     date:new Date().toISOString().slice(0,10),
-    note:`${status==='bewaessert'?'Bewässert':'Nicht bewässert'}${reason?' — '+reason:''}${note?' ('+note+')':''}`,
+    note:`${status==='bewaessert'?'Bewässert':'Nicht bewässert'}${reason?' — '+reason:''}${note?' ('+note+')':''}${fuellgrad!=null?' · Füllgrad: '+fgLabel(fuellgrad):''}`,
     driver:currentDriver
   };
+  if(fuellgrad!=null) histEntry.fuellgrad=fuellgrad;
   // Use arrayUnion — no need to read existing history first
   const firestoreUpdates={...updates, history: firebase.firestore.FieldValue.arrayUnion(histEntry)};
   const offlineUpdates={...updates, history:[...(tree.history||[]),histEntry]};

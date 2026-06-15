@@ -3155,6 +3155,7 @@ function openSettings(){
   if(_rtSub){ _rtSub.style.opacity = _routeOn ? '1' : '0.4'; _rtSub.style.pointerEvents = _routeOn ? '' : 'none'; }
   // Projektname wird unter Verwaltung → Projekte verwaltet
   document.getElementById('s-bew-duration').value=getBewDuration();
+  const _fg=document.getElementById('s-fuellgrad'); if(_fg) _fg.checked=!!currentProjectData?.fuellgradAktiv;
   loadReasons();
   renderDriverAssignment();
   const el=document.getElementById('depot-status');
@@ -3321,6 +3322,7 @@ async function applySettings(){
     icon:document.getElementById('s-proj-icon')?.textContent.trim()||PROJ_ICON_DEFAULT,
     routeOptMode:document.getElementById('s-route-opt')?.value||getRouteOptMode(),
     bewDuration:parseInt(document.getElementById('s-bew-duration')?.value)||5,
+    fuellgradAktiv:document.getElementById('s-fuellgrad')?.checked||false,
     routePlanning:getRoutePlanningEnabled(),
     name:currentProjectData?.name||'', // Projektname wird unter Verwaltung → Projekte verwaltet
   };
