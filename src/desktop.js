@@ -504,6 +504,7 @@ async function openProject(projectId){
   // Suchfelder der vorigen Stadt zurücksetzen
   ['search-input','baeume-search','tour-legend-search'].forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
   tourLegendQuery='';
+  document.getElementById('detail-panel')?.classList.remove('open'); selectedTreeId=null; // offenes Objekt-Detail des alten Projekts schließen (kein stehengebliebener Füllgrad/Wert)
   const snap=await getDoc(doc(db,'projects',projectId));
   currentProjectData={id:projectId,...snap.data()};
   document.getElementById('active-project-name').textContent=currentProjectData.name;
