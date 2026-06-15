@@ -1,4 +1,5 @@
 import { initAppCheck } from './appcheck.js';
+import { BASEMAP_FARBE, BASEMAP_ATTR } from './basemaps.js';
 import { firebaseConfig } from './firebase-config.js';
 import { esc } from './esc.js';
 // ─── FIREBASE CONFIG (zentral in firebase-config.js) ──────────
@@ -347,8 +348,8 @@ async function toggleBestand() {
 function initMapUebersicht() {
   if (mapUebersicht) return;
   mapUebersicht = L.map('map-uebersicht', { zoomControl: false }).setView([51.05, 13.73], 13);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://openstreetmap.org">OSM</a>', maxZoom: 19
+  L.tileLayer(BASEMAP_FARBE, {
+    attribution: BASEMAP_ATTR, maxZoom: 20, maxNativeZoom: 18
   }).addTo(mapUebersicht);
   L.control.zoom({ position: 'topright' }).addTo(mapUebersicht);
 }
@@ -476,8 +477,8 @@ async function resetUebersicht() {
 function initMapNeu() {
   if (mapNeu) return;
   mapNeu = L.map('map-neu', { zoomControl: false }).setView([51.05, 13.73], 14);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://openstreetmap.org">OSM</a>', maxZoom: 19
+  L.tileLayer(BASEMAP_FARBE, {
+    attribution: BASEMAP_ATTR, maxZoom: 20, maxNativeZoom: 18
   }).addTo(mapNeu);
   L.control.zoom({ position: 'topright' }).addTo(mapNeu);
 
@@ -492,8 +493,8 @@ function initMapNeu() {
 function initMapKoord() {
   if (mapKoord) return;
   mapKoord = L.map('map-koord', { zoomControl: false }).setView([51.05, 13.73], 16);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://openstreetmap.org">OSM</a>', maxZoom: 19
+  L.tileLayer(BASEMAP_FARBE, {
+    attribution: BASEMAP_ATTR, maxZoom: 20, maxNativeZoom: 18
   }).addTo(mapKoord);
   L.control.zoom({ position: 'topright' }).addTo(mapKoord);
 }

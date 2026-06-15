@@ -1,4 +1,5 @@
 import { initAppCheck } from './appcheck.js';
+import { BASEMAP_FARBE, BASEMAP_ATTR } from './basemaps.js';
 import { firebaseConfig } from './firebase-config.js';
 import { esc } from './esc.js';
 // Firebase compat API shims — maps modular API calls to compat SDK
@@ -70,9 +71,9 @@ let map = null;
 function initMap(){
   if(map) return;
   map = L.map('map', {zoomControl: false}).setView([51.05, 13.73], 14);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://openstreetmap.org">OSM</a>',
-    maxZoom: 19,
+  L.tileLayer(BASEMAP_FARBE, {
+    attribution: BASEMAP_ATTR,
+    maxZoom: 20,
     maxNativeZoom: 18,
     keepBuffer: 8,
     updateWhenZooming: false,

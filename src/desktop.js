@@ -4,6 +4,7 @@ const APP_VERSION = '1.0';
 import { HANDBUCH } from './handbuch-daten.js';
 import { SI_DSGVO, SI_STACK, SI_REGIONEN, SI_APPS, SI_SICHERHEIT, SI_DIENSTE } from './systeminfo-daten.js';
 import { initAppCheck } from './appcheck.js';
+import { basemapLayer, BASEMAP_FARBE, BASEMAP_ATTR } from './basemaps.js';
 import { firebaseConfig } from './firebase-config.js';
 import { esc as dlEsc } from './esc.js'; // dlEsc = projektweites HTML-Escape (zentral in esc.js)
 
@@ -245,11 +246,10 @@ let depotMarker = null;
 const L = window.L;
 const map = L.map('map',{zoomControl:false,attributionControl:true}).setView([52.279,8.047],13);
 map.attributionControl.setPosition('bottomleft').setPrefix(false);
-// Basis-Ebenen: Karte (OSM) + Satellit (Esri World Imagery, kein API-Key)
-const baseOSM = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-  {maxZoom:19, attribution:'© OpenStreetMap'}).addTo(map);
-const baseSat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-  {maxZoom:19, attribution:'© Esri, Maxar, Earthstar Geographics'});
+// Basis-Ebenen: amtliche basemap.de (BKG) in Farbe + Graustufen — kostenfrei, kommerziell/
+// kommunal nutzbar (CC BY 4.0), DSGVO-konform. Ersetzt OSM-Kachelserver + Esri-Satellit.
+const baseFarbe = basemapLayer('farbe').addTo(map);
+const baseGrau  = basemapLayer('grau');
 
 // ── WMS-Kartenebenen (vom Nutzer verwaltbar, stadtscharf am Mandanten) ──
 const WMS_DEFAULTS=[
@@ -287,7 +287,7 @@ function rebuildLayerControl(){
   Object.entries(wmsLayerInstances).forEach(([id,lyr])=>{ if(map.hasLayer(lyr)) active.add(id); map.removeLayer(lyr); });
   wmsLayerInstances={};
   if(layerControl){ map.removeControl(layerControl); layerControl=null; }
-  const bases={'Karte':baseOSM,'Satellit':baseSat};
+  const bases={'Karte':baseFarbe,'Graustufen':baseGrau};
   const overlays={};
   let customBaseActive=false;
   getWmsLayers().forEach(c=>{
@@ -295,8 +295,8 @@ function rebuildLayerControl(){
     if(c.type==='overlay'){ overlays[c.name]=lyr; if(active.has(c.id)) lyr.addTo(map); }
     else { bases[c.name]=lyr; if(active.has(c.id)){ lyr.addTo(map); customBaseActive=true; } }
   });
-  if(customBaseActive){ map.removeLayer(baseOSM); map.removeLayer(baseSat); }
-  else if(!map.hasLayer(baseOSM)&&!map.hasLayer(baseSat)){ baseOSM.addTo(map); } // Standard: Karte
+  if(customBaseActive){ map.removeLayer(baseFarbe); map.removeLayer(baseGrau); }
+  else if(!map.hasLayer(baseFarbe)&&!map.hasLayer(baseGrau)){ baseFarbe.addTo(map); } // Standard: Karte (Farbe)
   layerControl=L.control.layers(bases, overlays, {position:'topleft', collapsed:true}).addTo(map);
 }
 rebuildLayerControl();
@@ -4434,7 +4434,7 @@ function showImportPreview(){
   // Karte initialisieren
   try{
     _impMap=L.map('imp-map',{zoomControl:true}).setView([51,9],5);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(_impMap);
+    L.tileLayer(BASEMAP_FARBE,{maxZoom:20,maxNativeZoom:18,attribution:BASEMAP_ATTR}).addTo(_impMap);
     _impLayer=L.layerGroup().addTo(_impMap);
     setTimeout(()=>{ try{_impMap.invalidateSize();}catch(e){} renderImportPreview(); },200);
   }catch(e){ renderImportPreview(); }
@@ -5869,7 +5869,7 @@ function dashRenderNichtMap(nichtReports){
   if(!L||!wrap)return;
   if(!dashNichtMap){
     dashNichtMap=L.map('dash-nicht-map',{zoomControl:true,attributionControl:false}).setView([50.0,8.42],12);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(dashNichtMap);
+    L.tileLayer(BASEMAP_FARBE,{maxZoom:20,maxNativeZoom:18}).addTo(dashNichtMap);
     dashNichtLayer=L.layerGroup().addTo(dashNichtMap);
     setTimeout(()=>dashNichtMap.invalidateSize(),200);
   }
@@ -6376,7 +6376,7 @@ function dispoRenderMap(){
   const L=window.L, wrap=document.getElementById('dispo-map'); if(!L||!wrap) return;
   if(!dispoMap){
     dispoMap=L.map('dispo-map',{zoomControl:true,attributionControl:false}).setView([50.0,8.42],12);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(dispoMap);
+    L.tileLayer(BASEMAP_FARBE,{maxZoom:20,maxNativeZoom:18}).addTo(dispoMap);
     dispoLayer=L.layerGroup().addTo(dispoMap);
     setTimeout(()=>dispoMap.invalidateSize(),150);
   }

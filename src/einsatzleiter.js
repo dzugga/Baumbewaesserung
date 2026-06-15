@@ -1,4 +1,5 @@
 import { initAppCheck } from './appcheck.js';
+import { BASEMAP_FARBE, BASEMAP_ATTR } from './basemaps.js';
 import { firebaseConfig } from './firebase-config.js';
 import { esc } from './esc.js';
 // ─── FIREBASE CONFIG (zentral in firebase-config.js) ──────────
@@ -275,7 +276,7 @@ function renderNichtMap(nichtReports){
   if(!L || !wrap) return;
   if(!nichtMap){
     nichtMap=L.map('nicht-map',{zoomControl:true,attributionControl:false}).setView([50.0,8.42],12);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(nichtMap);
+    L.tileLayer(BASEMAP_FARBE,{maxZoom:20,maxNativeZoom:18,attribution:BASEMAP_ATTR}).addTo(nichtMap);
     nichtLayer=L.layerGroup().addTo(nichtMap);
     setTimeout(()=>nichtMap.invalidateSize(),200);
   }

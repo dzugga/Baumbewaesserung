@@ -1,4 +1,5 @@
 import { initAppCheck } from './appcheck.js';
+import { BASEMAP_FARBE, BASEMAP_ATTR } from './basemaps.js';
 import { firebaseConfig } from './firebase-config.js';
 import { esc } from './esc.js';
 // Firebase compat API shims — maps modular API calls to compat SDK
@@ -51,7 +52,7 @@ const db = getFirestore(fbApp);
 // Für Self-Hosting nur diese zwei Konstanten umstellen (siehe docs/self-hosting.md).
 // OSRM-Basis ohne abschließenden Slash; Tile-URL als {z}/{x}/{y}-Template.
 const NAVI_OSRM_BASE = 'https://router.project-osrm.org';          // self-hosted z. B. 'https://route.infra.example.de'
-const NAVI_TILE_URL  = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'; // self-hosted z. B. 'https://tiles.infra.example.de/{z}/{x}/{y}.png'
+const NAVI_TILE_URL  = BASEMAP_FARBE; // amtliche basemap.de (statt OSM-Kachelserver)
 
 // ─── STATE ────────────────────────────────────────────────────
 let currentDriver = null;
@@ -82,8 +83,8 @@ function initMap(){
   catch(e){ map = L.map('map', {zoomControl:false}); }
   map.setView([51.05, 13.73], 14);
   L.tileLayer(NAVI_TILE_URL, {
-    attribution: '© <a href="https://openstreetmap.org">OSM</a>',
-    maxZoom: 19,
+    attribution: BASEMAP_ATTR,
+    maxZoom: 20,
     maxNativeZoom: 18,
     keepBuffer: 8,
     updateWhenZooming: false,
