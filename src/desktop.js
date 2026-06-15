@@ -4046,11 +4046,19 @@ function renderFieldOverview(el){
   customFields.forEach(c=>{ tiles+=_fieldTile(c.key, c.label, {badge:'Kundenfeld'}); });
   tiles+=_fieldTile('zustand', FL.zustand, {badge:'Rang & Farbe'});
   tiles+=_fieldTile('wasser', FL.wasser, {badge:'Rang & Farbe'});
+  const labelFields=[['name','Anlage / Straße'],['stadtteil','Stadtteil'],['baumnr','Objektnummer'],['art','Typ / Art'],['pflanzjahr','Jahr'],['pflanzzeitpunkt','Zeitpunkt'],['zustand','Zustand'],['wasser','Priorität'],['notiz','Notiz'],['datum','Letzte Bearb.']];
+  const labelGrid = ro ? '' : `
+    <div style="font-size:13px;font-weight:700;margin:26px 0 4px;">Feldbezeichnungen</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">Wie die Felder in Formular, Tabelle und Detailansicht heißen — der interne Bezug bleibt gleich. Änderungen werden sofort gespeichert.</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;">
+      ${labelFields.map(([k,def])=>`<div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">${dlEsc(def)}</label><input class="form-control" id="fl-${k}" value="${dlEsc(FL[k]||'')}" placeholder="${dlEsc(DEFAULT_LABELS[k]||def)}" onchange="setFieldLabel('${k}',this.value)" style="padding:6px 9px;font-size:13px;"></div>`).join('')}
+    </div>`;
   el.innerHTML=`<div style="max-width:880px;margin:0 auto;">
     <div style="font-size:16px;font-weight:700;margin-bottom:4px;">Felder & Listen</div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:16px;">Wähle ein Feld, um seine Auswahlliste zu pflegen. Freitext-Felder (${dlEsc(FL.name)}, ${dlEsc(FL.baumnr)}, ${dlEsc(FL.notiz)}) haben keine Liste.</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:16px;">Wähle ein Feld, um seine Auswahlliste zu pflegen; die Bezeichnungen änderst du unten. Freitext-Felder (${dlEsc(FL.name)}, ${dlEsc(FL.baumnr)}, ${dlEsc(FL.notiz)}) haben keine Liste.</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;">${tiles}</div>
     ${!ro && customFields.length<5?`<button class="btn btn-secondary" style="padding:7px 14px;font-size:12px;margin-top:16px;" onclick="addCustomField()">+ Kundenfeld hinzufügen (${customFields.length}/5)</button>`:''}
+    ${labelGrid}
   </div>`;
 }
 function renderFieldDetail(el){
@@ -4289,6 +4297,20 @@ async function saveFieldLabels(){
   currentProjectData.fieldLabels = labels;
   loadFieldLabels();
   notify('✓ Feldbezeichnungen gespeichert');
+}
+// Einzelne Feldbezeichnung setzen (für die Integration in „Felder & Listen")
+async function setFieldLabel(key, value){
+  if(isReadonly()||!currentProjectId) return;
+  const labels={...(currentProjectData?.fieldLabels||{})};
+  const v=(value||'').trim();
+  if(v) labels[key]=v; else delete labels[key];
+  try{
+    await updateDoc(doc(db,'projects',currentProjectId),{fieldLabels:labels});
+    if(currentProjectData) currentProjectData.fieldLabels=labels;
+    loadFieldLabels();
+    if(currentView==='baeume' && !_fieldDetailKey) renderFieldCatalog(); // Kachel-Titel aktualisieren
+    notify('✓ Bezeichnung gespeichert');
+  }catch(e){ console.warn('setFieldLabel',e); notify(dlErr(e)); }
 }
 
 async function migrateTourIds(){
@@ -7995,7 +8017,7 @@ Object.assign(window,{
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
   renderRollenView,saveRole,addRole,deleteRole,toggleBenutzerRollen,toggleBenutzerTouren,changeBenutzerOrg,changeDtaProject,renderUsage,exportUsageCSV,
   startGpsPlacement,startMoveObject,saveMoveObject,cancelMoveObject,toggleFilterNoGps,updateBtnFilterNoGps,
-  saveFieldLabels, migrateTourIds,
+  saveFieldLabels, setFieldLabel, migrateTourIds,
   doLogin, doLogout, toggleLoginMode,
 });
 

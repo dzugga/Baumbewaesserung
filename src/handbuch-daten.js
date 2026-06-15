@@ -84,7 +84,7 @@ export const HANDBUCH = [
       { title: 'ORS-API-Key (Straßen-Routing)', keywords: ['ors', 'api-key', 'openrouteservice', 'routing', 'schlüssel'],
         text: 'Für echte Straßenrouten wird ein kostenloser OpenRouteService-Key benötigt (openrouteservice.org). Eintragen unter Admin → Allgemein — der Key gilt für die ganze Stadt.' },
       { title: 'Feldbezeichnungen anpassen', keywords: ['feldbezeichnung', 'label', 'umbenennen', 'felder'],
-        text: 'Admin → Feldbezeichnungen: Die Beschriftungen der Objektfelder (z. B. „Anlage/Straße", „Typ/Art") lassen sich je Projekt umbenennen — überall in der Oberfläche wirksam.' },
+        text: 'Die Beschriftungen der Objektfelder (z. B. „Anlage/Straße", „Typ/Art", „Priorität") werden in der Ansicht „Objekte" → Reiter „Felder & Listen" im Abschnitt „Feldbezeichnungen" je Projekt umbenannt — Änderungen wirken sofort überall in der Oberfläche (interner Bezug bleibt gleich).' },
       { title: 'Projekte verwalten', keywords: ['projekt anlegen', 'projekt löschen', 'umbenennen'],
         text: 'Admin → Projekte: Projekte anlegen, umbenennen und löschen (Löschen erfordert Bestätigung und entfernt alle Objekte des Projekts endgültig).' },
     ],
