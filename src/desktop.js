@@ -1930,7 +1930,6 @@ function renderList(){
       // Bei angezeigter Tour deren Farbe bevorzugen
       const primaryT=(activeTourOnMap&&treeTours.find(t=>t.id===activeTourOnMap))||treeTours[0]||null;
       const color=primaryT?.color||null;
-      const zEntry=tree.zustand?rankEntry('zustand',tree.zustand):null;
       const bg=color?color+'22':'#f0ede6';
       const rNum=getRouteNum(tree.id);
       const numBadge=rNum!=null?`<span class="badge" style="background:${color||'#6b6760'}22;color:${color||'#6b6760'};font-family:monospace;">#${rNum}</span>`:'';
@@ -1944,7 +1943,6 @@ function renderList(){
           <div class="tree-badges">
             ${numBadge}
             ${tourBadges}
-            ${zEntry?`<span class="badge" style="background:${zEntry.farbe}22;color:${zEntry.farbe};">${dlEsc(zEntry.label)}</span>`:''}
           </div>
         </div>
       </div>`;
