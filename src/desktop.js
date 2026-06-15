@@ -7116,6 +7116,12 @@ function dispoResetDepot(id){
   notify('Betriebshof auf Standard zurückgesetzt');
 }
 
+// Echtmodus: Objekt-Eigenschaften wie in der manuellen Planung öffnen (echte Körbe = echte Objekte)
+function dispoOpenObjectDetail(id){
+  if(!trees.find(t=>t.id===id)){ notify('Objekt nicht gefunden (nur bei echten Füllständen verfügbar)'); return; }
+  switchView('karte');
+  setTimeout(()=>{ try{ openDetail(id); }catch(e){ console.warn('dispoOpenObjectDetail',e); } }, 80);
+}
 function dispoRenderMap(){
   const L=window.L, wrap=document.getElementById('dispo-map'); if(!L||!wrap) return;
   if(!dispoMap){
@@ -7153,7 +7159,7 @@ function dispoRenderMap(){
     // Bei aktivem Filter: Körbe fremder/ausgeblendeter Touren gedämpft darstellen
     const dim = filtered && plan.begr[b.id]?.status==='eingeplant' && !visBinIds.has(b.id);
     const m=L.circleMarker([b.lat,b.lng],{radius:dim?4:7,color:'#fff',weight:1.5,fillColor:col,fillOpacity:dim?0.25:0.95}).addTo(dispoLayer);
-    m.bindPopup(`<b>${b.name}</b><br>Füllstand: <b>${b.fuellstand}%</b>${b.fillRate?`<br>~voll in ${Math.max(0,Math.ceil((100-b.fuellstand)/b.fillRate))} Tagen`:''}${plan?`<br>Status: ${plan.begr[b.id]?.status||'-'}`:''}`);
+    m.bindPopup(`<b>${dlEsc(b.name)}</b><br>Füllstand: <b>${b.fuellstand}%</b>${b.fillRate?`<br>~voll in ${Math.max(0,Math.ceil((100-b.fuellstand)/b.fillRate))} Tagen`:''}${plan?`<br>Status: ${plan.begr[b.id]?.status||'-'}`:''}${b._real?`<br><button onclick="dispoOpenObjectDetail('${b.id}')" style="margin-top:7px;padding:4px 9px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;font-family:inherit;">Objekt-Details ansehen →</button>`:''}`);
     m.on('click',()=>dispoFocusBin(b.id));
     dispoMarkers[b.id]=m;
     if(!filtered || !dim) pts.push([b.lat,b.lng]); // Zoom nur auf sichtbare Elemente
@@ -7801,7 +7807,7 @@ async function renderHbUpdates(q){
 Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,
   renderHandbuch,setHbTab,hbSearchDebounced,openHbImg,closeHbImg,
-  dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
+  dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
   renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,
