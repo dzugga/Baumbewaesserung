@@ -2725,14 +2725,21 @@ function canEditObjects(){ return currentCap==='admin'||currentCap==='editor'||c
 // bei Enter — policy-konform). Soll eine Kommune später den amtlichen BKG-Geokodierungsdienst
 // nutzen, wird NUR diese eine Funktion umgestellt — die Oberfläche bleibt gleich.
 let _searchMarker=null, _searching=false;
-async function geocodeSearch(query, m){
-  m=m||map;
-  const b=m.getBounds(); // Vorrang für das aktuelle Stadtgebiet, deutschlandweiter Fallback
-  const vb=`${b.getWest().toFixed(5)},${b.getNorth().toFixed(5)},${b.getEast().toFixed(5)},${b.getSouth().toFixed(5)}`;
-  const url=`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&countrycodes=de&limit=6&viewbox=${vb}&q=${encodeURIComponent(query)}`;
+async function _nomFetch(url){
   const res=await fetch(url,{headers:{'Accept-Language':'de'}});
   if(!res.ok) throw new Error('Suchdienst nicht erreichbar ('+res.status+')');
   return res.json();
+}
+async function geocodeSearch(query, m){
+  m=m||map;
+  const b=m.getBounds();
+  const vb=`${b.getWest().toFixed(5)},${b.getNorth().toFixed(5)},${b.getEast().toFixed(5)},${b.getSouth().toFixed(5)}`;
+  const base=`https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&countrycodes=de&limit=8`;
+  // 1) Strikt im aktuellen Kartenausschnitt (bounded) → lokale Treffer, auch kleine Orte
+  let rs=await _nomFetch(`${base}&bounded=1&viewbox=${encodeURIComponent(vb)}&q=${encodeURIComponent(query)}`);
+  // 2) Falls nichts im Ausschnitt: deutschlandweit, mit Ausschnitt als Vorrang (Fallback)
+  if(!rs.length) rs=await _nomFetch(`${base}&viewbox=${encodeURIComponent(vb)}&q=${encodeURIComponent(query)}`);
+  return rs;
 }
 async function doMapSearch(){
   const inp=document.getElementById('map-search-input'); const q=(inp?.value||'').trim();
