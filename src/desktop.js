@@ -7187,10 +7187,10 @@ function dispoDrawDepots(L, plan, pts){
     const pop=`<b>${allStd?'Standard-Betriebshof':'Betriebshof'}</b><br><span style="font-size:11px;color:#666;">${label}</span><div style="margin-top:6px;border-top:1px solid #eee;padding-top:6px;font-size:12px;">`
       + g.items.map(it=>`<div style="display:flex;align-items:center;gap:6px;margin:2px 0;"><span style="width:9px;height:9px;border-radius:3px;background:${it.col};flex-shrink:0;"></span>${it.name}: ${it.std?'<i>Standard</i>':'Eigener Hof'}${it.std?'':` <button onclick="dispoResetDepot('${it.id}')" style="margin-left:auto;border:none;background:#fee2e2;color:#b91c1c;border-radius:5px;padding:2px 7px;cursor:pointer;font-size:11px;">✕ Standard</button>`}</div>`).join('')
       + `</div>`;
-    const html=`<div style="display:flex;align-items:center;gap:5px;white-space:nowrap;">`
-      + `<div style="width:22px;height:22px;border-radius:5px;background:${col};border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;">🏢</div>`
-      + `<span style="background:rgba(255,255,255,.92);border:1px solid #cbd5e1;color:#1f2937;font-size:11px;font-weight:600;padding:2px 6px;border-radius:5px;box-shadow:0 1px 3px rgba(0,0,0,.2);">${label}</span></div>`;
-    const m=L.marker([g.depot.lat,g.depot.lng],{icon:L.divIcon({className:'',html,iconSize:[22,22],iconAnchor:[11,11]})}).addTo(dispoLayer);
+    // Darstellung wie in der manuellen Planung: 🏭-Symbol, Name nur als Tooltip (nicht dauerhaft)
+    const icon=L.divIcon({className:'',html:`<div class="depot-marker-wrap"><div class="depot-pulse"></div><div style="width:36px;height:36px;border-radius:10px;background:#f59e0b;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;font-size:18px;">🏭</div></div>`,iconSize:[36,36],iconAnchor:[18,18]});
+    const m=L.marker([g.depot.lat,g.depot.lng],{icon,zIndexOffset:1000}).addTo(dispoLayer);
+    m.bindTooltip(`<b>${allStd?'Standard-Betriebshof':'Betriebshof'}</b><br>${dlEsc(label)}`,{direction:'top',offset:[0,-20]});
     m.bindPopup(pop);
     if(pts) pts.push([g.depot.lat,g.depot.lng]);
   });
