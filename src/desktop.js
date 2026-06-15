@@ -7295,13 +7295,23 @@ function dispoRenderMap(){
     });
   }
   dispoDrawDepots(L, plan, pts); // Betriebshöfe: gruppiert, benannt, entfernbar (nur sichtbare)
+  // Reihenfolge-Nummern je Fahrzeug-Route (wie in der manuellen Planung)
+  const ordMap={}, ordCol={};
+  if(plan){ plan.R.forEach((r,i)=>{ const c=dispoResColor(i); (r.route||[]).forEach((s,k)=>{ ordMap[s.id]=k+1; ordCol[s.id]=c; }); }); }
   bins.forEach(b=>{
     let col='#9c9890';
     if(plan){ const st=plan.begr[b.id]?.status; col= st==='eingeplant'?'#16a34a': st==='verschoben'?'#b45309':'#9c9890'; }
     else { col= b.fuellstand>=cfg.kritisch?'#dc2626': b.fuellstand>=cfg.planbar?'#f59e0b':'#9c9890'; }
     // Bei aktivem Filter: Körbe fremder/ausgeblendeter Touren gedämpft darstellen
     const dim = filtered && plan.begr[b.id]?.status==='eingeplant' && !visBinIds.has(b.id);
-    const m=L.circleMarker([b.lat,b.lng],{radius:dim?4:7,color:'#fff',weight:1.5,fillColor:col,fillOpacity:dim?0.25:0.95}).addTo(dispoLayer);
+    const ord=ordMap[b.id];
+    let m;
+    if(ord!=null && !dim){
+      const bc=ordCol[b.id]||col;
+      m=L.marker([b.lat,b.lng],{zIndexOffset:400,icon:L.divIcon({className:'',html:`<div style="width:21px;height:21px;border-radius:50%;background:${bc};border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700;line-height:1;">${ord}</div>`,iconSize:[21,21],iconAnchor:[10,10]})}).addTo(dispoLayer);
+    } else {
+      m=L.circleMarker([b.lat,b.lng],{radius:dim?4:7,color:'#fff',weight:1.5,fillColor:col,fillOpacity:dim?0.25:0.95}).addTo(dispoLayer);
+    }
     m.bindPopup(`<b>${dlEsc(b.name)}</b><br>Füllstand: <b>${b.fuellstand}%</b>${b.fillRate?`<br>~voll in ${Math.max(0,Math.ceil((100-b.fuellstand)/b.fillRate))} Tagen`:''}${plan?`<br>Status: ${plan.begr[b.id]?.status||'-'}`:''}${b._real?`<br><button onclick="dispoOpenObjectDetail('${b.id}')" style="margin-top:7px;padding:4px 9px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;font-family:inherit;">Objekt-Details ansehen →</button>`:''}`);
     m.on('click',()=>dispoFocusBin(b.id));
     dispoMarkers[b.id]=m;
