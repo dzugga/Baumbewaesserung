@@ -3,3 +3,7 @@ dist/
 .firebase/
 *.log
 *.key
+_commitmsg.txt
+scripts/_verify-*.mjs
+scripts/_fldtest-*.mjs
+functions/_fldtest-*.mjs
