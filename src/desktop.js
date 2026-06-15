@@ -2702,6 +2702,8 @@ async function saveMoveObject(){
     await updateDoc(doc(db,'projects',currentProjectId,'trees',treeId),{lat,lng});
     notify(`✓ Standort verschoben: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
   }catch(e){ console.warn('Verschieben',e); notify('Fehler beim Speichern: '+(e.message||e)); }
+  // Dispo-Füllstandsplanung (Echtmodus) sofort mitziehen, damit Position identisch bleibt
+  if(dispoMap){ const _b=dispoGetBins(); if(_dispoSyncReal(_b)){ dispoSetBins(_b); dispoRenderMap(); } }
 }
 function cancelMoveObject(){ if(!_moveState) return; _cleanupMove(); notify('Verschieben abgebrochen'); }
 function _cleanupMove(){
@@ -6869,6 +6871,7 @@ async function dispoOptimizeRoute(r, speed, empty){
 async function dispoPlan(){
   const cfg=dispoGetConfig();
   const bins=dispoGetBins();
+  if(_dispoSyncReal(bins)) dispoSetBins(bins); // echte Körbe an aktuelle Objektpositionen koppeln
   const resources=dispoGetResources();
   if(!bins.length){ notify('Keine Papierkörbe – zuerst „Füllstände simulieren"'); return; }
   if(!resources.length){ notify('Keine Ressourcen – in Einstellungen anlegen'); return; }
@@ -7127,6 +7130,18 @@ function dispoResetDepot(id){
   notify('Betriebshof auf Standard zurückgesetzt');
 }
 
+// Echte Körbe immer an die aktuelle Objektposition koppeln (z. B. nach „Standort verschieben"),
+// damit Füllstandsplanung und Objekt identisch bleiben. Füllstand/Rate (Momentaufnahme) bleiben unberührt.
+function _dispoSyncReal(bins){
+  let changed=false;
+  (bins||[]).forEach(b=>{
+    if(!b._real) return;
+    const t=trees.find(x=>x.id===b.id); if(!t) return;
+    if(t.lat!=null && t.lng!=null && (b.lat!==t.lat || b.lng!==t.lng)){ b.lat=t.lat; b.lng=t.lng; changed=true; }
+    if(t.name && b.name!==t.name){ b.name=t.name; changed=true; }
+  });
+  return changed;
+}
 // Echtmodus: Objekt-Eigenschaften wie in der manuellen Planung öffnen (echte Körbe = echte Objekte)
 function dispoOpenObjectDetail(id){
   if(!trees.find(t=>t.id===id)){ notify('Objekt nicht gefunden (nur bei echten Füllständen verfügbar)'); return; }
@@ -7143,6 +7158,7 @@ function dispoRenderMap(){
   dispoLayer.clearLayers();
   dispoMarkers={};
   const bins=dispoGetBins(), cfg=dispoGetConfig(), plan=window.__dispoPlan;
+  if(_dispoSyncReal(bins)) dispoSetBins(bins); // echte Körbe an aktuelle Objektpositionen koppeln
   const pts=[];
   const filtered=plan && dispoVisible; // Sichtbarkeitsfilter aktiv?
   // Welche Körbe gehören zu sichtbaren Touren?
