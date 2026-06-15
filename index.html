@@ -191,13 +191,23 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .lasso-banner{background:#374151;color:#fff;border-radius:var(--radius-sm);padding:7px 13px;font-size:13px;font-weight:500;box-shadow:var(--shadow-md);display:none;align-items:center;gap:8px;pointer-events:all;flex-wrap:wrap;}
 .lasso-banner.visible{display:flex;}
 
-/* ── KARTEN-AUSWAHL (Basiskarten/Luftbild als Chips) ── */
-#basemap-switcher{position:absolute;bottom:14px;right:14px;z-index:600;display:none;gap:5px;flex-wrap:wrap;justify-content:flex-end;max-width:60%;background:rgba(255,255,255,.92);padding:5px;border-radius:11px;box-shadow:var(--shadow-md);backdrop-filter:blur(4px);}
-.bm-chip{border:1.5px solid var(--border);background:var(--surface);color:var(--text2);font-size:12px;font-weight:600;font-family:inherit;padding:6px 12px;border-radius:8px;cursor:pointer;white-space:nowrap;transition:background .12s,border-color .12s,color .12s;}
-.bm-chip:hover{border-color:var(--green-mid);color:var(--text);}
-.bm-chip.active{background:var(--green);border-color:var(--green);color:#fff;}
-.bm-chip.overlay.active{background:var(--blue);border-color:var(--blue);}
-.bm-sep{width:1px;align-self:stretch;background:var(--border);margin:2px 1px;}
+/* ── KARTEN-STEUERUNG unten links (Zoom + Karten-Auswahl) ── */
+#map-controls{position:absolute;left:10px;bottom:22px;z-index:600;display:flex;flex-direction:column;gap:8px;align-items:flex-start;}
+.map-zoom{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;box-shadow:var(--shadow-md);}
+.map-zoom button{width:34px;height:32px;display:flex;align-items:center;justify-content:center;background:var(--surface);border:none;cursor:pointer;color:var(--text);}
+.map-zoom button:hover{background:var(--surface2);}
+.map-zoom button:first-child{border-bottom:1px solid var(--border);}
+.map-picker{position:relative;}
+#basemap-btn{display:flex;align-items:center;justify-content:center;width:36px;height:34px;background:var(--surface);border:1px solid var(--border);border-radius:8px;cursor:pointer;color:var(--text2);box-shadow:var(--shadow-md);}
+#basemap-btn:hover{color:var(--text);}
+#basemap-btn.open{border-color:var(--green);color:var(--green);}
+#basemap-panel{position:absolute;bottom:calc(100% + 8px);left:0;width:228px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:5px;box-shadow:var(--shadow-md);}
+.bm-plabel{font-size:10px;color:var(--text3);font-weight:700;padding:4px 8px 6px;text-transform:uppercase;letter-spacing:.04em;}
+.bm-opt{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:none;border:none;border-radius:6px;padding:8px;cursor:pointer;font-family:inherit;font-size:13px;color:var(--text);}
+.bm-opt:hover{background:var(--surface2);}
+.bm-opt .chk{flex-shrink:0;opacity:0;color:var(--green);}
+.bm-opt.active{background:var(--green-light);font-weight:600;color:var(--green);}
+.bm-opt.active .chk{opacity:1;}
 
 ::-webkit-scrollbar{width:5px}
 ::-webkit-scrollbar-track{background:transparent}
@@ -429,8 +439,17 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <!-- KARTE -->
     <div class="view active" id="view-karte" style="position:relative;min-height:0;">
       <div id="map"></div>
-      <!-- Sichtbare Karten-Auswahl (Basiskarten/Luftbild als Chips) -->
-      <div id="basemap-switcher"></div>
+      <!-- Karten-Steuerung unten links: Zoom + Karten-Auswahl-Button (klappt Liste auf) -->
+      <div id="map-controls">
+        <div class="map-zoom">
+          <button id="map-zoom-in" type="button" aria-label="Vergrößern"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></button>
+          <button id="map-zoom-out" type="button" aria-label="Verkleinern"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14"/></svg></button>
+        </div>
+        <div class="map-picker">
+          <div id="basemap-panel" style="display:none;"></div>
+          <button id="basemap-btn" type="button" aria-label="Karte wählen" title="Karte wählen"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg></button>
+        </div>
+      </div>
       <!-- Lasso canvas overlay -->
       <canvas id="lasso-canvas" class="lasso-canvas"></canvas>
 

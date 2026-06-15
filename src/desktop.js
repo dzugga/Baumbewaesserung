@@ -245,7 +245,7 @@ let depotMarker = null;
 // ─── MAP ──────────────────────────────────────────────────────
 const L = window.L;
 const map = L.map('map',{zoomControl:false,attributionControl:true}).setView([52.279,8.047],13);
-map.attributionControl.setPosition('bottomleft').setPrefix(false);
+map.attributionControl.setPosition('bottomright').setPrefix(false);
 // Basis-Ebenen: amtliche basemap.de (BKG) in Farbe + Graustufen — kostenfrei, kommerziell/
 // kommunal nutzbar (CC BY 4.0), DSGVO-konform. Ersetzt OSM-Kachelserver + Esri-Satellit.
 const baseFarbe = basemapLayer('farbe').addTo(map);
@@ -298,26 +298,38 @@ function rebuildLayerControl(){
   else if(!map.hasLayer(baseFarbe)&&!map.hasLayer(baseGrau)){ baseFarbe.addTo(map); } // Standard: Karte (Farbe)
   renderBasemapSwitcher();
 }
-// Sichtbare Karten-Auswahl als Chip-Leiste (statt des unscheinbaren Leaflet-Umschalters)
+// Karten-Auswahl: aufklappbares Panel über dem Karten-Button unten links
+function closeBasemapPanel(){
+  const p=document.getElementById('basemap-panel'), b=document.getElementById('basemap-btn');
+  if(p) p.style.display='none'; if(b) b.classList.remove('open');
+}
 function renderBasemapSwitcher(){
-  const el=document.getElementById('basemap-switcher'); if(!el) return;
+  const panel=document.getElementById('basemap-panel'); if(!panel) return;
   const baseNames=Object.keys(_basemaps);
   let activeBase=baseNames.find(n=>map.hasLayer(_basemaps[n]));
   if(!activeBase){ _basemaps['Karte'].addTo(map); activeBase='Karte'; }
-  const chip=(label,attr,act,cls='')=>`<button ${attr} class="bm-chip${act?' active':''} ${cls}">${dlEsc(label)}</button>`;
-  let html=baseNames.map(n=>chip(n,`data-base="${(n+'').replace(/"/g,'&quot;')}"`,n===activeBase)).join('');
+  const opt=(label,attr,act)=>`<button ${attr} class="bm-opt${act?' active':''}"><svg class="chk" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 7"/></svg><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(label)}</span></button>`;
+  let html=`<div class="bm-plabel">Hintergrundkarte</div>`;
+  html+=baseNames.map(n=>opt(n,`data-base="${(n+'').replace(/"/g,'&quot;')}"`,n===activeBase)).join('');
   const ovNames=Object.keys(_overlayLayers);
-  if(ovNames.length) html+=`<span class="bm-sep"></span>`+ovNames.map(n=>chip(n,`data-overlay="${(n+'').replace(/"/g,'&quot;')}"`,map.hasLayer(_overlayLayers[n]),'overlay')).join('');
-  el.innerHTML=html;
-  el.style.display='flex';
-  el.onclick=e=>{
+  if(ovNames.length) html+=`<div class="bm-plabel" style="margin-top:3px;border-top:1px solid var(--border);padding-top:6px;">Zusatz-Ebenen</div>`+ovNames.map(n=>opt(n,`data-overlay="${(n+'').replace(/"/g,'&quot;')}"`,map.hasLayer(_overlayLayers[n]))).join('');
+  panel.innerHTML=html;
+  panel.onclick=e=>{
     const b=e.target.closest('[data-base]'), o=e.target.closest('[data-overlay]');
-    if(b){ const n=b.dataset.base; if(_basemaps[n]){ Object.values(_basemaps).forEach(l=>map.removeLayer(l)); _basemaps[n].addTo(map); renderBasemapSwitcher(); } }
+    if(b){ const n=b.dataset.base; if(_basemaps[n]){ Object.values(_basemaps).forEach(l=>map.removeLayer(l)); _basemaps[n].addTo(map); renderBasemapSwitcher(); closeBasemapPanel(); } }
     else if(o){ const n=o.dataset.overlay, l=_overlayLayers[n]; if(l){ map.hasLayer(l)?map.removeLayer(l):l.addTo(map); renderBasemapSwitcher(); } }
   };
 }
 rebuildLayerControl();
-L.control.zoom({position:'bottomleft'}).addTo(map);
+// Eigene Zoom-Buttons + Karten-Auswahl-Button verdrahten (statt Leaflet-Standard-Controls)
+document.getElementById('map-zoom-in')?.addEventListener('click',()=>map.zoomIn());
+document.getElementById('map-zoom-out')?.addEventListener('click',()=>map.zoomOut());
+document.getElementById('basemap-btn')?.addEventListener('click',e=>{
+  e.stopPropagation();
+  const p=document.getElementById('basemap-panel'); const open=p.style.display==='none';
+  p.style.display=open?'block':'none'; e.currentTarget.classList.toggle('open',open);
+});
+map.on('click',closeBasemapPanel); // Klick auf die Karte schließt das Auswahlfeld
 
 map.on('click',e=>{
   if(placingTree){ cancelMode(); openAddTree(e.latlng.lat,e.latlng.lng); }
