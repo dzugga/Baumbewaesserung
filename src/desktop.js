@@ -250,6 +250,10 @@ map.attributionControl.setPosition('bottomleft').setPrefix(false);
 // kommunal nutzbar (CC BY 4.0), DSGVO-konform. Ersetzt OSM-Kachelserver + Esri-Satellit.
 const baseFarbe = basemapLayer('farbe').addTo(map);
 const baseGrau  = basemapLayer('grau');
+// Bundesweites Satellitenbild (Sentinel-2, BKG) — kostenfrei, DSGVO-konform, gilt für ALLE Städte.
+// Grobe Auflösung (~10 m); für scharfe Details das projektscharfe Luftbild (WMS-Karten) nutzen.
+const baseSat = L.tileLayer.wms('https://sgx.geodatenzentrum.de/wms_sentinel2_de',
+  {layers:'rgb', format:'image/jpeg', version:'1.3.0', maxZoom:20, attribution:'© GeoBasis-DE / BKG · Sentinel-2'});
 
 // ── WMS-Kartenebenen (vom Nutzer verwaltbar, stadtscharf am Mandanten) ──
 const WMS_DEFAULTS=[
@@ -287,7 +291,7 @@ function rebuildLayerControl(){
   Object.entries(wmsLayerInstances).forEach(([id,lyr])=>{ if(map.hasLayer(lyr)) active.add(id); map.removeLayer(lyr); });
   wmsLayerInstances={};
   if(layerControl){ map.removeControl(layerControl); layerControl=null; }
-  const bases={'Karte':baseFarbe,'Graustufen':baseGrau};
+  const bases={'Karte':baseFarbe,'Graustufen':baseGrau,'Satellit (bundesweit)':baseSat};
   const overlays={};
   let customBaseActive=false;
   getWmsLayers().forEach(c=>{
@@ -295,8 +299,8 @@ function rebuildLayerControl(){
     if(c.type==='overlay'){ overlays[c.name]=lyr; if(active.has(c.id)) lyr.addTo(map); }
     else { bases[c.name]=lyr; if(active.has(c.id)){ lyr.addTo(map); customBaseActive=true; } }
   });
-  if(customBaseActive){ map.removeLayer(baseFarbe); map.removeLayer(baseGrau); }
-  else if(!map.hasLayer(baseFarbe)&&!map.hasLayer(baseGrau)){ baseFarbe.addTo(map); } // Standard: Karte (Farbe)
+  if(customBaseActive){ map.removeLayer(baseFarbe); map.removeLayer(baseGrau); map.removeLayer(baseSat); }
+  else if(!map.hasLayer(baseFarbe)&&!map.hasLayer(baseGrau)&&!map.hasLayer(baseSat)){ baseFarbe.addTo(map); } // Standard: Karte (Farbe)
   layerControl=L.control.layers(bases, overlays, {position:'topleft', collapsed:true}).addTo(map);
 }
 rebuildLayerControl();
