@@ -561,7 +561,7 @@ function subscribeToProject(){
     maybeFitCity(); // beim ersten Laden auf die Stadt zoomen
     if(currentView==='baeume'){
       const artenTab=document.getElementById('baeume-arten');
-      if(artenTab && getComputedStyle(artenTab).display!=='none') renderFieldCatalogView();
+      if(artenTab && getComputedStyle(artenTab).display!=='none') renderFieldCatalog();
       else renderBaeumeTable();
     }
     syncDataViewToProject();
@@ -3787,6 +3787,7 @@ async function removeCustomField(key){
   if(!confirm(`Kundenfeld „${c.label}" entfernen? Die Werteliste wird gelöscht; bereits an Objekten gespeicherte Werte bleiben erhalten, das Feld wird ausgeblendet.`)) return;
   customFields=customFields.filter(x=>x.key!==key);
   delete listValues[key];
+  _fieldDetailKey=null;
   await saveListValues(); renderFieldCatalog(); notify('✓ Kundenfeld entfernt');
 }
 
@@ -3824,34 +3825,69 @@ function _fieldCatalogCard(fieldKey, title, opts={}){
   </div>`;
 }
 
+let _fieldDetailKey=null;   // null = Kachel-Übersicht; sonst fieldKey/'art' = Detailansicht
+function openFieldDetail(key){ _fieldDetailKey=key; renderFieldCatalog(); const el=document.getElementById('baeume-arten'); if(el) el.scrollTop=0; }
+function closeFieldDetail(){ _fieldDetailKey=null; renderFieldCatalog(); }
+
 async function renderFieldCatalogView(){
   const el=document.getElementById('baeume-arten'); if(!el) return;
   el.innerHTML='<div style="color:var(--text3);font-size:13px;">Lade…</div>';
+  _fieldDetailKey=null;
   loadListValues();
   await loadArten();
   renderFieldCatalog();
 }
 function renderFieldCatalog(){
   const el=document.getElementById('baeume-arten'); if(!el) return;
+  if(_fieldDetailKey) renderFieldDetail(el);
+  else renderFieldOverview(el);
+}
+// Eine Kachel in der Übersicht
+function _fieldTile(key,label,opts={}){
+  const isArt=key==='art';
+  const vCount=isArt?artenList.length:(listValues[key]||[]).length;
+  const oCount=trees.filter(t=>((isArt?t.art:t[key])||'').toString().trim()).length;
+  const locked=!!opts.locked;
+  const hover=locked?'':`onmouseover="this.style.borderColor='var(--green-mid)';this.style.boxShadow='0 2px 8px rgba(0,0,0,.06)'" onmouseout="this.style.borderColor='var(--border)';this.style.boxShadow='none'"`;
+  return `<div ${locked?'':`onclick="openFieldDetail('${key}')"`} style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;${locked?'opacity:.55;':'cursor:pointer;'}transition:border-color .12s,box-shadow .12s;" ${hover}>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <div style="font-size:14px;font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(label)}</div>
+      ${opts.badge?`<span style="font-size:10px;color:var(--text3);background:var(--surface2);padding:2px 6px;border-radius:5px;white-space:nowrap;">${opts.badge}</span>`:''}
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-top:8px;">${locked?'Rang &amp; Farbe — folgt im nächsten Schritt':`${vCount} Wert${vCount===1?'':'e'} · ${oCount} Objekt${oCount===1?'':'e'}`}</div>
+    ${locked?'':`<div style="font-size:11px;color:var(--green);margin-top:6px;font-weight:600;">Öffnen →</div>`}
+  </div>`;
+}
+function renderFieldOverview(el){
   const ro=isReadonly();
-  let html=`<div style="max-width:820px;margin:0 auto;">
+  let tiles='';
+  tiles+=_fieldTile('art', FL.art, {badge:'mit Symbol'});
+  tiles+=_fieldTile('stadtteil', FL.stadtteil);
+  tiles+=_fieldTile('pflanzjahr', FL.pflanzjahr);
+  tiles+=_fieldTile('pflanzzeitpunkt', FL.pflanzzeitpunkt);
+  customFields.forEach(c=>{ tiles+=_fieldTile(c.key, c.label, {badge:'Kundenfeld'}); });
+  tiles+=_fieldTile('zustand', FL.zustand, {locked:true});
+  tiles+=_fieldTile('wasser', FL.wasser, {locked:true});
+  el.innerHTML=`<div style="max-width:880px;margin:0 auto;">
     <div style="font-size:16px;font-weight:700;margin-bottom:4px;">Felder & Listen</div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:16px;">Auswahllisten pro Feld pflegen — anlegen, umbenennen (zieht Objekte mit), zusammenführen, aus vorhandenen Objekten aufbauen. Die Feldbezeichnungen selbst änderst du unter Verwaltung → Projekt.</div>
-    <div id="arten-mount"></div>`;
-  html+=_fieldCatalogCard('stadtteil', FL.stadtteil);
-  html+=_fieldCatalogCard('pflanzjahr', FL.pflanzjahr);
-  html+=_fieldCatalogCard('pflanzzeitpunkt', FL.pflanzzeitpunkt);
-  html+=`<div style="font-size:13px;font-weight:700;margin:18px 0 8px;">Kundenfelder (frei belegbar)</div>`;
-  customFields.forEach(c=>{ html+=_fieldCatalogCard(c.key, c.label, {custom:true}); });
-  if(!customFields.length) html+=`<div style="color:var(--text3);font-size:12px;margin-bottom:8px;">Noch keine Kundenfelder angelegt.</div>`;
-  if(!ro && customFields.length<5) html+=`<button class="btn btn-secondary" style="padding:6px 12px;font-size:12px;margin-bottom:14px;" onclick="addCustomField()">+ Kundenfeld hinzufügen (${customFields.length}/5)</button>`;
-  html+=`<div style="background:var(--surface2);border:1px dashed var(--border);border-radius:10px;padding:12px 16px;margin:6px 0 14px;color:var(--text3);font-size:12px;">
-    <b style="color:var(--text2);">${dlEsc(FL.zustand)} &amp; ${dlEsc(FL.wasser)}</b> — geordnete Listen mit Rang &amp; Farbe; Bearbeitung folgt im nächsten Schritt.</div>`;
-  html+=`<div style="font-size:11px;color:var(--text3);margin-top:6px;">Freitext-Felder (keine Liste): ${dlEsc(FL.name)}, ${dlEsc(FL.baumnr)}, ${dlEsc(FL.notiz)}.</div>`;
-  html+=`</div>`;
-  el.innerHTML=html;
-  _artenMountId='arten-mount';
-  renderArtenList();
+    <div style="font-size:12px;color:var(--text3);margin-bottom:16px;">Wähle ein Feld, um seine Auswahlliste zu pflegen. Freitext-Felder (${dlEsc(FL.name)}, ${dlEsc(FL.baumnr)}, ${dlEsc(FL.notiz)}) haben keine Liste.</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;">${tiles}</div>
+    ${!ro && customFields.length<5?`<button class="btn btn-secondary" style="padding:7px 14px;font-size:12px;margin-top:16px;" onclick="addCustomField()">+ Kundenfeld hinzufügen (${customFields.length}/5)</button>`:''}
+  </div>`;
+}
+function renderFieldDetail(el){
+  const key=_fieldDetailKey;
+  const back=`<button class="btn btn-secondary" style="padding:5px 12px;font-size:12px;margin-bottom:14px;" onclick="closeFieldDetail()">← Alle Felder</button>`;
+  if(key==='art'){
+    el.innerHTML=`<div style="max-width:820px;margin:0 auto;">${back}<div id="arten-mount"></div></div>`;
+    _artenMountId='arten-mount';
+    renderArtenList();
+    return;
+  }
+  const cf=customFields.find(c=>c.key===key);
+  if(!cf && !['stadtteil','pflanzjahr','pflanzzeitpunkt'].includes(key)){ closeFieldDetail(); return; }
+  const label=cf?cf.label:({stadtteil:FL.stadtteil,pflanzjahr:FL.pflanzjahr,pflanzzeitpunkt:FL.pflanzzeitpunkt}[key]);
+  el.innerHTML=`<div style="max-width:820px;margin:0 auto;">${back}${_fieldCatalogCard(key,label,{custom:!!cf})}</div>`;
 }
 
 function renderBaeumeTableWith(treeList){
@@ -7453,7 +7489,7 @@ Object.assign(window,{
   dispoSimulate,dispoPlan,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
-  renderFieldCatalogView,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,
+  renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,clearLassoSelection,
   createProject,openProject,showProjectScreen,psSetOrgFilter,setSiTab,
