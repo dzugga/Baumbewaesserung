@@ -1267,6 +1267,7 @@ function renderObjFilterUI(){
   const distinct=k=>[...new Set(act.map(t=>(t[k]??'').toString()).filter(Boolean))].sort();
   const esc=s=>String(s).replace(/"/g,'&quot;').replace(/</g,'&lt;');
   const opt=(vals,sel,all)=>`<option value="">${all}</option>`+vals.map(v=>`<option value="${esc(v)}"${v===sel?' selected':''}>${esc(v)}</option>`).join('');
+  const optRank=(fk,sel,all)=>`<option value="">${all}</option>`+rankList(fk).map(e=>`<option value="${esc(e.id)}"${e.id===sel?' selected':''}>${esc(e.label)}</option>`).join('');
   const ss='padding:4px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);min-width:0;width:100%;font-family:inherit;';
   const active=objFilterActive();
   el.innerHTML=`<div style="padding:10px 12px;">
@@ -1279,8 +1280,8 @@ function renderObjFilterUI(){
       <select id="of-stadtteil" style="${ss}">${opt(distinct('stadtteil'),objFilter.stadtteil,'Alle Stadtteile')}</select>
       <select id="of-art" style="${ss}">${opt(distinct('art'),objFilter.art,'Alle Typen')}</select>
       <select id="of-pflanzjahr" style="${ss}">${opt(distinct('pflanzjahr'),objFilter.pflanzjahr,'Alle Jahre')}</select>
-      <select id="of-zustand" style="${ss}">${opt(['gut','mittel','schlecht'],objFilter.zustand,'Alle Zustände')}</select>
-      <select id="of-wasser" style="${ss}">${opt(['gering','mittel','hoch'],objFilter.wasser,'Alle Prioritäten')}</select>
+      <select id="of-zustand" style="${ss}">${optRank('zustand',objFilter.zustand,'Alle '+FL.zustand)}</select>
+      <select id="of-wasser" style="${ss}">${optRank('wasser',objFilter.wasser,'Alle '+FL.wasser)}</select>
       <select id="of-status" style="${ss}"><option value="">Alle Status</option><option value="bewaessert"${objFilter.status==='bewaessert'?' selected':''}>✓ Erledigt</option><option value="nicht"${objFilter.status==='nicht'?' selected':''}>✕ Nicht erledigt</option><option value="offen"${objFilter.status==='offen'?' selected':''}>○ Offen</option></select>
     </div>
     <label style="display:flex;align-items:center;gap:6px;margin-top:7px;font-size:11px;cursor:pointer;color:var(--text2);">
@@ -1897,7 +1898,7 @@ function renderList(){
       // Bei angezeigter Tour deren Farbe bevorzugen
       const primaryT=(activeTourOnMap&&treeTours.find(t=>t.id===activeTourOnMap))||treeTours[0]||null;
       const color=primaryT?.color||null;
-      const zBadge={gut:'badge-ok',mittel:'badge-warn',schlecht:'badge-crit'}[tree.zustand]||'badge-gray';
+      const zEntry=tree.zustand?rankEntry('zustand',tree.zustand):null;
       const bg=color?color+'22':'#f0ede6';
       const rNum=getRouteNum(tree.id);
       const numBadge=rNum!=null?`<span class="badge" style="background:${color||'#6b6760'}22;color:${color||'#6b6760'};font-family:monospace;">#${rNum}</span>`:'';
@@ -1911,7 +1912,7 @@ function renderList(){
           <div class="tree-badges">
             ${numBadge}
             ${tourBadges}
-            <span class="badge ${zBadge}">${{gut:'Gut',mittel:'Mittel',schlecht:'Schlecht'}[tree.zustand]||''}</span>
+            ${zEntry?`<span class="badge" style="background:${zEntry.farbe}22;color:${zEntry.farbe};">${dlEsc(zEntry.label)}</span>`:''}
           </div>
         </div>
       </div>`;
@@ -1962,9 +1963,10 @@ function openDetail(id){
   const tree=trees.find(t=>t.id===id);if(!tree)return;
   selectedTreeId=id;renderList();
   const tour=primaryTour(tree);
-  const statusBg={gut:'var(--green-light)',mittel:'var(--amber-light)',schlecht:'var(--red-light)'}[tree.zustand];
-  const statusColor={gut:'var(--green)',mittel:'var(--amber)',schlecht:'var(--red)'}[tree.zustand];
-  const zLabel={gut:'Gut ✓',mittel:'Mittel ⚠',schlecht:'Schlecht ✕'}[tree.zustand]||'';
+  const _zE=tree.zustand?rankEntry('zustand',tree.zustand):null;
+  const statusBg=_zE?_zE.farbe+'22':'';
+  const statusColor=_zE?_zE.farbe:'';
+  const zLabel=_zE?_zE.label:'';
   const rNum=getRouteNum(tree.id);
   document.getElementById('panel-title').textContent=tree.name;
   const _meta=document.getElementById('panel-meta');
@@ -1976,7 +1978,7 @@ function openDetail(id){
   // Kompakt: leere Felder ausblenden (kein „–"-Rauschen), Koordinaten ganz raus
   const drow=(k,v,vs)=>v?`<div class="detail-field" style="padding:5px 0;"><span class="detail-key">${k}</span><span class="detail-val"${vs?` style="${vs}"`:''}>${dlEsc(''+v)}</span></div>`:'';
   let body=`
-    <div class="status-bar" style="background:${statusBg};color:${statusColor};">${zLabel} — Zustand</div>
+    ${_zE?`<div class="status-bar" style="background:${statusBg};color:${statusColor};">${dlEsc(zLabel)} — ${dlEsc(FL.zustand)}</div>`:''}
 
     <div class="form-section">Identifikation</div>
     <div class="detail-field" style="padding:5px 0;"><span class="detail-key">Objekt-ID</span><span class="detail-val" style="font-family:monospace;font-weight:700;color:var(--green);">${tree.baumId||'–'}</span></div>
@@ -1990,17 +1992,13 @@ function openDetail(id){
     <div class="detail-field" style="padding:4px 0;">
       <span class="detail-key">${FL.wasser}</span>
       <select class="form-control" id="inline-wasser" style="width:auto;padding:3px 8px;font-size:12px;">
-        <option value="gering"${tree.wasser==='gering'?' selected':''}>Gering</option>
-        <option value="mittel"${tree.wasser==='mittel'?' selected':''}>Mittel</option>
-        <option value="hoch"${tree.wasser==='hoch'?' selected':''}>Hoch</option>
+        ${rankList('wasser').map(e=>`<option value="${dlEsc(e.id)}"${tree.wasser===e.id?' selected':''}>${dlEsc(e.label)}</option>`).join('')}
       </select>
     </div>
     <div class="detail-field" style="padding:4px 0;">
-      <span class="detail-key">Zustand</span>
+      <span class="detail-key">${FL.zustand}</span>
       <select class="form-control" id="inline-zustand" style="width:auto;padding:3px 8px;font-size:12px;">
-        <option value="gut"${tree.zustand==='gut'?' selected':''}>Gut</option>
-        <option value="mittel"${tree.zustand==='mittel'?' selected':''}>Mittel</option>
-        <option value="schlecht"${tree.zustand==='schlecht'?' selected':''}>Schlecht</option>
+        ${rankList('zustand').map(e=>`<option value="${dlEsc(e.id)}"${tree.zustand===e.id?' selected':''}>${dlEsc(e.label)}</option>`).join('')}
       </select>
     </div>
 
@@ -2360,8 +2358,8 @@ function openAddTree(lat,lng){
   fillListSelect('pflanzjahr','');
   fillListSelect('pflanzzeitpunkt','');
   renderCustomFieldInputs(null);
-  document.getElementById('f-wasser').value='mittel';
-  document.getElementById('f-zustand').value='mittel';
+  fillRankSelect('wasser', rankEntry('wasser','mittel')?'mittel':(rankList('wasser')[0]?.id||''));
+  fillRankSelect('zustand', rankEntry('zustand','mittel')?'mittel':(rankList('zustand')[0]?.id||''));
   document.getElementById('f-datum').value='';
   document.getElementById('f-lat').value=lat?lat.toFixed(6):'';
   document.getElementById('f-lng').value=lng?lng.toFixed(6):'';
@@ -2421,8 +2419,8 @@ async function openEditTree(id){
   renderCustomFieldInputs(tree);
   document.getElementById('f-lat').value=tree.lat||'';
   document.getElementById('f-lng').value=tree.lng||'';
-  document.getElementById('f-wasser').value=tree.wasser||'mittel';
-  document.getElementById('f-zustand').value=tree.zustand||'mittel';
+  fillRankSelect('wasser', tree.wasser||'');
+  fillRankSelect('zustand', tree.zustand||'');
   document.getElementById('f-datum').value=tree.datum||'';
   document.getElementById('f-notiz').value=tree.notiz||'';
   document.getElementById('modal-coord-info').style.display='none';
@@ -3556,6 +3554,7 @@ function switchBaeumeTab(tab){
   [to,ta].forEach(b=>{ if(!b) return; b.style.borderBottomColor='transparent'; b.style.color='var(--text3)'; b.style.fontWeight='600'; });
   const act=isArten?ta:to; if(act){ act.style.borderBottomColor='var(--green)'; act.style.color='var(--green)'; act.style.fontWeight='700'; }
   if(isArten) renderFieldCatalogView();
+  else renderBaeumeTable();
 }
 async function renderArtenView(){
   const el=document.getElementById('baeume-arten'); if(!el) return;
@@ -3791,6 +3790,115 @@ async function removeCustomField(key){
   await saveListValues(); renderFieldCatalog(); notify('✓ Kundenfeld entfernt');
 }
 
+// ─── GEORDNETE LISTEN (Zustand/Priorität: Rang + Farbe) ──────────────
+// Objekt speichert den stabilen Schlüssel (id), nicht das Label → Bestandsdaten
+// (gut/mittel/schlecht bzw. gering/mittel/hoch) laufen unverändert weiter.
+const RANK_SEED={
+  zustand:[{id:'gut',label:'Gut',rang:1,farbe:'#16a34a'},{id:'mittel',label:'Mittel',rang:2,farbe:'#d97706'},{id:'schlecht',label:'Schlecht',rang:3,farbe:'#dc2626'}],
+  wasser:[{id:'gering',label:'Gering',rang:1,farbe:'#16a34a'},{id:'mittel',label:'Mittel',rang:2,farbe:'#d97706'},{id:'hoch',label:'Hoch',rang:3,farbe:'#dc2626'}],
+};
+function isRankField(fieldKey){ return fieldKey==='zustand'||fieldKey==='wasser'; }
+function rankList(fieldKey){
+  let l=listValues[fieldKey];
+  if(!l||!l.length) l=RANK_SEED[fieldKey]||[];
+  return [...l].sort((a,b)=>(a.rang||0)-(b.rang||0));
+}
+function rankEntry(fieldKey,id){ return rankList(fieldKey).find(e=>e.id===id)||null; }
+function rankLabel(fieldKey,id){ const e=rankEntry(fieldKey,id); return e?e.label:(id||''); }
+function rankColor(fieldKey,id){ const e=rankEntry(fieldKey,id); return e?(e.farbe||'#9ca3af'):'#9ca3af'; }
+function _rankUseCount(fieldKey,id){ return trees.filter(t=>(t[fieldKey]||'')===id).length; }
+function _materializeRank(fieldKey){ if(!listValues[fieldKey]||!listValues[fieldKey].length){ listValues[fieldKey]=rankList(fieldKey).map(e=>({...e})); } }
+async function rankAdd(fieldKey){
+  if(isReadonly()) return;
+  const inp=document.getElementById('lv-new-'+fieldKey); const name=(inp?.value||'').trim(); if(!name) return;
+  _materializeRank(fieldKey);
+  if(listValues[fieldKey].some(e=>e.label===name)){ notify('„'+name+'" existiert bereits'); return; }
+  const maxR=Math.max(0,...listValues[fieldKey].map(e=>e.rang||0));
+  listValues[fieldKey].push({id:_genId(),label:name,rang:maxR+1,farbe:'#9ca3af'});
+  await saveListValues(); renderFieldCatalog(); notify('✓ Wert hinzugefügt');
+}
+async function rankRename(fieldKey,id){
+  if(isReadonly()) return; _materializeRank(fieldKey);
+  const e=listValues[fieldKey].find(x=>x.id===id); if(!e) return;
+  const neu=prompt('Neue Bezeichnung für „'+e.label+'":',e.label); if(neu==null) return;
+  const l=neu.trim(); if(!l||l===e.label) return;
+  e.label=l; await saveListValues(); _afterRankChange();
+  notify('✓ Umbenannt');
+}
+async function rankSetColor(fieldKey,id,color){
+  if(isReadonly()) return; _materializeRank(fieldKey);
+  const e=listValues[fieldKey].find(x=>x.id===id); if(!e) return;
+  e.farbe=color; await saveListValues(); _afterRankChange();
+}
+async function rankMove(fieldKey,id,dir){
+  if(isReadonly()) return; _materializeRank(fieldKey);
+  const arr=[...listValues[fieldKey]].sort((a,b)=>(a.rang||0)-(b.rang||0));
+  const i=arr.findIndex(e=>e.id===id); if(i<0) return;
+  const j=i+dir; if(j<0||j>=arr.length) return;
+  [arr[i],arr[j]]=[arr[j],arr[i]];
+  arr.forEach((e,k)=>e.rang=k+1);
+  listValues[fieldKey]=arr;
+  await saveListValues(); _afterRankChange();
+}
+async function rankMerge(fieldKey,srcId,tgtId){
+  if(isReadonly()||srcId===tgtId) return; _materializeRank(fieldKey);
+  const src=listValues[fieldKey].find(x=>x.id===srcId), tgt=listValues[fieldKey].find(x=>x.id===tgtId);
+  if(!src||!tgt) return;
+  if(!confirm(`„${src.label}" in „${tgt.label}" zusammenführen? Zugehörige Objekte werden umgehängt.`)) return;
+  const ups=trees.filter(t=>(t[fieldKey]||'')===srcId).map(t=>{ t[fieldKey]=tgtId; return {id:t.id,data:{[fieldKey]:tgtId}}; });
+  await _chunkedTreeUpdate(ups);
+  listValues[fieldKey]=listValues[fieldKey].filter(x=>x.id!==srcId);
+  await saveListValues(); _afterRankChange();
+  notify(`✓ Zusammengeführt — ${ups.length} Objekte umgehängt`);
+}
+async function rankDelete(fieldKey,id){
+  if(isReadonly()) return; _materializeRank(fieldKey);
+  const e=listValues[fieldKey].find(x=>x.id===id); if(!e) return;
+  if(_rankUseCount(fieldKey,id)>0){ notify('Nur löschbar, wenn kein Objekt den Wert nutzt'); return; }
+  if(!confirm('„'+e.label+'" löschen?')) return;
+  listValues[fieldKey]=listValues[fieldKey].filter(x=>x.id!==id);
+  await saveListValues(); _afterRankChange(); notify('✓ Gelöscht');
+}
+// Nach Farb-/Label-/Rang-Änderung: Detail + abhängige Ansichten aktualisieren
+function _afterRankChange(){ renderFieldCatalog(); try{ renderList(); }catch(_){} }
+
+function _rankFieldCard(fieldKey,title){
+  const vals=rankList(fieldKey);
+  const ro=isReadonly();
+  const rows=vals.map((e,i)=>{
+    const c=_rankUseCount(fieldKey,e.id);
+    return `<tr style="border-top:1px solid var(--border);">
+      <td style="padding:6px 4px 6px 12px;white-space:nowrap;">
+        <button class="btn btn-secondary" style="padding:1px 7px;font-size:11px;${i===0?'opacity:.3;':''}" ${i===0||ro?'disabled':`onclick="rankMove('${fieldKey}','${e.id}',-1)"`}>▲</button>
+        <button class="btn btn-secondary" style="padding:1px 7px;font-size:11px;${i===vals.length-1?'opacity:.3;':''}" ${i===vals.length-1||ro?'disabled':`onclick="rankMove('${fieldKey}','${e.id}',1)"`}>▼</button>
+      </td>
+      <td style="padding:6px 8px;"><input type="color" value="${e.farbe||'#9ca3af'}" ${ro?'disabled':''} onchange="rankSetColor('${fieldKey}','${e.id}',this.value)" style="width:34px;height:24px;border:1px solid var(--border);border-radius:5px;padding:0;background:none;cursor:${ro?'default':'pointer'};"></td>
+      <td style="padding:6px 12px;"><span style="display:inline-block;padding:2px 9px;border-radius:6px;background:${e.farbe||'#9ca3af'}22;color:${e.farbe||'#777'};font-size:12px;font-weight:600;">${dlEsc(e.label)}</span></td>
+      <td style="padding:6px 12px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text2);">${c}</td>
+      <td style="padding:6px 12px;white-space:nowrap;text-align:right;">${ro?'':`
+        <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" onclick="rankRename('${fieldKey}','${e.id}')">Umbenennen</button>
+        <select onchange="if(this.value)rankMerge('${fieldKey}','${e.id}',this.value);this.selectedIndex=0;" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;"><option value="">→ zusammenführen…</option>${vals.filter(x=>x.id!==e.id).map(x=>`<option value="${x.id}">${dlEsc(x.label)}</option>`).join('')}</select>
+        <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;${c===0?'color:#c0392b;':'opacity:.45;cursor:not-allowed;'}" ${c===0?`onclick="rankDelete('${fieldKey}','${e.id}')"`:'disabled title="Nur löschbar bei Häufigkeit 0"'}>Löschen</button>`}
+      </td></tr>`;
+  }).join('');
+  return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;"><div style="font-size:14px;font-weight:700;">${dlEsc(title)}</div><span style="font-size:11px;color:var(--text3);background:var(--surface2);padding:2px 7px;border-radius:5px;">Geordnete Liste · ${vals.length}</span></div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">Mit ▲▼ die Reihenfolge (Rang) festlegen — bestimmt Sortierung und Auswertung. Die Farbe färbt die Anzeige in Tabelle und Detail.</div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr style="background:var(--surface2);"><th style="padding:6px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Rang</th><th style="padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Farbe</th><th style="padding:6px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Wert</th><th style="padding:6px 12px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Häufigkeit</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table>
+    ${ro?'':`<div style="display:flex;gap:6px;margin-top:8px;"><input id="lv-new-${fieldKey}" class="form-control" placeholder="Neuer Wert…" style="flex:1;padding:6px 10px;font-size:13px;" onkeydown="if(event.key==='Enter')rankAdd('${fieldKey}')"><button class="btn btn-primary" style="padding:6px 12px;font-size:12px;white-space:nowrap;" onclick="rankAdd('${fieldKey}')">+ Hinzufügen</button></div>`}
+  </div>`;
+}
+// Rang-Dropdown fürs Objekt-Formular (Wert = stabile id, Anzeige = Label)
+function fillRankSelect(fieldKey,current){
+  const sel=document.getElementById('f-'+fieldKey); if(!sel) return;
+  const vals=rankList(fieldKey);
+  current=(current||'').trim();
+  sel.innerHTML=vals.map(e=>`<option value="${dlEsc(e.id)}"${e.id===current?' selected':''}>${dlEsc(e.label)}</option>`).join('');
+  if(current && vals.some(e=>e.id===current)) sel.value=current;
+}
+
 // Eine Karte für ein Listenfeld (anlegen/umbenennen/mergen/löschen/aufbauen)
 function _fieldCatalogCard(fieldKey, title, opts={}){
   const vals=[...(listValues[fieldKey]||[])].sort((a,b)=>(a.label||'').localeCompare(b.label||''));
@@ -3845,7 +3953,7 @@ function renderFieldCatalog(){
 // Eine Kachel in der Übersicht
 function _fieldTile(key,label,opts={}){
   const isArt=key==='art';
-  const vCount=isArt?artenList.length:(listValues[key]||[]).length;
+  const vCount=isArt?artenList.length:(isRankField(key)?rankList(key).length:(listValues[key]||[]).length);
   const oCount=trees.filter(t=>((isArt?t.art:t[key])||'').toString().trim()).length;
   const locked=!!opts.locked;
   const hover=locked?'':`onmouseover="this.style.borderColor='var(--green-mid)';this.style.boxShadow='0 2px 8px rgba(0,0,0,.06)'" onmouseout="this.style.borderColor='var(--border)';this.style.boxShadow='none'"`;
@@ -3866,8 +3974,8 @@ function renderFieldOverview(el){
   tiles+=_fieldTile('pflanzjahr', FL.pflanzjahr);
   tiles+=_fieldTile('pflanzzeitpunkt', FL.pflanzzeitpunkt);
   customFields.forEach(c=>{ tiles+=_fieldTile(c.key, c.label, {badge:'Kundenfeld'}); });
-  tiles+=_fieldTile('zustand', FL.zustand, {locked:true});
-  tiles+=_fieldTile('wasser', FL.wasser, {locked:true});
+  tiles+=_fieldTile('zustand', FL.zustand, {badge:'Rang & Farbe'});
+  tiles+=_fieldTile('wasser', FL.wasser, {badge:'Rang & Farbe'});
   el.innerHTML=`<div style="max-width:880px;margin:0 auto;">
     <div style="font-size:16px;font-weight:700;margin-bottom:4px;">Felder & Listen</div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:16px;">Wähle ein Feld, um seine Auswahlliste zu pflegen. Freitext-Felder (${dlEsc(FL.name)}, ${dlEsc(FL.baumnr)}, ${dlEsc(FL.notiz)}) haben keine Liste.</div>
@@ -3882,6 +3990,10 @@ function renderFieldDetail(el){
     el.innerHTML=`<div style="max-width:820px;margin:0 auto;">${back}<div id="arten-mount"></div></div>`;
     _artenMountId='arten-mount';
     renderArtenList();
+    return;
+  }
+  if(isRankField(key)){
+    el.innerHTML=`<div style="max-width:820px;margin:0 auto;">${back}${_rankFieldCard(key, key==='zustand'?FL.zustand:FL.wasser)}</div>`;
     return;
   }
   const cf=customFields.find(c=>c.key===key);
@@ -3939,9 +4051,9 @@ function renderBaeumeTableWith(treeList){
   const prevRn=_routeNumMap; _routeNumMap=buildRouteNumMap();
   sorted.forEach(tree=>{
     const inact=!isActive(tree);
-    const zCl={gut:'badge-ok',mittel:'badge-warn',schlecht:'badge-crit'}[tree.zustand]||'badge-gray';
-    const zLbl={gut:'Gut',mittel:'Mittel',schlecht:'Schlecht'}[tree.zustand]||tree.zustand||'–';
-    const wLbl={gering:'Gering',mittel:'Mittel',hoch:'Hoch'}[tree.wasser]||'–';
+    const zE=tree.zustand?rankEntry('zustand',tree.zustand):null;
+    const zBadge=zE?`<span class="badge" style="background:${zE.farbe}22;color:${zE.farbe};">${dlEsc(zE.label)}</span>`:'<span style="color:var(--text3);">–</span>';
+    const wLbl=tree.wasser?rankLabel('wasser',tree.wasser):'–';
     const rNum=getRouteNum(tree.id);
     const pzt=tree.pflanzzeitpunkt||'–';
     const rowTours=getTreeTourIds(tree).map(id=>tourMap.get(id)).filter(Boolean);
@@ -3954,7 +4066,7 @@ function renderBaeumeTableWith(treeList){
       <td style="padding:8px 12px;color:var(--text2);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${dlEsc(tree.art||'')}">${dlEsc(tree.art||'–')}</td>
       <td style="padding:8px 12px;color:var(--text2);white-space:nowrap;">${dlEsc(tree.pflanzjahr||'–')}</td>
       <td style="padding:8px 12px;color:var(--text2);white-space:nowrap;font-size:12px;">${dlEsc(pzt)}</td>
-      <td style="padding:8px 12px;"><span class="badge ${zCl}">${zLbl}</span></td>
+      <td style="padding:8px 12px;">${zBadge}</td>
       <td style="padding:8px 12px;white-space:nowrap;">${rowTours.length?rowTours.map(t=>`<span style="font-size:11px;font-weight:600;color:${t.color};">${dlEsc(t.name)}</span>`).join('<br>'):'<span style="color:var(--text3);font-size:12px;">–</span>'}</td>
       <td style="padding:8px 12px;color:var(--text2);white-space:nowrap;">${wLbl}</td>
       <td style="padding:8px 12px;color:var(--text2);font-family:'DM Mono',monospace;font-size:11px;white-space:nowrap;">${tree.datum||'–'}</td>
@@ -4032,9 +4144,7 @@ function renderTourenGrid(){
   grid.innerHTML=list.map(tour=>{
     const treesInTour=trees.filter(t=>treeInTour(t,tour.id));
     const cnt=treesInTour.length;
-    const gut=treesInTour.filter(t=>t.zustand==='gut').length;
-    const mittel=treesInTour.filter(t=>t.zustand==='mittel').length;
-    const schlecht=treesInTour.filter(t=>t.zustand==='schlecht').length;
+    const zCounts=rankList('zustand').map(e=>({label:e.label,farbe:e.farbe,n:treesInTour.filter(t=>(t.zustand||'')===e.id).length}));
     const rt=tourRoutes[tour.id];
     // In-Memory-Route bevorzugen (frisch nach Neuberechnung), sonst gespeicherte Tour-Kennzahlen
     const kmVal   = rt ? rt.km          : (typeof tour.routeKm==='number'      ? tour.routeKm      : null);
@@ -4044,10 +4154,8 @@ function renderTourenGrid(){
     const bewZeit=kmVal!=null?fmtBewTime(cnt):'–';
     const gesamtZeit=driveVal?fmtTotalTime(driveVal,cnt):'–';
     const bar=cnt>0?`<div style="display:flex;height:6px;border-radius:3px;overflow:hidden;gap:1px;width:120px;">
-      ${gut>0?`<div style="flex:${gut};background:var(--green);" title="${gut} gut"></div>`:''}
-      ${mittel>0?`<div style="flex:${mittel};background:var(--amber);" title="${mittel} mittel"></div>`:''}
-      ${schlecht>0?`<div style="flex:${schlecht};background:var(--red);" title="${schlecht} schlecht"></div>`:''}
-      </div><div style="font-size:10px;color:var(--text3);margin-top:2px;">${gut}g · ${mittel}m · ${schlecht}s</div>`
+      ${zCounts.filter(z=>z.n>0).map(z=>`<div style="flex:${z.n};background:${z.farbe};" title="${z.n} ${dlEsc(z.label)}"></div>`).join('')}
+      </div><div style="font-size:10px;color:var(--text3);margin-top:2px;">${zCounts.filter(z=>z.n>0).map(z=>z.n+' '+dlEsc(z.label)).join(' · ')||'–'}</div>`
       :'<span style="color:var(--text3);font-size:12px;">–</span>';
     return `<tr style="border-top:1px solid var(--border);" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''">
       <td style="padding:10px 16px;"><div style="width:14px;height:14px;border-radius:3px;background:${tour.color};flex-shrink:0;"></div></td>
@@ -5711,7 +5819,7 @@ async function exportHistoryCSV(histId){
   const header='Tour;Datum;Fahrer;Anlage/Straße;Stadtteil;Baumart;Baumnr.;Status;Grund;Notiz;Zustand;Wasserbedarf';
   const rows=h.trees.map(t=>[
     h.tourName,h.date,t.lastDriver||'',t.name||'',t.stadtteil||'',t.art||'',t.baumnr||'',
-    t.lastStatus||'offen',t.lastReason||'',t.lastNote||'',t.zustand||'',t.wasser||''
+    t.lastStatus||'offen',t.lastReason||'',t.lastNote||'',rankLabel('zustand',t.zustand),rankLabel('wasser',t.wasser)
   ].map(v=>`"${(v||'').replace(/"/g,'""')}"`).join(';')).join('\n');
   const blob=new Blob(['\uFEFF'+header+'\n'+rows],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a');
@@ -6991,7 +7099,6 @@ function kiReports(from,to){
 function buildKiContext(range){
   if(!currentProjectId) return 'Kein Projekt geöffnet.';
   const active=trees.filter(isActive);
-  const cntZ=k=>active.filter(t=>t.zustand===k).length;
   const grp=(arr,key,top)=>{ const m={}; arr.forEach(t=>{const v=key(t)||'—';m[v]=(m[v]||0)+1;}); let e=Object.entries(m).sort((a,b)=>b[1]-a[1]); if(top)e=e.slice(0,top); return e.map(([k,n])=>`${k}: ${n}`).join(', '); };
   const r=range||kiComputeRange('all');
   const reps=kiReports(r.from,r.to);
@@ -7005,7 +7112,7 @@ function buildKiContext(range){
     `Projekt: ${currentProjectData?.name||currentProjectId}`,
     `Auswertungszeitraum: ${r.label}${r.from?` (${fmtDateDE(r.from)} bis ${fmtDateDE(r.to)})`:''}`,
     `Objekte gesamt (aktiv): ${active.length}`,
-    `Zustand (Bestand): gut ${cntZ('gut')}, mittel ${cntZ('mittel')}, schlecht ${cntZ('schlecht')}`,
+    `${FL.zustand} (Bestand): ${rankList('zustand').map(e=>`${e.label} ${active.filter(t=>(t.zustand||'')===e.id).length}`).join(', ')}`,
     `Meldungen im Zeitraum: ${reps.length} gesamt — bewässert ${bew}, nicht bewässert ${nicht}; betroffene Objekte: ${objMitMeldung}; ohne Meldung im Zeitraum: ${active.length-objMitMeldung}`,
     `Gründe „nicht bewässert" (Zeitraum): ${gruende}`,
     `„Nicht bewässert" je Stadtteil (Zeitraum): ${nichtStadtteil}`,
@@ -7490,6 +7597,7 @@ Object.assign(window,{
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
   renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,
+  rankAdd,rankRename,rankSetColor,rankMove,rankMerge,rankDelete,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,clearLassoSelection,
   createProject,openProject,showProjectScreen,psSetOrgFilter,setSiTab,
