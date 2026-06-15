@@ -2036,6 +2036,10 @@ function openDetail(id){
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 6.9 8 11.7z"/></svg>
       Position setzen
     </button>` : ''}
+    ${(!noCoords && canEditObjects()) ? `<button class="btn btn-secondary" style="flex:1;" onclick="startMoveObject('${id}')" title="Standort auf der Karte korrigieren">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20"/></svg>
+      Verschieben
+    </button>` : ''}
     <button class="btn btn-secondary" style="flex:1;" onclick="openEditTree('${id}')">Bearbeiten</button>`;
   switchDetailTab('details');
   const _vb = document.getElementById('panel-body-verlauf');
@@ -2558,6 +2562,79 @@ function cancelMode(){
   map.getContainer().style.cursor='';
   document.getElementById('mode-banner').classList.remove('visible');
 }
+
+// ─── OBJEKT VERSCHIEBEN (sensibel: zweistufig — Position wählen, dann bestätigen) ──
+let _moveState=null;
+function startMoveObject(treeId){
+  if(currentView!=='karte'){ switchView('karte'); setTimeout(()=>startMoveObject(treeId),80); return; }
+  const tree=trees.find(t=>t.id===treeId);
+  if(!tree||!tree.lat||!tree.lng){ notify('Objekt hat noch keine Position'); return; }
+  if(_moveState) _cleanupMove();
+  closePanel();
+  const old=[tree.lat,tree.lng];
+  if(mapMarkers[treeId]) map.removeLayer(mapMarkers[treeId]); // echten Marker während des Verschiebens ausblenden
+  const tour=primaryTour(tree); const color=tour?tour.color:'#6b6760';
+  const sz=Math.round(markerSize*1.25);
+  const ic=L.divIcon({className:'',html:`<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:${color};border:3px solid #fff;box-shadow:0 0 0 3px ${color},0 4px 12px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;font-size:${Math.round(sz*0.5)}px;cursor:move;">${objIcon(tree)}</div>`,iconSize:[sz,sz],iconAnchor:[sz/2,sz/2]});
+  const ghost=L.circleMarker(old,{radius:9,color:'#6b6760',fillColor:'#6b6760',fillOpacity:.3,weight:2,opacity:.5,interactive:false}).addTo(map);
+  const preview=L.marker(old,{draggable:true,zIndexOffset:1500,icon:ic}).addTo(map);
+  _moveState={treeId,old,name:tree.name||'Objekt',ghost,preview,line:null,cur:old};
+  preview.on('drag',()=>_setMovePreview(preview.getLatLng(),true));
+  preview.on('dragend',()=>_setMovePreview(preview.getLatLng()));
+  map.on('click',_moveMapClick);
+  map.getContainer().style.cursor='crosshair';
+  renderMoveBar();
+}
+function _moveMapClick(e){ if(!_moveState) return; _moveState.preview.setLatLng(e.latlng); _setMovePreview(e.latlng); }
+function _setMovePreview(latlng,dragging){
+  if(!_moveState) return;
+  _moveState.cur=[latlng.lat,latlng.lng];
+  const pts=[_moveState.old,_moveState.cur];
+  if(_moveState.line) _moveState.line.setLatLngs(pts);
+  else _moveState.line=L.polyline(pts,{color:'#374151',weight:2,dashArray:'5 4',opacity:.7,interactive:false}).addTo(map);
+  if(!dragging) renderMoveBar();
+}
+function renderMoveBar(){
+  const bar=document.getElementById('move-bar'); if(!bar||!_moveState) return;
+  const moved=_moveState.cur[0]!==_moveState.old[0]||_moveState.cur[1]!==_moveState.old[1];
+  if(!moved){
+    bar.innerHTML=`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20"/></svg>
+      <span>Neue Position für „${dlEsc(_moveState.name)}" — auf die Karte klicken oder Marker ziehen</span>
+      <button onclick="cancelMoveObject()" style="padding:3px 11px;font-size:12px;border:1px solid rgba(255,255,255,.4);background:rgba(255,255,255,.12);color:#fff;border-radius:6px;cursor:pointer;font-family:inherit;">Abbrechen</button>`;
+  } else {
+    const d=map.distance(_moveState.old,_moveState.cur);
+    const dTxt=d<1000?Math.round(d)+' m':(d/1000).toFixed(2)+' km';
+    bar.innerHTML=`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 3 3 21M21 3v6M21 3h-6"/></svg>
+      <span>Verschoben um <b style="font-weight:700;">${dTxt}</b></span>
+      <button onclick="saveMoveObject()" style="padding:4px 13px;font-size:12px;font-weight:600;border:none;background:var(--green-mid);color:#fff;border-radius:6px;cursor:pointer;font-family:inherit;">Speichern</button>
+      <button onclick="cancelMoveObject()" style="padding:4px 11px;font-size:12px;border:1px solid rgba(255,255,255,.4);background:rgba(255,255,255,.12);color:#fff;border-radius:6px;cursor:pointer;font-family:inherit;">Abbrechen</button>`;
+  }
+  bar.style.display='flex';
+}
+async function saveMoveObject(){
+  if(!_moveState) return;
+  const {treeId,cur,old}=_moveState;
+  if(cur[0]===old[0]&&cur[1]===old[1]){ cancelMoveObject(); return; }
+  const lat=parseFloat(cur[0].toFixed(7)), lng=parseFloat(cur[1].toFixed(7));
+  const tree=trees.find(t=>t.id===treeId); if(tree){ tree.lat=lat; tree.lng=lng; } // sofort lokal, damit der Marker direkt richtig sitzt
+  _cleanupMove();
+  try{
+    await updateDoc(doc(db,'projects',currentProjectId,'trees',treeId),{lat,lng});
+    notify(`✓ Standort verschoben: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+  }catch(e){ console.warn('Verschieben',e); notify('Fehler beim Speichern: '+(e.message||e)); }
+}
+function cancelMoveObject(){ if(!_moveState) return; _cleanupMove(); notify('Verschieben abgebrochen'); }
+function _cleanupMove(){
+  if(!_moveState) return;
+  const {treeId,ghost,preview,line}=_moveState;
+  [ghost,preview,line].forEach(l=>{ if(l) map.removeLayer(l); });
+  map.off('click',_moveMapClick);
+  map.getContainer().style.cursor='';
+  const bar=document.getElementById('move-bar'); if(bar) bar.style.display='none';
+  _moveState=null;
+  remakeMarkers([treeId]); // echten Marker wiederherstellen (an alter bzw. bereits aktualisierter Position)
+}
+function canEditObjects(){ return currentCap==='admin'||currentCap==='editor'||currentRole==='superadmin'; }
 
 
 let _lassoActive = false;
@@ -7145,7 +7222,7 @@ Object.assign(window,{
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
   renderRollenView,saveRole,addRole,deleteRole,toggleBenutzerRollen,toggleBenutzerTouren,changeBenutzerOrg,changeDtaProject,renderUsage,exportUsageCSV,
-  startGpsPlacement,toggleFilterNoGps,updateBtnFilterNoGps,
+  startGpsPlacement,startMoveObject,saveMoveObject,cancelMoveObject,toggleFilterNoGps,updateBtnFilterNoGps,
   saveFieldLabels, migrateTourIds,
   doLogin, doLogout, toggleLoginMode,
 });
