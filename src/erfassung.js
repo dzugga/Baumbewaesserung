@@ -798,6 +798,33 @@ async function saveKoordPosition() {
   }
 }
 
+// ─── WERTELISTEN (aus Projekt-Doc; gleiche Felder wie Desktop) ───────
+const RANK_SEED_E = {
+  zustand: [{ id:'gut', label:'Gut' }, { id:'mittel', label:'Mittel' }, { id:'schlecht', label:'Schlecht' }],
+  wasser:  [{ id:'gering', label:'Gering' }, { id:'mittel', label:'Mittel' }, { id:'hoch', label:'Hoch' }],
+};
+function _rankE(fk) { const l = currentProjectData?.listValues?.[fk]; return (l && l.length) ? [...l].sort((a,b)=>(a.rang||0)-(b.rang||0)) : (RANK_SEED_E[fk]||[]); }
+function _customE() { return currentProjectData?.customFields || []; }
+function _listOptsE(fk, cur) {
+  let labels = [...new Set((currentProjectData?.listValues?.[fk]||[]).map(e=>e.label).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  cur = (cur||'').trim();
+  if (cur && !labels.includes(cur)) labels.unshift(cur);
+  return `<option value="">— bitte wählen —</option>` + labels.map(n=>`<option value="${esc(n)}"${n===cur?' selected':''}>${esc(n)}</option>`).join('');
+}
+function _rankOptsE(fk, cur) {
+  return _rankE(fk).map(e=>`<option value="${esc(e.id)}"${e.id===cur?' selected':''}>${esc(e.label)}</option>`).join('');
+}
+// Listen-Dropdowns des Formulars füllen; t=null → Neuanlage (Standardwerte)
+function populateErfForm(t) {
+  const z = document.getElementById('f-zustand'); if (z) z.innerHTML = _rankOptsE('zustand', t ? (t.zustand||'mittel') : 'mittel');
+  const w = document.getElementById('f-wasser');  if (w) w.innerHTML = _rankOptsE('wasser',  t ? (t.wasser||t.wasserbedarf||'mittel') : 'mittel');
+  const s = document.getElementById('f-stadtteil'); if (s) s.innerHTML = _listOptsE('stadtteil', t ? t.stadtteil : '');
+  const j = document.getElementById('f-pflanzjahr'); if (j) j.innerHTML = _listOptsE('pflanzjahr', t ? t.pflanzjahr : '');
+  const p = document.getElementById('f-pflanzzeitpunkt'); if (p) p.innerHTML = _listOptsE('pflanzzeitpunkt', t ? t.pflanzzeitpunkt : '');
+  const wrap = document.getElementById('f-custom-fields');
+  if (wrap) wrap.innerHTML = _customE().map(c=>`<div class="field-group"><label class="field-label">${esc(c.label)}</label><select class="field-input" id="f-${c.key}">${_listOptsE(c.key, t ? t[c.key] : '')}</select></div>`).join('');
+}
+
 // ─── MODUS 1: NEUER BAUM ─────────────────────────────────────
 function openFormSheet() {
   formMode = 'new';
@@ -807,11 +834,10 @@ function openFormSheet() {
   document.getElementById('form-coords-display').textContent =
     `📍 ${pendingCoords.lat.toFixed(5)}, ${pendingCoords.lng.toFixed(5)}`;
   // Felder leeren
-  ['f-name','f-stadtteil','f-baumnr','f-art','f-pflanzjahr','f-pflanzzeitpunkt','f-notiz'].forEach(id => {
+  ['f-name','f-baumnr','f-art','f-notiz'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
-  document.getElementById('f-zustand').value = 'mittel';
-  document.getElementById('f-wasser').value = 'mittel';
+  populateErfForm(null);
   clearPendingPhotos();
   const ff = document.getElementById('foto-field'); if (ff) ff.style.display = '';
   document.getElementById('form-backdrop').classList.add('open');
@@ -832,17 +858,13 @@ function closeFormSheet() {
 // Formularfelder aus einem Baum befüllen / auslesen (gemeinsam für alle Edit-Modi)
 function fillFormFromTree(t) {
   document.getElementById('f-name').value = t.name || '';
-  document.getElementById('f-stadtteil').value = t.stadtteil || '';
   document.getElementById('f-baumnr').value = t.baumnr || '';
   document.getElementById('f-art').value = t.art || '';
-  document.getElementById('f-pflanzjahr').value = t.pflanzjahr || '';
-  document.getElementById('f-pflanzzeitpunkt').value = t.pflanzzeitpunkt || '';
-  document.getElementById('f-zustand').value = t.zustand || 'mittel';
-  document.getElementById('f-wasser').value = t.wasser || t.wasserbedarf || 'mittel';
   document.getElementById('f-notiz').value = t.notiz || '';
+  populateErfForm(t);
 }
 function collectFormEdits() {
-  return {
+  const o = {
     name: document.getElementById('f-name').value.trim(),
     stadtteil: document.getElementById('f-stadtteil').value,
     baumnr: document.getElementById('f-baumnr').value,
@@ -853,6 +875,8 @@ function collectFormEdits() {
     wasser: document.getElementById('f-wasser').value,
     notiz: document.getElementById('f-notiz').value,
   };
+  _customE().forEach(c=>{ const el=document.getElementById('f-'+c.key); o[c.key]=el?el.value:''; });
+  return o;
 }
 
 // Eigenschaften des gewählten Baums bearbeiten (Koordinaten-Reiter) –
@@ -993,6 +1017,7 @@ async function saveNewTree() {
     createdAt: new Date().toISOString(),
     orgId,
   };
+  _customE().forEach(c=>{ const el=document.getElementById('f-'+c.key); data[c.key]=el?el.value:''; });
 
   // Fotos übernehmen (Strip leeren, damit nächstes Objekt sauber startet)
   const photoBlobs = pendingPhotos.map(p => p.blob);

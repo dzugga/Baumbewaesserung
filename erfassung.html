@@ -336,7 +336,7 @@ button,input,select{touch-action:manipulation;}
     <div class="field-row-2">
       <div class="field-group">
         <label class="field-label">Stadtteil</label>
-        <input class="field-input" id="f-stadtteil" placeholder="z.B. Mitte">
+        <select class="field-input" id="f-stadtteil"></select>
       </div>
       <div class="field-group">
         <label class="field-label">Nr.</label>
@@ -350,35 +350,28 @@ button,input,select{touch-action:manipulation;}
     <div class="field-row-2">
       <div class="field-group">
         <label class="field-label">Jahr</label>
-        <input class="field-input" id="f-pflanzjahr" placeholder="z.B. 2023" type="text" inputmode="numeric">
+        <select class="field-input" id="f-pflanzjahr"></select>
       </div>
       <div class="field-group">
         <label class="field-label">Zeitpunkt</label>
-        <input class="field-input" id="f-pflanzzeitpunkt" placeholder="z.B. 15.03.2023">
+        <select class="field-input" id="f-pflanzzeitpunkt"></select>
       </div>
     </div>
     <div class="field-row-2">
       <div class="field-group">
         <label class="field-label">Zustand</label>
-        <select class="field-input" id="f-zustand">
-          <option value="gut">Gut</option>
-          <option value="mittel" selected>Mittel</option>
-          <option value="schlecht">Schlecht</option>
-        </select>
+        <select class="field-input" id="f-zustand"></select>
       </div>
       <div class="field-group">
         <label class="field-label">Bedarf</label>
-        <select class="field-input" id="f-wasser">
-          <option value="gering">Gering</option>
-          <option value="mittel" selected>Mittel</option>
-          <option value="hoch">Hoch</option>
-        </select>
+        <select class="field-input" id="f-wasser"></select>
       </div>
     </div>
     <div class="field-group">
       <label class="field-label">Notiz</label>
       <input class="field-input" id="f-notiz" placeholder="Freitext…">
     </div>
+    <div id="f-custom-fields"></div>
     <div class="field-group" id="foto-field">
       <label class="field-label">Fotos</label>
       <div id="foto-strip" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;"></div>

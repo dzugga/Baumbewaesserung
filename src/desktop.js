@@ -1246,6 +1246,7 @@ function objMatchesPropFilter(t){
   if(f.pflanzjahr && (t.pflanzjahr??'').toString()!==f.pflanzjahr) return false;
   if(f.zustand && (t.zustand||'')!==f.zustand) return false;
   if(f.wasser && (t.wasser||'')!==f.wasser) return false;
+  for(const c of customFields){ if(f[c.key] && (t[c.key]||'')!==f[c.key]) return false; }
   if(f.status==='offen' && t.lastStatus) return false;
   if(f.status==='bewaessert' && t.lastStatus!=='bewaessert') return false;
   if(f.status==='nicht' && t.lastStatus!=='nicht') return false;
@@ -1283,6 +1284,7 @@ function renderObjFilterUI(){
       <select id="of-zustand" style="${ss}">${optRank('zustand',objFilter.zustand,'Alle '+FL.zustand)}</select>
       <select id="of-wasser" style="${ss}">${optRank('wasser',objFilter.wasser,'Alle '+FL.wasser)}</select>
       <select id="of-status" style="${ss}"><option value="">Alle Status</option><option value="bewaessert"${objFilter.status==='bewaessert'?' selected':''}>✓ Erledigt</option><option value="nicht"${objFilter.status==='nicht'?' selected':''}>✕ Nicht erledigt</option><option value="offen"${objFilter.status==='offen'?' selected':''}>○ Offen</option></select>
+      ${customFields.map(c=>`<select id="of-cf-${c.key}" style="${ss}">${opt(distinct(c.key),objFilter[c.key]||'','Alle: '+esc(c.label))}</select>`).join('')}
     </div>
     <label style="display:flex;align-items:center;gap:6px;margin-top:7px;font-size:11px;cursor:pointer;color:var(--text2);">
       <input type="checkbox" id="of-map"${objFilterOnMap?' checked':''}> Nur gefilterte auf der Karte zeigen
@@ -1290,6 +1292,7 @@ function renderObjFilterUI(){
   </div>`;
   const wire={stadtteil:'of-stadtteil',art:'of-art',pflanzjahr:'of-pflanzjahr',zustand:'of-zustand',wasser:'of-wasser',status:'of-status'};
   Object.entries(wire).forEach(([k,id])=>{ const s=document.getElementById(id); if(s) s.onchange=()=>{ objFilter[k]=s.value; applyObjFilter(); renderObjFilterUI(); }; });
+  customFields.forEach(c=>{ const s=document.getElementById('of-cf-'+c.key); if(s) s.onchange=()=>{ objFilter[c.key]=s.value; applyObjFilter(); renderObjFilterUI(); }; });
   const mp=document.getElementById('of-map'); if(mp) mp.onchange=()=>{ objFilterOnMap=mp.checked; setMarkerVisibility(); };
   const rb=el.querySelector('[data-action="reset-objfilter"]'); if(rb) rb.onclick=()=>resetObjFilter();
   const fb=document.getElementById('btn-toggle-filter'); if(fb) fb.style.borderColor=active?'var(--green)':'var(--border)';
@@ -1987,6 +1990,7 @@ function openDetail(id){
     ${drow(FL.art,tree.art,'font-style:italic;')}
     ${drow(FL.pflanzjahr,tree.pflanzjahr)}
     ${drow(FL.pflanzzeitpunkt||'Pflanzzeitpunkt',tree.pflanzzeitpunkt)}
+    ${customFields.map(c=>drow(c.label,tree[c.key])).join('')}
 
     <div class="form-section">Pflege</div>
     <div class="detail-field" style="padding:4px 0;">
@@ -4034,6 +4038,7 @@ function renderBaeumeTableWith(treeList){
     {label:FL.art,           w:'180px'},
     {label:FL.pflanzjahr,    w:'100px'},
     {label:FL.pflanzzeitpunkt,w:'140px'},
+    ...customFields.map(c=>({label:c.label,w:'120px'})),
     {label:FL.zustand,       w:'80px'},
     {label:'Tour',           w:'110px'},
     {label:FL.wasser,        w:'100px'},
@@ -4066,6 +4071,7 @@ function renderBaeumeTableWith(treeList){
       <td style="padding:8px 12px;color:var(--text2);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${dlEsc(tree.art||'')}">${dlEsc(tree.art||'–')}</td>
       <td style="padding:8px 12px;color:var(--text2);white-space:nowrap;">${dlEsc(tree.pflanzjahr||'–')}</td>
       <td style="padding:8px 12px;color:var(--text2);white-space:nowrap;font-size:12px;">${dlEsc(pzt)}</td>
+      ${customFields.map(c=>`<td style="padding:8px 12px;color:var(--text2);white-space:nowrap;font-size:12px;max-width:160px;overflow:hidden;text-overflow:ellipsis;" title="${dlEsc(tree[c.key]||'')}">${dlEsc(tree[c.key]||'–')}</td>`).join('')}
       <td style="padding:8px 12px;">${zBadge}</td>
       <td style="padding:8px 12px;white-space:nowrap;">${rowTours.length?rowTours.map(t=>`<span style="font-size:11px;font-weight:600;color:${t.color};">${dlEsc(t.name)}</span>`).join('<br>'):'<span style="color:var(--text3);font-size:12px;">–</span>'}</td>
       <td style="padding:8px 12px;color:var(--text2);white-space:nowrap;">${wLbl}</td>
