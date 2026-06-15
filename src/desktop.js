@@ -1989,8 +1989,19 @@ function selectTree(id, pan=true){
 }
 
 // ─── DETAIL PANEL ─────────────────────────────────────────────
+// Detail-Leiste in die GERADE AKTIVE Ansicht einhängen (Karte ODER Disposition),
+// damit sie z. B. in der Füllstandsplanung ohne Ansichtswechsel erscheint.
+// In der Karte „wohnt" sie weiter an ihrem Ursprungsort → dort unverändertes Verhalten.
+let _detailHome=null;
+function _mountDetailPanel(){
+  const p=document.getElementById('detail-panel'); if(!p) return;
+  if(!_detailHome) _detailHome=p.parentNode;
+  const target=(currentView==='disposition')?document.getElementById('view-disposition'):_detailHome;
+  if(target && p.parentNode!==target) target.appendChild(p);
+}
 function openDetail(id){
   const tree=trees.find(t=>t.id===id);if(!tree)return;
+  _mountDetailPanel();
   selectedTreeId=id;renderList();
   const tour=primaryTour(tree);
   const _zE=tree.zustand?rankEntry('zustand',tree.zustand):null;
@@ -7119,8 +7130,7 @@ function dispoResetDepot(id){
 // Echtmodus: Objekt-Eigenschaften wie in der manuellen Planung öffnen (echte Körbe = echte Objekte)
 function dispoOpenObjectDetail(id){
   if(!trees.find(t=>t.id===id)){ notify('Objekt nicht gefunden (nur bei echten Füllständen verfügbar)'); return; }
-  switchView('karte');
-  setTimeout(()=>{ try{ openDetail(id); }catch(e){ console.warn('dispoOpenObjectDetail',e); } }, 80);
+  try{ openDetail(id); }catch(e){ console.warn('dispoOpenObjectDetail',e); } // Leiste erscheint in der Dispo (kein Ansichtswechsel)
 }
 function dispoRenderMap(){
   const L=window.L, wrap=document.getElementById('dispo-map'); if(!L||!wrap) return;
