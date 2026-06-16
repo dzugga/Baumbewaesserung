@@ -636,8 +636,8 @@ function fmtBewTime(arg){
   const h=Math.floor(mins/60), m=mins%60;
   return h>0?`${h}h ${m}min`:`${m} min`;
 }
-function fmtTotalTime(driveSec,arg){
-  const total=Math.round(driveSec/60)+Math.round(bewMinutes(arg));
+function fmtTotalTime(driveSec,arg,extraMin){
+  const total=Math.round(driveSec/60)+Math.round(bewMinutes(arg))+(extraMin||0);
   const h=Math.floor(total/60), m=total%60;
   return h>0?`${h}h ${m}min`:`${m} min`;
 }
@@ -1230,15 +1230,15 @@ function updateRouteInfoBar(){
   if(bar) bar.classList.remove('visible'); // schwebende Routen-Info-Leiste entfernt — Infos im Seitenpanel
   // Mehrere Touren ausgewählt → kompakte Summe
   if(activeTours.size>1){
-    let km=0,dur=0; activeTours.forEach(tid=>{ const m=tourMetrics(tid); if(m){ km+=m.km; dur+=m.durationSec; } });
+    let km=0,dur=0,zusAll=0; activeTours.forEach(tid=>{ const m=tourMetrics(tid); if(m){ km+=m.km; dur+=m.durationSec; } const tt=tours.find(x=>x.id===tid); if(tt) zusAll+=tourZusatzMin(tt); });
     const tl=trees.filter(t=>treeInAnyActiveTour(t)&&t.lat&&t.lng); const cnt=tl.length;
     txt.textContent=`${activeTours.size} Touren · ${cnt} Objekte${km?` · Σ ${km.toFixed(1)} km${dur?' · '+fmtDuration(dur)+' Fahrt':''}`:''}`;
     if(sidePanel){
       document.getElementById('sidebar-route-tour-name').textContent=`${activeTours.size} Touren`;
       document.getElementById('sidebar-route-km').textContent=km?km.toFixed(1)+' km':'–';
       document.getElementById('sidebar-route-drive').textContent=dur?fmtDuration(dur):'–';
-      document.getElementById('sidebar-route-taet').textContent=cnt?fmtBewTime(tl):'–';
-      document.getElementById('sidebar-route-total').textContent=km?fmtTotalTime(dur,tl):'–';
+      document.getElementById('sidebar-route-taet').textContent=cnt?(fmtBewTime(tl)+(zusAll>0?' + '+fmtMin(zusAll)+' Zusatz':'')):'–';
+      document.getElementById('sidebar-route-total').textContent=km?fmtTotalTime(dur,tl,zusAll):'–';
       document.getElementById('sidebar-route-cnt').textContent=cnt+' Objekte';
       sidePanel.style.display='block';
     }
@@ -1250,10 +1250,11 @@ function updateRouteInfoBar(){
     const tour=tours.find(t=>t.id===activeTourOnMap);
     const tl=trees.filter(t=>treeInTour(t,activeTourOnMap)&&t.lat&&t.lng); const cnt=tl.length;
     const depot=getDepot();
+    const _zus=tourZusatzMin(tour);
     const _bewT=fmtBewTime(tl);
-    const _totT=fmtTotalTime(durationSec,tl);
-    txt.textContent=`${tour?.name||''} · ${cnt} Objekte · ${km.toFixed(1)} km · ${fmtDuration(durationSec)} Fahrt + ${_bewT} Bew. = ${_totT}${depot?' (inkl. Depot)':''}`;
-    const bewTime=_bewT;
+    const _totT=fmtTotalTime(durationSec,tl,_zus);
+    txt.textContent=`${tour?.name||''} · ${cnt} Objekte · ${km.toFixed(1)} km · ${fmtDuration(durationSec)} Fahrt + ${_bewT} Bew.${_zus>0?' + '+fmtMin(_zus)+' Zusatz':''} = ${_totT}${depot?' (inkl. Depot)':''}`;
+    const bewTime=_bewT+(_zus>0?' + '+fmtMin(_zus)+' Zusatz':'');
     const totalTime=_totT;
     document.getElementById('sidebar-route-tour-name').textContent=tour?.name||'';
     document.getElementById('sidebar-route-km').textContent=km.toFixed(1)+' km';
@@ -1653,7 +1654,7 @@ function renderLegend(){
   function tourRow(t){
     const _tm=tourMetrics(t.id);
     const tl=trees.filter(x=>treeInTour(x,t.id)&&x.lat&&x.lng&&isActive(x)); const cnt=tl.length;
-    const total=_tm?fmtTotalTime(_tm.durationSec,tl):'';
+    const total=_tm?fmtTotalTime(_tm.durationSec,tl,tourZusatzMin(t)):'';
     const isSel=activeTours.has(t.id);
     const isExp=legendExpanded.has(t.id);
     // Übersichtstouren: kein Aufklapp-Pfeil (keine Route/Zeiten), nur Objektzahl
@@ -1679,10 +1680,10 @@ function renderLegend(){
           </div>
           <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:1px;">
             <span>${_tm.km.toFixed(1)} km</span><span>${cnt} Objekte</span>
-          </div>${(()=>{const z=tourZusatzMin(t);const rz=tourRestzeit(t,tl,_tm.durationSec);return rz?`
-          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:1px;border-top:1px solid var(--border);padding-top:2px;">
-            <span>${z>0?'Zusatz '+fmtMin(z)+' · ':''}AZ ${fmtMin(rz.azMin)}</span><span style="font-weight:700;color:${rz.restMin<0?'var(--red)':'var(--green-strong,#15803d)'};" title="Arbeitszeit − Fahrt − Tätigkeit − Zusatz">Restzeit ${fmtMin(rz.restMin)}</span>
-          </div>`:''})()}
+          </div>${(()=>{const z=tourZusatzMin(t);const rz=tourRestzeit(t,tl,_tm.durationSec);let out='';
+          if(z>0) out+=`<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:1px;"><span>Zusatztätigkeiten</span><span>${fmtMin(z)}</span></div>`;
+          if(rz) out+=`<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:1px;border-top:1px solid var(--border);padding-top:2px;"><span>Arbeitszeit ${fmtMin(rz.azMin)}</span><span style="font-weight:700;color:${rz.restMin<0?'var(--red)':'var(--green-strong,#15803d)'};" title="Arbeitszeit − Fahrt − Tätigkeit − Zusatz">Restzeit ${fmtMin(rz.restMin)}</span></div>`;
+          return out;})()}
         </div>`;
       } else {
         r+=`<div data-tourname="${(t.name||'').toLowerCase().replace(/"/g,'&quot;')}" style="margin:0 6px 4px 30px;padding:5px 8px;background:var(--surface2);border-radius:6px;font-size:10px;color:var(--text3);">
@@ -4435,13 +4436,14 @@ function renderTourenGrid(){
     const km=kmVal!=null?kmVal.toFixed(1)+' km':'–';
     const driveZeit=driveVal?fmtDuration(driveVal):'–';
     const bewZeit=kmVal!=null?fmtBewTime(treesInTour):'–';
-    const gesamtZeit=driveVal?fmtTotalTime(driveVal,treesInTour):'–';
     const _zusMin=tourZusatzMin(tour);
+    const gesamtZeit=driveVal?fmtTotalTime(driveVal,treesInTour,_zusMin):'–';
     const _rz=tourRestzeit(tour,treesInTour,driveVal);
     const _violCnt=tourViolatingTrees(tour).length;
     const _rulesActive=tourHasRules(tour);
+    const zusLine=_zusMin>0?`
+        <div style="color:var(--text2);">${fmtMin(_zusMin)} <span style="color:var(--text3);font-size:10px;">Zusatz</span></div>`:'';
     const restBlock=_rz?`
-        ${_zusMin>0?`<div style="color:var(--text2);">${fmtMin(_zusMin)} <span style="color:var(--text3);font-size:10px;">Zusatz</span></div>`:''}
         <div style="color:var(--text2);">${fmtMin(_rz.azMin)} <span style="color:var(--text3);font-size:10px;">Arbeitszeit</span></div>
         <div style="font-weight:700;color:${_rz.restMin<0?'var(--red)':'var(--green-strong,#15803d)'};" title="Arbeitszeit − Fahrt − Bearbeitung − Zusatztätigkeiten${_rz.restMin<0?' (Tour überbucht)':''}">${fmtMin(_rz.restMin)} <span style="font-size:10px;font-weight:600;">Restzeit</span></div>`:'';
     const bar=cnt>0?`<div style="display:flex;height:6px;border-radius:3px;overflow:hidden;gap:1px;width:120px;">
@@ -4457,7 +4459,7 @@ function renderTourenGrid(){
       <td style="padding:10px 16px;text-align:right;color:var(--text2);font-size:12px;">${km}</td>
       <td style="padding:10px 16px;text-align:right;font-size:12px;">
         <div style="color:var(--text2);">${driveZeit} <span style="color:var(--text3);font-size:10px;">Fahrt</span></div>
-        <div style="color:var(--text2);">${bewZeit} <span style="color:var(--text3);font-size:10px;">Bew.</span></div>
+        <div style="color:var(--text2);">${bewZeit} <span style="color:var(--text3);font-size:10px;">Bew.</span></div>${zusLine}
         <div style="font-weight:600;color:var(--text);">${gesamtZeit} <span style="color:var(--text3);font-size:10px;">Gesamt</span></div>${restBlock}
       </td>
       <td style="padding:10px 16px;">
