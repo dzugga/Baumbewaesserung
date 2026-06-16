@@ -94,7 +94,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .tree-item{padding:10px 16px;cursor:pointer;border-left:3px solid transparent;transition:background .12s;display:flex;align-items:flex-start;gap:10px}
 .tree-item:hover{background:var(--surface2)}
 .tree-item.selected{background:var(--green-light);border-left-color:var(--green)}
-.tree-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:16px}
+.tree-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:16px;position:relative}
+.tree-seq{position:absolute;bottom:-4px;right:-4px;min-width:16px;height:16px;padding:0 3px;border-radius:8px;color:#fff;font-size:9px;font-weight:700;font-family:'DM Mono',monospace;display:flex;align-items:center;justify-content:center;line-height:1;box-shadow:0 0 0 1.5px var(--surface);box-sizing:border-box}
 .tree-info{flex:1;min-width:0}
 .tree-name{font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tree-meta{font-size:11px;color:var(--text3);margin-top:2px}

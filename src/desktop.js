@@ -2036,25 +2036,26 @@ function renderList(){
     const tourMap=new Map(tours.map(t=>[t.id,t]));   // Perf: 1× statt tours.find pro Zeile
     const prevRn=_routeNumMap; _routeNumMap=buildRouteNumMap();
     try{
+    const nSel=activeTours.size;
     list.innerHTML=filtered.map(tree=>{
       const treeTours=getTreeTourIds(tree).map(id=>tourMap.get(id)).filter(Boolean);
       // Bei angezeigter Tour deren Farbe bevorzugen
       const primaryT=(activeTourOnMap&&treeTours.find(t=>t.id===activeTourOnMap))||treeTours[0]||null;
       const color=primaryT?.color||null;
       const bg=color?color+'22':'#f0ede6';
-      const rNum=getRouteNum(tree.id);
-      const numBadge=rNum!=null?`<span class="badge" style="background:${color||'#6b6760'}22;color:${color||'#6b6760'};font-family:monospace;">#${rNum}</span>`:'';
       const sel=selectedTreeId===tree.id?' selected':'';
-      const tourBadges=treeTours.map(t=>`<span class="badge" style="background:${t.color}22;color:${t.color};">${dlEsc(t.name)}</span>`).join('');
+      // Genau 1 Tour aktiv → Reihenfolgenummer als Badge auf dem Avatar (keine 3. Zeile, kein Tourname)
+      const rNum=nSel===1?getRouteNum(tree.id):null;
+      const seqBadge=rNum!=null?`<span class="tree-seq" style="background:${color||'#6b6760'};">${rNum}</span>`:'';
+      // Tour-Namen-Chips nur bei Mehrfachauswahl (da ist der Tourname relevant); bei 0/1 ausgeblendet
+      const tourBadges=nSel>=2?treeTours.map(t=>`<span class="badge" style="background:${t.color}22;color:${t.color};">${dlEsc(t.name)}</span>`).join(''):'';
+      const meta=[tree.art||'Unbekannt',tree.stadtteil].filter(Boolean).map(dlEsc).join(' · ');
       return `<div class="tree-item${sel}" data-treeid="${tree.id}">
-        <div class="tree-icon" style="background:${bg};">${objIcon(tree)}</div>
+        <div class="tree-icon" style="background:${bg};">${objIcon(tree)}${seqBadge}</div>
         <div class="tree-info">
           <div class="tree-name">${dlEsc(tree.name||'–')}</div>
-          <div class="tree-meta">${dlEsc(tree.art||'Unbekannt')} · ${dlEsc(tree.stadtteil||'')}</div>
-          <div class="tree-badges">
-            ${numBadge}
-            ${tourBadges}
-          </div>
+          <div class="tree-meta">${meta}</div>
+          ${tourBadges?`<div class="tree-badges">${tourBadges}</div>`:''}
         </div>
       </div>`;
     }).join('');
