@@ -783,6 +783,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <div id="t-zusatz-list" style="display:flex;flex-direction:column;gap:5px;"></div>
         <button type="button" class="btn btn-secondary" style="margin-top:6px;padding:4px 10px;font-size:12px;" onclick="tourZusatzAdd()">+ Tätigkeit</button>
       </div>
+      <div class="form-group">
+        <details id="t-regeln-details">
+          <summary style="cursor:pointer;font-size:13px;font-weight:600;color:var(--text);outline:none;">Zuordnungsregeln <span id="t-regeln-count" style="font-weight:400;color:var(--text3);"></span></summary>
+          <div style="font-size:11px;color:var(--text3);margin:6px 0 8px;line-height:1.5;">Lege fest, welche Objekte in diese Tour dürfen. Pro Feld die erlaubten Werte anklicken — nichts ausgewählt = alle erlaubt. Beim Zuweisen unpassender Objekte erscheint eine Warnung mit „Trotzdem zuweisen". Bestehende Zuordnungen bleiben bei Regeländerung erhalten (werden nur markiert).</div>
+          <div id="t-regeln-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+        </details>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeTourModal()">Abbrechen</button>

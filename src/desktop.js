@@ -661,6 +661,71 @@ function tourRestzeit(tour,treeList,driveSec){
   return {azMin:az,driveMin,bewMin,zusMin,usedMin,restMin:az-usedMin};
 }
 
+// ─── TOUR-RESTRIKTION (Zuordnungsregeln je Tour) ─────────────────
+// Welche Listenfelder lassen sich als Tour-Regel nutzen (mit Beschriftung).
+function tourRuleFieldDefs(){
+  const defs=[
+    {key:'stadtteil',label:FL.stadtteil},
+    {key:'art',label:FL.art},
+    {key:'pflanzjahr',label:FL.pflanzjahr},
+    {key:'pflanzzeitpunkt',label:FL.pflanzzeitpunkt},
+    {key:'zustand',label:FL.zustand},
+    {key:'wasser',label:FL.wasser},
+  ];
+  (customFields||[]).filter(c=>c&&c.aktiv!==false&&c.key).forEach(c=>defs.push({key:c.key,label:c.label||c.key}));
+  return defs;
+}
+// Auswählbare Werte eines Regelfeldes — in derselben Repräsentation wie am Objekt gespeichert
+// (zustand/wasser: ID; alle anderen: Label).
+function ruleFieldOptions(key){
+  if(isRankField(key)) return rankList(key).map(e=>({val:e.id,label:e.label,color:e.farbe}));
+  if(key==='art') return [...artenList].sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(a=>({val:a.name,label:a.name}));
+  const lv=listValues[key];
+  if(Array.isArray(lv)&&lv.length) return lv.map(e=>({val:e.label,label:e.label}));
+  return [...new Set(trees.map(t=>(t[key]??'').toString()).filter(Boolean))].sort().map(v=>({val:v,label:v}));
+}
+// Wert eines Objekts für ein Regelfeld (konsistent zur Filterlogik objMatchesPropFilter).
+function treeRuleValue(tree,key){ return (tree[key]??'').toString(); }
+// Verletzte Regelfelder eines Objekts gegen eine Tour (leeres Array = passt).
+function treeRuleViolations(tree,tour){
+  const reg=tour&&tour.regeln; if(!reg) return [];
+  const out=[];
+  for(const def of tourRuleFieldDefs()){
+    const allowed=reg[def.key];
+    if(!Array.isArray(allowed)||!allowed.length) continue; // keine Auswahl = alle erlaubt
+    if(!allowed.includes(treeRuleValue(tree,def.key))) out.push(def.label);
+  }
+  return out;
+}
+function treeMatchesTour(tree,tour){ return treeRuleViolations(tree,tour).length===0; }
+function tourHasRules(tour){ const r=tour&&tour.regeln; return !!r && Object.keys(r).some(k=>Array.isArray(r[k])&&r[k].length); }
+// Bereits zugewiesene Objekte, die die aktuellen Regeln der Tour verletzen.
+function tourViolatingTrees(tour){
+  if(!tourHasRules(tour)) return [];
+  return trees.filter(t=>treeInTour(t,tour.id) && !treeMatchesTour(t,tour));
+}
+// Warnung mit Override — Promise<true=trotzdem, false=abbrechen>.
+function ruleWarnDialog(bodyHtml, okLabel){
+  return new Promise(resolve=>{
+    const m=document.createElement('div');
+    m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10000;display:flex;align-items:center;justify-content:center;';
+    m.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:420px;max-width:92vw;overflow:hidden;">
+      <div style="padding:16px 20px 10px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;color:#b45309;">⚠ Passt nicht zu den Tour-Regeln</div>
+      <div style="padding:14px 20px;font-size:13px;color:var(--text2);line-height:1.6;">${bodyHtml}</div>
+      <div style="padding:10px 16px 16px;display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn btn-secondary" data-x="0">Abbrechen</button>
+        <button class="btn btn-primary" data-x="1">${okLabel||'Trotzdem zuweisen'}</button>
+      </div>
+    </div>`;
+    m.addEventListener('click',e=>{
+      if(e.target===m){ document.body.removeChild(m); resolve(false); return; }
+      const b=e.target.closest('[data-x]'); if(!b) return;
+      document.body.removeChild(m); resolve(b.dataset.x==='1');
+    });
+    document.body.appendChild(m);
+  });
+}
+
 function getDepotMode(){ return currentProjectData?.depotMode||'round'; }
 // Routen-Optimierung: 'nn' = bisherige Variante (Luftlinie, Nearest-Neighbor)
 //                     'matrix' = echte ORS-Fahrzeiten-Matrix + 2-opt
@@ -3034,6 +3099,14 @@ async function assignTreeToTour(treeId,tourId,skipConflictCheck=false){
     notify(`${tree.name} ist bereits in ${tour?.name||'Tour'}`);
     return;
   }
+  // Tour-Restriktion: passt das Objekt zu den Regeln der Tour? (Warnung mit Override)
+  if(!skipConflictCheck){
+    const viol=treeRuleViolations(tree, tour);
+    if(viol.length){
+      const ok=await ruleWarnDialog(`<b>${dlEsc(tree.name||'Objekt')}</b> passt nicht zu den Regeln von <b>${dlEsc(tour?.name||'Tour')}</b>.<br><span style="color:var(--text3);">Abweichung bei: ${viol.map(dlEsc).join(', ')}</span>`);
+      if(!ok) return;
+    }
+  }
   // Bereits anderen Tour(en) zugeordnet → Hinweisdialog
   const otherIds=currentIds.filter(id=>id!==tourId);
   if(otherIds.length>0 && !skipConflictCheck){
@@ -3076,6 +3149,41 @@ function renderTourZusatzRows(){
 function tourZusatzAdd(){ (window._tourZusatz=window._tourZusatz||[]).push({label:'',min:0}); renderTourZusatzRows(); }
 function tourZusatzDel(i){ if(window._tourZusatz) window._tourZusatz.splice(i,1); renderTourZusatzRows(); }
 
+// Zuordnungsregeln-Editor (Restriktion je Tour) — Chips je Listenfeld
+function renderTourRegeln(){
+  const el=document.getElementById('t-regeln-list'); if(!el) return;
+  const reg=window._tourRegeln=window._tourRegeln||{};
+  let activeCount=0;
+  el.innerHTML=tourRuleFieldDefs().map(def=>{
+    const opts=ruleFieldOptions(def.key);
+    if(!opts.length) return '';
+    const sel=Array.isArray(reg[def.key])?reg[def.key]:[];
+    if(sel.length) activeCount++;
+    const chips=opts.map((o,oi)=>{
+      const on=sel.includes(o.val);
+      return `<button type="button" onclick="tourRegelToggle('${dlEsc(def.key)}',${oi})" style="padding:3px 9px;font-size:11px;border-radius:12px;cursor:pointer;border:1px solid ${on?'var(--green-mid)':'var(--border)'};background:${on?'var(--green-light)':'var(--bg)'};color:${on?'var(--green-strong,#15803d)':'var(--text2)'};font-family:inherit;">${o.color?`<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${o.color};margin-right:4px;vertical-align:middle;"></span>`:''}${dlEsc(o.label)}</button>`;
+    }).join('');
+    return `<div><div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:3px;">${dlEsc(def.label)} ${sel.length?`<span style="color:var(--text3);font-weight:400;">(${sel.length} erlaubt)</span>`:'<span style="color:var(--text3);font-weight:400;">– alle erlaubt</span>'}</div><div style="display:flex;flex-wrap:wrap;gap:4px;">${chips}</div></div>`;
+  }).join('')||'<div style="font-size:11px;color:var(--text3);">Keine Listenfelder mit Werten vorhanden.</div>';
+  const cnt=document.getElementById('t-regeln-count');
+  if(cnt) cnt.textContent=activeCount?`— ${activeCount} Feld${activeCount>1?'er':''} eingeschränkt`:'— alle Objekte erlaubt';
+}
+function tourRegelToggle(key,idx){
+  const o=ruleFieldOptions(key)[idx]; if(!o) return;
+  const reg=window._tourRegeln=window._tourRegeln||{};
+  const arr=Array.isArray(reg[key])?reg[key]:[];
+  const i=arr.indexOf(o.val);
+  if(i>=0) arr.splice(i,1); else arr.push(o.val);
+  if(arr.length) reg[key]=arr; else delete reg[key];
+  renderTourRegeln();
+}
+// Bereinigte Regelkopie für saveTour: nur Felder mit Auswahl.
+function collectTourRegeln(){
+  const reg=window._tourRegeln||{}, out={};
+  for(const k of Object.keys(reg)){ if(Array.isArray(reg[k])&&reg[k].length) out[k]=[...reg[k]]; }
+  return out;
+}
+
 function openTourModal(id){
   editingTourId=id||null;
   const t=id?tours.find(x=>x.id===id):null;
@@ -3095,6 +3203,10 @@ function openTourModal(id){
   document.getElementById('t-az-m').value=az?az%60:'';
   window._tourZusatz=(t&&Array.isArray(t.zusatzzeiten)?t.zusatzzeiten:[]).map(z=>({label:z.label||'',min:Math.max(0,z.min)||0}));
   renderTourZusatzRows();
+  window._tourRegeln={};
+  if(t&&t.regeln) for(const k of Object.keys(t.regeln)){ if(Array.isArray(t.regeln[k])&&t.regeln[k].length) window._tourRegeln[k]=[...t.regeln[k]]; }
+  const det=document.getElementById('t-regeln-details'); if(det) det.open=tourHasRules(t||{});
+  renderTourRegeln();
   document.getElementById('tour-modal').classList.add('open');
 }
 function closeTourModal(){ document.getElementById('tour-modal').classList.remove('open');editingTourId=null; }
@@ -3106,7 +3218,7 @@ async function saveTour(){
   const azm=parseInt(document.getElementById('t-az-m').value)||0;
   const arbeitszeitMin=Math.max(0,azh)*60+Math.max(0,azm);
   const zusatzzeiten=(window._tourZusatz||[]).map(z=>({label:(z.label||'').trim(),min:Math.max(0,parseInt(z.min)||0)})).filter(z=>z.label||z.min>0);
-  const data={name,desc:document.getElementById('t-desc').value,color:selectedTourColor,zusatzzeiten};
+  const data={name,desc:document.getElementById('t-desc').value,color:selectedTourColor,zusatzzeiten,regeln:collectTourRegeln()};
   try{
     if(editingTourId){
       data.arbeitszeitMin=arbeitszeitMin>0?arbeitszeitMin:firebase.firestore.FieldValue.delete();
@@ -4326,6 +4438,8 @@ function renderTourenGrid(){
     const gesamtZeit=driveVal?fmtTotalTime(driveVal,treesInTour):'–';
     const _zusMin=tourZusatzMin(tour);
     const _rz=tourRestzeit(tour,treesInTour,driveVal);
+    const _violCnt=tourViolatingTrees(tour).length;
+    const _rulesActive=tourHasRules(tour);
     const restBlock=_rz?`
         ${_zusMin>0?`<div style="color:var(--text2);">${fmtMin(_zusMin)} <span style="color:var(--text3);font-size:10px;">Zusatz</span></div>`:''}
         <div style="color:var(--text2);">${fmtMin(_rz.azMin)} <span style="color:var(--text3);font-size:10px;">Arbeitszeit</span></div>
@@ -4336,7 +4450,7 @@ function renderTourenGrid(){
       :'<span style="color:var(--text3);font-size:12px;">–</span>';
     return `<tr style="border-top:1px solid var(--border);" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''">
       <td style="padding:10px 16px;"><div style="width:14px;height:14px;border-radius:3px;background:${tour.color};flex-shrink:0;"></div></td>
-      <td style="padding:10px 16px;font-weight:600;white-space:nowrap;">${tour.name}${tour.uebersicht?' <span style="font-size:10px;font-weight:600;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Übersicht</span>':''}</td>
+      <td style="padding:10px 16px;font-weight:600;white-space:nowrap;">${tour.name}${tour.uebersicht?' <span style="font-size:10px;font-weight:600;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Übersicht</span>':''}${_violCnt?` <span title="${_violCnt} zugewiesene Objekte verletzen die Zuordnungsregeln dieser Tour" style="font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⚠ ${_violCnt} Regelverstoß</span>`:(_rulesActive?' <span title="Zuordnungsregeln aktiv" style="font-size:10px;font-weight:600;color:var(--text3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Regeln</span>':'')}</td>
       <td style="padding:10px 16px;color:var(--text2);font-size:12px;">${tour.desc||'–'}</td>
       <td style="padding:10px 16px;text-align:center;"><input type="checkbox" ${tour.uebersicht?'checked':''} onchange="toggleTourUebersicht('${tour.id}',this.checked)" style="cursor:pointer;width:16px;height:16px;" title="Als Übersichtstour markieren (keine echte Tour)"></td>
       <td style="padding:10px 16px;text-align:right;font-weight:600;">${cnt}</td>
@@ -6378,6 +6492,14 @@ async function lassoAction(mode){
   const tourId=assignTourId||lassoTourId;
   const tour=tours.find(t=>t.id===tourId);
   if((mode==='add'||mode==='move')&&!tourId){ notify('Bitte zuerst eine Ziel-Tour wählen'); return; }
+  // Tour-Restriktion (Bulk): Warnung mit Override, wenn Objekte nicht zu den Regeln passen
+  if((mode==='add'||mode==='move')&&tourHasRules(tour)){
+    const bad=targets.filter(t=>!treeMatchesTour(t,tour));
+    if(bad.length){
+      const ok=await ruleWarnDialog(`<b>${bad.length}</b> von <b>${targets.length}</b> ausgewählten Objekten passen nicht zu den Regeln von <b>${dlEsc(tour?.name||'Tour')}</b>.`,'Trotzdem zuweisen');
+      if(!ok){ renderLassoActions(); return; }
+    }
+  }
   const verbing=mode==='add'?'hinzufügen':mode==='move'?'verschieben':'aus Tour(en) entfernen';
   notify(`${targets.length} Objekte – ${verbing}…`);
   setSyncState('syncing',`${verbing}… 0/${targets.length}`);
@@ -8100,7 +8222,7 @@ Object.assign(window,{
   openAddTree,openEditTree,closeTreeModal,saveTree,deleteTree,
   archiveTree,reactivateTree,archiveTreeFromModal,reactivateTreeFromModal,deleteTreeFromModal,toggleShowInactive,showTreeOnMapFromModal,
   openTourModal,closeTourModal,saveTour,deleteTour,toggleTourUebersicht,toggleOverviewInGrid,filterTourenGrid,
-  tourZusatzAdd,tourZusatzDel,
+  tourZusatzAdd,tourZusatzDel,tourRegelToggle,
   focusTour,focusTourAndSwitch,
   startPlacement,cancelMode,setDepotOnMap,
   startAssignMode,setAssignTour,cancelAssign,assignTreeToTour,
