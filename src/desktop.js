@@ -1224,9 +1224,9 @@ function tourMetrics(tid){
   return null;
 }
 // Füllt das Routen-Kennzahlen-Panel (Sidebar): Gesamtzeit + km, Proportionsleiste, Chips.
-function _fillRoutePanel(name,cnt,km,driveMin,bewMin,zusMin){
+function _fillRoutePanel(name,cnt,km,driveMin,bewMin,zusMin,azMin){
   const sp=document.getElementById('sidebar-route-info'); if(!sp) return;
-  driveMin=Math.round(driveMin||0); bewMin=Math.round(bewMin||0); zusMin=Math.round(zusMin||0);
+  driveMin=Math.round(driveMin||0); bewMin=Math.round(bewMin||0); zusMin=Math.round(zusMin||0); azMin=Math.round(azMin||0);
   const total=driveMin+bewMin+zusMin;
   const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=v; };
   set('sidebar-route-tour-name',name||'');
@@ -1241,6 +1241,16 @@ function _fillRoutePanel(name,cnt,km,driveMin,bewMin,zusMin){
   if(barEl){ const base=Math.max(total,1);
     barEl.innerHTML=`<div style="width:${driveMin/base*100}%;background:var(--green);"></div><div style="width:${bewMin/base*100}%;background:var(--green-mid);"></div><div style="width:${zusMin/base*100}%;background:#f59e0b;"></div>`;
   }
+  // Restzeit (nur wenn Arbeitszeit gesetzt): Arbeitszeit − Gesamtzeit
+  const restBox=document.getElementById('sidebar-route-rest-box');
+  if(restBox){
+    if(azMin>0){
+      restBox.style.display='flex';
+      set('sidebar-route-az',fmtMin(azMin));
+      const rest=azMin-total, rEl=document.getElementById('sidebar-route-rest');
+      if(rEl){ rEl.textContent=fmtMin(rest); rEl.style.color=rest<0?'var(--red)':'var(--green)'; }
+    } else restBox.style.display='none';
+  }
   sp.style.display='block';
 }
 function updateRouteInfoBar(){
@@ -1248,9 +1258,9 @@ function updateRouteInfoBar(){
   if(bar) bar.classList.remove('visible'); // schwebende Routen-Info-Leiste entfernt — Infos im Seitenpanel
   // Mehrere Touren ausgewählt → kompakte Summe
   if(activeTours.size>1){
-    let km=0,dur=0,zusAll=0; activeTours.forEach(tid=>{ const m=tourMetrics(tid); if(m){ km+=m.km; dur+=m.durationSec; } const tt=tours.find(x=>x.id===tid); if(tt) zusAll+=tourZusatzMin(tt); });
+    let km=0,dur=0,zusAll=0,azAll=0; activeTours.forEach(tid=>{ const m=tourMetrics(tid); if(m){ km+=m.km; dur+=m.durationSec; } const tt=tours.find(x=>x.id===tid); if(tt){ zusAll+=tourZusatzMin(tt); if(tt.arbeitszeitMin>0) azAll+=tt.arbeitszeitMin; } });
     const tl=trees.filter(t=>treeInAnyActiveTour(t)&&t.lat&&t.lng); const cnt=tl.length;
-    _fillRoutePanel(`${activeTours.size} Touren`, cnt, km||null, dur/60, bewMinutes(tl), zusAll);
+    _fillRoutePanel(`${activeTours.size} Touren`, cnt, km||null, dur/60, bewMinutes(tl), zusAll, azAll);
     return;
   }
   const _activeM=activeTourOnMap?tourMetrics(activeTourOnMap):null;
@@ -1258,7 +1268,7 @@ function updateRouteInfoBar(){
     const {km,durationSec}=_activeM;
     const tour=tours.find(t=>t.id===activeTourOnMap);
     const tl=trees.filter(t=>treeInTour(t,activeTourOnMap)&&t.lat&&t.lng); const cnt=tl.length;
-    _fillRoutePanel(tour?.name||'', cnt, km, durationSec/60, bewMinutes(tl), tourZusatzMin(tour));
+    _fillRoutePanel(tour?.name||'', cnt, km, durationSec/60, bewMinutes(tl), tourZusatzMin(tour), (tour&&tour.arbeitszeitMin>0)?tour.arbeitszeitMin:0);
   } else {
     if(bar) bar.classList.remove('visible');
     const sp=document.getElementById('sidebar-route-info'); if(sp) sp.style.display='none';
