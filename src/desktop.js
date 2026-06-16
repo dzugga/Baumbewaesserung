@@ -503,6 +503,7 @@ async function openProject(projectId){
   _dataViewProject=null;           // Controlling/Dashboard für neues Projekt neu aufbauen
   // Suchfelder der vorigen Stadt zurücksetzen
   ['search-input','baeume-search','tour-legend-search'].forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
+  { const sc=document.getElementById('search-clear'); if(sc) sc.style.display='none'; }
   tourLegendQuery='';
   document.getElementById('detail-panel')?.classList.remove('open'); selectedTreeId=null; // offenes Objekt-Detail des alten Projekts schließen (kein stehengebliebener Füllgrad/Wert)
   const snap=await getDoc(doc(db,'projects',projectId));
@@ -1414,6 +1415,14 @@ async function toggleTourSelection(tourId){
   if(activeTours.has(tourId)) activeTours.delete(tourId); else activeTours.add(tourId);
   await applyTourSelection(true);
 }
+async function toggleAllTours(){
+  // Sammel-Checkbox im Touren-Kopf: alle echten Touren an- bzw. abwählen
+  const echte=tours.filter(t=>!t.uebersicht);
+  if(!echte.length) return;
+  const allSel=echte.every(t=>activeTours.has(t.id));
+  echte.forEach(t=>{ if(allSel) activeTours.delete(t.id); else activeTours.add(t.id); });
+  await applyTourSelection(true);
+}
 async function toggleUnplanned(){
   // Unverplante Objekte zusätzlich ein-/ausblenden (additiv zu gewählten Touren)
   showUnplanned=!showUnplanned;
@@ -1520,6 +1529,7 @@ function renderLegend(){
 
   // ── Header row: always visible ──────────────────────────────
   let html=`<div style="display:flex;align-items:center;gap:6px;padding:6px 14px;cursor:pointer;" data-action="toggle-legend">
+    <input type="checkbox" id="tour-all-check" title="Alle Touren an/aus" style="margin:0;cursor:pointer;flex-shrink:0;width:13px;height:13px;accent-color:var(--green);">
     <span style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);flex:1;">Touren</span>`;
 
   // Header: aktive Tour bzw. Mehrfachauswahl-Zähler
@@ -1620,6 +1630,10 @@ function renderLegend(){
 
   el.innerHTML=html;
 
+  // Sammel-Checkbox: an = alle gewählt, halb = einige (indeterminate)
+  const allCb=document.getElementById('tour-all-check');
+  if(allCb){ const echte=tours.filter(t=>!t.uebersicht); const sel=echte.filter(t=>activeTours.has(t.id)).length; allCb.checked=echte.length>0&&sel===echte.length; allCb.indeterminate=sel>0&&sel<echte.length; }
+
   // Tour-Suche verdrahten
   const ts=document.getElementById('tour-legend-search');
   if(ts){
@@ -1631,6 +1645,7 @@ function renderLegend(){
 
   // Event delegation
   el.onclick=e=>{
+    if(e.target.id==='tour-all-check'){ toggleAllTours(); return; } // Sammel-Checkbox: nicht ein-/ausklappen
     if(e.target.closest('[data-action="toggle-legend"]')){
       const body=document.getElementById('legend-body');
       const svg=el.querySelector('[data-action="toggle-legend"] svg');

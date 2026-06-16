@@ -85,7 +85,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .sidebar-header{padding:14px 16px 10px;border-bottom:1px solid var(--border);flex-shrink:0}
 .sidebar-title{font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text3);margin-bottom:8px}
 .search-box{position:relative}
-.search-box input{width:100%;padding:6px 10px 6px 30px;border:1px solid var(--border);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:13px;background:var(--bg);color:var(--text);outline:none}
+.search-box input{width:100%;padding:6px 26px 6px 30px;border:1px solid var(--border);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:13px;background:var(--bg);color:var(--text);outline:none}
 .search-box input:focus{border-color:var(--green-mid)}
 .search-icon{position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--text3);pointer-events:none}
 
@@ -425,7 +425,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       <div class="sidebar-title">Objekte</div>
       <div class="search-box">
         <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-        <input type="text" id="search-input" placeholder="Suchen…" oninput="renderListDebounced()">
+        <input type="text" id="search-input" placeholder="Suchen…" oninput="renderListDebounced();document.getElementById('search-clear').style.display=this.value?'flex':'none'">
+        <button id="search-clear" type="button" aria-label="Suche aufheben" title="Suche aufheben" onclick="const i=document.getElementById('search-input');i.value='';this.style.display='none';renderListDebounced();i.focus();" style="display:none;position:absolute;right:6px;top:50%;transform:translateY(-50%);border:none;background:none;cursor:pointer;color:var(--text3);padding:2px;line-height:0;align-items:center;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
     </div>
 
