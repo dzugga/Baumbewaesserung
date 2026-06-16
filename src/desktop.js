@@ -641,6 +641,25 @@ function fmtTotalTime(driveSec,arg){
   const h=Math.floor(total/60), m=total%60;
   return h>0?`${h}h ${m}min`:`${m} min`;
 }
+// Minuten (auch negativ) als "Xh Ymin" formatieren — für Arbeits-/Restzeit.
+function fmtMin(mins){
+  const neg=mins<0, a=Math.abs(Math.round(mins));
+  const h=Math.floor(a/60), m=a%60;
+  return (neg?'-':'')+(h>0?`${h}h ${m}min`:`${m} min`);
+}
+// Summe der Zusatztätigkeiten einer Tour (Pause, Rüstzeit …) in Minuten.
+function tourZusatzMin(tour){ return (tour&&Array.isArray(tour.zusatzzeiten)?tour.zusatzzeiten:[]).reduce((s,z)=>s+(Math.max(0,z&&z.min)||0),0); }
+// Restzeit einer Tour: Arbeitszeit − (Fahrt + Bearbeitung + Zusatztätigkeiten).
+// null, wenn keine Arbeitszeit gesetzt ist.
+function tourRestzeit(tour,treeList,driveSec){
+  const az=tour&&tour.arbeitszeitMin;
+  if(!(typeof az==='number'&&az>0)) return null;
+  const driveMin=Math.round((driveSec||0)/60);
+  const bewMin=Math.round(bewMinutes(treeList||[]));
+  const zusMin=tourZusatzMin(tour);
+  const usedMin=driveMin+bewMin+zusMin;
+  return {azMin:az,driveMin,bewMin,zusMin,usedMin,restMin:az-usedMin};
+}
 
 function getDepotMode(){ return currentProjectData?.depotMode||'round'; }
 // Routen-Optimierung: 'nn' = bisherige Variante (Luftlinie, Nearest-Neighbor)
@@ -1595,7 +1614,10 @@ function renderLegend(){
           </div>
           <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:1px;">
             <span>${_tm.km.toFixed(1)} km</span><span>${cnt} Objekte</span>
-          </div>
+          </div>${(()=>{const z=tourZusatzMin(t);const rz=tourRestzeit(t,tl,_tm.durationSec);return rz?`
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:1px;border-top:1px solid var(--border);padding-top:2px;">
+            <span>${z>0?'Zusatz '+fmtMin(z)+' · ':''}AZ ${fmtMin(rz.azMin)}</span><span style="font-weight:700;color:${rz.restMin<0?'var(--red)':'var(--green-strong,#15803d)'};" title="Arbeitszeit − Fahrt − Tätigkeit − Zusatz">Restzeit ${fmtMin(rz.restMin)}</span>
+          </div>`:''})()}
         </div>`;
       } else {
         r+=`<div data-tourname="${(t.name||'').toLowerCase().replace(/"/g,'&quot;')}" style="margin:0 6px 4px 30px;padding:5px 8px;background:var(--surface2);border-radius:6px;font-size:10px;color:var(--text3);">
@@ -3040,10 +3062,24 @@ function buildColorSwatches(sel){
 }
 function pickColor(c){ selectedTourColor=c;document.querySelectorAll('.color-swatch').forEach(s=>s.classList.toggle('selected',s.style.background===c||s.style.backgroundColor===c)); }
 
+// Zusatztätigkeiten-Editor (Pause, Rüstzeit …) — Arbeitskopie an window für Inline-Handler
+function renderTourZusatzRows(){
+  const el=document.getElementById('t-zusatz-list'); if(!el) return;
+  const arr=window._tourZusatz||[];
+  el.innerHTML=arr.length?arr.map((z,i)=>`<div style="display:flex;gap:5px;align-items:center;">
+    <input class="form-control" value="${dlEsc(z.label||'')}" placeholder="z. B. Pause" oninput="window._tourZusatz[${i}].label=this.value" style="flex:1;padding:5px 8px;font-size:12px;">
+    <input class="form-control" type="number" min="0" step="1" value="${z.min||''}" placeholder="0" oninput="window._tourZusatz[${i}].min=Math.max(0,parseInt(this.value)||0)" style="width:62px;text-align:right;padding:5px 6px;font-size:12px;">
+    <span style="font-size:11px;color:var(--text3);">min</span>
+    <button type="button" onclick="tourZusatzDel(${i})" title="Entfernen" style="border:none;background:none;cursor:pointer;color:var(--text3);font-size:17px;line-height:1;padding:2px 4px;">×</button>
+  </div>`).join(''):'<div style="font-size:11px;color:var(--text3);">Keine — mit „+ Tätigkeit" hinzufügen.</div>';
+}
+function tourZusatzAdd(){ (window._tourZusatz=window._tourZusatz||[]).push({label:'',min:0}); renderTourZusatzRows(); }
+function tourZusatzDel(i){ if(window._tourZusatz) window._tourZusatz.splice(i,1); renderTourZusatzRows(); }
+
 function openTourModal(id){
   editingTourId=id||null;
-  if(id){
-    const t=tours.find(x=>x.id===id);
+  const t=id?tours.find(x=>x.id===id):null;
+  if(t){
     document.getElementById('tour-modal-title').textContent='Tour bearbeiten';
     document.getElementById('t-name').value=t.name;
     document.getElementById('t-desc').value=t.desc||'';
@@ -3054,6 +3090,11 @@ function openTourModal(id){
     const free=TOUR_COLORS.find(c=>!tours.map(t=>t.color).includes(c))||TOUR_COLORS[0];
     buildColorSwatches(free);
   }
+  const az=t&&typeof t.arbeitszeitMin==='number'&&t.arbeitszeitMin>0?t.arbeitszeitMin:0;
+  document.getElementById('t-az-h').value=az?Math.floor(az/60):'';
+  document.getElementById('t-az-m').value=az?az%60:'';
+  window._tourZusatz=(t&&Array.isArray(t.zusatzzeiten)?t.zusatzzeiten:[]).map(z=>({label:z.label||'',min:Math.max(0,z.min)||0}));
+  renderTourZusatzRows();
   document.getElementById('tour-modal').classList.add('open');
 }
 function closeTourModal(){ document.getElementById('tour-modal').classList.remove('open');editingTourId=null; }
@@ -3061,12 +3102,18 @@ function closeTourModal(){ document.getElementById('tour-modal').classList.remov
 async function saveTour(){
   const name=document.getElementById('t-name').value.trim();
   if(!name){alert('Bitte einen Namen eingeben.');return;}
-  const data={name,desc:document.getElementById('t-desc').value,color:selectedTourColor};
+  const azh=parseInt(document.getElementById('t-az-h').value)||0;
+  const azm=parseInt(document.getElementById('t-az-m').value)||0;
+  const arbeitszeitMin=Math.max(0,azh)*60+Math.max(0,azm);
+  const zusatzzeiten=(window._tourZusatz||[]).map(z=>({label:(z.label||'').trim(),min:Math.max(0,parseInt(z.min)||0)})).filter(z=>z.label||z.min>0);
+  const data={name,desc:document.getElementById('t-desc').value,color:selectedTourColor,zusatzzeiten};
   try{
     if(editingTourId){
+      data.arbeitszeitMin=arbeitszeitMin>0?arbeitszeitMin:firebase.firestore.FieldValue.delete();
       await updateDoc(doc(db,'projects',currentProjectId,'tours',editingTourId),data);
       notify('Tour aktualisiert');
     } else {
+      if(arbeitszeitMin>0) data.arbeitszeitMin=arbeitszeitMin;
       await addDoc(collection(db,'projects',currentProjectId,'tours'),{...data,createdAt:serverTimestamp()});
       await updateDoc(doc(db,'projects',currentProjectId),{tourCount:tours.length+1});
       notify('Tour erstellt');
@@ -4277,6 +4324,12 @@ function renderTourenGrid(){
     const driveZeit=driveVal?fmtDuration(driveVal):'–';
     const bewZeit=kmVal!=null?fmtBewTime(treesInTour):'–';
     const gesamtZeit=driveVal?fmtTotalTime(driveVal,treesInTour):'–';
+    const _zusMin=tourZusatzMin(tour);
+    const _rz=tourRestzeit(tour,treesInTour,driveVal);
+    const restBlock=_rz?`
+        ${_zusMin>0?`<div style="color:var(--text2);">${fmtMin(_zusMin)} <span style="color:var(--text3);font-size:10px;">Zusatz</span></div>`:''}
+        <div style="color:var(--text2);">${fmtMin(_rz.azMin)} <span style="color:var(--text3);font-size:10px;">Arbeitszeit</span></div>
+        <div style="font-weight:700;color:${_rz.restMin<0?'var(--red)':'var(--green-strong,#15803d)'};" title="Arbeitszeit − Fahrt − Bearbeitung − Zusatztätigkeiten${_rz.restMin<0?' (Tour überbucht)':''}">${fmtMin(_rz.restMin)} <span style="font-size:10px;font-weight:600;">Restzeit</span></div>`:'';
     const bar=cnt>0?`<div style="display:flex;height:6px;border-radius:3px;overflow:hidden;gap:1px;width:120px;">
       ${zCounts.filter(z=>z.n>0).map(z=>`<div style="flex:${z.n};background:${z.farbe};" title="${z.n} ${dlEsc(z.label)}"></div>`).join('')}
       </div><div style="font-size:10px;color:var(--text3);margin-top:2px;">${zCounts.filter(z=>z.n>0).map(z=>z.n+' '+dlEsc(z.label)).join(' · ')||'–'}</div>`
@@ -4291,7 +4344,7 @@ function renderTourenGrid(){
       <td style="padding:10px 16px;text-align:right;font-size:12px;">
         <div style="color:var(--text2);">${driveZeit} <span style="color:var(--text3);font-size:10px;">Fahrt</span></div>
         <div style="color:var(--text2);">${bewZeit} <span style="color:var(--text3);font-size:10px;">Bew.</span></div>
-        <div style="font-weight:600;color:var(--text);">${gesamtZeit} <span style="color:var(--text3);font-size:10px;">Gesamt</span></div>
+        <div style="font-weight:600;color:var(--text);">${gesamtZeit} <span style="color:var(--text3);font-size:10px;">Gesamt</span></div>${restBlock}
       </td>
       <td style="padding:10px 16px;">
         <div style="display:flex;gap:5px;justify-content:flex-end;align-items:center;">
@@ -8047,6 +8100,7 @@ Object.assign(window,{
   openAddTree,openEditTree,closeTreeModal,saveTree,deleteTree,
   archiveTree,reactivateTree,archiveTreeFromModal,reactivateTreeFromModal,deleteTreeFromModal,toggleShowInactive,showTreeOnMapFromModal,
   openTourModal,closeTourModal,saveTour,deleteTour,toggleTourUebersicht,toggleOverviewInGrid,filterTourenGrid,
+  tourZusatzAdd,tourZusatzDel,
   focusTour,focusTourAndSwitch,
   startPlacement,cancelMode,setDepotOnMap,
   startAssignMode,setAssignTour,cancelAssign,assignTreeToTour,

@@ -760,7 +760,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 
 <!-- TOUR MODAL -->
 <div class="modal-backdrop" id="tour-modal">
-  <div class="modal" style="width:360px;">
+  <div class="modal" style="width:400px;">
     <div class="modal-header">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
       <span id="tour-modal-title">Neue Tour</span>
@@ -770,6 +770,19 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       <div class="form-group"><label class="form-label">Tourname *</label><input class="form-control" id="t-name" placeholder="z.B. Nordpark"></div>
       <div class="form-group"><label class="form-label">Beschreibung</label><input class="form-control" id="t-desc" placeholder="Kurze Beschreibung"></div>
       <div class="form-group"><label class="form-label">Farbe</label><div class="color-swatches" id="color-swatches"></div></div>
+      <div class="form-group">
+        <label class="form-label">Gesamt-Arbeitszeit</label>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <input class="form-control" id="t-az-h" type="number" min="0" step="1" placeholder="0" style="width:70px;text-align:right;"><span style="font-size:12px;color:var(--text2);">Std</span>
+          <input class="form-control" id="t-az-m" type="number" min="0" max="59" step="1" placeholder="0" style="width:70px;text-align:right;"><span style="font-size:12px;color:var(--text2);">Min</span>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:3px;">Geplante Schicht-/Arbeitszeit dieser Tour — Basis der Restzeitberechnung. Leer = keine Restzeit.</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Zusatztätigkeiten <span style="font-weight:400;color:var(--text3);">(Pause, Rüstzeit …)</span></label>
+        <div id="t-zusatz-list" style="display:flex;flex-direction:column;gap:5px;"></div>
+        <button type="button" class="btn btn-secondary" style="margin-top:6px;padding:4px 10px;font-size:12px;" onclick="tourZusatzAdd()">+ Tätigkeit</button>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeTourModal()">Abbrechen</button>
