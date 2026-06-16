@@ -619,19 +619,26 @@ function getBewDuration(){
   return parseInt(localStorage.getItem('bew_duration_min'))||5;
 }
 
-function fmtBewTime(treeCount){
-  const mins=treeCount*getBewDuration();
-  const h=Math.floor(mins/60);
-  const m=mins%60;
+// Zeitaufwand eines Objekts: bevorzugt je Objektart (arten[].zeitaufwand),
+// sonst der projektweite Standard (getBewDuration) als Fallback.
+function artBewMin(tree){
+  const a=(tree.artId&&artenList.find(x=>x.id===tree.artId))||artenList.find(x=>x.name===(tree.art||'').trim());
+  const v=a&&a.zeitaufwand;
+  return (typeof v==='number'&&v>0)?v:getBewDuration();
+}
+// Bearbeitungsminuten: Tree-Array → Summe je Art; Zahl → Anzahl × Standard (Abwärtskompat.)
+function bewMinutes(arg){
+  if(Array.isArray(arg)) return arg.reduce((s,t)=>s+artBewMin(t),0);
+  return (arg||0)*getBewDuration();
+}
+function fmtBewTime(arg){
+  const mins=Math.round(bewMinutes(arg));
+  const h=Math.floor(mins/60), m=mins%60;
   return h>0?`${h}h ${m}min`:`${m} min`;
 }
-
-function fmtTotalTime(driveSec,treeCount){
-  const driveMin=Math.round(driveSec/60);
-  const bewMin=treeCount*getBewDuration();
-  const total=driveMin+bewMin;
-  const h=Math.floor(total/60);
-  const m=total%60;
+function fmtTotalTime(driveSec,arg){
+  const total=Math.round(driveSec/60)+Math.round(bewMinutes(arg));
+  const h=Math.floor(total/60), m=total%60;
   return h>0?`${h}h ${m}min`:`${m} min`;
 }
 
@@ -1140,14 +1147,14 @@ function updateRouteInfoBar(){
   // Mehrere Touren ausgewählt → kompakte Summe
   if(activeTours.size>1){
     let km=0,dur=0; activeTours.forEach(tid=>{ const m=tourMetrics(tid); if(m){ km+=m.km; dur+=m.durationSec; } });
-    const cnt=trees.filter(t=>treeInAnyActiveTour(t)&&t.lat&&t.lng).length;
+    const tl=trees.filter(t=>treeInAnyActiveTour(t)&&t.lat&&t.lng); const cnt=tl.length;
     txt.textContent=`${activeTours.size} Touren · ${cnt} Objekte${km?` · Σ ${km.toFixed(1)} km${dur?' · '+fmtDuration(dur)+' Fahrt':''}`:''}`;
     if(sidePanel){
       document.getElementById('sidebar-route-tour-name').textContent=`${activeTours.size} Touren`;
       document.getElementById('sidebar-route-km').textContent=km?km.toFixed(1)+' km':'–';
       document.getElementById('sidebar-route-drive').textContent=dur?fmtDuration(dur):'–';
-      document.getElementById('sidebar-route-taet').textContent=cnt?fmtBewTime(cnt):'–';
-      document.getElementById('sidebar-route-total').textContent=km?fmtTotalTime(dur,cnt):'–';
+      document.getElementById('sidebar-route-taet').textContent=cnt?fmtBewTime(tl):'–';
+      document.getElementById('sidebar-route-total').textContent=km?fmtTotalTime(dur,tl):'–';
       document.getElementById('sidebar-route-cnt').textContent=cnt+' Objekte';
       sidePanel.style.display='block';
     }
@@ -1157,13 +1164,13 @@ function updateRouteInfoBar(){
   if(_activeM){
     const {km,durationSec}=_activeM;
     const tour=tours.find(t=>t.id===activeTourOnMap);
-    const cnt=trees.filter(t=>treeInTour(t,activeTourOnMap)&&t.lat&&t.lng).length;
+    const tl=trees.filter(t=>treeInTour(t,activeTourOnMap)&&t.lat&&t.lng); const cnt=tl.length;
     const depot=getDepot();
-    const _bewT=fmtBewTime(cnt);
-    const _totT=fmtTotalTime(durationSec,cnt);
+    const _bewT=fmtBewTime(tl);
+    const _totT=fmtTotalTime(durationSec,tl);
     txt.textContent=`${tour?.name||''} · ${cnt} Objekte · ${km.toFixed(1)} km · ${fmtDuration(durationSec)} Fahrt + ${_bewT} Bew. = ${_totT}${depot?' (inkl. Depot)':''}`;
-    const bewTime=fmtBewTime(cnt);
-    const totalTime=fmtTotalTime(durationSec,cnt);
+    const bewTime=_bewT;
+    const totalTime=_totT;
     document.getElementById('sidebar-route-tour-name').textContent=tour?.name||'';
     document.getElementById('sidebar-route-km').textContent=km.toFixed(1)+' km';
     document.getElementById('sidebar-route-drive').textContent=fmtDuration(durationSec);
@@ -1561,8 +1568,8 @@ function renderLegend(){
   // Tour rows — kompakt: Name + Gesamtzeit; Details je Tour aufklappbar (Pfeil)
   function tourRow(t){
     const _tm=tourMetrics(t.id);
-    const cnt=trees.filter(x=>treeInTour(x,t.id)&&x.lat&&x.lng&&isActive(x)).length;
-    const total=_tm?fmtTotalTime(_tm.durationSec,cnt):'';
+    const tl=trees.filter(x=>treeInTour(x,t.id)&&x.lat&&x.lng&&isActive(x)); const cnt=tl.length;
+    const total=_tm?fmtTotalTime(_tm.durationSec,tl):'';
     const isSel=activeTours.has(t.id);
     const isExp=legendExpanded.has(t.id);
     // Übersichtstouren: kein Aufklapp-Pfeil (keine Route/Zeiten), nur Objektzahl
@@ -1576,7 +1583,7 @@ function renderLegend(){
     </div>`;
     if(isExp && !ov){
       if(_tm){
-        const driveMin=Math.round(_tm.durationSec/60), bewMin=cnt*getBewDuration();
+        const driveMin=Math.round(_tm.durationSec/60), bewMin=Math.round(bewMinutes(tl));
         const base=Math.max(driveMin+bewMin,1), dw=Math.round(driveMin/base*100);
         r+=`<div data-tourname="${(t.name||'').toLowerCase().replace(/"/g,'&quot;')}" style="margin:0 6px 4px 30px;padding:5px 8px;background:var(--surface2);border-radius:6px;">
           <div style="display:flex;height:4px;border-radius:2px;overflow:hidden;margin-bottom:4px;">
@@ -1584,7 +1591,7 @@ function renderLegend(){
             <div style="width:${100-dw}%;background:var(--green-mid);"></div>
           </div>
           <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);">
-            <span>Fahrt ${fmtDuration(_tm.durationSec)}</span><span>Tätigkeit ${fmtBewTime(cnt)}</span>
+            <span>Fahrt ${fmtDuration(_tm.durationSec)}</span><span>Tätigkeit ${fmtBewTime(tl)}</span>
           </div>
           <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:1px;">
             <span>${_tm.km.toFixed(1)} km</span><span>${cnt} Objekte</span>
@@ -3665,6 +3672,9 @@ function renderArtenList(){
       </td>
       <td style="padding:7px 12px;font-weight:500;">${dlEsc(a.name)}</td>
       <td style="padding:7px 12px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text2);">${c}</td>
+      <td style="padding:4px 12px;text-align:right;white-space:nowrap;">${ro
+        ?(typeof a.zeitaufwand==='number'&&a.zeitaufwand>0?a.zeitaufwand+' min':'<span style="color:var(--text3);font-size:11px;">Standard</span>')
+        :`<input type="number" min="0" step="1" value="${typeof a.zeitaufwand==='number'&&a.zeitaufwand>0?a.zeitaufwand:''}" placeholder="${getBewDuration()}" onchange="artSetTime('${dlEsc(a.id)}',this.value)" style="width:58px;padding:3px 6px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;" title="Minuten je Objekt dieser Art; leer = Projekt-Standard (${getBewDuration()} min)"> <span style="font-size:11px;color:var(--text3);">min</span>`}</td>
       <td style="padding:7px 12px;white-space:nowrap;text-align:right;">${ro?'<span style="font-size:11px;color:var(--text3);">nur Lesezugriff</span>':`
         <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" onclick="renameArt('${a.id}')">Umbenennen</button>
         <select onchange="if(this.value)mergeArt('${a.id}',this.value);this.selectedIndex=0;" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
@@ -3687,6 +3697,7 @@ function renderArtenList(){
         <th style="padding:8px 8px 8px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Symbol</th>
         <th style="padding:8px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">${FL.art}</th>
         <th style="padding:8px 12px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Häufigkeit</th>
+        <th style="padding:8px 12px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);" title="Zeitaufwand je Objekt dieser Art (Minuten). Leer = Projekt-Standard.">Zeitaufwand/Obj.</th>
         <th style="padding:8px 12px;"></th>
       </tr></thead>
       <tbody>${rows}</tbody>
@@ -3708,6 +3719,21 @@ async function artSetIcon(id){
       notify(ic?'✓ Symbol gesetzt':'✓ Symbol entfernt — Projekt-Standard gilt');
     }catch(e){ notify(dlErr(e)); }
   }, true);
+}
+async function artSetTime(id,val){
+  if(isReadonly()) return;
+  const s=(''+(val??'')).trim().replace(',','.');
+  const n=s===''?null:Math.max(0,Math.round(parseFloat(s)||0));
+  try{
+    const useDefault=(n==null||!(n>0));
+    await updateDoc(doc(db,'projects',currentProjectId,'arten',id), useDefault?{zeitaufwand:firebase.firestore.FieldValue.delete()}:{zeitaufwand:n});
+    await loadArten();
+    renderArtenList();
+    try{ updateRouteInfoBar(); }catch(e){}
+    try{ renderLegend(); }catch(e){}
+    try{ renderTourenGrid(); }catch(e){}
+    notify(useDefault?'✓ Zeitaufwand: Projekt-Standard':'✓ Zeitaufwand '+n+' min/Objekt');
+  }catch(e){ notify(dlErr(e)); }
 }
 async function addArt(){
   if(isReadonly()) return;
@@ -4249,8 +4275,8 @@ function renderTourenGrid(){
     const driveVal= rt ? rt.durationSec : (typeof tour.routeDriveSec==='number'? tour.routeDriveSec : null);
     const km=kmVal!=null?kmVal.toFixed(1)+' km':'–';
     const driveZeit=driveVal?fmtDuration(driveVal):'–';
-    const bewZeit=kmVal!=null?fmtBewTime(cnt):'–';
-    const gesamtZeit=driveVal?fmtTotalTime(driveVal,cnt):'–';
+    const bewZeit=kmVal!=null?fmtBewTime(treesInTour):'–';
+    const gesamtZeit=driveVal?fmtTotalTime(driveVal,treesInTour):'–';
     const bar=cnt>0?`<div style="display:flex;height:6px;border-radius:3px;overflow:hidden;gap:1px;width:120px;">
       ${zCounts.filter(z=>z.n>0).map(z=>`<div style="flex:${z.n};background:${z.farbe};" title="${z.n} ${dlEsc(z.label)}"></div>`).join('')}
       </div><div style="font-size:10px;color:var(--text3);margin-top:2px;">${zCounts.filter(z=>z.n>0).map(z=>z.n+' '+dlEsc(z.label)).join(' · ')||'–'}</div>`
@@ -8025,7 +8051,7 @@ Object.assign(window,{
   startPlacement,cancelMode,setDepotOnMap,
   startAssignMode,setAssignTour,cancelAssign,assignTreeToTour,
   openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,
-  pickProjIcon,artSetIcon,
+  pickProjIcon,artSetIcon,artSetTime,
   renderMandanten,createOrgUi,moveProjectUi,
   addWmsLayer,deleteWmsLayer,editWmsLayer,cancelWmsEdit,renderWmsList,
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,
