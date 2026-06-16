@@ -1223,25 +1223,34 @@ function tourMetrics(tid){
   if(t && typeof t.routeKm==='number') return {km:t.routeKm, durationSec:t.routeDriveSec||0};
   return null;
 }
+// Füllt das Routen-Kennzahlen-Panel (Sidebar): Gesamtzeit + km, Proportionsleiste, Chips.
+function _fillRoutePanel(name,cnt,km,driveMin,bewMin,zusMin){
+  const sp=document.getElementById('sidebar-route-info'); if(!sp) return;
+  driveMin=Math.round(driveMin||0); bewMin=Math.round(bewMin||0); zusMin=Math.round(zusMin||0);
+  const total=driveMin+bewMin+zusMin;
+  const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=v; };
+  set('sidebar-route-tour-name',name||'');
+  set('sidebar-route-cnt',(cnt!=null?cnt:0)+' Objekte');
+  set('sidebar-route-km',km!=null?km.toFixed(1)+' km':'–');
+  set('sidebar-route-drive',driveMin?fmtMin(driveMin):'–');
+  set('sidebar-route-taet',bewMin?fmtMin(bewMin):'–');
+  set('sidebar-route-total',total?fmtMin(total):'–');
+  const zBox=document.getElementById('sidebar-route-zusatz-box');
+  if(zBox){ if(zusMin>0){ zBox.style.display='inline-flex'; set('sidebar-route-zusatz',fmtMin(zusMin)); } else zBox.style.display='none'; }
+  const barEl=document.getElementById('sidebar-route-bar');
+  if(barEl){ const base=Math.max(total,1);
+    barEl.innerHTML=`<div style="width:${driveMin/base*100}%;background:var(--green);"></div><div style="width:${bewMin/base*100}%;background:var(--green-mid);"></div><div style="width:${zusMin/base*100}%;background:#f59e0b;"></div>`;
+  }
+  sp.style.display='block';
+}
 function updateRouteInfoBar(){
   const bar=document.getElementById('route-info-bar');
-  const txt=document.getElementById('route-info-text');
-  const sidePanel=document.getElementById('sidebar-route-info');
   if(bar) bar.classList.remove('visible'); // schwebende Routen-Info-Leiste entfernt — Infos im Seitenpanel
   // Mehrere Touren ausgewählt → kompakte Summe
   if(activeTours.size>1){
     let km=0,dur=0,zusAll=0; activeTours.forEach(tid=>{ const m=tourMetrics(tid); if(m){ km+=m.km; dur+=m.durationSec; } const tt=tours.find(x=>x.id===tid); if(tt) zusAll+=tourZusatzMin(tt); });
     const tl=trees.filter(t=>treeInAnyActiveTour(t)&&t.lat&&t.lng); const cnt=tl.length;
-    txt.textContent=`${activeTours.size} Touren · ${cnt} Objekte${km?` · Σ ${km.toFixed(1)} km${dur?' · '+fmtDuration(dur)+' Fahrt':''}`:''}`;
-    if(sidePanel){
-      document.getElementById('sidebar-route-tour-name').textContent=`${activeTours.size} Touren`;
-      document.getElementById('sidebar-route-km').textContent=km?km.toFixed(1)+' km':'–';
-      document.getElementById('sidebar-route-drive').textContent=dur?fmtDuration(dur):'–';
-      document.getElementById('sidebar-route-taet').textContent=cnt?(fmtBewTime(tl)+(zusAll>0?' + '+fmtMin(zusAll)+' Zusatz':'')):'–';
-      document.getElementById('sidebar-route-total').textContent=km?fmtTotalTime(dur,tl,zusAll):'–';
-      document.getElementById('sidebar-route-cnt').textContent=cnt+' Objekte';
-      sidePanel.style.display='block';
-    }
+    _fillRoutePanel(`${activeTours.size} Touren`, cnt, km||null, dur/60, bewMinutes(tl), zusAll);
     return;
   }
   const _activeM=activeTourOnMap?tourMetrics(activeTourOnMap):null;
@@ -1249,23 +1258,10 @@ function updateRouteInfoBar(){
     const {km,durationSec}=_activeM;
     const tour=tours.find(t=>t.id===activeTourOnMap);
     const tl=trees.filter(t=>treeInTour(t,activeTourOnMap)&&t.lat&&t.lng); const cnt=tl.length;
-    const depot=getDepot();
-    const _zus=tourZusatzMin(tour);
-    const _bewT=fmtBewTime(tl);
-    const _totT=fmtTotalTime(durationSec,tl,_zus);
-    txt.textContent=`${tour?.name||''} · ${cnt} Objekte · ${km.toFixed(1)} km · ${fmtDuration(durationSec)} Fahrt + ${_bewT} Bew.${_zus>0?' + '+fmtMin(_zus)+' Zusatz':''} = ${_totT}${depot?' (inkl. Depot)':''}`;
-    const bewTime=_bewT+(_zus>0?' + '+fmtMin(_zus)+' Zusatz':'');
-    const totalTime=_totT;
-    document.getElementById('sidebar-route-tour-name').textContent=tour?.name||'';
-    document.getElementById('sidebar-route-km').textContent=km.toFixed(1)+' km';
-    document.getElementById('sidebar-route-drive').textContent=fmtDuration(durationSec);
-    document.getElementById('sidebar-route-taet').textContent=bewTime;
-    document.getElementById('sidebar-route-total').textContent=totalTime;
-    document.getElementById('sidebar-route-cnt').textContent=cnt+' Objekte';
-    sidePanel.style.display='block';
+    _fillRoutePanel(tour?.name||'', cnt, km, durationSec/60, bewMinutes(tl), tourZusatzMin(tour));
   } else {
-    bar.classList.remove('visible');
-    if(sidePanel) sidePanel.style.display='none';
+    if(bar) bar.classList.remove('visible');
+    const sp=document.getElementById('sidebar-route-info'); if(sp) sp.style.display='none';
   }
 }
 
