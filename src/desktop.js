@@ -3390,7 +3390,7 @@ function openSettings(){
   const _rtSub = document.getElementById('s-routing-sub');
   if(_rtSub){ _rtSub.style.opacity = _routeOn ? '1' : '0.4'; _rtSub.style.pointerEvents = _routeOn ? '' : 'none'; }
   // Projektname wird unter Verwaltung → Projekte verwaltet
-  document.getElementById('s-bew-duration').value=getBewDuration();
+  // Zeitaufwand-Standard wird jetzt im Reiter Objekte → Typ/Art gepflegt
   const _fg=document.getElementById('s-fuellgrad'); if(_fg) _fg.checked=!!currentProjectData?.fuellgradAktiv;
   const _cl=document.getElementById('s-cluster'); if(_cl) _cl.checked=!!currentProjectData?.clusterAktiv;
   loadReasons();
@@ -3558,7 +3558,6 @@ async function applySettings(){
     depotMode:document.getElementById('s-depot-mode').value,
     icon:document.getElementById('s-proj-icon')?.textContent.trim()||PROJ_ICON_DEFAULT,
     routeOptMode:document.getElementById('s-route-opt')?.value||getRouteOptMode(),
-    bewDuration:parseInt(document.getElementById('s-bew-duration')?.value)||5,
     fuellgradAktiv:document.getElementById('s-fuellgrad')?.checked||false,
     clusterAktiv:document.getElementById('s-cluster')?.checked||false,
     routePlanning:getRoutePlanningEnabled(),
@@ -3850,6 +3849,12 @@ function renderArtenList(){
       <span style="font-size:12px;color:var(--text3);">${artenList.length} Einträge · ${trees.length} Objekte</span>
       ${ro?'':`<button class="btn btn-primary" style="margin-left:auto;padding:5px 11px;font-size:12px;" onclick="buildArten()">Liste aus Objekten aufbauen/aktualisieren</button>`}
     </div>
+    ${ro?'':`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin-bottom:10px;">
+      <span style="font-size:12px;font-weight:600;color:var(--text2);">⏱ Standard-Zeitaufwand</span>
+      <input id="art-default-time" type="number" min="1" max="240" step="1" value="${getBewDuration()}" onchange="setArtDefaultTime(this.value)" style="width:64px;padding:4px 6px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
+      <span style="font-size:12px;color:var(--text3);">Min/Objekt — gilt für Arten ohne eigenen Wert</span>
+      ${artenList.length?`<button class="btn btn-secondary" style="margin-left:auto;padding:4px 10px;font-size:12px;white-space:nowrap;" onclick="artApplyTimeToAll()" title="Diesen Wert in alle ${artenList.length} Arten als eigenen Zeitaufwand schreiben">Für alle Arten übernehmen</button>`:''}
+    </div>`}
     ${unmapped?`<div style="background:#fef3c7;border:1px solid #b45309;color:#7a4a06;border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:10px;">${unmapped} Objekte noch keiner Art-ID zugeordnet — „aufbauen/aktualisieren" klicken.</div>`:''}
     ${artenList.length===0?'<div style="color:var(--text3);font-size:13px;padding:10px 0;">Noch keine Arten-Liste. Klicke „aufbauen/aktualisieren", um sie aus den Objekten zu erzeugen.</div>':`
     <table style="width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:13px;">
@@ -3893,6 +3898,43 @@ async function artSetTime(id,val){
     try{ renderLegend(); }catch(e){}
     try{ renderTourenGrid(); }catch(e){}
     notify(useDefault?'✓ Zeitaufwand: Projekt-Standard':'✓ Zeitaufwand '+n+' min/Objekt');
+  }catch(e){ notify(dlErr(e)); }
+}
+// Standard-Zeitaufwand (Fallback für Arten ohne eigenen Wert) — am Projekt-Doc.
+async function setArtDefaultTime(val){
+  if(isReadonly()) return;
+  const n=Math.max(1,Math.round(parseFloat((''+(val??'')).replace(',','.'))||0))||5;
+  try{
+    await updateDoc(doc(db,'projects',currentProjectId),{bewDuration:n});
+    if(currentProjectData) currentProjectData.bewDuration=n;
+    try{ localStorage.setItem('bew_duration_min',n); }catch(e){}
+    renderArtenList();
+    try{ updateRouteInfoBar(); }catch(e){}
+    try{ renderLegend(); }catch(e){}
+    try{ renderTourenGrid(); }catch(e){}
+    notify('✓ Standard-Zeitaufwand '+n+' min/Objekt');
+  }catch(e){ notify(dlErr(e)); }
+}
+// Komfort: den Standardwert als eigenen Zeitaufwand in ALLE Arten schreiben.
+async function artApplyTimeToAll(){
+  if(isReadonly()) return;
+  if(!artenList.length){ notify('Keine Arten vorhanden'); return; }
+  const n=Math.max(1,Math.round(parseFloat(((document.getElementById('art-default-time')?.value)||'').replace(',','.'))||0))||getBewDuration();
+  if(!confirm(`${n} Min/Objekt als Zeitaufwand für alle ${artenList.length} Arten übernehmen?\nBestehende Art-Zeiten werden überschrieben.`)) return;
+  try{
+    for(let i=0;i<artenList.length;i+=400){
+      const batch=db.batch();
+      const chunk=artenList.slice(i,i+400);
+      chunk.forEach(a=>batch.update(doc(db,'projects',currentProjectId,'arten',a.id),{zeitaufwand:n}));
+      await batch.commit();
+      _bumpUsage('writes',chunk.length);
+    }
+    await loadArten();
+    renderArtenList();
+    try{ updateRouteInfoBar(); }catch(e){}
+    try{ renderLegend(); }catch(e){}
+    try{ renderTourenGrid(); }catch(e){}
+    notify('✓ '+n+' min/Objekt für alle '+artenList.length+' Arten übernommen');
   }catch(e){ notify(dlErr(e)); }
 }
 async function addArt(){
@@ -8229,7 +8271,7 @@ Object.assign(window,{
   startPlacement,cancelMode,setDepotOnMap,
   startAssignMode,setAssignTour,cancelAssign,assignTreeToTour,
   openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,
-  pickProjIcon,artSetIcon,artSetTime,
+  pickProjIcon,artSetIcon,artSetTime,setArtDefaultTime,artApplyTimeToAll,
   renderMandanten,createOrgUi,moveProjectUi,
   addWmsLayer,deleteWmsLayer,editWmsLayer,cancelWmsEdit,renderWmsList,
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,

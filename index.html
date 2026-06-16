@@ -641,13 +641,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
           </div>
           <div id="s-routing-sub">
           <div class="form-group">
-            <label class="form-label">⏱ Zeitaufwand pro Objekt</label>
-            <div style="display:flex;align-items:center;gap:8px;">
-              <input class="form-control" type="number" id="s-bew-duration" min="1" max="120" value="5" style="width:80px;" oninput="localStorage.setItem('bew_duration_min',this.value);updateRouteInfoBar();">
-              <span style="font-size:12px;color:var(--text3);">Minuten/Objekt</span>
-            </div>
-          </div>
-          <div class="form-group">
             <label class="form-label">Standard-Symbol der Objekte</label>
             <div style="display:flex;align-items:center;gap:8px;">
               <button type="button" id="s-proj-icon" onclick="pickProjIcon()" style="width:38px;height:38px;font-size:19px;padding:0;border:1.5px solid var(--border);border-radius:8px;background:var(--bg);cursor:pointer;">🌳</button>
