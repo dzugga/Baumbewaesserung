@@ -4548,6 +4548,16 @@ function notify(msg){
 // ─── VERWALTUNG (Fahrer + Gründe) ───────────────────────────
 let reasons=[];
 
+// Geänderte Feldbezeichnungen sofort überall im Projekt sichtbar machen:
+// Formular-Labels erledigt applyFieldLabels (in loadFieldLabels); hier zusätzlich
+// das offene Objekt-Detail, die Bäume-Tabelle (Spaltenköpfe) und den Eigenschaften-Filter.
+function _refreshFieldLabelViews(){
+  if(selectedTreeId && document.getElementById('detail-panel')?.classList.contains('open')){
+    try{ openDetail(selectedTreeId); }catch(e){ console.warn('refreshLabel detail',e); }
+  }
+  try{ if(document.getElementById('view-baeume')) renderBaeumeTable(); }catch(e){ console.warn('refreshLabel table',e); }
+  try{ if(document.getElementById('obj-filter')) renderObjFilterUI(); }catch(e){ console.warn('refreshLabel filter',e); }
+}
 async function saveFieldLabels(){
   const keys = ['name','stadtteil','baumnr','art','pflanzjahr','pflanzzeitpunkt','zustand','wasser','datum'];
   const labels = {};
@@ -4558,6 +4568,7 @@ async function saveFieldLabels(){
   await updateDoc(doc(db,'projects',currentProjectId),{fieldLabels:labels});
   currentProjectData.fieldLabels = labels;
   loadFieldLabels();
+  _refreshFieldLabelViews();
   notify('✓ Feldbezeichnungen gespeichert');
 }
 // Einzelne Feldbezeichnung setzen (für die Integration in „Felder & Listen")
@@ -4571,6 +4582,7 @@ async function setFieldLabel(key, value){
     if(currentProjectData) currentProjectData.fieldLabels=labels;
     loadFieldLabels();
     if(currentView==='baeume' && !_fieldDetailKey) renderFieldCatalog(); // Kachel-Titel aktualisieren
+    _refreshFieldLabelViews(); // offenes Detail-Panel / Tabelle / Filter mit neuen Bezeichnungen aktualisieren
     notify('✓ Bezeichnung gespeichert');
   }catch(e){ console.warn('setFieldLabel',e); notify(dlErr(e)); }
 }
