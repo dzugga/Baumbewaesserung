@@ -2137,7 +2137,7 @@ function openDetail(id){
   // Kompakt: leere Felder ausblenden (kein „–"-Rauschen), Koordinaten ganz raus
   const drow=(k,v,vs)=>v?`<div class="detail-field" style="padding:5px 0;"><span class="detail-key">${k}</span><span class="detail-val"${vs?` style="${vs}"`:''}>${dlEsc(''+v)}</span></div>`:'';
   let body=`
-    ${_zE?`<div class="status-bar" style="background:${statusBg};color:${statusColor};">${dlEsc(zLabel)} — ${dlEsc(FL.zustand)}</div>`:''}
+    ${_zE?`<div class="status-bar" style="background:${statusBg};color:${statusColor};">${dlEsc(FL.zustand)} — ${dlEsc(zLabel)}</div>`:''}
 
     <div class="form-section">Identifikation</div>
     <div class="detail-field" style="padding:5px 0;"><span class="detail-key">Objekt-ID</span><span class="detail-val" style="font-family:monospace;font-weight:700;color:var(--green);">${tree.baumId||'–'}</span></div>
