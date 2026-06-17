@@ -4544,6 +4544,7 @@ function renderTourenGrid(){
         <div style="display:flex;gap:5px;justify-content:flex-end;align-items:center;">
           <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" data-action="karte" data-tid="${tour.id}">Karte</button>
           ${tour.uebersicht?'':`<button class="btn btn-primary" style="padding:3px 9px;font-size:11px;${rpDisStyle()}" data-action="route" data-tid="${tour.id}"${rpDisAttr()}>Route</button>`}
+          ${tour.uebersicht?'':`<button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" data-action="report" data-tid="${tour.id}">Bericht</button>`}
           <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" data-action="edit" data-tid="${tour.id}">✎</button>
           <button class="btn btn-danger" style="padding:3px 9px;font-size:11px;" data-action="delete" data-tid="${tour.id}">✕</button>
         </div>
@@ -4556,6 +4557,7 @@ function renderTourenGrid(){
     const tid=btn.dataset.tid,action=btn.dataset.action;
     if(action==='karte')focusTourAndSwitch(tid);
     else if(action==='route')calculateAndSaveRoute(tid);
+    else if(action==='report')openTourReport(tid);
     else if(action==='edit')openTourModal(tid);
     else if(action==='delete')deleteTour(tid);
   };
@@ -4563,6 +4565,202 @@ function renderTourenGrid(){
   // "Alle Routen berechnen"-Toolbar-Button je nach Reihenfolgeplanung
   const allBtn=document.getElementById('btn-calc-all-toolbar');
   if(allBtn){ const off=!getRoutePlanningEnabled()||isReadonly(); allBtn.disabled=off; allBtn.style.opacity=off?'0.45':''; allBtn.style.cursor=off?'not-allowed':''; allBtn.title=isReadonly()?'Nur Lesezugriff':(off?'Reihenfolgeplanung ist deaktiviert':''); }
+}
+
+// ─── TOUR-BERICHTE (Baukasten: Spalten/Sortierung/Druck/PDF/Excel/Vorlagen) ──
+function reportFields(){
+  const f=[{key:'name',label:FL.name},{key:'baumnr',label:FL.baumnr},{key:'art',label:FL.art},
+    {key:'stadtteil',label:FL.stadtteil},{key:'pflanzjahr',label:FL.pflanzjahr},{key:'pflanzzeitpunkt',label:FL.pflanzzeitpunkt},
+    {key:'zustand',label:FL.zustand},{key:'wasser',label:FL.wasser}];
+  (customFields||[]).filter(c=>c&&c.aktiv!==false&&c.key).forEach(c=>f.push({key:c.key,label:c.label||c.key}));
+  return f;
+}
+function _repFieldLabel(k){ return (reportFields().find(f=>f.key===k)||{}).label||k; }
+function _repCell(t,k){
+  if(k==='zustand') return t.zustand?rankLabel('zustand',t.zustand):'';
+  if(k==='wasser') return t.wasser?rankLabel('wasser',t.wasser):'';
+  return (t[k]??'').toString();
+}
+function _repDate(v){ if(!v) return ''; const s=(''+v).slice(0,10); const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(s); return m?`${m[3]}.${m[2]}.${m[1]}`:s; }
+function _repNum(n){ return Number(n).toLocaleString('de-DE',{maximumFractionDigits:2}); }
+function _repSort(tourId,arr,sort){
+  if(sort==='name') return [...arr].sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  if(sort==='baumnr') return [...arr].sort((a,b)=>{const x=parseFloat(a.baumnr),y=parseFloat(b.baumnr); if(!isNaN(x)&&!isNaN(y))return x-y; return (a.baumnr||'').localeCompare(b.baumnr||'');});
+  let order=null;
+  if(sort==='manual'){ const t=tours.find(x=>x.id===tourId); if(Array.isArray(t&&t.manualOrder)) order=t.manualOrder; }
+  if(!order) order=tourOrder[tourId]||null;
+  if(order){ const idx=new Map(order.map((id,i)=>[id,i])); return [...arr].sort((a,b)=>((idx.has(a.id)?idx.get(a.id):1e9)-(idx.has(b.id)?idx.get(b.id):1e9))||(a.name||'').localeCompare(b.name||'')); }
+  return [...arr].sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+}
+function reportRows(tourId,cfg){
+  const list=_repSort(tourId, trees.filter(t=>treeInTour(t,tourId)), cfg.sort);
+  const cols=cfg.columns||[];
+  const abhakCols = (cfg.abhak&&cfg.abhak!=='none') ? ['bearbeitet von','nicht erf.','Datum'] : [];
+  const headers=['Nr.', ...cols.map(_repFieldLabel), ...abhakCols];
+  const rows=[], notiz=[];
+  list.forEach((t,i)=>{
+    let ab=[];
+    if(cfg.abhak==='leer') ab=['','',''];
+    else if(cfg.abhak==='digital') ab=[t.lastDriver||'', t.lastStatus==='nicht'?'X':'', _repDate(t.lastReportAt)];
+    rows.push([String(i+1), ...cols.map(k=>_repCell(t,k)), ...ab]);
+    notiz.push(t.notiz||'');
+  });
+  const sums=cols.map(k=>{ let s=0,any=false; list.forEach(t=>{const n=parseFloat(String(_repCell(t,k)).replace(',','.')); if(!isNaN(n)&&String(_repCell(t,k)).trim()!==''){s+=n;any=true;}}); return any?s:null; });
+  return {headers,rows,notiz,sums,cols,abhakCols,count:list.length};
+}
+let _rep=null; // {tourId,cfg,order}
+function openTourReport(tourId){
+  const tour=tours.find(t=>t.id===tourId); if(!tour) return;
+  const fields=reportFields();
+  const tpls=currentProjectData?.reportTemplates||[];
+  let cfg;
+  if(tpls.length){ const t=tpls[0]; cfg={columns:[...(t.columns||[])],showNotiz:!!t.showNotiz,abhak:t.abhak||'leer',sort:t.sort||'route',title:t.title||'',sub:t.sub||''}; }
+  else cfg={columns:['name','baumnr','art'].filter(k=>fields.some(f=>f.key===k)),showNotiz:true,abhak:'leer',sort:(tour.manualOrder?'manual':'route'),title:'Bemerkungen',sub:''};
+  _rep={tourId,cfg}; window._rep=_rep;
+  document.getElementById('report-modal').classList.add('open');
+  renderReportDialog();
+}
+function closeReportModal(){ document.getElementById('report-modal')?.classList.remove('open'); }
+function _repH(t){ return `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin-bottom:8px;">${t}</div>`; }
+function renderReportDialog(){
+  if(!_rep) return; const {tourId,cfg}=_rep; const tour=tours.find(t=>t.id===tourId); if(!tour) return;
+  const fields=reportFields();
+  const avail=fields.filter(f=>!cfg.columns.includes(f.key));
+  const colRows=cfg.columns.map((k,i)=>`<div style="display:flex;align-items:center;gap:5px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px;font-size:13px;">
+     <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(_repFieldLabel(k))}</span>
+     <button class="btn btn-secondary" style="padding:1px 7px;font-size:12px;${i===0?'opacity:.4;':''}" onclick="repMoveCol('${dlEsc(k)}',-1)">▲</button>
+     <button class="btn btn-secondary" style="padding:1px 7px;font-size:12px;${i===cfg.columns.length-1?'opacity:.4;':''}" onclick="repMoveCol('${dlEsc(k)}',1)">▼</button>
+     <button class="btn btn-secondary" style="padding:1px 7px;font-size:12px;color:var(--red);" onclick="repRemoveCol('${dlEsc(k)}')">✕</button>
+   </div>`).join('')||'<div style="font-size:12px;color:var(--text3);margin-bottom:6px;">Keine Spalten gewählt.</div>';
+  const addBlock=avail.length?`<div style="display:flex;gap:6px;margin-top:4px;"><select id="rep-addcol" class="form-control" style="flex:1;">${avail.map(f=>`<option value="${dlEsc(f.key)}">${dlEsc(f.label)}</option>`).join('')}</select><button class="btn btn-secondary" style="white-space:nowrap;" onclick="repAddCol(document.getElementById('rep-addcol').value)">+ Spalte</button></div>`:'';
+  const tpls=currentProjectData?.reportTemplates||[];
+  const tplOpts=`<option value="">— gespeicherte Vorlage laden —</option>`+tpls.map((t,i)=>`<option value="${i}">${dlEsc(t.name)}</option>`).join('');
+  const sortOpt=(v,l)=>`<option value="${v}"${cfg.sort===v?' selected':''}>${l}</option>`;
+  const abOpt=(v,l)=>`<option value="${v}"${cfg.abhak===v?' selected':''}>${l}</option>`;
+  document.getElementById('report-body').innerHTML=`
+   <div style="font-size:14px;font-weight:600;font-style:italic;margin-bottom:12px;">${dlEsc(tour.name)}</div>
+   <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+     <div>${_repH('Spalten')}${colRows}${addBlock}</div>
+     <div>${_repH('Optionen')}
+       <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:10px;"><input type="checkbox" id="rep-notiz" ${cfg.showNotiz?'checked':''} onchange="repApplyFromControls()"> Bemerkungszeile (Notiz)</label>
+       <div style="font-size:12px;color:var(--text2);margin-bottom:3px;">Abhak-Spalten</div>
+       <select id="rep-abhak" class="form-control" style="width:100%;margin-bottom:10px;" onchange="repApplyFromControls()">${abOpt('none','keine')}${abOpt('leer','leer zum Ausfüllen')}${abOpt('digital','aus digitaler Rückmeldung')}</select>
+       <div style="font-size:12px;color:var(--text2);margin-bottom:3px;">Sortierung</div>
+       <select id="rep-sort" class="form-control" style="width:100%;margin-bottom:10px;" onchange="repApplyFromControls()">${sortOpt('route','Route-Reihenfolge')}${sortOpt('manual','Manuell')}${sortOpt('name',dlEsc(FL.name))}${sortOpt('baumnr',dlEsc(FL.baumnr))}</select>
+       <button class="btn btn-secondary" style="width:100%;font-size:12px;" onclick="openOrderEditor()">Reihenfolge manuell bearbeiten…</button>
+     </div>
+   </div>
+   ${_repH('Kopfzeile')}
+   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+     <input id="rep-title" class="form-control" style="flex:1;min-width:120px;" placeholder="Titel" value="${dlEsc(cfg.title||'')}" oninput="repApplyFromControls()">
+     <input id="rep-sub" class="form-control" style="flex:2;min-width:200px;" placeholder="Untertitel" value="${dlEsc(cfg.sub||'')}" oninput="repApplyFromControls()">
+   </div>
+   <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
+     <select id="rep-template" class="form-control" style="flex:1;" onchange="loadReportTemplate(this.value)">${tplOpts}</select>
+     <button class="btn btn-secondary" style="white-space:nowrap;" onclick="saveReportTemplate()">Als Vorlage speichern</button>
+   </div>
+   ${_repH('Vorschau')}
+   <div id="rep-preview" style="overflow:auto;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--surface);max-height:280px;"></div>
+   <div id="rep-order" style="display:none;"></div>
+   <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end;">
+     <button class="btn btn-secondary" onclick="closeReportModal()">Schließen</button>
+     <button class="btn btn-secondary" onclick="exportReportExcel()">Excel</button>
+     <button class="btn btn-primary" onclick="printReport()">Drucken / PDF</button>
+   </div>`;
+  renderReportPreview();
+}
+function repApplyFromControls(){
+  if(!_rep) return; const cfg=_rep.cfg; const g=id=>document.getElementById(id);
+  if(g('rep-notiz')) cfg.showNotiz=g('rep-notiz').checked;
+  if(g('rep-abhak')) cfg.abhak=g('rep-abhak').value;
+  if(g('rep-sort')) cfg.sort=g('rep-sort').value;
+  if(g('rep-title')) cfg.title=g('rep-title').value;
+  if(g('rep-sub')) cfg.sub=g('rep-sub').value;
+  renderReportPreview();
+}
+function repAddCol(k){ if(_rep&&k&&!_rep.cfg.columns.includes(k)){ _rep.cfg.columns.push(k); renderReportDialog(); } }
+function repRemoveCol(k){ if(_rep){ _rep.cfg.columns=_rep.cfg.columns.filter(x=>x!==k); renderReportDialog(); } }
+function repMoveCol(k,dir){ if(!_rep)return; const a=_rep.cfg.columns,i=a.indexOf(k),j=i+dir; if(i<0||j<0||j>=a.length)return; [a[i],a[j]]=[a[j],a[i]]; renderReportDialog(); }
+function renderReportPreview(){
+  if(!_rep) return; const el=document.getElementById('rep-preview'); if(!el) return;
+  const R=reportRows(_rep.tourId,_rep.cfg);
+  if(!R.rows.length){ el.innerHTML='<div style="font-size:12px;color:var(--text3);">Keine Objekte in dieser Tour.</div>'; return; }
+  const th=R.headers.map(h=>`<th style="border:1px solid var(--border);padding:4px 6px;text-align:left;background:var(--surface2);font-size:11px;white-space:nowrap;">${dlEsc(h)}</th>`).join('');
+  let body='';
+  R.rows.forEach((r,i)=>{
+    body+='<tr>'+r.map(c=>`<td style="border:1px solid var(--border);padding:3px 6px;font-size:11px;">${dlEsc(c)}</td>`).join('')+'</tr>';
+    if(_rep.cfg.showNotiz && R.notiz[i]) body+=`<tr><td style="border:1px solid var(--border);"></td><td colspan="${R.headers.length-1}" style="border:1px solid var(--border);padding:2px 6px;font-size:10px;font-style:italic;color:var(--text3);">${dlEsc(R.notiz[i])}</td></tr>`;
+  });
+  const sumRow=`<tr><td style="border:1px solid var(--border);padding:3px 6px;font-size:11px;font-weight:700;">Σ ${R.count}</td>`+R.cols.map((k,ci)=>`<td style="border:1px solid var(--border);padding:3px 6px;font-size:11px;font-weight:700;text-align:right;">${R.sums[ci]!=null?_repNum(R.sums[ci]):''}</td>`).join('')+R.abhakCols.map(()=>'<td style="border:1px solid var(--border);"></td>').join('')+'</tr>';
+  el.innerHTML=`<table style="border-collapse:collapse;width:100%;"><thead><tr>${th}</tr></thead><tbody>${body}${sumRow}</tbody></table>`;
+}
+function printReport(){
+  if(!_rep) return; const {tourId,cfg}=_rep; const tour=tours.find(t=>t.id===tourId); const R=reportRows(tourId,cfg);
+  const esc=dlEsc;
+  const th=R.headers.map(h=>`<th>${esc(h)}</th>`).join('');
+  let body='';
+  R.rows.forEach((r,i)=>{
+    body+='<tr>'+r.map((c,ci)=>`<td${ci===0?' class="nr"':''}>${esc(c)}</td>`).join('')+'</tr>';
+    if(cfg.showNotiz && R.notiz[i]) body+=`<tr><td></td><td colspan="${R.headers.length-1}" class="rem">${esc(R.notiz[i])}</td></tr>`;
+  });
+  body+=`<tr class="sum"><td>Σ ${R.count}</td>`+R.cols.map((k,ci)=>`<td class="num">${R.sums[ci]!=null?_repNum(R.sums[ci]):''}</td>`).join('')+R.abhakCols.map(()=>'<td></td>').join('')+'</tr>';
+  const html=`<!doctype html><html lang="de"><head><meta charset="utf-8"><title>${esc(tour&&tour.name||'Bericht')}</title>
+   <style>@page{size:landscape;margin:12mm;} body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;} h1{font-size:15px;font-style:italic;margin:0 0 2px;} .sub{font-size:11px;color:#444;margin:0 0 10px;} table{border-collapse:collapse;width:100%;} th,td{border:1px solid #888;padding:4px 6px;font-size:10px;text-align:left;vertical-align:top;} th{background:#eee;} td.num,th.num{text-align:right;} .nr{text-align:right;width:26px;} .rem{font-style:italic;color:#555;font-size:9px;} tr.sum td{font-weight:bold;background:#f3f3f3;} td.num{text-align:right;}</style></head>
+   <body><h1>${esc(tour&&tour.name||'Bericht')}</h1>${cfg.title||cfg.sub?`<div class="sub"><b>${esc(cfg.title||'')}</b> ${esc(cfg.sub||'')}</div>`:''}
+   <table><thead><tr>${th}</tr></thead><tbody>${body}</tbody></table>
+   <script>window.onload=function(){window.print();}<\/script></body></html>`;
+  const w=window.open('','_blank'); if(!w){ notify('Bitte Pop-ups erlauben'); return; } w.document.write(html); w.document.close();
+}
+function exportReportExcel(){
+  if(!_rep||typeof XLSX==='undefined') { notify('Excel nicht verfügbar'); return; }
+  const {tourId,cfg}=_rep; const tour=tours.find(t=>t.id===tourId); const R=reportRows(tourId,cfg);
+  const head=[...R.headers, ...(cfg.showNotiz?['Bemerkung']:[])];
+  const aoa=[[tour&&tour.name||'Bericht']]; if(cfg.title||cfg.sub) aoa.push([((cfg.title||'')+' '+(cfg.sub||'')).trim()]); aoa.push([]); aoa.push(head);
+  R.rows.forEach((r,i)=> aoa.push(cfg.showNotiz?[...r,R.notiz[i]]:r));
+  const sumRow=['Σ '+R.count]; R.cols.forEach((k,ci)=>sumRow.push(R.sums[ci]!=null?R.sums[ci]:'')); R.abhakCols.forEach(()=>sumRow.push('')); if(cfg.showNotiz) sumRow.push(''); aoa.push(sumRow);
+  const ws=XLSX.utils.aoa_to_sheet(aoa); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Bericht');
+  XLSX.writeFile(wb, ((tour&&tour.name||'Bericht').replace(/[^\wäöüÄÖÜß-]+/g,'_'))+'.xlsx');
+}
+async function saveReportTemplate(){
+  if(!_rep) return; const name=(prompt('Name der Vorlage:', _rep.cfg.title||'Bericht')||'').trim(); if(!name) return;
+  const c=_rep.cfg; const tpl={name,columns:[...c.columns],showNotiz:c.showNotiz,abhak:c.abhak,sort:c.sort,title:c.title||'',sub:c.sub||''};
+  const list=(currentProjectData?.reportTemplates||[]).filter(t=>t.name!==name); list.push(tpl);
+  try{ await saveProjectSettings({reportTemplates:list}); if(currentProjectData) currentProjectData.reportTemplates=list; renderReportDialog(); notify('✓ Vorlage gespeichert'); }
+  catch(e){ notify(dlErr(e)); }
+}
+function loadReportTemplate(idx){
+  if(idx===''||idx==null||!_rep) return; const t=(currentProjectData?.reportTemplates||[])[+idx]; if(!t) return;
+  _rep.cfg={columns:[...(t.columns||[])],showNotiz:!!t.showNotiz,abhak:t.abhak||'leer',sort:t.sort||'route',title:t.title||'',sub:t.sub||''};
+  renderReportDialog();
+}
+function openOrderEditor(){
+  if(!_rep) return; const {tourId,cfg}=_rep;
+  _rep.order=_repSort(tourId, trees.filter(t=>treeInTour(t,tourId)), cfg.sort).map(t=>t.id);
+  renderOrderEditor();
+}
+function renderOrderEditor(){
+  if(!_rep) return; const el=document.getElementById('rep-order'); if(!el) return;
+  const ids=_rep.order||[]; const byId=new Map(trees.map(t=>[t.id,t]));
+  const rows=ids.map((id,i)=>{ const t=byId.get(id)||{}; return `<div style="display:flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;margin-bottom:3px;font-size:12px;">
+    <span style="width:24px;color:var(--text3);text-align:right;">${i+1}</span>
+    <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(t.name||'')}${t.baumnr?' · '+dlEsc(t.baumnr):''}</span>
+    <button class="btn btn-secondary" style="padding:1px 7px;${i===0?'opacity:.4;':''}" onclick="repOrderMove(${i},-1)">▲</button>
+    <button class="btn btn-secondary" style="padding:1px 7px;${i===ids.length-1?'opacity:.4;':''}" onclick="repOrderMove(${i},1)">▼</button>
+  </div>`; }).join('');
+  el.style.display='block';
+  el.innerHTML=`${_repH('Manuelle Reihenfolge')}<div style="max-height:260px;overflow:auto;">${rows}</div>
+    <div style="display:flex;gap:8px;margin-top:8px;"><button class="btn btn-primary" onclick="saveManualOrder()">Reihenfolge speichern</button><button class="btn btn-secondary" onclick="closeOrderEditor()">Abbrechen</button></div>`;
+  el.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+function repOrderMove(i,dir){ if(!_rep||!_rep.order)return; const a=_rep.order,j=i+dir; if(j<0||j>=a.length)return; [a[i],a[j]]=[a[j],a[i]]; renderOrderEditor(); }
+function closeOrderEditor(){ const el=document.getElementById('rep-order'); if(el){ el.style.display='none'; el.innerHTML=''; } }
+async function saveManualOrder(){
+  if(!_rep) return; const {tourId}=_rep; const order=_rep.order||[];
+  try{
+    await updateDoc(doc(db,'projects',currentProjectId,'tours',tourId),{manualOrder:order,orderLocked:true});
+    const t=tours.find(x=>x.id===tourId); if(t){ t.manualOrder=order; t.orderLocked=true; }
+    _rep.cfg.sort='manual'; closeOrderEditor(); renderReportDialog(); notify('✓ Manuelle Reihenfolge gespeichert');
+  }catch(e){ notify(dlErr(e)); }
 }
 
 async function focusTourAndSwitch(id){ switchView('karte');setTimeout(()=>focusTour(id),80); }
@@ -8315,6 +8513,9 @@ Object.assign(window,{
   archiveTree,reactivateTree,archiveTreeFromModal,reactivateTreeFromModal,deleteTreeFromModal,toggleShowInactive,showTreeOnMapFromModal,
   openTourModal,closeTourModal,saveTour,deleteTour,toggleTourUebersicht,toggleOverviewInGrid,filterTourenGrid,
   tourZusatzAdd,tourZusatzDel,tourRegelToggle,
+  openTourReport,closeReportModal,repAddCol,repRemoveCol,repMoveCol,repApplyFromControls,
+  printReport,exportReportExcel,saveReportTemplate,loadReportTemplate,
+  openOrderEditor,repOrderMove,closeOrderEditor,saveManualOrder,
   focusTour,focusTourAndSwitch,
   startPlacement,cancelMode,setDepotOnMap,
   startAssignMode,setAssignTour,cancelAssign,assignTreeToTour,
