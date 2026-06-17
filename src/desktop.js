@@ -1623,12 +1623,20 @@ let legendExpanded=new Set(); // je Tour aufgeklappte Detail-Zeile (Session)
 let showOverviewInLegend=false; // Übersichtstouren in der Legende eingeblendet? (Session, Standard: aus)
 let showOverviewInGrid=false;   // Übersichtstouren im Touren-Reiter eingeblendet? (Session, Standard: aus)
 let showOverviewInAssign=false; // Übersichtstouren in der Ziel-Tour-Auswahl (Planen) eingeblendet?
+// Mehrwort-UND-Suche: alle durch Leerzeichen getrennten Begriffe müssen vorkommen
+// (Reihenfolge/Zwischenzeichen egal) — z.B. "Nord Mi" findet "Nord/Team/Mi/1/3". Überall genutzt.
+function matchTerms(text,query){
+  const terms=(query||'').toLowerCase().split(/\s+/).filter(Boolean);
+  if(!terms.length) return true;
+  const h=(text||'').toLowerCase();
+  return terms.every(t=>h.includes(t));
+}
+// Such-× (Aufheben) für Felder in einem [data-sx]-Container — wie bei der Objektsuche
+function _sx(inp){ const w=inp&&inp.closest('[data-sx]'); const b=w&&w.querySelector('.s-x'); if(b) b.style.display=inp.value?'flex':'none'; }
+function _sxClear(btn){ const w=btn.closest('[data-sx]'); const inp=w&&w.querySelector('input'); if(!inp) return; inp.value=''; inp.dispatchEvent(new Event('input',{bubbles:true})); btn.style.display='none'; inp.focus(); }
 function applyTourLegendFilter(){
-  // Mehrwort-Suche: alle Begriffe müssen vorkommen (Reihenfolge/Zwischenzeichen egal) — z.B. "Nord Mi" findet "Nord/Team/Mi/1/3"
-  const terms=(tourLegendQuery||'').trim().toLowerCase().split(/\s+/).filter(Boolean);
   document.querySelectorAll('#tour-legend .legend-item[data-tourname]').forEach(row=>{
-    const name=row.dataset.tourname||'';
-    row.style.display = (!terms.length || terms.every(t=>name.includes(t))) ? '' : 'none';
+    row.style.display = matchTerms(row.dataset.tourname, tourLegendQuery) ? '' : 'none';
   });
 }
 function renderLegend(){
@@ -1670,7 +1678,7 @@ function renderLegend(){
 
   // Tour-Suchfeld — erst ab vielen Touren
   if(echteTouren.length>=8){
-    html+=`<div style="padding:2px 8px 6px;"><input id="tour-legend-search" type="text" placeholder="Tour suchen…" style="width:100%;padding:4px 8px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;box-sizing:border-box;"></div>`;
+    html+=`<div style="padding:2px 8px 6px;"><span data-sx style="position:relative;display:flex;align-items:center;"><input id="tour-legend-search" type="text" placeholder="Tour suchen…" style="width:100%;padding:4px 24px 4px 8px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;box-sizing:border-box;"><button type="button" class="s-x" aria-label="Suche aufheben" onclick="_sxClear(this)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg></button></span></div>`;
   }
 
   // Tour rows — kompakt: Name + Gesamtzeit; Details je Tour aufklappbar (Pfeil)
@@ -1759,8 +1767,9 @@ function renderLegend(){
   const ts=document.getElementById('tour-legend-search');
   if(ts){
     ts.value=tourLegendQuery;
-    ts.oninput=()=>{ tourLegendQuery=ts.value; applyTourLegendFilter(); };
+    ts.oninput=()=>{ tourLegendQuery=ts.value; applyTourLegendFilter(); _sx(ts); };
     ts.onclick=e=>e.stopPropagation();
+    _sx(ts); // initiales ×-Sichtbarkeit (z.B. bei erhaltenem Suchbegriff nach Re-Render)
   }
   applyTourLegendFilter();
 
@@ -2040,7 +2049,7 @@ const filterDetailTableDebounced=_debounce(v=>filterDetailTable(v),160);
 function renderList(){
   const q=document.getElementById('search-input')?.value.toLowerCase()||'';
   let filtered=trees.filter(t=>{
-    const mq=!q||t.name?.toLowerCase().includes(q)||(t.art||'').toLowerCase().includes(q);
+    const mq=matchTerms([t.name,t.art,t.stadtteil,t.baumnr,t.baumId,t.pflanzjahr].join(' '), q);
     const mf = treeVisibleSel(t);
     return mq&&mf&&objMatchesPropFilter(t);
   });
@@ -3804,15 +3813,8 @@ function updateBtnFilterNoGps(){
 
 function filterBaeumeTable(q){
   const countEl = document.getElementById('baeume-search-count');
-  const lower = q.toLowerCase();
   let filtered = _baeumeAllTrees.filter(tree=>
-    !q.trim() ||
-    (tree.name||'').toLowerCase().includes(lower) ||
-    (tree.art||'').toLowerCase().includes(lower) ||
-    (tree.stadtteil||'').toLowerCase().includes(lower) ||
-    (tree.baumnr||'').toLowerCase().includes(lower) ||
-    (tree.baumId||'').toLowerCase().includes(lower) ||
-    (tree.pflanzjahr||'').toLowerCase().includes(lower)
+    matchTerms([tree.name,tree.art,tree.stadtteil,tree.baumnr,tree.baumId,tree.pflanzjahr,tree.pflanzzeitpunkt].join(' '), q)
   );
   if(_baeumeNoGpsFilter) filtered = filtered.filter(t => !t.lat || !t.lng);
   if(!_baeumeShowInactive) filtered = filtered.filter(isActive);
@@ -4489,7 +4491,7 @@ function renderTourenGrid(){
   // Standardmäßig nur echte Touren; Übersichtstouren erst nach Klick auf den Umschalter
   const base=showOverviewInGrid ? tours : tours.filter(t=>!t.uebersicht);
   const q=(_tourenSearch||'').trim().toLowerCase();
-  const list=q ? base.filter(t=>(t.name||'').toLowerCase().includes(q)||(t.desc||'').toLowerCase().includes(q)) : base;
+  const list=q ? base.filter(t=>matchTerms((t.name||'')+' '+(t.desc||''), q)) : base;
   if(countEl)countEl.textContent=q?`${list.length} von ${tours.length} Touren`:`${echtCount} Touren${ovCount?` · ${ovCount} Übersicht`:''}`;
   // Umschalter nur zeigen, wenn es überhaupt Übersichtstouren gibt
   const ovBtn=document.getElementById('btn-toggle-overview-grid');
@@ -6546,12 +6548,8 @@ async function exportHistoryCSV(histId){
 let _allReportedCache=[];
 
 function filterDetailTable(q){
-  const filtered=q
-    ?_allReportedCache.filter(t=>
-        (t.name||'').toLowerCase().includes(q.toLowerCase())||
-        (t.baumnr||'').toLowerCase().includes(q.toLowerCase())||
-        (t.stadtteil||'').toLowerCase().includes(q.toLowerCase())
-      )
+  const filtered=(q||'').trim()
+    ?_allReportedCache.filter(t=>matchTerms([t.name,t.baumnr,t.stadtteil,t.art].join(' '), q))
     :_allReportedCache;
   renderDetailTable(filtered,true); // skipCache=true
 }
@@ -7067,7 +7065,7 @@ function dashTourStats(reported){
 function dashFilterTours(q){
   q=(q||'').toLowerCase().trim();
   document.querySelectorAll('#dash-tour-progress .dsh-tour-row').forEach(row=>{
-    row.style.display = !q || (row.dataset.name||'').includes(q) ? '' : 'none';
+    row.style.display = matchTerms(row.dataset.name, q) ? '' : 'none';
   });
 }
 function dashRenderTourProgress(reported){
@@ -8517,7 +8515,7 @@ Object.assign(window,{
   openAddTree,openEditTree,closeTreeModal,saveTree,deleteTree,
   archiveTree,reactivateTree,archiveTreeFromModal,reactivateTreeFromModal,deleteTreeFromModal,toggleShowInactive,showTreeOnMapFromModal,
   openTourModal,closeTourModal,saveTour,deleteTour,toggleTourUebersicht,toggleOverviewInGrid,filterTourenGrid,
-  tourZusatzAdd,tourZusatzDel,tourRegelToggle,
+  tourZusatzAdd,tourZusatzDel,tourRegelToggle,_sx,_sxClear,
   openTourReport,closeReportModal,repAddCol,repRemoveCol,repMoveCol,repApplyFromControls,
   printReport,exportReportExcel,saveReportTemplate,loadReportTemplate,
   openOrderEditor,repOrderMove,closeOrderEditor,saveManualOrder,

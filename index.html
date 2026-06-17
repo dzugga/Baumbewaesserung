@@ -101,6 +101,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .tree-meta{font-size:11px;color:var(--text3);margin-top:2px}
 .tree-badges{display:flex;gap:4px;margin-top:4px;flex-wrap:wrap}
 .badge{font-size:10px;font-weight:600;padding:1px 7px;border-radius:10px;white-space:nowrap}
+.s-x{position:absolute;right:7px;top:50%;transform:translateY(-50%);width:18px;height:18px;border:none;background:none;cursor:pointer;color:var(--text3);display:none;align-items:center;justify-content:center;line-height:1;padding:0;border-radius:4px}
+.s-x:hover{background:var(--surface2);color:var(--text)}
 .badge-ok{background:var(--green-light);color:var(--green)}
 .badge-warn{background:var(--amber-light);color:var(--amber)}
 .badge-crit{background:var(--red-light);color:var(--red)}
@@ -1027,10 +1029,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
         <span style="font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;">Einzelmeldungen</span>
         <span id="ctrl-table-count" style="font-size:12px;color:var(--text3);white-space:nowrap;"></span>
-        <div style="flex:1;min-width:180px;position:relative;">
+        <div data-sx style="flex:1;min-width:180px;position:relative;">
           <svg style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:var(--text3);" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-          <input id="ctrl-table-search" type="text" placeholder="Suchen…" oninput="filterDetailTableDebounced(this.value)"
-            style="width:100%;padding:5px 8px 5px 28px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;font-family:'DM Sans',sans-serif;background:var(--bg);outline:none;">
+          <input id="ctrl-table-search" type="text" placeholder="Suchen…" oninput="filterDetailTableDebounced(this.value);_sx(this)"
+            style="width:100%;padding:5px 26px 5px 28px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;font-family:'DM Sans',sans-serif;background:var(--bg);outline:none;">
+          <button type="button" class="s-x" aria-label="Suche aufheben" onclick="_sxClear(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
         </div>
       </div>
       <div style="overflow-x:auto;max-height:480px;overflow-y:auto;">
@@ -1136,8 +1139,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="7"/><rect x="12" y="6" width="3" height="11"/><rect x="17" y="13" width="3" height="4"/></svg>
             <span>Fortschritt je Tour</span>
             <span id="dash-tour-count" style="font-size:11px;font-weight:400;color:var(--text3);"></span>
-            <input id="dash-tour-search" type="text" placeholder="Tour suchen…" oninput="dashFilterTours(this.value)"
-              style="margin-left:auto;padding:4px 9px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:inherit;background:var(--bg);width:130px;max-width:45%;outline:none;">
+            <span data-sx style="position:relative;margin-left:auto;display:inline-flex;align-items:center;">
+              <input id="dash-tour-search" type="text" placeholder="Tour suchen…" oninput="dashFilterTours(this.value);_sx(this)"
+                style="padding:4px 26px 4px 9px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:inherit;background:var(--bg);width:130px;max-width:45%;outline:none;">
+              <button type="button" class="s-x" aria-label="Suche aufheben" onclick="_sxClear(this)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+            </span>
           </div>
           <div id="dash-tour-progress" style="max-height:270px;overflow-y:auto;"></div>
           <div class="dsh-legend">
@@ -1384,11 +1390,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
   <!-- Tab-Inhalt: Objekte -->
   <div id="baeume-objekte" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
   <div style="background:var(--surface);border-bottom:1px solid var(--border);padding:8px 20px;flex-shrink:0;display:flex;align-items:center;gap:10px;">
-    <div style="position:relative;flex:1;max-width:420px;">
+    <div data-sx style="position:relative;flex:1;max-width:420px;">
       <svg style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text3);" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-      <input id="baeume-search" type="text" placeholder="Suche nach Name, Stadtteil, Objekt-ID…" oninput="filterBaeumeTableDebounced(this.value)"
-        style="width:100%;padding:7px 12px 7px 32px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--bg);outline:none;"
+      <input id="baeume-search" type="text" placeholder="Suche nach Name, Stadtteil, Objekt-ID…" oninput="filterBaeumeTableDebounced(this.value);_sx(this)"
+        style="width:100%;padding:7px 28px 7px 32px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--bg);outline:none;"
         onfocus="this.style.borderColor='var(--green-mid)'" onblur="this.style.borderColor='var(--border)'">
+      <button type="button" class="s-x" aria-label="Suche aufheben" onclick="_sxClear(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
     </div>
     <span id="baeume-search-count" style="font-size:12px;color:var(--text3);white-space:nowrap;"></span>
     <button id="btn-filter-nogps" class="btn btn-secondary" style="padding:5px 10px;font-size:12px;white-space:nowrap;" onclick="toggleFilterNoGps(this)">
@@ -1414,11 +1421,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <button class="btn btn-primary" onclick="openTourModal()">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>Neue Tour
     </button>
-    <div style="position:relative;flex:1;max-width:320px;">
+    <div data-sx style="position:relative;flex:1;max-width:320px;">
       <svg style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text3);" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-      <input id="touren-search" type="text" placeholder="Tour suchen…" oninput="filterTourenGrid(this.value)"
-        style="width:100%;padding:7px 12px 7px 32px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--bg);outline:none;"
+      <input id="touren-search" type="text" placeholder="Tour suchen…" oninput="filterTourenGrid(this.value);_sx(this)"
+        style="width:100%;padding:7px 28px 7px 32px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--bg);outline:none;"
         onfocus="this.style.borderColor='var(--green-mid)'" onblur="this.style.borderColor='var(--border)'">
+      <button type="button" class="s-x" aria-label="Suche aufheben" onclick="_sxClear(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
     </div>
     <button id="btn-toggle-overview-grid" class="btn btn-secondary" onclick="toggleOverviewInGrid()" style="margin-left:auto;display:none;">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg><span id="toggle-overview-grid-label">Übersichtstouren anzeigen</span>
