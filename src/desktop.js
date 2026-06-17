@@ -2163,6 +2163,9 @@ function openDetail(id){
     </div>
     ${currentProjectData?.fuellgradAktiv && typeof tree.lastFuellgrad==='number'?`<div class="detail-field" style="padding:4px 0;"><span class="detail-key">Füllgrad (zuletzt)</span><span class="detail-val" style="font-weight:600;">${fgLabelD(tree.lastFuellgrad)}</span></div>`:''}
 
+    ${tree.notiz?`<div class="form-section">${dlEsc(FL.notiz)}</div>
+    <div style="padding:5px 0 8px;font-size:13px;color:var(--text2);line-height:1.55;white-space:pre-wrap;">${dlEsc(tree.notiz)}</div>`:''}
+
     <div class="form-section">Touren (Mehrfachauswahl)</div>
     <div style="padding:6px 0 4px;">
       <div id="inline-tour-chips" style="max-height:170px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:8px;">
@@ -2177,8 +2180,6 @@ function openDetail(id){
       </div>
       <button class="btn btn-primary" style="padding:5px 12px;font-size:12px;width:100%;${isReadonly()?'opacity:.45;cursor:not-allowed;':''}" ${isReadonly()?'disabled title="Nur Lesezugriff"':`onclick="saveInlineFields('${id}')"`}>Touren speichern</button>
     </div>
-
-    ${tree.notiz?`<div style="margin:8px 0;padding:10px;background:var(--surface2);border-radius:var(--radius-sm);font-size:12px;color:var(--text2);">${dlEsc(tree.notiz)}</div>`:''}
 
     ${(tree.fotos&&tree.fotos.length)?`
     <div class="form-section">Fotos (${tree.fotos.length})</div>
