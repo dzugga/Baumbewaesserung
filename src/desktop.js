@@ -1325,9 +1325,10 @@ function makeMarker(tree){
   if(multiActive){
     color='#eab308';
   } else {
-    let tour;
+    // Einfärbung nur bei Tour-Auswahl: gehört das Objekt zu einer AKTIVEN Tour → deren Farbe, sonst neutral
+    let tour=null;
     if(activeTourOnMap && treeTourIds.includes(activeTourOnMap)) tour=tours.find(t=>t.id===activeTourOnMap);
-    else { const activeId=treeTourIds.find(id=>activeTours.has(id)); tour=activeId?tours.find(t=>t.id===activeId):primaryTour(tree); }
+    else { const activeId=treeTourIds.find(id=>activeTours.has(id)); if(activeId) tour=tours.find(t=>t.id===activeId); }
     color=tour?tour.color:'#6b6760';
   }
   const num=getRouteNum(tree.id);
@@ -2075,7 +2076,7 @@ function renderList(){
     list.innerHTML=filtered.map(tree=>{
       const treeTours=getTreeTourIds(tree).map(id=>tourMap.get(id)).filter(Boolean);
       // Bei angezeigter Tour deren Farbe bevorzugen
-      const primaryT=(activeTourOnMap&&treeTours.find(t=>t.id===activeTourOnMap))||treeTours[0]||null;
+      const primaryT=(activeTourOnMap&&treeTours.find(t=>t.id===activeTourOnMap))||(activeTours.size?treeTours.find(t=>activeTours.has(t.id)):null)||null;
       const color=primaryT?.color||null;
       const bg=color?color+'22':'#f0ede6';
       const sel=selectedTreeId===tree.id?' selected':'';
