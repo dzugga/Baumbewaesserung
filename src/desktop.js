@@ -1624,9 +1624,11 @@ let showOverviewInLegend=false; // Übersichtstouren in der Legende eingeblendet
 let showOverviewInGrid=false;   // Übersichtstouren im Touren-Reiter eingeblendet? (Session, Standard: aus)
 let showOverviewInAssign=false; // Übersichtstouren in der Ziel-Tour-Auswahl (Planen) eingeblendet?
 function applyTourLegendFilter(){
-  const q=(tourLegendQuery||'').trim().toLowerCase();
+  // Mehrwort-Suche: alle Begriffe müssen vorkommen (Reihenfolge/Zwischenzeichen egal) — z.B. "Nord Mi" findet "Nord/Team/Mi/1/3"
+  const terms=(tourLegendQuery||'').trim().toLowerCase().split(/\s+/).filter(Boolean);
   document.querySelectorAll('#tour-legend .legend-item[data-tourname]').forEach(row=>{
-    row.style.display = (!q || row.dataset.tourname.includes(q)) ? '' : 'none';
+    const name=row.dataset.tourname||'';
+    row.style.display = (!terms.length || terms.every(t=>name.includes(t))) ? '' : 'none';
   });
 }
 function renderLegend(){
@@ -1715,7 +1717,10 @@ function renderLegend(){
     return r;
   }
   html+=`<div style="padding:0 8px 4px;">`;
+  const _tourScroll = echteTouren.length>20; // ab >20 Touren scrollbare Liste (ca. 20 Zeilen sichtbar)
+  if(_tourScroll) html+=`<div style="max-height:440px;overflow-y:auto;">`;
   echteTouren.forEach(t=>{ html+=tourRow(t); });
+  if(_tourScroll) html+=`</div>`;
   // Übersichtstouren (z.B. Stadtteile): standardmäßig eingeklappt, per Klick einblendbar
   if(overviewTouren.length){
     html+=`<div data-action="toggle-overview" style="display:flex;align-items:center;gap:6px;padding:5px 6px;margin-top:3px;border-top:1px solid var(--border);cursor:pointer;">
