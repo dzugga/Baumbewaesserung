@@ -1529,12 +1529,23 @@ async function toggleTourSelection(tourId){
   if(activeTours.has(tourId)) activeTours.delete(tourId); else activeTours.add(tourId);
   await applyTourSelection(true);
 }
-async function toggleAllTours(){
-  // Sammel-Checkbox im Touren-Kopf: alle echten Touren an- bzw. abwählen
+// Echte Touren, die aktuell zur Tour-Suche passen (bei leerer Suche: alle).
+function _legendVisibleTours(){
   const echte=tours.filter(t=>!t.uebersicht);
-  if(!echte.length) return;
-  const allSel=echte.every(t=>activeTours.has(t.id));
-  echte.forEach(t=>{ if(allSel) activeTours.delete(t.id); else activeTours.add(t.id); });
+  return (tourLegendQuery||'').trim() ? echte.filter(t=>matchTerms(t.name, tourLegendQuery)) : echte;
+}
+// Sammel-Checkbox-Status (an/halb/aus) anhand der gefilterten Touren synchronisieren
+function _syncAllToursCheck(){
+  const allCb=document.getElementById('tour-all-check'); if(!allCb) return;
+  const vis=_legendVisibleTours(); const sel=vis.filter(t=>activeTours.has(t.id)).length;
+  allCb.checked=vis.length>0&&sel===vis.length; allCb.indeterminate=sel>0&&sel<vis.length;
+}
+async function toggleAllTours(){
+  // Sammel-Checkbox im Touren-Kopf: wirkt auf die GEFILTERTEN Touren (bei leerer Suche auf alle)
+  const vis=_legendVisibleTours();
+  if(!vis.length) return;
+  const allSel=vis.every(t=>activeTours.has(t.id));
+  vis.forEach(t=>{ if(allSel) activeTours.delete(t.id); else activeTours.add(t.id); });
   await applyTourSelection(true);
 }
 async function toggleUnplanned(){
@@ -1639,6 +1650,7 @@ function applyTourLegendFilter(){
   document.querySelectorAll('#tour-legend .legend-item[data-tourname]').forEach(row=>{
     row.style.display = matchTerms(row.dataset.tourname, tourLegendQuery) ? '' : 'none';
   });
+  _syncAllToursCheck(); // Sammel-Haken folgt dem Filter
 }
 function renderLegend(){
   const el=document.getElementById('tour-legend');if(!el)return;
@@ -1761,8 +1773,7 @@ function renderLegend(){
   el.innerHTML=html;
 
   // Sammel-Checkbox: an = alle gewählt, halb = einige (indeterminate)
-  const allCb=document.getElementById('tour-all-check');
-  if(allCb){ const echte=tours.filter(t=>!t.uebersicht); const sel=echte.filter(t=>activeTours.has(t.id)).length; allCb.checked=echte.length>0&&sel===echte.length; allCb.indeterminate=sel>0&&sel<echte.length; }
+  _syncAllToursCheck();
 
   // Tour-Suche verdrahten
   const ts=document.getElementById('tour-legend-search');
