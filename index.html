@@ -1316,6 +1316,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
             </select>
           </div>
         </div>
+        <div class="form-group" id="wms-add-scope-wrap" style="margin-bottom:8px;display:none;">
+          <label class="form-label">Geltungsbereich</label>
+          <select class="form-control" id="wms-add-scope" style="width:auto;">
+            <option value="project">Nur dieses Projekt</option>
+            <option value="org">Stadt-Standard (alle Projekte dieser Stadt)</option>
+          </select>
+        </div>
         <div style="display:flex;gap:8px;">
           <button class="btn btn-primary" style="flex:1;" id="wms-add-btn" onclick="addWmsLayer()">+ WMS-Ebene hinzufügen</button>
           <button class="btn btn-secondary" id="wms-cancel-btn" style="display:none;" onclick="cancelWmsEdit()">Abbrechen</button>

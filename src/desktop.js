@@ -288,14 +288,27 @@ const WMS_DEFAULTS=[
 ];
 // WMS projektscharf: liegt am Projekt (projects/{id}.wmsLayers) — bewusst NICHT am Mandanten,
 // damit Projekte derselben Stadt (z. B. Grünpflege vs. Behälterleerung) eigene Karten haben.
+// Effektive WMS-Ebenen = Stadt-Standard (orgs/{id}.wmsDefaults) + projekteigene; dedup nach id (Projekt gewinnt).
+// _scope kennzeichnet die Herkunft (für Verwaltung/Anzeige), wird beim Speichern wieder entfernt.
 function getWmsLayers(){
-  if(Array.isArray(currentProjectData?.wmsLayers)) return currentProjectData.wmsLayers.map(x=>({...x}));
-  return []; // keine region-fremden Defaults
+  const proj=Array.isArray(currentProjectData?.wmsLayers)?currentProjectData.wmsLayers.map(x=>({...x,_scope:'project'})):[];
+  const org=(currentOrgWms||[]).map(x=>({...x,_scope:'org'}));
+  const pid=new Set(proj.map(x=>x.id));
+  return [...org.filter(o=>!pid.has(o.id)), ...proj];
 }
 function saveWmsLayers(arr){
   if(!currentProjectId){ notify('Kein Projekt geöffnet'); return; }
   if(!(currentRole==='superadmin'||currentCap==='admin')){ notify('Nur Administratoren'); return; }
-  saveProjectSettings({wmsLayers:arr.map(x=>({...x}))}).catch(e=>notify(dlErr(e)));
+  saveProjectSettings({wmsLayers:arr.map(({_scope,...x})=>({...x}))}).catch(e=>notify(dlErr(e)));
+}
+// Stadt-Standard speichern (nur Superadmin; Org-Doc-Direktschreiben wie bei „Stadt anlegen").
+async function saveOrgWms(arr){
+  const org=currentProjectData?.orgId;
+  if(!org){ notify('Kein Mandant aktiv'); return; }
+  if(currentRole!=='superadmin'){ notify('Stadt-Standard nur durch Superadmin'); return; }
+  const clean=arr.map(({_scope,...x})=>({...x}));
+  await db.collection('orgs').doc(org).update({wmsDefaults:clean});
+  currentOrgWms=clean.map(x=>({...x}));
 }
 function buildWmsLayer(cfg){
   return L.tileLayer.wms(cfg.url, {
@@ -612,6 +625,7 @@ function maybeHealCount(field,n){
 function getDepot(){ return currentProjectData?.depot||null; }
 // ORS-Key stadtscharf: liegt am Mandanten (orgs/{orgId}.orsKey). Legacy-Fallback: alter projektweiter Key.
 let currentOrgOrsKey = '';
+let currentOrgWms = []; // mandantenweite WMS-Standardliste (orgs/{id}.wmsDefaults)
 function getOrsKey(){ return currentOrgOrsKey || currentProjectData?.orsKey || ''; }
 function getBewDuration(){
   const v=currentProjectData?.bewDuration;               // projektspezifisch
@@ -737,13 +751,14 @@ function getKiMode(){ return currentKiMode || 'manual'; }
 // Mandanten-Einstellungen (KI-Modus + ORS-Key) in EINEM Org-Read laden — stadtscharf, beim Projektwechsel
 async function loadOrgSettings(){
   const org=currentProjectData?.orgId;
-  currentKiMode='manual'; currentOrgOrsKey=''; currentDispoConfig=null; currentDispoResources=null;
+  currentKiMode='manual'; currentOrgOrsKey=''; currentDispoConfig=null; currentDispoResources=null; currentOrgWms=[];
   if(org){
     try{ const os=await db.collection('orgs').doc(org).get(); if(os.exists){ const d=os.data();
       currentKiMode=d.kiMode||'manual';
       currentOrgOrsKey=d.orsKey||'';
       currentDispoConfig=(d.dispoConfig&&typeof d.dispoConfig==='object')?d.dispoConfig:null;
       currentDispoResources=Array.isArray(d.dispoResources)?d.dispoResources:null;
+      currentOrgWms=Array.isArray(d.wmsDefaults)?d.wmsDefaults.map(x=>({...x})):[];
     } }catch(e){}
   }
   applyKiNavVisibility();
@@ -3479,68 +3494,81 @@ function openAllgemein(){
 }
 
 // ── WMS-Verwaltung (Einstellungen) ──
-let editingWmsId=null; // beim Bearbeiten gesetzt
+let editingWmsId=null, editingWmsScope=null; // beim Bearbeiten gesetzt
 function renderWmsList(){
   const el=document.getElementById('wms-list'); if(!el) return;
-  const list=getWmsLayers();
-  let html=`<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin-bottom:8px;">Vorhandene Kartenebenen${list.length?' ('+list.length+')':''}</div>`;
-  if(!list.length){
-    el.innerHTML=html+'<div style="font-size:12px;color:var(--text3);padding:4px 0 14px;">Für dieses Projekt sind noch keine eigenen Kartenebenen hinterlegt. Unten eine hinzufügen.</div>';
-    return;
-  }
-  html+=list.map(l=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:6px;background:var(--surface);">
+  const isSuper=currentRole==='superadmin';
+  const sw=document.getElementById('wms-add-scope-wrap'); if(sw) sw.style.display=isSuper?'':'none';
+  const all=getWmsLayers();
+  const org=all.filter(l=>l._scope==='org');
+  const proj=all.filter(l=>l._scope==='project');
+  const btns=l=>`<button onclick="editWmsLayer('${l._scope}','${l.id}')" style="border:1px solid var(--border);background:var(--surface);cursor:pointer;color:var(--text2);padding:5px 11px;border-radius:6px;font-size:12px;font-weight:600;font-family:inherit;flex-shrink:0;">Bearbeiten</button>
+    <button onclick="deleteWmsLayer('${l._scope}','${l.id}')" title="Löschen" style="border:1px solid var(--red-light);background:var(--surface);cursor:pointer;color:var(--red);padding:5px 8px;border-radius:6px;flex-shrink:0;display:flex;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg></button>`;
+  const item=(l,editable)=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:6px;background:var(--surface);">
     <div style="flex:1;min-width:0;">
       <div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(l.name)}</div>
       <div style="font-size:10px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${l.type==='overlay'?'Overlay':'Basiskarte'} · Layer: ${dlEsc(l.layers||'')}</div>
     </div>
-    <button onclick="editWmsLayer('${l.id}')" style="border:1px solid var(--border);background:var(--surface);cursor:pointer;color:var(--text2);padding:5px 11px;border-radius:6px;font-size:12px;font-weight:600;font-family:inherit;flex-shrink:0;">Bearbeiten</button>
-    <button onclick="deleteWmsLayer('${l.id}')" title="Löschen" style="border:1px solid var(--red-light);background:var(--surface);cursor:pointer;color:var(--red);padding:5px 8px;border-radius:6px;flex-shrink:0;display:flex;">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
-    </button>
-  </div>`).join('');
+    ${editable?btns(l):'<span style="font-size:10px;color:var(--text3);flex-shrink:0;border:1px solid var(--border);border-radius:6px;padding:3px 8px;">geerbt</span>'}
+  </div>`;
+  const hdr=t=>`<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin:0 0 8px;">${t}</div>`;
+  let html='';
+  if(org.length || isSuper){
+    html+=hdr('Stadt-Standard – gilt für alle Projekte'+(org.length?' ('+org.length+')':''));
+    html+= org.length ? org.map(l=>item(l,isSuper)).join('')
+      : '<div style="font-size:12px;color:var(--text3);padding:2px 0 12px;">Noch kein Stadt-Standard. Unten mit Geltungsbereich „Stadt-Standard" hinzufügen.</div>';
+  }
+  html+=`<div style="${org.length||isSuper?'margin-top:12px;':''}">`+hdr('Nur dieses Projekt'+(proj.length?' ('+proj.length+')':''))+'</div>';
+  html+= proj.length ? proj.map(l=>item(l,true)).join('')
+    : '<div style="font-size:12px;color:var(--text3);padding:2px 0 6px;">Keine projekteigenen Kartenebenen.</div>';
   el.innerHTML=html;
 }
-function editWmsLayer(id){
-  const l=getWmsLayers().find(x=>x.id===id); if(!l) return;
-  editingWmsId=id;
+function editWmsLayer(scope,id){
+  const l=getWmsLayers().find(x=>x._scope===scope&&x.id===id); if(!l) return;
+  editingWmsId=id; editingWmsScope=scope;
   const set=(i,v)=>{ const e=document.getElementById(i); if(e) e.value=v; };
   set('wms-add-name',l.name||''); set('wms-add-url',l.url||''); set('wms-add-layers',l.layers||'');
-  set('wms-add-type',l.type||'overlay'); set('wms-add-version',l.version||'1.3.0');
-  const t=document.getElementById('wms-form-title'); if(t) t.textContent='Ebene bearbeiten';
+  set('wms-add-type',l.type||'overlay'); set('wms-add-version',l.version||'1.3.0'); set('wms-add-scope',scope);
+  const t=document.getElementById('wms-form-title'); if(t) t.textContent=(scope==='org'?'Stadt-Standard bearbeiten':'Ebene bearbeiten');
   const b=document.getElementById('wms-add-btn'); if(b) b.textContent='Änderungen speichern';
   const c=document.getElementById('wms-cancel-btn'); if(c) c.style.display='';
   document.getElementById('wms-add-name')?.scrollIntoView({behavior:'smooth',block:'center'});
 }
 function cancelWmsEdit(){
-  editingWmsId=null;
+  editingWmsId=null; editingWmsScope=null;
   ['wms-add-name','wms-add-url','wms-add-layers'].forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
+  const sc=document.getElementById('wms-add-scope'); if(sc) sc.value='project';
   const t=document.getElementById('wms-form-title'); if(t) t.textContent='Neue Ebene hinzufügen';
   const b=document.getElementById('wms-add-btn'); if(b) b.textContent='+ WMS-Ebene hinzufügen';
   const c=document.getElementById('wms-cancel-btn'); if(c) c.style.display='none';
 }
+function _wmsClearForm(){ ['wms-add-name','wms-add-url','wms-add-layers'].forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; }); }
 function addWmsLayer(){
   const v=id=>document.getElementById(id)?.value.trim()||'';
   const name=v('wms-add-name'), url=v('wms-add-url'), layers=v('wms-add-layers'),
         type=v('wms-add-type')||'overlay', version=v('wms-add-version')||'1.3.0';
+  const scope=(editingWmsId?editingWmsScope:(document.getElementById('wms-add-scope')?.value))||'project';
   if(!name||!url||!layers){ notify('Name, URL und Layer-Name sind erforderlich'); return; }
-  const list=getWmsLayers();
-  if(editingWmsId){ // bestehende Ebene aktualisieren
+  if(scope==='org' && currentRole!=='superadmin'){ notify('Stadt-Standard nur durch Superadmin'); return; }
+  const list=getWmsLayers().filter(x=>x._scope===scope);
+  if(editingWmsId){
     const l=list.find(x=>x.id===editingWmsId);
-    if(l){ Object.assign(l,{name,url,layers,type,version,transparent:type==='overlay'}); }
-    saveWmsLayers(list); rebuildLayerControl(); cancelWmsEdit(); renderWmsList();
-    notify('WMS-Ebene aktualisiert'); return;
+    if(l) Object.assign(l,{name,url,layers,type,version,transparent:type==='overlay'});
+  } else {
+    list.push({ id:(window.crypto?.randomUUID?crypto.randomUUID():'w'+Date.now()),
+      name, url, layers, type, format:'image/png', version, transparent:type==='overlay', maxZoom:20, attribution:'' });
   }
-  list.push({ id:(window.crypto?.randomUUID?crypto.randomUUID():'w'+Date.now()),
-    name, url, layers, type, format:'image/png', version, transparent:type==='overlay', maxZoom:20, attribution:'' });
-  saveWmsLayers(list); rebuildLayerControl(); renderWmsList();
-  ['wms-add-name','wms-add-url','wms-add-layers'].forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
-  notify('WMS-Ebene hinzugefügt');
+  const done=()=>{ rebuildLayerControl(); const ed=editingWmsId; cancelWmsEdit(); renderWmsList(); if(!ed)_wmsClearForm(); notify(scope==='org'?'Stadt-Standard gespeichert':'WMS-Ebene gespeichert'); };
+  if(scope==='org') saveOrgWms(list).then(done).catch(e=>notify(dlErr(e)));
+  else { saveWmsLayers(list); done(); }
 }
-function deleteWmsLayer(id){
+function deleteWmsLayer(scope,id){
   if(editingWmsId===id) cancelWmsEdit();
-  saveWmsLayers(getWmsLayers().filter(l=>l.id!==id));
-  rebuildLayerControl(); renderWmsList();
-  notify('WMS-Ebene gelöscht');
+  const list=getWmsLayers().filter(l=>l._scope===scope && l.id!==id);
+  const done=()=>{ rebuildLayerControl(); renderWmsList(); notify(scope==='org'?'Stadt-Standard gelöscht':'WMS-Ebene gelöscht'); };
+  if(scope==='org') saveOrgWms(list).then(done).catch(e=>notify(dlErr(e)));
+  else { saveWmsLayers(list); done(); }
 }
 
 async function geocodeDepot(){
