@@ -2661,7 +2661,7 @@ async function saveTree(){
   try{
     if(editingTreeId){
       await updateDoc(doc(db,'projects',currentProjectId,'trees',editingTreeId),data);
-      notify('Baum aktualisiert');
+      notify('Objekt aktualisiert');
     } else {
       const baumId=await getNextBaumId();
       await addDoc(collection(db,'projects',currentProjectId,'trees'),{
@@ -2670,7 +2670,7 @@ async function saveTree(){
         history:[],
         createdAt:serverTimestamp()
       });
-      notify('Baum hinzugefügt');
+      notify('Objekt hinzugefügt');
     }
     routeCache={};closeTreeModal();
   }catch(e){ notify('Fehler: '+e.message); }
@@ -2704,7 +2704,7 @@ async function treeHasHistory(tree){
 async function archiveTree(id){
   const tree=trees.find(t=>t.id===id); if(!tree) return;
   const tourCnt=getTreeTourIds(tree).length;
-  if(!confirm(`„${tree.name||'Baum'}" als INAKTIV markieren?\n\n`+
+  if(!confirm(`„${tree.name||'Objekt'}" als INAKTIV markieren?\n\n`+
     `• Wird aus Karte, Tourplanung und „offen"-Zahlen ausgeblendet`+
     (tourCnt?`\n• Wird aus ${tourCnt} Tour(en) entfernt`:'')+
     `\n• Historie bleibt erhalten, jederzeit reaktivierbar`)) return;
@@ -2713,7 +2713,7 @@ async function archiveTree(id){
     await updateDoc(doc(db,'projects',currentProjectId,'trees',id),
       {aktiv:false, archiviertAm:serverTimestamp(), tourIds:[], tourId:''});
     await removeTreeFromRoutes(id);
-    notify('Baum inaktiv gesetzt');
+    notify('Objekt inaktiv gesetzt');
   }catch(e){ notify('Fehler: '+e.message); }
 }
 
@@ -2722,7 +2722,7 @@ async function reactivateTree(id){
   setSyncState('syncing','Speichert…');
   try{
     await updateDoc(doc(db,'projects',currentProjectId,'trees',id),{aktiv:true});
-    notify('Baum reaktiviert — bei Bedarf wieder einer Tour zuweisen');
+    notify('Objekt reaktiviert — bei Bedarf wieder einer Tour zuweisen');
   }catch(e){ notify('Fehler: '+e.message); }
 }
 
@@ -2731,21 +2731,21 @@ async function deleteTree(id){
   if(!tree){ await deleteDoc(doc(db,'projects',currentProjectId,'trees',id)); closePanel(); return; }
   // Schutz: Objekte mit Historie nicht endgültig löschen → Archiv anbieten
   if(await treeHasHistory(tree)){
-    if(confirm(`„${tree.name||'Baum'}" hat eine Bewässerungs-Historie und kann nicht endgültig `+
+    if(confirm(`„${tree.name||'Objekt'}" hat eine Bewässerungs-Historie und kann nicht endgültig `+
       `gelöscht werden (Historie/Controlling würde verfälscht).\n\nStattdessen als INAKTIV archivieren?`)){
       await archiveTree(id);
     }
     return;
   }
   const tourCnt=getTreeTourIds(tree).length;
-  if(!confirm(`„${tree.name||'Baum'}" ENDGÜLTIG löschen?\n\n`+
+  if(!confirm(`„${tree.name||'Objekt'}" ENDGÜLTIG löschen?\n\n`+
     (tourCnt?`• Wird aus ${tourCnt} Tour(en) entfernt\n`:'')+
     `• Kann nicht rückgängig gemacht werden`)) return;
   setSyncState('syncing','Löscht…');
   try{
     await removeTreeFromRoutes(id);
     await deleteDoc(doc(db,'projects',currentProjectId,'trees',id));
-    closePanel(); closeTreeModal(); notify('Baum gelöscht');
+    closePanel(); closeTreeModal(); notify('Objekt gelöscht');
   }catch(e){ notify('Fehler: '+e.message); }
 }
 
@@ -2771,7 +2771,7 @@ function startGpsPlacement(treeId){
   const tree = trees.find(t=>t.id===treeId);
   placingTree=false;placingDepot=false;
   map.getContainer().style.cursor='crosshair';
-  document.getElementById('mode-text').textContent=`Position für „${tree?.name||'Baum'}" klicken`;
+  document.getElementById('mode-text').textContent=`Position für „${tree?.name||'Objekt'}" klicken`;
   document.getElementById('mode-banner').classList.add('visible');
   // Einmaliger Klick-Handler für GPS-Platzierung
   map.once('click', async e=>{
@@ -3291,7 +3291,7 @@ async function deleteTour(id){
   modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;';
   modal.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);width:390px;max-width:90vw;overflow:hidden;">
     <div style="padding:18px 20px 10px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;color:var(--red);">⚠ Tour löschen</div>
-    <div style="padding:14px 20px 6px;font-size:13px;color:var(--text2);line-height:1.6;">Tour <b style="color:var(--text);">${name}</b> löschen?<br>${cnt?`${cnt} Baum/Objekte werden aus der Tour entfernt (bleiben erhalten).`:'Objekte bleiben erhalten.'}</div>
+    <div style="padding:14px 20px 6px;font-size:13px;color:var(--text2);line-height:1.6;">Tour <b style="color:var(--text);">${name}</b> löschen?<br>${cnt?`${cnt} Objekte werden aus der Tour entfernt (bleiben erhalten).`:'Objekte bleiben erhalten.'}</div>
     <div style="padding:6px 20px 10px;">
       <input id="del-tour-input" class="form-control" placeholder="Tournamen eingeben zur Bestätigung" style="border-color:var(--red-light);" autocomplete="off">
       <div style="font-size:11px;color:var(--text3);margin-top:4px;">Gib <b>${name}</b> ein um zu bestätigen</div>
@@ -7143,7 +7143,7 @@ function dashRenderNichtMap(nichtReports){
   withCoords.forEach(r=>{
     const d=r.lastReportAt?new Date(r.lastReportAt).toLocaleDateString('de-DE'):'–';
     const meta=[r.stadtteil,r.baumnr].filter(Boolean).map(dlEsc).join(' · ');
-    const popup=`<b>${dlEsc(r.name||'Baum')}</b>`+(meta?`<br>${meta}`:'')+(r.art?`<br><i>${dlEsc(r.art)}</i>`:'')+
+    const popup=`<b>${dlEsc(r.name||'Objekt')}</b>`+(meta?`<br>${meta}`:'')+(r.art?`<br><i>${dlEsc(r.art)}</i>`:'')+
       `<br>Grund: <b style="color:#dc2626;">${dlEsc(r.lastReason||'nicht angegeben')}</b>`+
       (r.lastNote?`<br>Notiz: ${dlEsc(r.lastNote)}`:'')+(r.lastDriver?`<br>Fahrer: ${dlEsc(r.lastDriver)}`:'')+`<br>${d}`;
     L.marker([r.lat,r.lng],{icon:dashNichtIcon()}).bindPopup(popup).addTo(dashNichtLayer);
