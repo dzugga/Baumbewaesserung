@@ -4802,26 +4802,32 @@ async function printTourMap(){
   const kennz=`${stops.length} Objekte${km!=null?` · ${km.toFixed(1)} km`:''}${driveSec?` · ${fmtDuration(driveSec)} Fahrt`:''} · gesamt ${fmtTotalTime(driveSec,stopsTrees,zus)}`;
   const D={ color:tour.color, stops, depot:(depot&&depot.lat)?{lat:depot.lat,lng:depot.lng}:null, route:routeLatLngs, base, attr:baseAttr+' · Route: OpenRouteService' };
   const esc=dlEsc;
+  const titleSub='Kartenausdruck · '+esc(currentProjectData?.name||'')+' · '+esc(dashFmtDE(new Date()));
   const html='<!doctype html><html lang="de"><head><meta charset="utf-8"><title>'+esc(tour.name||'Tour')+'</title>'+
     '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>'+
-    '<style>@page{size:A4 '+orient+';margin:8mm;}html,body{margin:0;height:100%;font-family:Arial,Helvetica,sans-serif;}'+
-    '#wrap{display:flex;flex-direction:column;height:100%;}.hdr{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:0 2px 6px;}'+
-    '.hdr b{font-size:14px;font-style:italic;}.hdr span{font-size:10px;color:#555;}#map{flex:1;border:1px solid #888;}'+
-    '.ftr{padding:6px 2px 0;font-size:10px;color:#333;display:flex;justify-content:space-between;gap:10px;}'+
-    '.sn{border-radius:50%;border:2px solid #fff;color:#fff;font:600 11px/19px monospace;text-align:center;box-shadow:0 0 2px rgba(0,0,0,.6);box-sizing:border-box;}'+
-    '.dp{border-radius:4px;background:#EF9F27;border:2px solid #fff;box-shadow:0 0 2px rgba(0,0,0,.5);}'+
-    '.leaflet-control-attribution{font-size:8px;}</style></head><body><div id="wrap">'+
-    '<div class="hdr"><b>'+esc(tour.name||'Tour')+'</b><span>Kartenausdruck · '+esc(currentProjectData?.name||'')+' · '+esc(dashFmtDE(new Date()))+'</span></div>'+
-    '<div id="map"></div><div class="ftr"><span>● Stopp (Reihenfolge) &nbsp; ▪ Betriebshof &nbsp; — Route</span><span>'+esc(kennz)+'</span></div></div>'+
+    '<style>@page{size:A4 '+orient+';margin:6mm;}*{box-sizing:border-box;}html,body{margin:0;height:100%;font-family:Arial,Helvetica,sans-serif;}'+
+    '#map{position:absolute;inset:0;}'+
+    '.ovl{position:absolute;z-index:1000;background:rgba(255,255,255,.88);border:1px solid #999;border-radius:5px;padding:4px 9px;}'+
+    '.ovl-top{top:8px;left:8px;font-size:13px;}.ovl-top b{font-style:italic;}.ovl-top .s{font-size:10px;color:#555;margin-left:6px;}'+
+    '.ovl-bot{bottom:8px;left:8px;font-size:10px;color:#222;display:flex;gap:16px;}'+
+    '.bar{position:absolute;top:8px;right:8px;z-index:1100;display:flex;gap:7px;align-items:center;background:#fff;padding:7px 9px;border-radius:7px;box-shadow:0 1px 8px rgba(0,0,0,.3);font-size:12px;}'+
+    '.bar button{font:inherit;padding:5px 11px;border:1px solid #bbb;border-radius:6px;background:#f3f3f3;cursor:pointer;}.bar button.p{background:#2d6a4f;color:#fff;border-color:#2d6a4f;}'+
+    '@media print{.no-print{display:none!important;}}.leaflet-control-attribution{font-size:8px;}</style></head><body>'+
+    '<div id="map"></div>'+
+    '<div class="ovl ovl-top"><b>'+esc(tour.name||'Tour')+'</b><span class="s">'+titleSub+'</span></div>'+
+    '<div class="ovl ovl-bot"><span>● Stopp (Reihenfolge) &nbsp; ▪ Betriebshof &nbsp; — Route</span><span>'+esc(kennz)+'</span></div>'+
+    '<div class="bar no-print"><span>Karte verschieben/zoomen, dann drucken</span><button onclick="fitTour()">Tour einpassen</button><button class="p" onclick="doPrint()">Drucken / PDF</button></div>'+
     '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script><script>'+
-    'var D='+JSON.stringify(D)+';window.addEventListener("load",function(){'+
-    'var map=L.map("map",{zoomControl:false});var base=D.base.kind==="wms"?L.tileLayer.wms(D.base.url,{layers:D.base.layers,format:"image/png",version:D.base.version,transparent:false,maxZoom:20,attribution:D.attr}):L.tileLayer(D.base.url,{maxZoom:20,maxNativeZoom:18,attribution:D.attr});base.addTo(map);'+
-    'if(D.route&&D.route.length)L.polyline(D.route,{color:D.color,weight:4,opacity:.9}).addTo(map);'+
-    'var b=[];D.stops.forEach(function(s){L.marker([s.lat,s.lng],{icon:L.divIcon({className:"",html:\'<div class=sn style="width:23px;height:23px;background:\'+D.color+\'">\'+s.n+\'</div>\',iconSize:[23,23],iconAnchor:[11,11]})}).addTo(map);b.push([s.lat,s.lng]);});'+
-    'if(D.depot){L.marker([D.depot.lat,D.depot.lng],{icon:L.divIcon({className:"",html:\'<div class=dp style="width:20px;height:20px"></div>\',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);b.push([D.depot.lat,D.depot.lng]);}'+
-    'map.fitBounds(L.latLngBounds(b),{padding:[26,26]});'+
-    'var done=false,go=function(){if(done)return;done=true;setTimeout(function(){window.focus();window.print();},500);};base.on("load",go);setTimeout(go,3500);'+
-    '});<\/script></body></html>';
+    'var D='+JSON.stringify(D)+';'+
+    'var map=L.map("map",{zoomControl:true});'+
+    'var base=D.base.kind==="wms"?L.tileLayer.wms(D.base.url,{layers:D.base.layers,format:"image/png",version:D.base.version,transparent:false,maxZoom:20,attribution:D.attr}):L.tileLayer(D.base.url,{maxZoom:20,maxNativeZoom:18,attribution:D.attr});base.addTo(map);'+
+    'var b=L.latLngBounds([]);'+
+    'if(D.route&&D.route.length){L.polyline(D.route,{color:D.color,weight:4,opacity:.9}).addTo(map);D.route.forEach(function(p){b.extend(p);});}'+
+    'D.stops.forEach(function(s){L.marker([s.lat,s.lng],{icon:L.divIcon({className:"",html:\'<div style="width:23px;height:23px;border-radius:50%;border:2px solid #fff;color:#fff;font:600 11px/19px monospace;text-align:center;box-shadow:0 0 2px rgba(0,0,0,.6);background:\'+D.color+\'">\'+s.n+\'</div>\',iconSize:[23,23],iconAnchor:[11,11]})}).addTo(map);b.extend([s.lat,s.lng]);});'+
+    'if(D.depot){L.marker([D.depot.lat,D.depot.lng],{icon:L.divIcon({className:"",html:\'<div style="width:20px;height:20px;border-radius:4px;background:#EF9F27;border:2px solid #fff;box-shadow:0 0 2px rgba(0,0,0,.5)"></div>\',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);b.extend([D.depot.lat,D.depot.lng]);}'+
+    'window.fitTour=function(){if(b.isValid())map.fitBounds(b,{padding:[30,30]});};window.doPrint=function(){window.print();};'+
+    'map.whenReady(function(){setTimeout(window.fitTour,150);});'+
+    '<\/script></body></html>';
   const w=window.open('','_blank'); if(!w){ notify('Bitte Pop-ups für den Druck erlauben'); return; }
   w.document.write(html); w.document.close();
 }
