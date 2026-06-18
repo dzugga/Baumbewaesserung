@@ -2143,7 +2143,13 @@ function selectTree(id, pan=true){
     // Pan/zentrieren (beim Listen-Klick); beim Karten-Klick nicht nötig
     setTimeout(()=>{
       map.invalidateSize();
-      map.panTo([tree.lat,tree.lng],{animate:true,duration:0.5});
+      const m=mapMarkers[id];
+      // Cluster-Ansicht: so weit reinzoomen, dass das Objekt EINZELN sichtbar wird (statt nur zum Cluster zu schwenken)
+      if(_clusterOn && _clusterGroup && m && _clusterGroup.hasLayer && _clusterGroup.hasLayer(m) && _clusterGroup.zoomToShowLayer){
+        _clusterGroup.zoomToShowLayer(m, ()=>{ map.panTo([tree.lat,tree.lng],{animate:true,duration:0.3}); });
+      } else {
+        map.panTo([tree.lat,tree.lng],{animate:true,duration:0.5});
+      }
     }, wasOnMap ? 0 : 200);
   }
 
