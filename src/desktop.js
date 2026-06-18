@@ -4729,6 +4729,8 @@ function renderReportDialog(){
      <span style="font-size:12px;color:var(--text2);">Hintergrund</span>
      <select id="repmap-bg" class="form-control" style="width:auto;"><option value="grau">Graustufen</option><option value="farbe">Karte (farbig)</option>${getWmsLayers().some(l=>l.type==='base'&&l.layers)?'<option value="luftbild">Luftbild</option>':''}</select>
      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);"><input type="checkbox" id="repmap-depot" checked style="width:14px;height:14px;cursor:pointer;"> Betriebshof einbeziehen</label>
+     <span style="font-size:12px;color:var(--text2);">Detailkarten</span>
+     <select id="repmap-detail" class="form-control" style="width:auto;"><option value="auto">Automatisch</option><option value="aus">Keine</option><option value="2">2 Ausschnitte</option><option value="3">3</option><option value="4">4</option><option value="6">6</option></select>
      <button class="btn btn-secondary" style="margin-left:auto;" onclick="printTourMap()">🗺 Karte drucken</button>
    </div>
    <div style="font-size:11px;color:var(--text3);margin-bottom:6px;">Route + nummerierte Stopps (Betriebshof optional). In der Vorschau lässt sich Quer/Hoch umschalten und die Karte frei verschieben/zoomen. Für die Linie wird eine berechnete Route genutzt — sonst Luftlinie.</div>
@@ -4791,6 +4793,27 @@ function exportReportExcel(){
   const ws=XLSX.utils.aoa_to_sheet(aoa); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Bericht');
   XLSX.writeFile(wb, ((tour&&tour.name||'Bericht').replace(/[^\wäöüÄÖÜß-]+/g,'_'))+'.xlsx');
 }
+// Teilt die geordneten Stopps in K zusammenhängende Abschnitte (für Detail-/Szenenkarten).
+// mode: 'aus' = keine; 'auto' = K nach Tour-Ausdehnung; '2'/'3'/'4'/'6' = feste Anzahl.
+function _repSections(stops, mode){
+  if(mode==='aus' || !stops || stops.length<4) return [];
+  let K;
+  if(mode==='auto'){
+    const la=stops.map(s=>s.lat), lo=stops.map(s=>s.lng);
+    const midLat=(Math.max(...la)+Math.min(...la))/2, toR=Math.PI/180;
+    const km=Math.sqrt(((Math.max(...la)-Math.min(...la))*111)**2 + ((Math.max(...lo)-Math.min(...lo))*111*Math.cos(midLat*toR))**2);
+    if(km<2) return [];
+    K=Math.min(6, Math.max(2, Math.ceil(km/2)));
+  } else { K=parseInt(mode,10)||0; }
+  K=Math.min(K, Math.floor(stops.length/2));
+  if(K<2) return [];
+  const per=Math.ceil(stops.length/K), secs=[];
+  for(let i=0;i<stops.length;i+=per){
+    const grp=stops.slice(i,i+per); if(!grp.length) continue;
+    secs.push({ bounds:L.latLngBounds(grp.map(s=>[s.lat,s.lng])).pad(0.15), from:grp[0].n, to:grp[grp.length-1].n });
+  }
+  return secs;
+}
 // Kartenausdruck einer Tour: eigenes Druckfenster mit frisch gerenderter Leaflet-Karte
 // (Route + nummerierte Stopps + Betriebshof), Auto-Ausrichtung, wartet auf Kacheln, dann Druck.
 async function printTourMap(){
@@ -4806,6 +4829,7 @@ async function printTourMap(){
   const stops=stopsTrees.map((t,i)=>({lat:t.lat,lng:t.lng,n:i+1,name:t.name||''}));
   const depot=getDepot();
   const useDepot = (document.getElementById('repmap-depot')?document.getElementById('repmap-depot').checked:true) && !!(depot&&depot.lat&&depot.lng);
+  const detailMode = document.getElementById('repmap-detail')?document.getElementById('repmap-detail').value:'auto';
   // Routenlinie
   let routeLatLngs=null;
   if(routeData){
@@ -4858,8 +4882,10 @@ async function printTourMap(){
       +'@page{size:A4 '+o+';margin:6mm;}'
       +'@media print{html,body{height:100%!important;margin:0!important;background:#fff!important;}'
       +'body>*{display:none!important;}'
-      +'#mapprint-out{display:block!important;width:100%!important;height:100%!important;}'
-      +'#mapprint-out img{width:100%!important;height:100%!important;object-fit:contain!important;}}';
+      +'#mapprint-out{display:block!important;}'
+      +'#mapprint-out .pg{width:100%;height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;}'
+      +'#mapprint-out .pg:not(:last-child){page-break-after:always;}'
+      +'#mapprint-out .pg img{max-width:100%;max-height:100%;object-fit:contain;}}';
   };
   applyStyle(orient); document.head.appendChild(styleEl);
   const modal=document.createElement('div'); modal.id='mapprint-modal'; modal.tabIndex=-1;
@@ -4870,7 +4896,7 @@ async function printTourMap(){
     +'<div class="mp-frame" style="position:relative;">'
     +'<div class="mp-page" style="position:absolute;top:0;left:0;transform-origin:top left;background:#fff;box-shadow:0 6px 30px rgba(0,0,0,.45);overflow:hidden;">'
     +'<div id="mapprint-map" style="position:absolute;inset:0;"></div>'
-    +'<div class="mp-ovl mp-top"><b>'+dlEsc(tour.name||'Tour')+'</b><span class="s">'+titleSub+'</span></div>'
+    +'<div class="mp-ovl mp-top"><b>'+dlEsc(tour.name||'Tour')+'</b><span class="s">'+titleSub+'</span><span class="pl" style="margin-left:6px;font-weight:600;font-style:normal;"></span></div>'
     +'<div class="mp-ovl mp-bot"><span>● Stopp (Reihenfolge) &nbsp; ▪ Betriebshof &nbsp; — Route</span><span>'+dlEsc(kennz)+'</span></div></div></div>';
   document.body.appendChild(modal);
   const page=modal.querySelector('.mp-page'), frame=modal.querySelector('.mp-frame');
@@ -4903,24 +4929,45 @@ async function printTourMap(){
   modal.querySelector('#mp-h').onclick=()=>setOrient('portrait');
   modal.querySelector('#mp-fit').onclick=fit;
   modal.querySelector('#mp-print').onclick=async ()=>{
-    const btn=modal.querySelector('#mp-print'); const lbl=btn.textContent;
+    const btn=modal.querySelector('#mp-print'); const lbl0=btn.textContent;
     if(typeof htmlToImage==='undefined'){ notify('Druck-Modul nicht geladen'); return; }
-    btn.disabled=true; btn.textContent='Erzeuge…';
+    const sections=_repSections(stops, detailMode);
+    const plEl=modal.querySelector('.mp-top .pl');
+    const cap=()=>htmlToImage.toPng(page,{width:page.offsetWidth,height:page.offsetHeight,pixelRatio:2,backgroundColor:'#fff',filter:n=>!(n.classList&&n.classList.contains('leaflet-control-zoom'))});
+    btn.disabled=true;
     const prevT=page.style.transform; page.style.transform='none'; pmap.invalidateSize();
-    await new Promise(r=>setTimeout(r,500)); // Kacheln nachladen lassen
-    let dataUrl=null;
-    try{ dataUrl=await htmlToImage.toPng(page,{width:page.offsetWidth,height:page.offsetHeight,pixelRatio:2,backgroundColor:'#fff',filter:n=>!(n.classList&&n.classList.contains('leaflet-control-zoom'))}); }
-    catch(e){ console.warn('mapprint capture',e); }
-    page.style.transform=prevT; pmap.invalidateSize(); fit();
-    btn.disabled=false; btn.textContent=lbl;
-    if(!dataUrl){ notify('Karte konnte nicht erfasst werden (evtl. Luftbild ohne CORS) — bitte Graustufen wählen'); return; }
+    const savedCenter=pmap.getCenter(), savedZoom=pmap.getZoom();
+    const imgs=[]; let rects=[];
+    try{
+      if(sections.length){ // A/B/C-Rahmen auf der Übersicht
+        sections.forEach((sec,i)=>{
+          rects.push(L.rectangle(sec.bounds,{color:'#993C1D',weight:2,dashArray:'6 4',fill:false}).addTo(pmap));
+          rects.push(L.marker(sec.bounds.getNorthWest(),{interactive:false,icon:L.divIcon({className:'',html:'<div style="background:#993C1D;color:#fff;font:700 11px/1 Arial;padding:3px 6px;border-radius:4px;">'+String.fromCharCode(65+i)+'</div>',iconSize:[18,16],iconAnchor:[-1,-1]})}).addTo(pmap));
+        });
+      }
+      btn.textContent='Erzeuge 1/'+(sections.length+1)+'…';
+      if(plEl) plEl.textContent=sections.length?'· Übersicht':'';
+      await new Promise(r=>setTimeout(r,500));
+      imgs.push(await cap());
+      rects.forEach(r=>r.remove()); rects=[];
+      for(let i=0;i<sections.length;i++){
+        btn.textContent='Erzeuge '+(i+2)+'/'+(sections.length+1)+'…';
+        if(plEl) plEl.textContent='· Ausschnitt '+String.fromCharCode(65+i)+' · Stopps '+sections[i].from+'–'+sections[i].to;
+        pmap.fitBounds(sections[i].bounds,{padding:[34,34]});
+        await new Promise(r=>setTimeout(r,700));
+        imgs.push(await cap());
+      }
+    }catch(e){ console.warn('mapprint capture',e); rects.forEach(r=>r.remove()); }
+    if(plEl) plEl.textContent=''; page.style.transform=prevT; try{ pmap.setView(savedCenter,savedZoom); }catch(e){} pmap.invalidateSize();
+    btn.disabled=false; btn.textContent=lbl0;
+    if(!imgs.length){ notify('Karte konnte nicht erfasst werden (evtl. Luftbild ohne CORS) — bitte Graustufen wählen'); return; }
     document.getElementById('mapprint-out')?.remove();
-    const out=document.createElement('div'); out.id='mapprint-out'; out.style.cssText='position:fixed;inset:0;z-index:100000;background:#fff;';
-    out.innerHTML='<img src="'+dataUrl+'" style="width:100%;height:100%;object-fit:contain;display:block;">';
+    const out=document.createElement('div'); out.id='mapprint-out'; out.style.cssText='position:fixed;inset:0;z-index:100000;background:#fff;overflow:auto;';
+    out.innerHTML=imgs.map(u=>'<div class="pg"><img src="'+u+'" style="display:block;"></div>').join('');
     document.body.appendChild(out);
     const cleanup=()=>{ out.remove(); window.removeEventListener('afterprint',cleanup); };
     window.addEventListener('afterprint',cleanup);
-    setTimeout(()=>{ window.print(); setTimeout(cleanup,1500); }, 60);
+    setTimeout(()=>{ window.print(); setTimeout(cleanup,1800); }, 80);
   };
   modal.querySelector('#mp-close').onclick=close;
   modal.addEventListener('keydown',e=>{ if(e.key==='Escape') close(); });
