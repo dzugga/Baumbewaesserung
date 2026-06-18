@@ -74,10 +74,13 @@ db.batch = function(){
 window.addEventListener('beforeunload', ()=>{ try{ flushUsage(); }catch(_){} });
 
 // ─── CONSTANTS ────────────────────────────────────────────────
+// Kräftige, klar unterscheidbare Palette über den ganzen Farbkreis; so geordnet,
+// dass benachbarte Felder stark abweichen. Alle mitteltonig → gut auf der Karte sichtbar.
 const TOUR_COLORS=[
-  '#2d6a4f','#1e40af','#7c3aed','#be123c','#b45309','#0e7490','#064e3b','#b91c1c',
-  '#c2410c','#4d7c0f','#15803d','#0f766e','#1d4ed8','#4338ca','#6d28d9','#a21caf',
-  '#be185d','#9f1239','#1e3a8a','#166534','#92400e','#155e75','#5b21b6','#374151'
+  '#d11149','#27ae60','#2980b9','#e67e22','#7c3aed','#16a085','#c71585',
+  '#808000','#d4ac0d','#3f51b5','#d81b60','#9a6324','#1099a8','#5d6d7e',
+  '#e74c3c','#1e8449','#1e40af','#f58231','#6c3483','#0e7d6e','#ad1457',
+  '#6b8e23','#b8860b','#283593','#ec407a','#784212','#0e7490','#34495e'
 ];
 
 // Basis-Durchmesser der Objektkreise auf der Karte (px). Vorher 28 — etwas kleiner gestellt.
@@ -3221,10 +3224,10 @@ async function assignTreeToTour(treeId,tourId,skipConflictCheck=false){
 // ─── TOUR CRUD ────────────────────────────────────────────────
 function buildColorSwatches(sel){
   document.getElementById('color-swatches').innerHTML=TOUR_COLORS.map(c=>
-    `<div class="color-swatch${c===sel?' selected':''}" style="background:${c};" onclick="pickColor('${c}')"></div>`).join('');
+    `<div class="color-swatch${c===sel?' selected':''}" style="background:${c};" title="${c}" onclick="pickColor('${c}',this)"></div>`).join('');
   selectedTourColor=sel||TOUR_COLORS[0];
 }
-function pickColor(c){ selectedTourColor=c;document.querySelectorAll('.color-swatch').forEach(s=>s.classList.toggle('selected',s.style.background===c||s.style.backgroundColor===c)); }
+function pickColor(c,el){ selectedTourColor=c; document.querySelectorAll('.color-swatch').forEach(s=>s.classList.remove('selected')); if(el) el.classList.add('selected'); }
 
 // Zusatztätigkeiten-Editor (Pause, Rüstzeit …) — Arbeitskopie an window für Inline-Handler
 function renderTourZusatzRows(){
