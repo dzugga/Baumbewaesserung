@@ -4820,15 +4820,15 @@ async function printTourMap(){
   // Druck: alles AUSSER dem Modal per display:none (visibility würde Platz belassen → Leerseiten).
   // Die Druckseite ist intern bereits in A4-Pixeln (96 dpi) gerendert; im Druck nur die
   // Bildschirm-Skalierung entfernen → die Seite belegt exakt eine A4-Seite, Karte scharf.
+  // Gedruckt wird ausschliesslich das gerasterte Karten-Bild (#mapprint-out), das exakt
+  // eine A4-Seite fuellt — robust gegen Drucker/Skalierung/Papier (kein Leaflet im Druck).
   const applyStyle=o=>{
     styleEl.textContent=baseCss
       +'@page{size:A4 '+o+';margin:6mm;}'
-      +'@media print{html,body{height:auto!important;margin:0!important;background:#fff!important;}'
-      +'body>*:not(#mapprint-modal){display:none!important;}'
-      +'#mapprint-modal{position:static!important;inset:auto!important;background:none!important;padding:0!important;display:block!important;}'
-      +'#mapprint-modal .mp-bar{display:none!important;}#mapprint-modal .leaflet-control-zoom{display:none!important;}'
-      +'#mapprint-modal .mp-frame{width:auto!important;height:auto!important;}'
-      +'#mapprint-modal .mp-page{position:static!important;transform:none!important;box-shadow:none!important;border:none!important;}}';
+      +'@media print{html,body{height:100%!important;margin:0!important;background:#fff!important;}'
+      +'body>*{display:none!important;}'
+      +'#mapprint-out{display:block!important;width:100%!important;height:100%!important;}'
+      +'#mapprint-out img{width:100%!important;height:100%!important;object-fit:contain!important;}}';
   };
   applyStyle(orient); document.head.appendChild(styleEl);
   const modal=document.createElement('div'); modal.id='mapprint-modal'; modal.tabIndex=-1;
@@ -4855,7 +4855,7 @@ async function printTourMap(){
   };
   sizePage();
   const pmap=L.map('mapprint-map',{zoomControl:true,attributionControl:true,zoomSnap:0.25,zoomDelta:0.25,wheelPxPerZoomLevel:140});
-  const pbase = base.kind==='wms' ? L.tileLayer.wms(base.url,{layers:base.layers,format:'image/png',version:base.version,transparent:false,maxZoom:20,attribution:baseAttr}) : L.tileLayer(base.url,{maxZoom:20,maxNativeZoom:18,attribution:baseAttr});
+  const pbase = base.kind==='wms' ? L.tileLayer.wms(base.url,{layers:base.layers,format:'image/png',version:base.version,transparent:false,maxZoom:20,attribution:baseAttr,crossOrigin:true}) : L.tileLayer(base.url,{maxZoom:20,maxNativeZoom:18,attribution:baseAttr,crossOrigin:true});
   pbase.addTo(pmap);
   const pb=L.latLngBounds([]);
   if(routeLatLngs&&routeLatLngs.length){ L.polyline(routeLatLngs,{color,weight:4,opacity:.9}).addTo(pmap); if(useDepot) routeLatLngs.forEach(p=>pb.extend(p)); }
@@ -4871,7 +4871,26 @@ async function printTourMap(){
   modal.querySelector('#mp-q').onclick=()=>setOrient('landscape');
   modal.querySelector('#mp-h').onclick=()=>setOrient('portrait');
   modal.querySelector('#mp-fit').onclick=fit;
-  modal.querySelector('#mp-print').onclick=()=>{ pmap.invalidateSize(); setTimeout(()=>window.print(),60); };
+  modal.querySelector('#mp-print').onclick=async ()=>{
+    const btn=modal.querySelector('#mp-print'); const lbl=btn.textContent;
+    if(typeof htmlToImage==='undefined'){ notify('Druck-Modul nicht geladen'); return; }
+    btn.disabled=true; btn.textContent='Erzeuge…';
+    const prevT=page.style.transform; page.style.transform='none'; pmap.invalidateSize();
+    await new Promise(r=>setTimeout(r,500)); // Kacheln nachladen lassen
+    let dataUrl=null;
+    try{ dataUrl=await htmlToImage.toPng(page,{width:page.offsetWidth,height:page.offsetHeight,pixelRatio:2,backgroundColor:'#fff',filter:n=>!(n.classList&&n.classList.contains('leaflet-control-zoom'))}); }
+    catch(e){ console.warn('mapprint capture',e); }
+    page.style.transform=prevT; pmap.invalidateSize(); fit();
+    btn.disabled=false; btn.textContent=lbl;
+    if(!dataUrl){ notify('Karte konnte nicht erfasst werden (evtl. Luftbild ohne CORS) — bitte Graustufen wählen'); return; }
+    document.getElementById('mapprint-out')?.remove();
+    const out=document.createElement('div'); out.id='mapprint-out'; out.style.cssText='position:fixed;inset:0;z-index:100000;background:#fff;';
+    out.innerHTML='<img src="'+dataUrl+'" style="width:100%;height:100%;object-fit:contain;display:block;">';
+    document.body.appendChild(out);
+    const cleanup=()=>{ out.remove(); window.removeEventListener('afterprint',cleanup); };
+    window.addEventListener('afterprint',cleanup);
+    setTimeout(()=>{ window.print(); setTimeout(cleanup,1500); }, 60);
+  };
   modal.querySelector('#mp-close').onclick=close;
   modal.addEventListener('keydown',e=>{ if(e.key==='Escape') close(); });
   setTimeout(()=>modal.focus(),50);
