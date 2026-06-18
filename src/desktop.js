@@ -3932,8 +3932,8 @@ function renderArtenList(){
         :`<input type="number" min="0" step="1" value="${typeof a.zeitaufwand==='number'&&a.zeitaufwand>0?a.zeitaufwand:''}" placeholder="${getBewDuration()}" onchange="artSetTime('${dlEsc(a.id)}',this.value)" style="width:58px;padding:3px 6px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;" title="Minuten je Objekt dieser Art; leer = Projekt-Standard (${getBewDuration()} min)"> <span style="font-size:11px;color:var(--text3);">min</span>`}</td>
       <td style="padding:7px 12px;white-space:nowrap;text-align:right;">${ro?'<span style="font-size:11px;color:var(--text3);">nur Lesezugriff</span>':`
         <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" onclick="renameArt('${a.id}')">Umbenennen</button>
-        <select onchange="if(this.value)mergeArt('${a.id}',this.value);this.selectedIndex=0;" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
-          <option value="">→ zusammenführen…</option>${sorted.filter(x=>x.id!==a.id).map(x=>`<option value="${dlEsc(x.id)}">${dlEsc(x.name)}</option>`).join('')}
+        <select data-merge-field="__art__" data-merge-self="${dlEsc(a.id)}" onmousedown="_fillMerge(this)" onfocus="_fillMerge(this)" onchange="if(this.value)mergeArt('${a.id}',this.value);this.selectedIndex=0;" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
+          <option value="">→ zusammenführen…</option>
         </select>
         <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;${c===0?'color:#c0392b;':'opacity:.45;cursor:not-allowed;'}" ${c===0?`onclick="deleteArt('${a.id}')"`:'disabled title="Nur löschbar bei Häufigkeit 0"'}>Löschen</button>`}
       </td>
@@ -4119,6 +4119,17 @@ function loadListValues(){
 function listFor(fieldKey){ return listValues[fieldKey] || []; }
 function _genId(){ return 'v'+Math.random().toString(36).slice(2,9); }
 function _treesUsing(fieldKey,label){ const l=(label||'').trim(); return trees.filter(t=>(t[fieldKey]||'').trim()===l); }
+// Befüllt ein „zusammenführen"-Dropdown erst bei Bedarf (Klick/Fokus) — vermeidet O(Werte²) Optionen
+// vorab beim Rendern langer Listen (z. B. Kundenfeld mit tausenden Werten).
+function _fillMerge(sel){
+  if(!sel || sel.dataset.filled) return;
+  sel.dataset.filled='1';
+  const f=sel.dataset.mergeField, self=sel.dataset.mergeSelf;
+  const items = f==='__art__'
+    ? [...artenList].sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(x=>({id:x.id,label:x.name}))
+    : [...(listValues[f]||[])].sort((a,b)=>(a.label||'').localeCompare(b.label||'')).map(x=>({id:x.id,label:x.label}));
+  sel.insertAdjacentHTML('beforeend', items.filter(x=>x.id!==self).map(x=>`<option value="${dlEsc(x.id)}">${dlEsc(x.label)}</option>`).join(''));
+}
 async function saveListValues(){
   if(!currentProjectId) return;
   try{
@@ -4315,15 +4326,17 @@ function fillRankSelect(fieldKey,current){
 function _fieldCatalogCard(fieldKey, title, opts={}){
   const vals=[...(listValues[fieldKey]||[])].sort((a,b)=>(a.label||'').localeCompare(b.label||''));
   const ro=isReadonly();
+  const counts=Object.create(null);  // Häufigkeiten in 1 Durchlauf statt O(Werte×Objekte)
+  for(const t of trees){ const v=(t[fieldKey]||'').toString().trim(); if(v) counts[v]=(counts[v]||0)+1; }
   const rows=vals.map(e=>{
-    const c=_treesUsing(fieldKey,e.label).length;
+    const c=counts[(e.label||'').trim()]||0;
     return `<tr style="border-top:1px solid var(--border);">
       <td style="padding:7px 12px;font-weight:500;">${dlEsc(e.label)}</td>
       <td style="padding:7px 12px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text2);">${c}</td>
       <td style="padding:7px 12px;white-space:nowrap;text-align:right;">${ro?'':`
         <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" onclick="renameListVal('${fieldKey}','${e.id}')">Umbenennen</button>
-        <select onchange="if(this.value)mergeListVal('${fieldKey}','${e.id}',this.value);this.selectedIndex=0;" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
-          <option value="">→ zusammenführen…</option>${vals.filter(x=>x.id!==e.id).map(x=>`<option value="${x.id}">${dlEsc(x.label)}</option>`).join('')}
+        <select data-merge-field="${dlEsc(fieldKey)}" data-merge-self="${dlEsc(e.id)}" onmousedown="_fillMerge(this)" onfocus="_fillMerge(this)" onchange="if(this.value)mergeListVal('${fieldKey}','${e.id}',this.value);this.selectedIndex=0;" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
+          <option value="">→ zusammenführen…</option>
         </select>
         <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;${c===0?'color:#c0392b;':'opacity:.45;cursor:not-allowed;'}" ${c===0?`onclick="deleteListVal('${fieldKey}','${e.id}')"`:'disabled title="Nur löschbar bei Häufigkeit 0"'}>Löschen</button>`}
       </td></tr>`;
@@ -8749,7 +8762,7 @@ Object.assign(window,{
   dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
-  renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,
+  renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,_fillMerge,
   rankAdd,rankRename,rankSetColor,rankMove,rankMerge,rankDelete,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,clearLassoSelection,
