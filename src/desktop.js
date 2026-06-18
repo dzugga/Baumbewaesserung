@@ -4880,11 +4880,11 @@ async function printTourMap(){
   const applyStyle=o=>{
     styleEl.textContent=baseCss
       +'@page{size:A4 '+o+';margin:6mm;}'
-      +'@media print{html,body{height:100%!important;margin:0!important;background:#fff!important;}'
+      +'@media print{html,body{height:auto!important;margin:0!important;background:#fff!important;}'
       +'body>*{display:none!important;}'
-      +'#mapprint-out{display:block!important;}'
-      +'#mapprint-out .pg{width:100%;height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;}'
-      +'#mapprint-out .pg:not(:last-child){page-break-after:always;}'
+      +'#mapprint-out{display:block!important;position:static!important;inset:auto!important;width:auto!important;height:auto!important;overflow:visible!important;}'
+      +'#mapprint-out .pg{width:100%;height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;break-inside:avoid;}'
+      +'#mapprint-out .pg:not(:last-child){page-break-after:always;break-after:page;}'
       +'#mapprint-out .pg img{max-width:100%;max-height:100%;object-fit:contain;}}';
   };
   applyStyle(orient); document.head.appendChild(styleEl);
