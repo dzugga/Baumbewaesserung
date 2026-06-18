@@ -4802,38 +4802,59 @@ async function printTourMap(){
   const km=(routeData&&typeof routeData.km==='number')?routeData.km:(tourRoutes[tourId]&&tourRoutes[tourId].km);
   const zus=tourZusatzMin(tour);
   const kennz=`${stops.length} Objekte${km!=null?` · ${km.toFixed(1)} km`:''}${driveSec?` · ${fmtDuration(driveSec)} Fahrt`:''} · gesamt ${fmtTotalTime(driveSec,stopsTrees,zus)}`;
-  const D={ color:tour.color, stops, depot:useDepot?{lat:depot.lat,lng:depot.lng}:null, fitRoute:useDepot, route:routeLatLngs, base, attr:baseAttr+' · Route: OpenRouteService' };
-  const esc=dlEsc;
-  const titleSub='Kartenausdruck · '+esc(currentProjectData?.name||'')+' · '+esc(dashFmtDE(new Date()));
-  const html='<!doctype html><html lang="de"><head><meta charset="utf-8"><title>'+esc(tour.name||'Tour')+'</title>'+
-    '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>'+
-    '<style id="ps">@page{size:A4 '+orient+';margin:6mm;}</style>'+
-    '<style>*{box-sizing:border-box;}html,body{margin:0;height:100%;font-family:Arial,Helvetica,sans-serif;}'+
-    '#map{position:absolute;inset:0;}'+
-    '.ovl{position:absolute;z-index:1000;background:rgba(255,255,255,.88);border:1px solid #999;border-radius:5px;padding:4px 9px;}'+
-    '.ovl-top{top:8px;left:8px;font-size:13px;}.ovl-top b{font-style:italic;}.ovl-top .s{font-size:10px;color:#555;margin-left:6px;}'+
-    '.ovl-bot{bottom:8px;left:8px;font-size:10px;color:#222;display:flex;gap:16px;}'+
-    '.bar{position:absolute;top:8px;right:8px;z-index:1100;display:flex;gap:7px;align-items:center;background:#fff;padding:7px 9px;border-radius:7px;box-shadow:0 1px 8px rgba(0,0,0,.3);font-size:12px;}'+
-    '.bar button{font:inherit;padding:5px 11px;border:1px solid #bbb;border-radius:6px;background:#f3f3f3;cursor:pointer;}.bar button.p{background:#2d6a4f;color:#fff;border-color:#2d6a4f;}.bar button.act{background:#dbeafe;border-color:#1d4ed8;color:#1d4ed8;font-weight:bold;}'+
-    '@media print{.no-print{display:none!important;}}.leaflet-control-attribution{font-size:8px;}</style></head><body>'+
-    '<div id="map"></div>'+
-    '<div class="ovl ovl-top"><b>'+esc(tour.name||'Tour')+'</b><span class="s">'+titleSub+'</span></div>'+
-    '<div class="ovl ovl-bot"><span>● Stopp (Reihenfolge) &nbsp; ▪ Betriebshof &nbsp; — Route</span><span>'+esc(kennz)+'</span></div>'+
-    '<div class="bar no-print"><span>Format:</span><button id="bq" onclick="setOrient(\'landscape\')">Quer</button><button id="bh" onclick="setOrient(\'portrait\')">Hoch</button><span style="width:1px;height:18px;background:#ccc;"></span><button onclick="fitTour()">Tour einpassen</button><button class="p" onclick="doPrint()">Drucken / PDF</button></div>'+
-    '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script><script>'+
-    'var D='+JSON.stringify(D)+';var ORIENT='+JSON.stringify(orient)+';'+
-    'var map=L.map("map",{zoomControl:true});'+
-    'var base=D.base.kind==="wms"?L.tileLayer.wms(D.base.url,{layers:D.base.layers,format:"image/png",version:D.base.version,transparent:false,maxZoom:20,attribution:D.attr}):L.tileLayer(D.base.url,{maxZoom:20,maxNativeZoom:18,attribution:D.attr});base.addTo(map);'+
-    'var b=L.latLngBounds([]);'+
-    'if(D.route&&D.route.length){L.polyline(D.route,{color:D.color,weight:4,opacity:.9}).addTo(map);if(D.fitRoute)D.route.forEach(function(p){b.extend(p);});}'+
-    'D.stops.forEach(function(s){L.marker([s.lat,s.lng],{icon:L.divIcon({className:"",html:\'<div style="width:23px;height:23px;border-radius:50%;border:2px solid #fff;color:#fff;font:600 11px/19px monospace;text-align:center;box-shadow:0 0 2px rgba(0,0,0,.6);background:\'+D.color+\'">\'+s.n+\'</div>\',iconSize:[23,23],iconAnchor:[11,11]})}).addTo(map);b.extend([s.lat,s.lng]);});'+
-    'if(D.depot){L.marker([D.depot.lat,D.depot.lng],{icon:L.divIcon({className:"",html:\'<div style="width:20px;height:20px;border-radius:4px;background:#EF9F27;border:2px solid #fff;box-shadow:0 0 2px rgba(0,0,0,.5)"></div>\',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);b.extend([D.depot.lat,D.depot.lng]);}'+
-    'window.fitTour=function(){if(b.isValid())map.fitBounds(b,{padding:[30,30]});};window.doPrint=function(){window.print();};'+
-    'window.setOrient=function(o){ORIENT=o;document.getElementById("ps").textContent="@page{size:A4 "+o+";margin:6mm;}";document.getElementById("bq").className=(o==="landscape"?"act":"");document.getElementById("bh").className=(o==="portrait"?"act":"");try{if(o==="landscape")window.resizeTo(1120,800);else window.resizeTo(820,1120);}catch(e){}setTimeout(function(){map.invalidateSize();window.fitTour();},140);};'+
-    'map.whenReady(function(){setTimeout(function(){window.setOrient(ORIENT);},150);});'+
-    '<\/script></body></html>';
-  const w=window.open('','_blank'); if(!w){ notify('Bitte Pop-ups für den Druck erlauben'); return; }
-  w.document.write(html); w.document.close();
+  baseAttr=baseAttr+' · Route: OpenRouteService';
+  const titleSub='Kartenausdruck · '+dlEsc(currentProjectData?.name||'')+' · '+dlEsc(dashFmtDE(new Date()));
+  const color=tour.color;
+  // ── In-App-Druckvorschau (kein separates Fenster; WYSIWYG A4-Rahmen) ──
+  document.getElementById('mapprint-modal')?.remove();
+  document.getElementById('mapprint-style')?.remove();
+  closeReportModal();
+  const styleEl=document.createElement('style'); styleEl.id='mapprint-style';
+  const baseCss='#mapprint-modal .mp-ovl{position:absolute;z-index:600;background:rgba(255,255,255,.9);border:1px solid #999;border-radius:5px;padding:4px 9px;font-size:11px;color:#222;}'
+    +'#mapprint-modal .mp-top{top:8px;left:8px;font-size:13px;}#mapprint-modal .mp-top b{font-style:italic;}#mapprint-modal .mp-top .s{font-size:10px;color:#555;margin-left:6px;}'
+    +'#mapprint-modal .mp-bot{bottom:8px;left:8px;display:flex;gap:14px;}'
+    +'#mapprint-modal .mp-bar{display:flex;gap:7px;align-items:center;background:#fff;padding:8px 10px;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,.35);font-size:13px;}'
+    +'#mapprint-modal .mp-bar button{font:inherit;padding:5px 12px;border:1px solid #bbb;border-radius:6px;background:#f3f3f3;cursor:pointer;}'
+    +'#mapprint-modal .mp-bar button.prim{background:#2d6a4f;color:#fff;border-color:#2d6a4f;}#mapprint-modal .mp-bar button.act{background:#dbeafe;border-color:#1d4ed8;color:#1d4ed8;font-weight:bold;}'
+    +'#mapprint-modal .leaflet-control-attribution{font-size:8px;}';
+  const printCss='@media print{body>*{visibility:hidden!important;}#mapprint-modal,#mapprint-modal *{visibility:visible!important;}#mapprint-modal{position:static!important;inset:auto!important;background:none!important;padding:0!important;display:block!important;}#mapprint-modal .mp-bar{display:none!important;}#mapprint-modal .leaflet-control-zoom{display:none!important;}#mapprint-modal .mp-page{box-shadow:none!important;border:none!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;}}';
+  const applyStyle=o=>{ styleEl.textContent=baseCss+'@page{size:A4 '+o+';margin:6mm;}'+printCss; };
+  applyStyle(orient); document.head.appendChild(styleEl);
+  const modal=document.createElement('div'); modal.id='mapprint-modal'; modal.tabIndex=-1;
+  modal.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(40,40,40,.65);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:12px;';
+  modal.innerHTML='<div class="mp-bar"><span style="color:#444;margin-right:4px;">Druckvorschau — verschieben/zoomen</span>'
+    +'<button id="mp-q">Quer</button><button id="mp-h">Hoch</button><span style="width:1px;height:18px;background:#ccc;"></span>'
+    +'<button id="mp-fit">Tour einpassen</button><button id="mp-print" class="prim">Drucken / PDF</button><button id="mp-close">Schließen</button></div>'
+    +'<div class="mp-page" style="position:relative;background:#fff;box-shadow:0 6px 30px rgba(0,0,0,.45);overflow:hidden;">'
+    +'<div id="mapprint-map" style="position:absolute;inset:0;"></div>'
+    +'<div class="mp-ovl mp-top"><b>'+dlEsc(tour.name||'Tour')+'</b><span class="s">'+titleSub+'</span></div>'
+    +'<div class="mp-ovl mp-bot"><span>● Stopp (Reihenfolge) &nbsp; ▪ Betriebshof &nbsp; — Route</span><span>'+dlEsc(kennz)+'</span></div></div>';
+  document.body.appendChild(modal);
+  const page=modal.querySelector('.mp-page');
+  let curOrient=orient;
+  const sizePage=()=>{ const aw=window.innerWidth-32, ah=window.innerHeight-104; let w,h; if(curOrient==='landscape'){ h=Math.min(ah, aw/1.4142); w=h*1.4142; } else { w=Math.min(aw, ah*0.7071); h=w/0.7071; } page.style.width=Math.round(w)+'px'; page.style.height=Math.round(h)+'px'; };
+  sizePage();
+  const pmap=L.map('mapprint-map',{zoomControl:true,attributionControl:true});
+  const pbase = base.kind==='wms' ? L.tileLayer.wms(base.url,{layers:base.layers,format:'image/png',version:base.version,transparent:false,maxZoom:20,attribution:baseAttr}) : L.tileLayer(base.url,{maxZoom:20,maxNativeZoom:18,attribution:baseAttr});
+  pbase.addTo(pmap);
+  const pb=L.latLngBounds([]);
+  if(routeLatLngs&&routeLatLngs.length){ L.polyline(routeLatLngs,{color,weight:4,opacity:.9}).addTo(pmap); if(useDepot) routeLatLngs.forEach(p=>pb.extend(p)); }
+  stops.forEach(s=>{ L.marker([s.lat,s.lng],{icon:L.divIcon({className:'',html:'<div style="width:23px;height:23px;border-radius:50%;border:2px solid #fff;color:#fff;font:600 11px/19px monospace;text-align:center;box-shadow:0 0 2px rgba(0,0,0,.6);background:'+color+'">'+s.n+'</div>',iconSize:[23,23],iconAnchor:[11,11]})}).addTo(pmap); pb.extend([s.lat,s.lng]); });
+  if(useDepot){ L.marker([depot.lat,depot.lng],{icon:L.divIcon({className:'',html:'<div style="width:20px;height:20px;border-radius:4px;background:#EF9F27;border:2px solid #fff;box-shadow:0 0 2px rgba(0,0,0,.5)"></div>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(pmap); pb.extend([depot.lat,depot.lng]); }
+  const fit=()=>{ if(pb.isValid()) pmap.fitBounds(pb,{padding:[24,24]}); };
+  pmap.whenReady(()=>setTimeout(fit,120));
+  const setOrient=o=>{ curOrient=o; applyStyle(o); modal.querySelector('#mp-q').className=o==='landscape'?'act':''; modal.querySelector('#mp-h').className=o==='portrait'?'act':''; sizePage(); setTimeout(()=>{ pmap.invalidateSize(); fit(); },130); };
+  setOrient(orient);
+  const onResize=()=>{ sizePage(); setTimeout(()=>{ pmap.invalidateSize(); fit(); },80); };
+  window.addEventListener('resize',onResize);
+  const close=()=>{ window.removeEventListener('resize',onResize); try{ pmap.remove(); }catch(e){} modal.remove(); styleEl.remove(); };
+  modal.querySelector('#mp-q').onclick=()=>setOrient('landscape');
+  modal.querySelector('#mp-h').onclick=()=>setOrient('portrait');
+  modal.querySelector('#mp-fit').onclick=fit;
+  modal.querySelector('#mp-print').onclick=()=>{ pmap.invalidateSize(); setTimeout(()=>window.print(),60); };
+  modal.querySelector('#mp-close').onclick=close;
+  modal.addEventListener('keydown',e=>{ if(e.key==='Escape') close(); });
+  setTimeout(()=>modal.focus(),50);
 }
 async function saveReportTemplate(){
   if(!_rep) return; const name=(prompt('Name der Vorlage:', _rep.cfg.title||'Bericht')||'').trim(); if(!name) return;
