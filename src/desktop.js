@@ -4697,9 +4697,10 @@ function renderReportDialog(){
      <select id="repmap-format" class="form-control" style="width:auto;"><option value="auto">Automatisch</option><option value="quer">A4 quer</option><option value="hoch">A4 hoch</option></select>
      <span style="font-size:12px;color:var(--text2);">Hintergrund</span>
      <select id="repmap-bg" class="form-control" style="width:auto;"><option value="grau">Graustufen</option><option value="farbe">Karte (farbig)</option>${getWmsLayers().some(l=>l.type==='base'&&l.layers)?'<option value="luftbild">Luftbild</option>':''}</select>
+     <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);"><input type="checkbox" id="repmap-depot" checked style="width:14px;height:14px;cursor:pointer;"> Betriebshof einbeziehen</label>
      <button class="btn btn-secondary" style="margin-left:auto;" onclick="printTourMap()">🗺 Karte drucken</button>
    </div>
-   <div style="font-size:11px;color:var(--text3);margin-bottom:6px;">Route, nummerierte Stopps und Betriebshof; Ausrichtung/Zoom automatisch nach Tourausdehnung. Für die Linie wird eine berechnete Route genutzt — sonst Luftlinie.</div>
+   <div style="font-size:11px;color:var(--text3);margin-bottom:6px;">Route + nummerierte Stopps (Betriebshof optional). In der Vorschau lässt sich Quer/Hoch umschalten und die Karte frei verschieben/zoomen. Für die Linie wird eine berechnete Route genutzt — sonst Luftlinie.</div>
    <div style="display:flex;gap:8px;margin-top:10px;justify-content:flex-end;">
      <button class="btn btn-secondary" onclick="closeReportModal()">Schließen</button>
      <button class="btn btn-secondary" onclick="exportReportExcel()">Excel</button>
@@ -4773,6 +4774,7 @@ async function printTourMap(){
   if(!stopsTrees.length) stopsTrees=stopsTrees0;
   const stops=stopsTrees.map((t,i)=>({lat:t.lat,lng:t.lng,n:i+1,name:t.name||''}));
   const depot=getDepot();
+  const useDepot = (document.getElementById('repmap-depot')?document.getElementById('repmap-depot').checked:true) && !!(depot&&depot.lat&&depot.lng);
   // Routenlinie
   let routeLatLngs=null;
   if(routeData){
@@ -4781,10 +4783,10 @@ async function printTourMap(){
       const walk=g=>{ if(!g)return; if(g.type==='FeatureCollection')g.features.forEach(f=>walk(f.geometry)); else if(g.type==='Feature')walk(g.geometry); else if(g.type==='LineString')push(g.coordinates); else if(g.type==='MultiLineString')g.coordinates.forEach(push); };
       walk(gj); if(coords.length) routeLatLngs=coords; }
   }
-  if(!routeLatLngs){ const pts=stopsTrees.map(t=>[t.lat,t.lng]); routeLatLngs=(depot&&depot.lat)?(getDepotMode()==='round'?[[depot.lat,depot.lng],...pts,[depot.lat,depot.lng]]:[[depot.lat,depot.lng],...pts]):pts; }
-  // Auto-Ausrichtung aus Bounding-Box
-  const lats=stops.map(s=>s.lat).concat(depot&&depot.lat?[depot.lat]:[]);
-  const lngs=stops.map(s=>s.lng).concat(depot&&depot.lng?[depot.lng]:[]);
+  if(!routeLatLngs){ const pts=stopsTrees.map(t=>[t.lat,t.lng]); routeLatLngs=useDepot?(getDepotMode()==='round'?[[depot.lat,depot.lng],...pts,[depot.lat,depot.lng]]:[[depot.lat,depot.lng],...pts]):pts; }
+  // Auto-Ausrichtung aus Bounding-Box (Betriebshof nur, wenn einbezogen)
+  const lats=stops.map(s=>s.lat).concat(useDepot?[depot.lat]:[]);
+  const lngs=stops.map(s=>s.lng).concat(useDepot?[depot.lng]:[]);
   const latSpan=(Math.max(...lats)-Math.min(...lats))||0.001, lngSpan=(Math.max(...lngs)-Math.min(...lngs))||0.001;
   const midLat=(Math.max(...lats)+Math.min(...lats))/2;
   const fmt=document.getElementById('repmap-format')?.value||'auto';
@@ -4800,33 +4802,35 @@ async function printTourMap(){
   const km=(routeData&&typeof routeData.km==='number')?routeData.km:(tourRoutes[tourId]&&tourRoutes[tourId].km);
   const zus=tourZusatzMin(tour);
   const kennz=`${stops.length} Objekte${km!=null?` · ${km.toFixed(1)} km`:''}${driveSec?` · ${fmtDuration(driveSec)} Fahrt`:''} · gesamt ${fmtTotalTime(driveSec,stopsTrees,zus)}`;
-  const D={ color:tour.color, stops, depot:(depot&&depot.lat)?{lat:depot.lat,lng:depot.lng}:null, route:routeLatLngs, base, attr:baseAttr+' · Route: OpenRouteService' };
+  const D={ color:tour.color, stops, depot:useDepot?{lat:depot.lat,lng:depot.lng}:null, fitRoute:useDepot, route:routeLatLngs, base, attr:baseAttr+' · Route: OpenRouteService' };
   const esc=dlEsc;
   const titleSub='Kartenausdruck · '+esc(currentProjectData?.name||'')+' · '+esc(dashFmtDE(new Date()));
   const html='<!doctype html><html lang="de"><head><meta charset="utf-8"><title>'+esc(tour.name||'Tour')+'</title>'+
     '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>'+
-    '<style>@page{size:A4 '+orient+';margin:6mm;}*{box-sizing:border-box;}html,body{margin:0;height:100%;font-family:Arial,Helvetica,sans-serif;}'+
+    '<style id="ps">@page{size:A4 '+orient+';margin:6mm;}</style>'+
+    '<style>*{box-sizing:border-box;}html,body{margin:0;height:100%;font-family:Arial,Helvetica,sans-serif;}'+
     '#map{position:absolute;inset:0;}'+
     '.ovl{position:absolute;z-index:1000;background:rgba(255,255,255,.88);border:1px solid #999;border-radius:5px;padding:4px 9px;}'+
     '.ovl-top{top:8px;left:8px;font-size:13px;}.ovl-top b{font-style:italic;}.ovl-top .s{font-size:10px;color:#555;margin-left:6px;}'+
     '.ovl-bot{bottom:8px;left:8px;font-size:10px;color:#222;display:flex;gap:16px;}'+
     '.bar{position:absolute;top:8px;right:8px;z-index:1100;display:flex;gap:7px;align-items:center;background:#fff;padding:7px 9px;border-radius:7px;box-shadow:0 1px 8px rgba(0,0,0,.3);font-size:12px;}'+
-    '.bar button{font:inherit;padding:5px 11px;border:1px solid #bbb;border-radius:6px;background:#f3f3f3;cursor:pointer;}.bar button.p{background:#2d6a4f;color:#fff;border-color:#2d6a4f;}'+
+    '.bar button{font:inherit;padding:5px 11px;border:1px solid #bbb;border-radius:6px;background:#f3f3f3;cursor:pointer;}.bar button.p{background:#2d6a4f;color:#fff;border-color:#2d6a4f;}.bar button.act{background:#dbeafe;border-color:#1d4ed8;color:#1d4ed8;font-weight:bold;}'+
     '@media print{.no-print{display:none!important;}}.leaflet-control-attribution{font-size:8px;}</style></head><body>'+
     '<div id="map"></div>'+
     '<div class="ovl ovl-top"><b>'+esc(tour.name||'Tour')+'</b><span class="s">'+titleSub+'</span></div>'+
     '<div class="ovl ovl-bot"><span>● Stopp (Reihenfolge) &nbsp; ▪ Betriebshof &nbsp; — Route</span><span>'+esc(kennz)+'</span></div>'+
-    '<div class="bar no-print"><span>Karte verschieben/zoomen, dann drucken</span><button onclick="fitTour()">Tour einpassen</button><button class="p" onclick="doPrint()">Drucken / PDF</button></div>'+
+    '<div class="bar no-print"><span>Format:</span><button id="bq" onclick="setOrient(\'landscape\')">Quer</button><button id="bh" onclick="setOrient(\'portrait\')">Hoch</button><span style="width:1px;height:18px;background:#ccc;"></span><button onclick="fitTour()">Tour einpassen</button><button class="p" onclick="doPrint()">Drucken / PDF</button></div>'+
     '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script><script>'+
-    'var D='+JSON.stringify(D)+';'+
+    'var D='+JSON.stringify(D)+';var ORIENT='+JSON.stringify(orient)+';'+
     'var map=L.map("map",{zoomControl:true});'+
     'var base=D.base.kind==="wms"?L.tileLayer.wms(D.base.url,{layers:D.base.layers,format:"image/png",version:D.base.version,transparent:false,maxZoom:20,attribution:D.attr}):L.tileLayer(D.base.url,{maxZoom:20,maxNativeZoom:18,attribution:D.attr});base.addTo(map);'+
     'var b=L.latLngBounds([]);'+
-    'if(D.route&&D.route.length){L.polyline(D.route,{color:D.color,weight:4,opacity:.9}).addTo(map);D.route.forEach(function(p){b.extend(p);});}'+
+    'if(D.route&&D.route.length){L.polyline(D.route,{color:D.color,weight:4,opacity:.9}).addTo(map);if(D.fitRoute)D.route.forEach(function(p){b.extend(p);});}'+
     'D.stops.forEach(function(s){L.marker([s.lat,s.lng],{icon:L.divIcon({className:"",html:\'<div style="width:23px;height:23px;border-radius:50%;border:2px solid #fff;color:#fff;font:600 11px/19px monospace;text-align:center;box-shadow:0 0 2px rgba(0,0,0,.6);background:\'+D.color+\'">\'+s.n+\'</div>\',iconSize:[23,23],iconAnchor:[11,11]})}).addTo(map);b.extend([s.lat,s.lng]);});'+
     'if(D.depot){L.marker([D.depot.lat,D.depot.lng],{icon:L.divIcon({className:"",html:\'<div style="width:20px;height:20px;border-radius:4px;background:#EF9F27;border:2px solid #fff;box-shadow:0 0 2px rgba(0,0,0,.5)"></div>\',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);b.extend([D.depot.lat,D.depot.lng]);}'+
     'window.fitTour=function(){if(b.isValid())map.fitBounds(b,{padding:[30,30]});};window.doPrint=function(){window.print();};'+
-    'map.whenReady(function(){setTimeout(window.fitTour,150);});'+
+    'window.setOrient=function(o){ORIENT=o;document.getElementById("ps").textContent="@page{size:A4 "+o+";margin:6mm;}";document.getElementById("bq").className=(o==="landscape"?"act":"");document.getElementById("bh").className=(o==="portrait"?"act":"");try{if(o==="landscape")window.resizeTo(1120,800);else window.resizeTo(820,1120);}catch(e){}setTimeout(function(){map.invalidateSize();window.fitTour();},140);};'+
+    'map.whenReady(function(){setTimeout(function(){window.setOrient(ORIENT);},150);});'+
     '<\/script></body></html>';
   const w=window.open('','_blank'); if(!w){ notify('Bitte Pop-ups für den Druck erlauben'); return; }
   w.document.write(html); w.document.close();
