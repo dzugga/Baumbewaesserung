@@ -274,6 +274,9 @@ function applyClusterMode(on, rebuild){
   }
   if(rebuild) refreshMarkers();
 }
+// Cluster nur, wenn der Projekt-Schalter an ist UND keine Tour ausgewählt ist
+// (in der Touransicht stören Cluster die Reihenfolge/Übersicht).
+function _effectiveCluster(){ return !!(currentProjectData&&currentProjectData.clusterAktiv) && activeTours.size===0; }
 
 // ── WMS-Kartenebenen (vom Nutzer verwaltbar, stadtscharf am Mandanten) ──
 const WMS_DEFAULTS=[
@@ -528,7 +531,7 @@ async function openProject(projectId){
   document.getElementById('project-screen').style.display='none';
   loadFieldLabels();
   loadListValues();
-  applyClusterMode(currentProjectData?.clusterAktiv, false); // Marker-Zielebene fürs Projekt (vor erstem Marker-Render)
+  applyClusterMode(_effectiveCluster(), false); // Marker-Zielebene fürs Projekt (vor erstem Marker-Render) — Cluster nur ohne Tour-Auswahl
   await loadOrgSettings(); // KI-Modus + ORS-Key + WMS + Dispo dieser Stadt (1 Org-Read) — vor dem Kartenaufbau
   rebuildLayerControl(); // WMS-Kartenebenen der Stadt laden
   // Subscribe to tours & trees
@@ -1621,6 +1624,7 @@ async function applyTourSelection(fit){
     if(getRoutePlanningEnabled()) await loadSavedRoutes();
   }
 
+  applyClusterMode(_effectiveCluster(), false); // Cluster nur ohne Tour-Auswahl → in Touransicht Einzelmarker
   setMarkerVisibility();
   rebuildMarkersWithNumbers();
   updateRouteInfoBar();
@@ -3630,7 +3634,7 @@ async function applySettings(){
   document.getElementById('active-project-name').textContent=updates.name;
   closeSettings();renderDepotMarker();
   await loadSavedRoutes();
-  applyClusterMode(updates.clusterAktiv, false); // Cluster-Modus umschalten (Marker werden gleich neu gebaut)
+  applyClusterMode(_effectiveCluster(), false); // Cluster-Modus umschalten (nur ohne Tour-Auswahl; Marker werden gleich neu gebaut)
   refreshMarkers();renderList(); // neues Standard-Symbol sofort auf Karte/Liste anwenden
   notify('Einstellungen gespeichert — Route neu berechnen wenn gewünscht');
 }
