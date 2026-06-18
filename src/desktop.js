@@ -4817,22 +4817,42 @@ async function printTourMap(){
     +'#mapprint-modal .mp-bar button{font:inherit;padding:5px 12px;border:1px solid #bbb;border-radius:6px;background:#f3f3f3;cursor:pointer;}'
     +'#mapprint-modal .mp-bar button.prim{background:#2d6a4f;color:#fff;border-color:#2d6a4f;}#mapprint-modal .mp-bar button.act{background:#dbeafe;border-color:#1d4ed8;color:#1d4ed8;font-weight:bold;}'
     +'#mapprint-modal .leaflet-control-attribution{font-size:8px;}';
-  const printCss='@media print{body>*{visibility:hidden!important;}#mapprint-modal,#mapprint-modal *{visibility:visible!important;}#mapprint-modal{position:static!important;inset:auto!important;background:none!important;padding:0!important;display:block!important;}#mapprint-modal .mp-bar{display:none!important;}#mapprint-modal .leaflet-control-zoom{display:none!important;}#mapprint-modal .mp-page{box-shadow:none!important;border:none!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;}}';
-  const applyStyle=o=>{ styleEl.textContent=baseCss+'@page{size:A4 '+o+';margin:6mm;}'+printCss; };
+  // Druck: alles AUSSER dem Modal per display:none (visibility würde Platz belassen → Leerseiten).
+  // Die Druckseite ist intern bereits in A4-Pixeln (96 dpi) gerendert; im Druck nur die
+  // Bildschirm-Skalierung entfernen → die Seite belegt exakt eine A4-Seite, Karte scharf.
+  const applyStyle=o=>{
+    styleEl.textContent=baseCss
+      +'@page{size:A4 '+o+';margin:6mm;}'
+      +'@media print{html,body{height:auto!important;margin:0!important;background:#fff!important;}'
+      +'body>*:not(#mapprint-modal){display:none!important;}'
+      +'#mapprint-modal{position:static!important;inset:auto!important;background:none!important;padding:0!important;display:block!important;}'
+      +'#mapprint-modal .mp-bar{display:none!important;}#mapprint-modal .leaflet-control-zoom{display:none!important;}'
+      +'#mapprint-modal .mp-frame{width:auto!important;height:auto!important;}'
+      +'#mapprint-modal .mp-page{position:static!important;transform:none!important;box-shadow:none!important;border:none!important;}}';
+  };
   applyStyle(orient); document.head.appendChild(styleEl);
   const modal=document.createElement('div'); modal.id='mapprint-modal'; modal.tabIndex=-1;
   modal.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(40,40,40,.65);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:12px;';
   modal.innerHTML='<div class="mp-bar"><span style="color:#444;margin-right:4px;">Druckvorschau — verschieben/zoomen</span>'
     +'<button id="mp-q">Quer</button><button id="mp-h">Hoch</button><span style="width:1px;height:18px;background:#ccc;"></span>'
     +'<button id="mp-fit">Tour einpassen</button><button id="mp-print" class="prim">Drucken / PDF</button><button id="mp-close">Schließen</button></div>'
-    +'<div class="mp-page" style="position:relative;background:#fff;box-shadow:0 6px 30px rgba(0,0,0,.45);overflow:hidden;">'
+    +'<div class="mp-frame" style="position:relative;">'
+    +'<div class="mp-page" style="position:absolute;top:0;left:0;transform-origin:top left;background:#fff;box-shadow:0 6px 30px rgba(0,0,0,.45);overflow:hidden;">'
     +'<div id="mapprint-map" style="position:absolute;inset:0;"></div>'
     +'<div class="mp-ovl mp-top"><b>'+dlEsc(tour.name||'Tour')+'</b><span class="s">'+titleSub+'</span></div>'
-    +'<div class="mp-ovl mp-bot"><span>● Stopp (Reihenfolge) &nbsp; ▪ Betriebshof &nbsp; — Route</span><span>'+dlEsc(kennz)+'</span></div></div>';
+    +'<div class="mp-ovl mp-bot"><span>● Stopp (Reihenfolge) &nbsp; ▪ Betriebshof &nbsp; — Route</span><span>'+dlEsc(kennz)+'</span></div></div></div>';
   document.body.appendChild(modal);
-  const page=modal.querySelector('.mp-page');
+  const page=modal.querySelector('.mp-page'), frame=modal.querySelector('.mp-frame');
   let curOrient=orient;
-  const sizePage=()=>{ const aw=window.innerWidth-32, ah=window.innerHeight-104; let w,h; if(curOrient==='landscape'){ h=Math.min(ah, aw/1.4142); w=h*1.4142; } else { w=Math.min(aw, ah*0.7071); h=w/0.7071; } page.style.width=Math.round(w)+'px'; page.style.height=Math.round(h)+'px'; };
+  // A4 druckbar (210/297 mm minus 6 mm Rand = 198/285 mm) in CSS-px @96 dpi → Karte wird in Druckauflösung gerendert
+  const sizePage=()=>{
+    const PW=curOrient==='landscape'?1077:748, PH=curOrient==='landscape'?748:1077; // 285mm/198mm @96dpi
+    page.style.width=PW+'px'; page.style.height=PH+'px';
+    const aw=window.innerWidth-40, ah=window.innerHeight-110;
+    const s=Math.min(aw/PW, ah/PH, 1);
+    page.style.transform='scale('+s+')';
+    frame.style.width=Math.round(PW*s)+'px'; frame.style.height=Math.round(PH*s)+'px';
+  };
   sizePage();
   const pmap=L.map('mapprint-map',{zoomControl:true,attributionControl:true});
   const pbase = base.kind==='wms' ? L.tileLayer.wms(base.url,{layers:base.layers,format:'image/png',version:base.version,transparent:false,maxZoom:20,attribution:baseAttr}) : L.tileLayer(base.url,{maxZoom:20,maxNativeZoom:18,attribution:baseAttr});
