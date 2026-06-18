@@ -4,7 +4,7 @@ const APP_VERSION = '1.0';
 import { HANDBUCH } from './handbuch-daten.js';
 import { SI_DSGVO, SI_STACK, SI_REGIONEN, SI_APPS, SI_SICHERHEIT, SI_DIENSTE } from './systeminfo-daten.js';
 import { initAppCheck } from './appcheck.js';
-import { basemapLayer, BASEMAP_FARBE, BASEMAP_ATTR } from './basemaps.js';
+import { basemapLayer, BASEMAP_FARBE, BASEMAP_GRAU, BASEMAP_ATTR } from './basemaps.js';
 import { firebaseConfig } from './firebase-config.js';
 import { esc as dlEsc } from './esc.js'; // dlEsc = projektweites HTML-Escape (zentral in esc.js)
 
@@ -4691,10 +4691,19 @@ function renderReportDialog(){
    ${_repH('Vorschau')}
    <div id="rep-preview" style="overflow:auto;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--surface);max-height:280px;"></div>
    <div id="rep-order" style="display:none;"></div>
-   <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end;">
+   ${_repH('Kartenausdruck der Tour')}
+   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
+     <span style="font-size:12px;color:var(--text2);">Format</span>
+     <select id="repmap-format" class="form-control" style="width:auto;"><option value="auto">Automatisch</option><option value="quer">A4 quer</option><option value="hoch">A4 hoch</option></select>
+     <span style="font-size:12px;color:var(--text2);">Hintergrund</span>
+     <select id="repmap-bg" class="form-control" style="width:auto;"><option value="grau">Graustufen</option><option value="farbe">Karte (farbig)</option>${getWmsLayers().some(l=>l.type==='base'&&l.layers)?'<option value="luftbild">Luftbild</option>':''}</select>
+     <button class="btn btn-secondary" style="margin-left:auto;" onclick="printTourMap()">🗺 Karte drucken</button>
+   </div>
+   <div style="font-size:11px;color:var(--text3);margin-bottom:6px;">Route, nummerierte Stopps und Betriebshof; Ausrichtung/Zoom automatisch nach Tourausdehnung. Für die Linie wird eine berechnete Route genutzt — sonst Luftlinie.</div>
+   <div style="display:flex;gap:8px;margin-top:10px;justify-content:flex-end;">
      <button class="btn btn-secondary" onclick="closeReportModal()">Schließen</button>
      <button class="btn btn-secondary" onclick="exportReportExcel()">Excel</button>
-     <button class="btn btn-primary" onclick="printReport()">Drucken / PDF</button>
+     <button class="btn btn-primary" onclick="printReport()">Tabelle drucken / PDF</button>
    </div>`;
   renderReportPreview();
 }
@@ -4749,6 +4758,72 @@ function exportReportExcel(){
   const sumRow=['Σ '+R.count]; R.cols.forEach((k,ci)=>sumRow.push(R.sums[ci]!=null?R.sums[ci]:'')); R.abhakCols.forEach(()=>sumRow.push('')); if(cfg.showNotiz) sumRow.push(''); aoa.push(sumRow);
   const ws=XLSX.utils.aoa_to_sheet(aoa); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Bericht');
   XLSX.writeFile(wb, ((tour&&tour.name||'Bericht').replace(/[^\wäöüÄÖÜß-]+/g,'_'))+'.xlsx');
+}
+// Kartenausdruck einer Tour: eigenes Druckfenster mit frisch gerenderter Leaflet-Karte
+// (Route + nummerierte Stopps + Betriebshof), Auto-Ausrichtung, wartet auf Kacheln, dann Druck.
+async function printTourMap(){
+  if(!_rep) return; const {tourId}=_rep; const tour=tours.find(t=>t.id===tourId); if(!tour){ notify('Keine Tour'); return; }
+  const stopsTrees0=trees.filter(t=>treeInTour(t,tourId)&&t.lat&&t.lng);
+  if(!stopsTrees0.length){ notify('Keine Objekte mit Koordinaten in dieser Tour'); return; }
+  let routeData=null;
+  try{ const s=await getDoc(doc(db,'projects',currentProjectId,'routes',tourId)); if(s&&s.exists) routeData=s.data(); }catch(e){ console.warn('printTourMap route',e); }
+  // Reihenfolge: manuell > gespeicherte Route > vorhandene Tour-Reihenfolge > Listenreihenfolge
+  const order=(tour.manualOrder&&tour.manualOrder.length)?tour.manualOrder:((routeData&&routeData.orderIds)||tourOrder[tourId]||[]);
+  let stopsTrees = order.length ? order.map(id=>stopsTrees0.find(t=>t.id===id)).filter(Boolean) : stopsTrees0;
+  if(!stopsTrees.length) stopsTrees=stopsTrees0;
+  const stops=stopsTrees.map((t,i)=>({lat:t.lat,lng:t.lng,n:i+1,name:t.name||''}));
+  const depot=getDepot();
+  // Routenlinie
+  let routeLatLngs=null;
+  if(routeData){
+    const gj=routeData.geojsonStr?(()=>{try{return JSON.parse(routeData.geojsonStr);}catch(e){return null;}})():routeData.geojson;
+    if(gj){ const coords=[]; const push=c=>c.forEach(p=>coords.push([p[1],p[0]]));
+      const walk=g=>{ if(!g)return; if(g.type==='FeatureCollection')g.features.forEach(f=>walk(f.geometry)); else if(g.type==='Feature')walk(g.geometry); else if(g.type==='LineString')push(g.coordinates); else if(g.type==='MultiLineString')g.coordinates.forEach(push); };
+      walk(gj); if(coords.length) routeLatLngs=coords; }
+  }
+  if(!routeLatLngs){ const pts=stopsTrees.map(t=>[t.lat,t.lng]); routeLatLngs=(depot&&depot.lat)?(getDepotMode()==='round'?[[depot.lat,depot.lng],...pts,[depot.lat,depot.lng]]:[[depot.lat,depot.lng],...pts]):pts; }
+  // Auto-Ausrichtung aus Bounding-Box
+  const lats=stops.map(s=>s.lat).concat(depot&&depot.lat?[depot.lat]:[]);
+  const lngs=stops.map(s=>s.lng).concat(depot&&depot.lng?[depot.lng]:[]);
+  const latSpan=(Math.max(...lats)-Math.min(...lats))||0.001, lngSpan=(Math.max(...lngs)-Math.min(...lngs))||0.001;
+  const midLat=(Math.max(...lats)+Math.min(...lats))/2;
+  const fmt=document.getElementById('repmap-format')?.value||'auto';
+  const orient= fmt==='quer'?'landscape':fmt==='hoch'?'portrait':((lngSpan*Math.cos(midLat*Math.PI/180))>=latSpan?'landscape':'portrait');
+  // Hintergrund
+  const bg=document.getElementById('repmap-bg')?.value||'grau';
+  let base, baseAttr=BASEMAP_ATTR;
+  if(bg==='luftbild'){ const w=getWmsLayers().find(l=>l.type==='base'&&l.layers); base=w?{kind:'wms',url:w.url,layers:w.layers,version:w.version||'1.3.0'}:{kind:'xyz',url:BASEMAP_FARBE}; if(w&&w.attribution)baseAttr=w.attribution; }
+  else if(bg==='farbe') base={kind:'xyz',url:BASEMAP_FARBE};
+  else base={kind:'xyz',url:BASEMAP_GRAU};
+  // Kennzahlen
+  const driveSec=routeData?routeData.durationSec:(tourRoutes[tourId]&&tourRoutes[tourId].durationSec)||0;
+  const km=(routeData&&typeof routeData.km==='number')?routeData.km:(tourRoutes[tourId]&&tourRoutes[tourId].km);
+  const zus=tourZusatzMin(tour);
+  const kennz=`${stops.length} Objekte${km!=null?` · ${km.toFixed(1)} km`:''}${driveSec?` · ${fmtDuration(driveSec)} Fahrt`:''} · gesamt ${fmtTotalTime(driveSec,stopsTrees,zus)}`;
+  const D={ color:tour.color, stops, depot:(depot&&depot.lat)?{lat:depot.lat,lng:depot.lng}:null, route:routeLatLngs, base, attr:baseAttr+' · Route: OpenRouteService' };
+  const esc=dlEsc;
+  const html='<!doctype html><html lang="de"><head><meta charset="utf-8"><title>'+esc(tour.name||'Tour')+'</title>'+
+    '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>'+
+    '<style>@page{size:A4 '+orient+';margin:8mm;}html,body{margin:0;height:100%;font-family:Arial,Helvetica,sans-serif;}'+
+    '#wrap{display:flex;flex-direction:column;height:100%;}.hdr{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:0 2px 6px;}'+
+    '.hdr b{font-size:14px;font-style:italic;}.hdr span{font-size:10px;color:#555;}#map{flex:1;border:1px solid #888;}'+
+    '.ftr{padding:6px 2px 0;font-size:10px;color:#333;display:flex;justify-content:space-between;gap:10px;}'+
+    '.sn{border-radius:50%;border:2px solid #fff;color:#fff;font:600 11px/19px monospace;text-align:center;box-shadow:0 0 2px rgba(0,0,0,.6);box-sizing:border-box;}'+
+    '.dp{border-radius:4px;background:#EF9F27;border:2px solid #fff;box-shadow:0 0 2px rgba(0,0,0,.5);}'+
+    '.leaflet-control-attribution{font-size:8px;}</style></head><body><div id="wrap">'+
+    '<div class="hdr"><b>'+esc(tour.name||'Tour')+'</b><span>Kartenausdruck · '+esc(currentProjectData?.name||'')+' · '+esc(dashFmtDE(new Date()))+'</span></div>'+
+    '<div id="map"></div><div class="ftr"><span>● Stopp (Reihenfolge) &nbsp; ▪ Betriebshof &nbsp; — Route</span><span>'+esc(kennz)+'</span></div></div>'+
+    '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script><script>'+
+    'var D='+JSON.stringify(D)+';window.addEventListener("load",function(){'+
+    'var map=L.map("map",{zoomControl:false});var base=D.base.kind==="wms"?L.tileLayer.wms(D.base.url,{layers:D.base.layers,format:"image/png",version:D.base.version,transparent:false,maxZoom:20,attribution:D.attr}):L.tileLayer(D.base.url,{maxZoom:20,maxNativeZoom:18,attribution:D.attr});base.addTo(map);'+
+    'if(D.route&&D.route.length)L.polyline(D.route,{color:D.color,weight:4,opacity:.9}).addTo(map);'+
+    'var b=[];D.stops.forEach(function(s){L.marker([s.lat,s.lng],{icon:L.divIcon({className:"",html:\'<div class=sn style="width:23px;height:23px;background:\'+D.color+\'">\'+s.n+\'</div>\',iconSize:[23,23],iconAnchor:[11,11]})}).addTo(map);b.push([s.lat,s.lng]);});'+
+    'if(D.depot){L.marker([D.depot.lat,D.depot.lng],{icon:L.divIcon({className:"",html:\'<div class=dp style="width:20px;height:20px"></div>\',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);b.push([D.depot.lat,D.depot.lng]);}'+
+    'map.fitBounds(L.latLngBounds(b),{padding:[26,26]});'+
+    'var done=false,go=function(){if(done)return;done=true;setTimeout(function(){window.focus();window.print();},500);};base.on("load",go);setTimeout(go,3500);'+
+    '});<\/script></body></html>';
+  const w=window.open('','_blank'); if(!w){ notify('Bitte Pop-ups für den Druck erlauben'); return; }
+  w.document.write(html); w.document.close();
 }
 async function saveReportTemplate(){
   if(!_rep) return; const name=(prompt('Name der Vorlage:', _rep.cfg.title||'Bericht')||'').trim(); if(!name) return;
@@ -8539,7 +8614,7 @@ Object.assign(window,{
   openTourModal,closeTourModal,saveTour,deleteTour,toggleTourUebersicht,toggleOverviewInGrid,filterTourenGrid,
   tourZusatzAdd,tourZusatzDel,tourRegelToggle,_sx,_sxClear,
   openTourReport,closeReportModal,repAddCol,repRemoveCol,repMoveCol,repApplyFromControls,
-  printReport,exportReportExcel,saveReportTemplate,loadReportTemplate,
+  printReport,exportReportExcel,saveReportTemplate,loadReportTemplate,printTourMap,
   openOrderEditor,repOrderMove,closeOrderEditor,saveManualOrder,
   focusTour,focusTourAndSwitch,
   startPlacement,cancelMode,setDepotOnMap,
