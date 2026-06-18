@@ -1634,6 +1634,29 @@ async function applyTourSelection(fit){
 }
 
 // ─── LEGEND ───────────────────────────────────────────────────
+// Rechtsklick-Kontextmenü auf eine Tour-Zeile in der Legende: „Bericht" + „Touren"
+function showTourLegendMenu(tid,x,y){
+  document.getElementById('tour-legend-ctx')?.remove();
+  const t=tours.find(z=>z.id===tid); if(!t) return;
+  const m=document.createElement('div'); m.id='tour-legend-ctx';
+  m.style.cssText='position:fixed;z-index:100000;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.18);padding:4px;min-width:180px;font-size:13px;';
+  const item=(a,svg,label)=>`<button type="button" data-a="${a}" style="display:flex;align-items:center;gap:9px;width:100%;text-align:left;border:none;background:none;cursor:pointer;padding:7px 10px;border-radius:6px;font:inherit;color:var(--text);">${svg}${label}</button>`;
+  m.innerHTML=`<div style="padding:5px 10px 6px;font-size:11px;color:var(--text3);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px;">${dlEsc(t.name)}</div>`
+    +item('bericht','<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8"/></svg>','Bericht')
+    +item('touren','<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>','Touren');
+  document.body.appendChild(m);
+  const r=m.getBoundingClientRect();
+  m.style.left=Math.min(x, window.innerWidth-r.width-8)+'px';
+  m.style.top=Math.min(y, window.innerHeight-r.height-8)+'px';
+  m.querySelectorAll('button').forEach(b=>{ b.onmouseenter=()=>b.style.background='var(--surface2)'; b.onmouseleave=()=>b.style.background='none'; });
+  const onOutside=ev=>{ if(!m.contains(ev.target)) close(); };
+  const close=()=>{ m.remove(); document.removeEventListener('mousedown',onOutside,true); document.removeEventListener('contextmenu',onOutside,true); window.removeEventListener('blur',close); };
+  m.onclick=e=>{ const b=e.target.closest('[data-a]'); if(!b) return; e.stopPropagation(); const a=b.dataset.a; close();
+    if(a==='bericht'){ openTourReport(tid); }
+    else if(a==='touren'){ switchView('touren'); setTimeout(()=>{ const s=document.getElementById('touren-search'); if(s){ s.value=t.name; try{_sx(s);}catch(_){} } filterTourenGrid(t.name); },70); }
+  };
+  setTimeout(()=>{ document.addEventListener('mousedown',onOutside,true); document.addEventListener('contextmenu',onOutside,true); window.addEventListener('blur',close); },0);
+}
 let tourLegendQuery='';
 let legendExpanded=new Set(); // je Tour aufgeklappte Detail-Zeile (Session)
 let showOverviewInLegend=false; // Übersichtstouren in der Legende eingeblendet? (Session, Standard: aus)
@@ -1817,6 +1840,14 @@ function renderLegend(){
       else if(tid==='__none__')toggleUnplanned();
       else toggleTourSelection(tid);
       return;}
+  };
+  // Rechtsklick auf eine Tour-Zeile → Kontextmenü (Bericht / Touren)
+  el.oncontextmenu=e=>{
+    const item=e.target.closest('[data-tourid]'); if(!item) return;
+    const tid=item.dataset.tourid;
+    if(tid==='__all__'||tid==='__none__'||!tours.find(x=>x.id===tid)) return;
+    e.preventDefault();
+    showTourLegendMenu(tid, e.clientX, e.clientY);
   };
   updateSimButton();
 }
