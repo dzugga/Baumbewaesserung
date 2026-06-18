@@ -4854,7 +4854,7 @@ async function printTourMap(){
     frame.style.width=Math.round(PW*s)+'px'; frame.style.height=Math.round(PH*s)+'px';
   };
   sizePage();
-  const pmap=L.map('mapprint-map',{zoomControl:true,attributionControl:true});
+  const pmap=L.map('mapprint-map',{zoomControl:true,attributionControl:true,zoomSnap:0.25,zoomDelta:0.25,wheelPxPerZoomLevel:140});
   const pbase = base.kind==='wms' ? L.tileLayer.wms(base.url,{layers:base.layers,format:'image/png',version:base.version,transparent:false,maxZoom:20,attribution:baseAttr}) : L.tileLayer(base.url,{maxZoom:20,maxNativeZoom:18,attribution:baseAttr});
   pbase.addTo(pmap);
   const pb=L.latLngBounds([]);
