@@ -3712,11 +3712,11 @@ function openProjekte(){
         <span style="cursor:pointer;text-decoration:underline;color:var(--green);" id="prj-fahrer-link">Fahrer &amp; Gründe verwalten →</span>
       </div>
       ${currentRole==='superadmin'?`
-      <div class="form-section">Module in diesem Projekt</div>
-      <div style="font-size:11px;color:var(--text3);margin:-4px 0 8px;line-height:1.5;">Schaltet Reiter projektweit ab (z. B. „Disposition" nur für passende Projekte). Wirkt zusätzlich zu den Rollen-Rechten — abgeschaltete Reiter sind in diesem Projekt für niemanden sichtbar.</div>
-      <div id="prj-mods" style="display:grid;grid-template-columns:1fr 1fr;gap:3px 12px;margin-bottom:4px;">
-        ${MODULES.map(mm=>`<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;"><input type="checkbox" class="prj-mod" data-mod="${mm.key}"${(currentProjectData&&currentProjectData.modules&&currentProjectData.modules[mm.key]===false)?'':' checked'}> ${dlEsc(mm.label)}</label>`).join('')}
-      </div>`:''}
+      <div class="form-section">Module je Projekt</div>
+      <div style="font-size:11px;color:var(--text3);margin:-4px 0 8px;line-height:1.5;">Legt fest, welche Reiter ein <b>einzelnes Projekt</b> anbietet (z. B. „Disposition" nur in passenden Projekten) — unabhängig von den mandantenweiten Rollen-Rechten. Projekt wählen, Haken setzen, speichern.</div>
+      <select id="prj-mod-target" class="form-control" style="width:100%;margin-bottom:8px;font-size:13px;"><option>Lade…</option></select>
+      <div id="prj-mods" style="display:grid;grid-template-columns:1fr 1fr;gap:3px 12px;margin-bottom:6px;"></div>
+      <button id="prj-mod-save" class="btn btn-secondary" style="width:100%;">Module für gewähltes Projekt speichern</button>`:''}
       <button class="btn btn-danger" id="prj-del" style="width:100%;margin-top:16px;">Projekt löschen</button>
     </div>
     <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
@@ -3734,16 +3734,38 @@ function openProjekte(){
   m.querySelector('#prj-save').onclick=async()=>{
     const name=m.querySelector('#prj-name').value.trim();
     if(!name){ notify('Projektname darf nicht leer sein'); return; }
-    const data={name};
-    if(currentRole==='superadmin'){
-      const modules={}; m.querySelectorAll('.prj-mod').forEach(c=>{ modules[c.dataset.mod]=c.checked; });
-      data.modules=modules;
-    }
-    await saveProjectSettings(data);
+    await saveProjectSettings({name});
     document.getElementById('active-project-name').textContent=name;
-    applyModulePermissions(); // Reiter sofort an die neue Projekt-Konfig anpassen
-    close(); notify('Projekt gespeichert');
+    close(); notify('Projektname gespeichert');
   };
+  // Modul-Manager je Projekt (Superadmin): alle Projekte des Mandanten einzeln schaltbar
+  if(currentRole==='superadmin'){
+    const sel=m.querySelector('#prj-mod-target'), modsBox=m.querySelector('#prj-mods'), projCache={};
+    const renderMods=pid=>{
+      const pm=(projCache[pid]&&projCache[pid].modules)||{};
+      modsBox.innerHTML=MODULES.map(mm=>`<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;"><input type="checkbox" class="prj-mod" data-mod="${mm.key}"${pm[mm.key]===false?'':' checked'}> ${dlEsc(mm.label)}</label>`).join('');
+    };
+    (async()=>{
+      try{
+        const qs=await db.collection('projects').where('orgId','==',currentProjectData.orgId).get();
+        const list=qs.docs.map(d=>({id:d.id,name:d.data().name||d.id,modules:d.data().modules||{}})).sort((a,b)=>a.name.localeCompare(b.name));
+        list.forEach(p=>projCache[p.id]=p);
+        sel.innerHTML=list.map(p=>`<option value="${dlEsc(p.id)}"${p.id===currentProjectId?' selected':''}>${dlEsc(p.name)}</option>`).join('');
+        renderMods(currentProjectId);
+      }catch(e){ console.warn('proj modules load',e); modsBox.innerHTML='<div style="font-size:11px;color:var(--red,#c0392b);">Konnte Projekte nicht laden</div>'; }
+    })();
+    sel.onchange=()=>renderMods(sel.value);
+    m.querySelector('#prj-mod-save').onclick=async()=>{
+      const pid=sel.value; if(!pid) return;
+      const modules={}; modsBox.querySelectorAll('.prj-mod').forEach(c=>{ modules[c.dataset.mod]=c.checked; });
+      try{
+        await updateDoc(doc(db,'projects',pid),{modules});
+        if(projCache[pid]) projCache[pid].modules=modules;
+        if(pid===currentProjectId){ currentProjectData.modules=modules; applyModulePermissions(); }
+        notify('✓ Module gespeichert für „'+((projCache[pid]&&projCache[pid].name)||pid)+'"');
+      }catch(e){ notify('Fehler: '+(e.message||e)); }
+    };
+  }
 }
 
 // ─── VIEWS ────────────────────────────────────────────────────
@@ -5573,7 +5595,8 @@ async function renderRollenView(){
   await loadRoles(org);
   const cityName=await orgDisplayName(org);
   const roles=Object.entries(rolesCache).sort((a,b)=>(a[1].name||a[0]).localeCompare(b[1].name||b[0]));
-  el.innerHTML=`<div style="font-size:12px;font-weight:600;color:var(--green);margin-bottom:10px;">Rollen der Stadt: ${dlEsc(cityName)} — Änderungen gelten nur für diesen Mandanten.</div>`+
+  el.innerHTML=`<div style="font-size:12px;font-weight:600;color:var(--green);margin-bottom:4px;">Rollen der Stadt: ${dlEsc(cityName)} — Änderungen gelten nur für diesen Mandanten.</div>`+
+    `<div style="font-size:11px;color:var(--text3);margin-bottom:10px;">Die Modul-Häkchen hier gelten <b>mandantenweit</b> (alle Projekte der Stadt). Einzelne Projekte schaltest du unter <b>Admin → Projekte → „Module je Projekt"</b>.</div>`+
     roles.map(([k,r])=>roleCard(k,r)).join('')+newRoleCard();
 }
 function roleCard(key,r){
