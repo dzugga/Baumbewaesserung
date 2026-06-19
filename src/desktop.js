@@ -200,7 +200,10 @@ const BUILTIN_ROLES = {
 };
 let rolesCache = {};   // roleKey -> {name, baseType, modules, builtin}
 function roleModules(roleKey){ const r=rolesCache[roleKey]||BUILTIN_ROLES[roleKey]; return r?r.modules:{}; }
+// Modul projektscharf abschaltbar: projects/{id}.modules[key]===false → aus (fehlt/true → an).
+function projectAllowsModule(key){ const m=currentProjectData&&currentProjectData.modules; return !m || m[key]!==false; }
 function canUseModule(key){
+  if(!projectAllowsModule(key)) return false;   // Projekt-Gate gilt auch für Superadmin (Reiter spiegelt das Projekt)
   if(currentRole==='superadmin') return true;
   const m=roleModules(currentRole); return !!m[key];
 }
@@ -536,6 +539,10 @@ async function openProject(projectId){
   document.getElementById('project-screen').style.display='none';
   loadFieldLabels();
   loadListValues();
+  applyModulePermissions(); // Reiter-Sichtbarkeit projektscharf neu setzen (projects.modules)
+  // Ist die offene Ansicht im neuen Projekt abgeschaltet → zurück zur Karte
+  { const vm={disposition:'disposition',controlling:'controlling',ki:'ki',dashboard:'dashboard',baeume:'objekte',touren:'touren',wmskarten:'wms',verwaltung:'verwaltung'}[currentView];
+    if(vm && !canUseModule(vm)) switchView('karte'); }
   applyClusterMode(_effectiveCluster(), false); // Marker-Zielebene fürs Projekt (vor erstem Marker-Render) — Cluster nur ohne Tour-Auswahl
   await loadOrgSettings(); // KI-Modus + ORS-Key + WMS + Dispo dieser Stadt (1 Org-Read) — vor dem Kartenaufbau
   rebuildLayerControl(); // WMS-Kartenebenen der Stadt laden
@@ -3704,6 +3711,12 @@ function openProjekte(){
         &nbsp;·&nbsp;
         <span style="cursor:pointer;text-decoration:underline;color:var(--green);" id="prj-fahrer-link">Fahrer &amp; Gründe verwalten →</span>
       </div>
+      ${currentRole==='superadmin'?`
+      <div class="form-section">Module in diesem Projekt</div>
+      <div style="font-size:11px;color:var(--text3);margin:-4px 0 8px;line-height:1.5;">Schaltet Reiter projektweit ab (z. B. „Disposition" nur für passende Projekte). Wirkt zusätzlich zu den Rollen-Rechten — abgeschaltete Reiter sind in diesem Projekt für niemanden sichtbar.</div>
+      <div id="prj-mods" style="display:grid;grid-template-columns:1fr 1fr;gap:3px 12px;margin-bottom:4px;">
+        ${MODULES.map(mm=>`<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;"><input type="checkbox" class="prj-mod" data-mod="${mm.key}"${(currentProjectData&&currentProjectData.modules&&currentProjectData.modules[mm.key]===false)?'':' checked'}> ${dlEsc(mm.label)}</label>`).join('')}
+      </div>`:''}
       <button class="btn btn-danger" id="prj-del" style="width:100%;margin-top:16px;">Projekt löschen</button>
     </div>
     <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
@@ -3721,9 +3734,15 @@ function openProjekte(){
   m.querySelector('#prj-save').onclick=async()=>{
     const name=m.querySelector('#prj-name').value.trim();
     if(!name){ notify('Projektname darf nicht leer sein'); return; }
-    await saveProjectSettings({name});
+    const data={name};
+    if(currentRole==='superadmin'){
+      const modules={}; m.querySelectorAll('.prj-mod').forEach(c=>{ modules[c.dataset.mod]=c.checked; });
+      data.modules=modules;
+    }
+    await saveProjectSettings(data);
     document.getElementById('active-project-name').textContent=name;
-    close(); notify('Projektname gespeichert');
+    applyModulePermissions(); // Reiter sofort an die neue Projekt-Konfig anpassen
+    close(); notify('Projekt gespeichert');
   };
 }
 
@@ -5635,7 +5654,7 @@ function applyModulePermissions(){
     let ok;
     if(mods.includes('__superadmin__')) ok=isSuper;
     else if(mods.includes('__admin__')) ok=isSuper||currentCap==='admin';
-    else ok=isSuper||mods.some(m=>canUseModule(m));
+    else ok=mods.some(m=>canUseModule(m)); // canUseModule = Projekt-Gate UND (Superadmin ODER Rolle)
     el.style.display = ok ? '' : 'none';
   });
   // leere Nav-Gruppen ausblenden
