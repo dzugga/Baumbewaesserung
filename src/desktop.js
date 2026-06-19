@@ -2152,6 +2152,8 @@ function renderList(){
       const item=e.target.closest('[data-treeid]');
       if(item) selectTree(item.dataset.treeid);
     };
+    // Rechtsklick auf eine Objektzeile: kein (Browser-)Menü
+    list.oncontextmenu=e=>{ if(e.target.closest('[data-treeid]')) e.preventDefault(); };
   }
   document.getElementById('list-count').textContent=`${filtered.length} Objekte`;
 }
