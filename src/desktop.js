@@ -3885,6 +3885,100 @@ function renderBaeumeTable(){
   renderBaeumeTableWith(_baeumeShowInactive ? trees : trees.filter(isActive));
 }
 
+// ─── SAMMELAKTION (nur Superadmin): wirkt auf die aktuell gefilterte/angezeigte Menge ───
+let _baeumeFiltered=[]; // exakt die zuletzt gerenderte Objektliste = Operier-Menge
+function updateBulkBar(){
+  const bar=document.getElementById('baeume-bulk'); if(!bar) return;
+  if(currentRole!=='superadmin'){ bar.style.display='none'; return; }
+  bar.style.display='flex';
+  const n=_baeumeFiltered.length, act=_baeumeFiltered.filter(isActive).length;
+  const bi=document.getElementById('bulk-inactive'), bd=document.getElementById('bulk-delete');
+  if(bi){ bi.textContent=act+' inaktiv'; bi.disabled=!act; bi.style.opacity=act?'':'.4'; bi.style.cursor=act?'pointer':'not-allowed'; }
+  if(bd){ bd.textContent=n+' löschen'; bd.disabled=!n; bd.style.opacity=n?'':'.4'; bd.style.cursor=n?'pointer':'not-allowed'; }
+}
+// Entfernt mehrere Objekt-IDs in EINEM Durchlauf aus allen Routen (statt pro Objekt)
+async function stripIdsFromRoutes(ids){
+  const set=new Set(ids);
+  try{
+    const snap=await getDocs(collection(db,'projects',currentProjectId,'routes'));
+    for(const d of snap.docs){
+      const data=d.data()||{};
+      if(Array.isArray(data.orderIds)&&data.orderIds.some(x=>set.has(x)))
+        await updateDoc(doc(db,'projects',currentProjectId,'routes',d.id),{orderIds:data.orderIds.filter(x=>!set.has(x))});
+    }
+  }catch(e){ console.warn('stripIdsFromRoutes',e); }
+  routeCache={}; _routesCache={}; _routesLoadedFor=null;
+}
+function _bulkRefresh(){
+  _suppressTreeRender=false; _pendingTreeRender=false;
+  _baeumeAllTrees=[...trees];
+  refreshMarkers(); renderList();
+  filterBaeumeTable(document.getElementById('baeume-search')?.value||'');
+  setSyncState('ok','Synchronisiert');
+}
+async function bulkSetInactive(){
+  if(currentRole!=='superadmin') return;
+  const ids=_baeumeFiltered.filter(isActive).map(t=>t.id);
+  if(!ids.length){ notify('Keine aktiven Objekte in der Auswahl'); return; }
+  if(!confirm(`${ids.length} Objekt(e) aus der aktuellen Ansicht INAKTIV setzen?\n\n`+
+    `• Werden aus Karte, Tourplanung und „offen"-Zahlen ausgeblendet\n`+
+    `• Aus allen Touren entfernt\n`+
+    `• Historie bleibt erhalten, jederzeit reaktivierbar`)) return;
+  setSyncState('syncing','Speichert…'); _suppressTreeRender=true;
+  try{
+    for(let i=0;i<ids.length;i+=400){
+      const chunk=ids.slice(i,i+400), batch=db.batch();
+      chunk.forEach(id=>batch.update(doc(db,'projects',currentProjectId,'trees',id),{aktiv:false,archiviertAm:serverTimestamp(),tourIds:[],tourId:''}));
+      await batch.commit(); _bumpUsage('writes',chunk.length);
+      setSyncState('syncing',`Speichert… ${Math.min(i+400,ids.length)}/${ids.length}`);
+    }
+    await stripIdsFromRoutes(ids);
+    notify(`✓ ${ids.length} Objekte inaktiv gesetzt`);
+  }catch(e){ console.warn('bulkSetInactive',e); setSyncState('error','Fehler'); notify('⚠ Fehlgeschlagen: '+(e.message||e)); }
+  finally{ _bulkRefresh(); }
+}
+async function bulkDelete(){
+  if(currentRole!=='superadmin') return;
+  const targets=[..._baeumeFiltered];
+  if(!targets.length){ notify('Keine Objekte in der Auswahl'); return; }
+  // Historie einmal prüfen: in-memory (history[]/lastStatus) + tourHistory-Referenzen
+  setSyncState('syncing','Prüfe Historie…');
+  let histRefs=new Set();
+  try{
+    const snap=await getDocs(collection(db,'projects',currentProjectId,'tourHistory'));
+    snap.docs.forEach(d=>(d.data().trees||[]).forEach(x=>{ if(x&&x.id) histRefs.add(x.id); }));
+  }catch(e){ console.warn('bulkDelete tourHistory',e); setSyncState('ok',''); notify('⚠ Historie-Prüfung fehlgeschlagen — abgebrochen'); return; }
+  setSyncState('ok','');
+  const hasHist=t=>(t.history||[]).length>0 || (t.lastStatus&&t.lastStatus!=='offen') || histRefs.has(t.id);
+  const toDelete=targets.filter(t=>!hasHist(t)).map(t=>t.id);
+  const toArchive=targets.filter(t=>hasHist(t)&&isActive(t)).map(t=>t.id);
+  const protectedInactive=targets.filter(t=>hasHist(t)&&!isActive(t)).length;
+  const ans=prompt(`Sammel-Löschen (${targets.length} Objekte in der Ansicht):\n\n`+
+    `• ${toDelete.length} werden ENDGÜLTIG gelöscht\n`+
+    `• ${toArchive.length} mit Historie werden stattdessen INAKTIV gesetzt (Schutz)\n`+
+    (protectedInactive?`• ${protectedInactive} mit Historie sind bereits inaktiv (unverändert)\n`:'')+
+    `\nNicht umkehrbar. Zum Bestätigen die Zahl ${toDelete.length} eingeben:`, '');
+  if(ans===null) return;
+  if((ans||'').trim()!==String(toDelete.length)){ notify('Abgebrochen — Bestätigungszahl stimmt nicht'); return; }
+  setSyncState('syncing','Löscht…'); _suppressTreeRender=true;
+  try{
+    for(let i=0;i<toDelete.length;i+=400){
+      const chunk=toDelete.slice(i,i+400), batch=db.batch();
+      chunk.forEach(id=>batch.delete(doc(db,'projects',currentProjectId,'trees',id)));
+      await batch.commit(); _bumpUsage('writes',chunk.length);
+      setSyncState('syncing',`Löscht… ${Math.min(i+400,toDelete.length)}/${toDelete.length}`);
+    }
+    for(let i=0;i<toArchive.length;i+=400){
+      const chunk=toArchive.slice(i,i+400), batch=db.batch();
+      chunk.forEach(id=>batch.update(doc(db,'projects',currentProjectId,'trees',id),{aktiv:false,archiviertAm:serverTimestamp(),tourIds:[],tourId:''}));
+      await batch.commit(); _bumpUsage('writes',chunk.length);
+    }
+    await stripIdsFromRoutes([...toDelete,...toArchive]);
+    notify(`✓ ${toDelete.length} gelöscht, ${toArchive.length} wegen Historie archiviert`);
+  }catch(e){ console.warn('bulkDelete',e); setSyncState('error','Fehler'); notify('⚠ Fehlgeschlagen: '+(e.message||e)); }
+  finally{ _bulkRefresh(); }
+}
+
 // ─── ARTEN-STAMMDATEN (Typ/Art als pflegbare Liste je Projekt) ───────
 let artenList=[];
 let _artenMountId='arten-mount';     // Ziel-Container der Arten-Tabelle (im Felder-&-Listen-Bildschirm)
@@ -4439,6 +4533,7 @@ function renderFieldDetail(el){
 }
 
 function renderBaeumeTableWith(treeList){
+  _baeumeFiltered=treeList||[]; updateBulkBar();   // Operier-Menge der Sammelaktion
   const wrap=document.getElementById('baeume-table-wrap');
   if(trees.length===0){
     wrap.innerHTML=`<div class="empty-state" style="margin-top:60px;">
@@ -8774,7 +8869,7 @@ Object.assign(window,{
   openFoto,stepFoto,closeFoto,deleteFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
   openAddTree,openEditTree,closeTreeModal,saveTree,deleteTree,
-  archiveTree,reactivateTree,archiveTreeFromModal,reactivateTreeFromModal,deleteTreeFromModal,toggleShowInactive,showTreeOnMapFromModal,
+  archiveTree,reactivateTree,archiveTreeFromModal,reactivateTreeFromModal,deleteTreeFromModal,toggleShowInactive,showTreeOnMapFromModal,bulkSetInactive,bulkDelete,
   openTourModal,closeTourModal,saveTour,deleteTour,toggleTourUebersicht,toggleOverviewInGrid,filterTourenGrid,
   tourZusatzAdd,tourZusatzDel,tourRegelToggle,_sx,_sxClear,
   openTourReport,closeReportModal,repAddCol,repRemoveCol,repMoveCol,repApplyFromControls,

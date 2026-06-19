@@ -1407,6 +1407,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       Inaktive zeigen
     </button>
     <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px;" onclick="document.getElementById('baeume-search').value='';_baeumeNoGpsFilter=false;updateBtnFilterNoGps();filterBaeumeTable('')">✕</button>
+    <div id="baeume-bulk" style="display:none;align-items:center;gap:6px;margin-left:auto;padding-left:10px;border-left:1px solid var(--border);">
+      <span title="Wirkt auf alle aktuell angezeigten/gefilterten Objekte" style="font-size:10px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;">Sammelaktion ⚡</span>
+      <button id="bulk-inactive" class="btn btn-secondary" style="padding:5px 10px;font-size:12px;white-space:nowrap;" onclick="bulkSetInactive()">inaktiv</button>
+      <button id="bulk-delete" class="btn btn-secondary" style="padding:5px 10px;font-size:12px;white-space:nowrap;color:#c0392b;border-color:#e8b3ab;" onclick="bulkDelete()">löschen</button>
+    </div>
   </div>
   <div id="baeume-table-wrap" style="flex:1;overflow:auto;display:flex;flex-direction:column;"></div>
   </div>
