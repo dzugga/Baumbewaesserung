@@ -5568,6 +5568,7 @@ function roleCard(key,r){
       ${MODULES.map(m=>`<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
         <input type="checkbox" class="rc-mod" data-mod="${m.key}"${r.modules&&r.modules[m.key]?' checked':''}> ${m.label}</label>`).join('')}
     </div>
+    <div style="font-size:10px;color:var(--text3);margin:-4px 0 10px;line-height:1.5;">↗ = Start-Verknüpfung der App im Menü „Apps". Steuert nur die Desktop-Verknüpfung — der direkte App-Zugang (PIN-Login in der jeweiligen App) bleibt davon unberührt.</div>
     <div style="display:flex;gap:8px;">
       <button class="btn btn-primary" style="padding:5px 12px;font-size:12px;" onclick="saveRole('${dlEsc(key)}')">Speichern</button>
       ${r.builtin?'':`<button class="btn btn-secondary" style="padding:5px 12px;font-size:12px;color:#c0392b;" onclick="deleteRole('${dlEsc(key)}')">Löschen</button>`}
@@ -5589,6 +5590,7 @@ function newRoleCard(){
       ${MODULES.map(m=>`<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
         <input type="checkbox" class="nr-mod" data-mod="${m.key}"> ${m.label}</label>`).join('')}
     </div>
+    <div style="font-size:10px;color:var(--text3);margin:-4px 0 10px;line-height:1.5;">↗ = Start-Verknüpfung der App im Menü „Apps". Steuert nur die Desktop-Verknüpfung — der direkte App-Zugang (PIN-Login in der jeweiligen App) bleibt davon unberührt.</div>
     <button class="btn btn-primary" style="padding:5px 12px;font-size:12px;" onclick="addRole()">Rolle anlegen</button>
   </div>`;
 }
