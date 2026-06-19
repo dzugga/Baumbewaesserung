@@ -4637,6 +4637,8 @@ function renderBaeumeTableWith(treeList){
     const row=e.target.closest('[data-treeid]');
     if(row) selectTree(row.dataset.treeid);
   };
+  // Rechtsklick auf eine Objektzeile: kein (Browser-)Menü
+  wrap.oncontextmenu=e=>{ if(e.target.closest('[data-treeid]')) e.preventDefault(); };
 }
 
 let _tourenSearch='';
@@ -4736,6 +4738,8 @@ function renderTourenGrid(){
     else if(action==='edit')openTourModal(tid);
     else if(action==='delete')deleteTour(tid);
   };
+  // Rechtsklick auf eine Tour-Zeile: kein (Browser-)Menü
+  grid.oncontextmenu=e=>{ if(e.target.closest('tr')) e.preventDefault(); };
 
   // "Alle Routen berechnen"-Toolbar-Button je nach Reihenfolgeplanung
   const allBtn=document.getElementById('btn-calc-all-toolbar');
@@ -7910,7 +7914,7 @@ function dispoRow(b,v,idx,opts){
   const removeBtn=opts.remove
     ? `<button onclick="event.stopPropagation();dispoUnassign('${b.id}')" title="Aus Tour entfernen" style="flex-shrink:0;border:none;background:none;color:var(--text3);cursor:pointer;font-size:13px;line-height:1;padding:2px 4px;">✕</button>`
     : '';
-  return `<div class="dispo-list-row" data-bin="${b.id}" onclick="dispoFocusPoint('${b.id}',event)" style="cursor:pointer;">
+  return `<div class="dispo-list-row" data-bin="${b.id}" onclick="dispoFocusPoint('${b.id}',event)" oncontextmenu="event.preventDefault()" style="cursor:pointer;">
     ${idx!=null?`<span style="flex-shrink:0;min-width:18px;height:18px;border-radius:9px;background:var(--surface2);color:var(--text2);font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;">${idx}</span>`:''}
     <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${b.name} <b>${b.fuellstand}%</b></span>
     <span class="dispo-badge" style="${DISPO_BADGE[v.status]||''}">${v.status}${v._manual?' ✋':''}</span>
