@@ -164,6 +164,9 @@ let currentOrg  = '';     // aus Custom Claims
 let currentName = '';     // Anzeigename (E-Mail oder PIN-Name)
 
 // ─── ROLLEN & MODULE ──────────────────────────────────────────
+// Pro Rolle zuweisbare Module = die operativen Reiter. NICHT enthalten (bewusst nur Superadmin):
+// das ganze „Admin"-Menü (Benutzer/Rollen, Projekte, Nutzung, Mandanten, Allgemein/ORS, KI-Config)
+// sowie System & Compliance. Diese sind in der Nav per __superadmin__ gegated.
 const MODULES = [
   {key:'planung',     label:'Planung (Karte)'},
   {key:'disposition', label:'Disposition (automatisiert)'},
@@ -172,14 +175,13 @@ const MODULES = [
   {key:'ki',          label:'KI-Analysen'},
   {key:'objekte',     label:'Objekte'},
   {key:'touren',      label:'Touren'},
+  {key:'verwaltung',  label:'Gründe'},
+  {key:'wms',         label:'WMS-Karten'},
   {key:'import',      label:'Import'},
-  {key:'projekte',    label:'Projekte'},
-  {key:'verwaltung',  label:'Verwaltung (Fahrer & Gründe)'},
-  {key:'nutzer',      label:'Nutzer & Rollen'},
-  {key:'admin',       label:'INFA-Admin (Allgemein/KI-Config)'},
-  {key:'erfassung',   label:'Erfassungs-App'},
-  {key:'mobil',       label:'Fahrer-App (Mobil)'},
-  {key:'einsatzleiter', label:'Einsatzleiter-App'},
+  {key:'erfassung',   label:'Erfassungs-App ↗'},
+  {key:'mobil',       label:'Fahrer-App (Mobil) ↗'},
+  {key:'einsatzleiter', label:'Einsatzleiter-App ↗'},
+  {key:'navi',        label:'Navigation (Beta) ↗'},
 ];
 const BASE_TYPES = [
   {key:'admin',    label:'Verwalten (Admin)'},
@@ -192,7 +194,7 @@ const _mods = (keys)=>Object.fromEntries(_allModKeys.map(k=>[k, keys.includes(k)
 const BUILTIN_ROLES = {
   superadmin: {name:'Superadmin', baseType:'admin', modules:_mods(_allModKeys), builtin:true},
   orgadmin:   {name:'Org-Admin',  baseType:'admin', modules:_mods(_allModKeys.filter(k=>k!=='admin')), builtin:true},
-  planer:     {name:'Planer',     baseType:'editor', modules:_mods(['planung','disposition','dashboard','controlling','ki','objekte','touren','import','projekte','einsatzleiter']), builtin:true},
+  planer:     {name:'Planer',     baseType:'editor', modules:_mods(['planung','disposition','dashboard','controlling','ki','objekte','touren','import','wms','einsatzleiter']), builtin:true},
   erfasser:   {name:'Erfasser',   baseType:'editor', modules:_mods(['erfassung','objekte']), builtin:true},
   fahrer:     {name:'Fahrer',     baseType:'driver', modules:_mods(['mobil']), builtin:true},
 };

@@ -368,9 +368,20 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <button data-module="objekte" onclick="switchView('baeume')">Objekte</button>
         <button data-module="touren" onclick="switchView('touren')">Touren</button>
         <button data-module="verwaltung" onclick="switchView('verwaltung')">Gründe</button>
-        <button data-module="admin" onclick="switchView('wmskarten')">WMS-Karten</button>
+        <button data-module="wms" onclick="switchView('wmskarten')">WMS-Karten</button>
         <button data-module="import" onclick="openImport()">Import</button>
         <button onclick="switchView('handbuch')">📖 Handbuch</button>
+      </div>
+    </div>
+    <div class="nav-group">
+      <button class="nav-btn nav-parent" type="button">Apps
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-left:2px;"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <div class="nav-dropdown">
+        <button data-module="mobil" onclick="window.open('mobil.html','_blank')">Auftragsbearbeitung (Fahrer-App) ↗</button>
+        <button data-module="erfassung" onclick="window.open('erfassung.html','_blank')">Erfassung ↗</button>
+        <button data-module="einsatzleiter" onclick="window.open('einsatzleiter.html','_blank')">Einsatzleiter (Live) ↗</button>
+        <button data-module="navi" onclick="window.open('navi.html','_blank')">Navigation (Beta) ↗</button>
       </div>
     </div>
     <div class="nav-group">
@@ -378,17 +389,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-left:2px;"><path d="M6 9l6 6 6-6"/></svg>
       </button>
       <div class="nav-dropdown">
-        <button data-module="__admin__" onclick="switchView('benutzer')">Benutzer</button>
-        <button data-module="projekte" onclick="openProjekte()">Projekte</button>
-        <button data-module="__admin__" onclick="switchView('usage')">Nutzung je Stadt</button>
+        <button data-module="__superadmin__" onclick="switchView('benutzer')">Benutzer & Rollen</button>
+        <button data-module="__superadmin__" onclick="openProjekte()">Projekte</button>
+        <button data-module="__superadmin__" onclick="switchView('usage')">Nutzung je Stadt</button>
         <button data-module="__superadmin__" onclick="switchView('mandanten')">Mandanten</button>
-        <button data-module="admin" onclick="openAllgemein()">Allgemein</button>
-        <button data-module="admin" onclick="switchView('kiconfig')">KI-Analyse</button>
-        <div data-module="admin" style="border-top:1px solid var(--border);margin:4px 0;"></div>
-        <button data-module="admin" onclick="window.open('mobil.html','_blank')">Auftragsbearbeitung (Fahrer-App) ↗</button>
-        <button data-module="admin" onclick="window.open('erfassung.html','_blank')">Erfassung ↗</button>
-        <button data-module="admin" onclick="window.open('einsatzleiter.html','_blank')">Einsatzleiter (Live) ↗</button>
-        <button data-module="admin" onclick="window.open('navi.html','_blank')">Navigation (Beta) ↗</button>
+        <div data-module="__superadmin__" style="border-top:1px solid var(--border);margin:4px 0;"></div>
+        <button data-module="__superadmin__" onclick="openAllgemein()">Allgemein (ORS-Key)</button>
+        <button data-module="__superadmin__" onclick="switchView('kiconfig')">KI-Config</button>
       </div>
     </div>
   </nav>
