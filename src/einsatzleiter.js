@@ -238,8 +238,8 @@ function renderTourProgress(reported){
         <div class="seg" style="width:${offenW}%;background:transparent;"></div>
       </div>
       <div class="tour-meta">
-        <span><b style="color:var(--green-dark);">${bewN}</b> bew.</span>
-        <span><b style="color:var(--red);">${nichtN}</b> nicht</span>
+        <span><b style="color:var(--green-dark);">${bewN}</b> erl.</span>
+        <span><b style="color:var(--red);">${nichtN}</b> n. erl.</span>
         <span><b>${offen}</b> offen</span>
         <span style="margin-left:auto;">${total} Objekte</span>
       </div>
