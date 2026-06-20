@@ -2193,7 +2193,8 @@ function selectTree(id, pan=true){
       if(_clusterOn && _clusterGroup && m && _clusterGroup.hasLayer && _clusterGroup.hasLayer(m) && _clusterGroup.zoomToShowLayer){
         _clusterGroup.zoomToShowLayer(m, ()=>{ map.panTo([tree.lat,tree.lng],{animate:true,duration:0.3}); });
       } else {
-        map.panTo([tree.lat,tree.lng],{animate:true,duration:0.5});
+        const tz=Math.max(map.getZoom(), 17); // beim Listen-Klick näher ans Objekt heranzoomen (nur rein, nie raus)
+        map.setView([tree.lat,tree.lng], tz, {animate:true});
       }
     }, wasOnMap ? 0 : 200);
   }
