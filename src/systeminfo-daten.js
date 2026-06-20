@@ -22,7 +22,7 @@ export const SI_DSGVO = [
   { status: 'offen', label: 'Verzeichnis von Verarbeitungstätigkeiten (VVT)', note: 'Verarbeitung in das VVT des Betreibers aufnehmen.' },
   { status: 'offen', label: 'Personalrat / Betriebsvereinbarung', note: 'Meldungen sind personenbezogen auswertbar (Leistungskontrolle möglich) — Beteiligung klären.' },
   { status: 'offen', label: 'Datenschutz-Folgenabschätzung (DSFA) prüfen', note: 'Bei GPS-Ortung der Fahrer ggf. erforderlich — Einschätzung des DSB einholen.' },
-  { status: 'offen', label: 'Google Fonts lokal hosten', note: 'Die Schriften (DM Sans/DM Mono) werden noch vom Google-CDN nachgeladen → überträgt die IP-Adresse an Google (Abmahnrisiko, vgl. LG München 2022). Schriften lokal mit der App ausliefern, dann entfällt die Übertragung. Siehe Reiter „Lizenzen & Dienste".' },
+  { status: 'ok', label: 'Schriften lokal ausgeliefert', note: 'DM Sans/DM Mono werden mit der App selbst ausgeliefert (woff2 unter /fonts), nicht mehr vom Google-CDN nachgeladen → es wird keine IP-Adresse mehr an Google übertragen (erledigt; vgl. LG München 2022).' },
 ];
 
 // ── Technik-Stack ────────────────────────────────────────────
@@ -103,6 +103,6 @@ export const SI_DIENSTE = [
     { name: 'Google reCAPTCHA v3 (App Check)', zweck: 'Schutz vor fremden Clients', lizenz: 'Google-Nutzungsbedingungen', frei: 'Gratis bis 1 Mio Prüfungen/Monat', status: 'achtung', hinweis: 'Kostenlos im erwartbaren Rahmen. Datenschutz: reCAPTCHA bindet einen Google-Dienst ein – in der Datenschutzerklärung erwähnen.' },
   ]},
   { gruppe: 'Schriften', items: [
-    { name: 'Google Fonts (vom Google-CDN)', zweck: 'Schriftarten DM Sans / DM Mono', lizenz: 'SIL Open Font License (Schrift gratis)', frei: 'Ja – aber Nachladen vom Google-Server', status: 'achtung', hinweis: 'DSGVO: Das Nachladen vom Google-CDN überträgt die IP-Adresse an Google (Abmahnrisiko, vgl. LG München 2022). Empfehlung: Schriften lokal selbst hosten statt vom Google-CDN laden.' },
+    { name: 'DM Sans / DM Mono (lokal ausgeliefert)', zweck: 'Schriftarten der Desktop-Oberfläche', lizenz: 'SIL Open Font License 1.1', frei: 'Ja – mit der App selbst ausgeliefert', status: 'ok', hinweis: 'DSGVO-konform: Schriften liegen lokal als woff2 unter /fonts und werden von der eigenen Domain geladen — keine Übertragung an Google, kein Nachladen vom Google-CDN (vgl. LG München 2022). Mobile-/Erfassungs-/Einsatzleiter-App nutzen System-Schriften.' },
   ]},
 ];
