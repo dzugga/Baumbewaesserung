@@ -426,7 +426,12 @@ function psSetOrgFilter(v){ _psOrgFilter=v; renderPsList(); }
 function renderPsList(){
   const psList=document.getElementById('ps-list');
   if(!psList)return;
-  const docs=_psOrgFilter?_psDocs.filter(d=>d.data().orgId===_psOrgFilter):_psDocs;
+  let docs=_psOrgFilter?_psDocs.filter(d=>d.data().orgId===_psOrgFilter):_psDocs;
+  // Superadmin: nach Mandant (alphabetisch), dann Projektname sortieren
+  if(currentRole==='superadmin'){
+    const oName=d=>(_psOrgNames[d.data().orgId]||d.data().orgId||'').toLowerCase();
+    docs=[...docs].sort((a,b)=>oName(a).localeCompare(oName(b))||(a.data().name||'').localeCompare(b.data().name||''));
+  }
   if(!docs.length){
     psList.innerHTML=`<div class="ps-empty">${_psOrgFilter?'Keine Projekte in diesem Mandanten.':'Noch keine Projekte. Erstelle dein erstes Projekt unten.'}</div>`;
     return;
@@ -437,17 +442,18 @@ function renderPsList(){
     const meta=(data.treeCount!=null||data.tourCount!=null)
       ? `${data.treeCount??0} Objekte · ${data.tourCount??0} Touren`
       : 'beim Öffnen aktualisieren';
-    // Superadmin: Mandant als deutliches Badge (Projektname muss nicht der Stadtname sein)
-    const orgBadge=currentRole==='superadmin'
-      ? `<span style="flex-shrink:0;font-size:11px;font-weight:700;background:var(--green-light);color:var(--green);padding:3px 10px;border-radius:99px;white-space:nowrap;">${dlEsc(_psOrgNames[data.orgId]||data.orgId||'ohne Mandant')}</span>`
+    // Superadmin: Mandant als linke Spalte (zuerst Mandant, dann Projekt) — Projektname muss nicht der Stadtname sein
+    const orgName=_psOrgNames[data.orgId]||data.orgId||'ohne Mandant';
+    const orgCol=currentRole==='superadmin'
+      ? `<span title="${dlEsc(orgName)}" style="flex-shrink:0;width:140px;font-size:11px;font-weight:700;background:var(--green-light);color:var(--green);padding:4px 10px;border-radius:99px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;">${dlEsc(orgName)}</span>`
       : '';
     return `<div class="ps-item" onclick="openProject('${d.id}')">
+      ${orgCol}
       <div class="ps-item-icon">${data.icon||'🌳'}</div>
       <div class="ps-item-info">
         <div class="ps-item-name">${dlEsc(data.name||'')}</div>
         <div class="ps-item-meta">${meta}</div>
       </div>
-      ${orgBadge}
       <svg class="ps-item-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg>
     </div>`;
   }).join('');
