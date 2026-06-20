@@ -170,6 +170,7 @@ let currentName = '';     // Anzeigename (E-Mail oder PIN-Name)
 const MODULES = [
   {key:'planung',     label:'Planung (Karte)'},
   {key:'disposition', label:'Disposition (automatisiert)'},
+  {key:'einsatzplaner', label:'Einsatzplaner'},
   {key:'dashboard',   label:'Dashboard'},
   {key:'controlling', label:'Controlling'},
   {key:'ki',          label:'KI-Analysen'},
@@ -194,7 +195,7 @@ const _mods = (keys)=>Object.fromEntries(_allModKeys.map(k=>[k, keys.includes(k)
 const BUILTIN_ROLES = {
   superadmin: {name:'Superadmin', baseType:'admin', modules:_mods(_allModKeys), builtin:true},
   orgadmin:   {name:'Org-Admin',  baseType:'admin', modules:_mods(_allModKeys.filter(k=>k!=='admin')), builtin:true},
-  planer:     {name:'Planer',     baseType:'editor', modules:_mods(['planung','disposition','dashboard','controlling','ki','objekte','touren','import','wms','einsatzleiter']), builtin:true},
+  planer:     {name:'Planer',     baseType:'editor', modules:_mods(['planung','disposition','einsatzplaner','dashboard','controlling','ki','objekte','touren','import','wms','einsatzleiter']), builtin:true},
   erfasser:   {name:'Erfasser',   baseType:'editor', modules:_mods(['erfassung','objekte']), builtin:true},
   fahrer:     {name:'Fahrer',     baseType:'driver', modules:_mods(['mobil']), builtin:true},
 };
@@ -3832,6 +3833,7 @@ function switchView(v){
   if(ki) ki.style.display=v==='ki'?'flex':'none';
   if(kiconfig) kiconfig.style.display=v==='kiconfig'?'flex':'none';
   if(disposition) disposition.style.display=v==='disposition'?'flex':'none';
+  const einsatzplaner=document.getElementById('view-einsatzplaner'); if(einsatzplaner) einsatzplaner.style.display=v==='einsatzplaner'?'flex':'none';
   if(verwaltung) verwaltung.style.display=v==='verwaltung'?'block':'none';
   // „Planen“-Button nur im manuellen Planungs-Modus (Karte) zeigen
   const planenBtn=document.getElementById('btn-planen');
@@ -3859,6 +3861,7 @@ function switchView(v){
   if(v==='mandanten') renderMandanten();
   if(v==='systeminfo') renderSystemInfo();
   if(v==='disposition') initDispo();
+  if(v==='einsatzplaner') initEinsatzplaner();
   if(v==='verwaltung') initVerwaltung();
   if(v==='feldbezeichnungen') initFeldbezeichnungen();
   if(v==='usage') initUsage();
@@ -7784,6 +7787,167 @@ function dispoDefaultDepot(){
   if(pts.length){ const la=pts.reduce((s,p)=>s+p.lat,0)/pts.length, lo=pts.reduce((s,p)=>s+p.lng,0)/pts.length; return {lat:la, lng:lo, adresse:'Zentrum'}; }
   return {lat:50.0, lng:8.42, adresse:'Betriebshof'};
 }
+
+// ─── EINSATZPLANER (eigener Menüpunkt) ───────────────────────────────────────
+// Verfügbarkeit (Personal & Fahrzeuge) ist MANDANTENWEIT (orgs-Ressourcen, je Tag);
+// die Tour-Besetzung ist PROJEKTSCHARF. Superadmin wählt Mandant + Projekt, sonst Mandant fix.
+let _epOrg='', _epProject='', _epDate='', _epTab='verfuegbar';
+let _epOrgs=[], _epPersons=[], _epVehicles=[], _epProjects=[], _epTours=[];
+let _epAvail={persons:{}, vehicles:{}}, _epSaveTimer=null;
+const EP_PSTATES=[['anwesend','Anwesend','#15803d','#e7f3ea'],['krank','Krank','#c0392b','#fbeaea'],['urlaub','Urlaub','#b45309','#fbf0df'],['abwesend','Abwesend','#5f5e5a','#eeece6']];
+const EP_VSTATES=[['verfuegbar','Verfügbar','#15803d','#e7f3ea'],['werkstatt','Werkstatt','#b45309','#fbf0df'],['ausgefallen','Ausgefallen','#c0392b','#fbeaea']];
+function _epToday(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function _epPStatus(id){ return _epAvail.persons[id]||'anwesend'; }
+function _epVStatus(id){ return _epAvail.vehicles[id]||'verfuegbar'; }
+function _epPersonAvail(p){ return _epPStatus(p.id)==='anwesend'; }
+function _epVehAvail(v){ return _epVStatus(v.id)==='verfuegbar'; }
+function _epPersonName(id){ const p=_epPersons.find(x=>x.id===id); return p?p.name:id; }
+
+async function initEinsatzplaner(){
+  const root=document.getElementById('ep-root'); if(!root) return;
+  root.innerHTML='<div style="padding:48px;text-align:center;color:var(--text3);font-size:13px;">Lädt…</div>';
+  if(!_epDate) _epDate=_epToday();
+  let orgs=[];
+  if(currentRole==='superadmin'){ try{ const qs=await db.collection('orgs').get(); qs.forEach(d=>orgs.push({id:d.id,name:d.data().name||d.id})); }catch(e){ console.warn('ep orgs',e); } }
+  else if(currentOrg){ orgs=[{id:currentOrg, name:_psOrgNames[currentOrg]||currentOrg}]; }
+  orgs.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  _epOrgs=orgs;
+  if(!_epOrg || !orgs.find(o=>o.id===_epOrg)) _epOrg=(orgs.find(o=>o.id===currentProjectData?.orgId)?.id)||orgs[0]?.id||currentOrg||'';
+  await epLoadOrgScope();
+  renderEp();
+}
+async function epLoadOrgScope(){
+  _epPersons=[]; _epVehicles=[]; _epProjects=[];
+  if(!_epOrg) return;
+  try{ const qs=await db.collection('drivers').where('orgId','==',_epOrg).get(); _epPersons=qs.docs.map(d=>({id:d.id,...d.data()})).filter(p=>p.active!==false).sort((a,b)=>(a.name||'').localeCompare(b.name||'')); }catch(e){ console.warn('ep drivers',e); }
+  try{ const os=await db.collection('orgs').doc(_epOrg).get(); const r=os.exists?os.data().dispoResources:null; _epVehicles=(Array.isArray(r)&&r.length)?r.map(x=>({...x})):DISPO_DEFAULT_RES.map(x=>({...x})); }catch(e){ _epVehicles=DISPO_DEFAULT_RES.map(x=>({...x})); }
+  try{ const qs=await db.collection('projects').where('orgId','==',_epOrg).get(); _epProjects=qs.docs.map(d=>({id:d.id,name:d.data().name||d.id})).sort((a,b)=>a.name.localeCompare(b.name)); }catch(e){ console.warn('ep projects',e); }
+  if(!_epProject || !_epProjects.find(p=>p.id===_epProject)) _epProject=(_epProjects.find(p=>p.id===currentProjectId)?.id)||_epProjects[0]?.id||'';
+  await epLoadAvail(); await epLoadTours();
+}
+async function epLoadAvail(){
+  _epAvail={persons:{}, vehicles:{}};
+  if(!_epOrg||!_epDate) return;
+  try{ const s=await db.collection('availability').doc(_epOrg+'_'+_epDate).get(); if(s.exists){ const d=s.data(); _epAvail={persons:d.persons||{}, vehicles:d.vehicles||{}}; } }catch(e){ console.warn('ep avail',e); }
+}
+async function epLoadTours(){
+  _epTours=[];
+  if(!_epProject) return;
+  try{ const qs=await db.collection('projects').doc(_epProject).collection('tours').get(); _epTours=qs.docs.map(d=>({id:d.id,...d.data()})).filter(t=>!t.uebersicht).sort((a,b)=>(a.name||'').localeCompare(b.name||'')); }catch(e){ console.warn('ep tours',e); }
+}
+async function epChangeOrg(v){ _epOrg=v; _epProject=''; const r=document.getElementById('ep-root'); if(r) r.innerHTML='<div style="padding:48px;text-align:center;color:var(--text3);">Lädt…</div>'; await epLoadOrgScope(); renderEp(); }
+async function epChangeProject(v){ _epProject=v; await epLoadTours(); renderEp(); }
+async function epChangeDate(v){ _epDate=v||_epToday(); await epLoadAvail(); renderEp(); }
+function epSetTab(t){ _epTab=t; renderEp(); }
+function _epCanWrite(){ return currentRole==='superadmin'||currentCap==='admin'||currentCap==='editor'; }
+function epPersist(){
+  if(!_epCanWrite()) return;
+  clearTimeout(_epSaveTimer);
+  const org=_epOrg, date=_epDate, persons={..._epAvail.persons}, vehicles={..._epAvail.vehicles};
+  _epSaveTimer=setTimeout(()=>{
+    db.collection('availability').doc(org+'_'+date).set({orgId:org,date,persons,vehicles,updatedAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true})
+      .catch(e=>notify('Verfügbarkeit speichern fehlgeschlagen: '+(e.message||e)));
+  },400);
+}
+function epSetPersonStatus(id,st){ if(!_epCanWrite())return; if(st==='anwesend') delete _epAvail.persons[id]; else _epAvail.persons[id]=st; epPersist(); renderEp(); }
+function epSetVehicleStatus(id,st){ if(!_epCanWrite())return; if(st==='verfuegbar') delete _epAvail.vehicles[id]; else _epAvail.vehicles[id]=st; epPersist(); renderEp(); }
+function epAllPersons(st){ if(!_epCanWrite())return; if(st==='anwesend') _epAvail.persons={}; else _epPersons.forEach(p=>{ _epAvail.persons[p.id]=st; }); epPersist(); renderEp(); }
+
+// Tour-Schreibvorgänge projektscharf (rohes db, KEIN _injectOrg — Projekt-Org kann vom aktuellen abweichen)
+async function epTourUpdate(tid, patch){
+  if(!_epCanWrite()){ notify('Nur Lesezugriff'); return false; }
+  try{ await db.collection('projects').doc(_epProject).collection('tours').doc(tid).update(patch); return true; }
+  catch(e){ notify('Fehler: '+(e.message||e)); return false; }
+}
+async function epAssignVehicle(tid, vehId){
+  const v=_epVehicles.find(x=>x.id===vehId);
+  if(await epTourUpdate(tid,{vehicleId:vehId||'', vehicleName:v?v.name:''})){ const t=_epTours.find(x=>x.id===tid); if(t){ t.vehicleId=vehId||''; t.vehicleName=v?v.name:''; } renderEp(); }
+}
+async function epAddDriver(tid, name){
+  if(!name) return;
+  const t=_epTours.find(x=>x.id===tid); const drivers=[...(t&&t.drivers||(t&&t.assignedDriver?[t.assignedDriver]:[]))];
+  if(drivers.includes(name)){ notify('Bereits zugewiesen'); return; }
+  drivers.push(name);
+  if(await epTourUpdate(tid,{drivers, assignedDriver:drivers[0]})){ if(t){ t.drivers=drivers; t.assignedDriver=drivers[0]; } renderEp(); }
+}
+async function epRemoveDriver(tid, idx){
+  const t=_epTours.find(x=>x.id===tid); const drivers=[...(t&&t.drivers||(t&&t.assignedDriver?[t.assignedDriver]:[]))];
+  drivers.splice(idx,1);
+  if(await epTourUpdate(tid,{drivers, assignedDriver:drivers[0]||''})){ if(t){ t.drivers=drivers; t.assignedDriver=drivers[0]||''; } renderEp(); }
+}
+
+function _epInitials(n){ return (n||'?').split(/\s+/).map(w=>w[0]||'').join('').slice(0,2).toUpperCase(); }
+function _epSeg(states, cur, fn, id){
+  return `<div class="ep-seg">${states.map(([k,lbl,col,bg])=>`<button class="${cur===k?'on':''}" style="${cur===k?`background:${bg};color:${col};border-color:${col}55;`:''}" onclick="${fn}('${id}','${k}')">${lbl}</button>`).join('')}</div>`;
+}
+function epVerfuegbarHtml(){
+  const ro=!_epCanWrite();
+  const pAvail=_epPersons.filter(_epPersonAvail).length, vAvail=_epVehicles.filter(_epVehAvail).length;
+  // Personal-Karten
+  const pCards=_epPersons.length? _epPersons.map(p=>{
+    const st=_epPStatus(p.id); const meta=EP_PSTATES.find(s=>s[0]===st);
+    return `<div class="ep-card">
+      <div class="ep-card-head"><span class="ep-ava" style="background:${meta[3]};color:${meta[2]};">${_epInitials(p.name)}</span><div style="min-width:0;"><div class="ep-name">${dlEsc(p.name||'–')}</div><div class="ep-sub" style="color:${meta[2]};">${meta[1]}</div></div></div>
+      ${ro?'':_epSeg(EP_PSTATES, st, 'epSetPersonStatus', p.id)}</div>`;
+  }).join('') : '<div class="ep-empty">Keine Personen in diesem Mandanten. (Admin → Benutzer → Personen)</div>';
+  const vCards=_epVehicles.length? _epVehicles.map(v=>{
+    const st=_epVStatus(v.id); const meta=EP_VSTATES.find(s=>s[0]===st);
+    return `<div class="ep-card">
+      <div class="ep-card-head"><span class="ep-ava" style="background:${meta[3]};color:${meta[2]};"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17h13V7H3zM16 10h3l2 3v4h-5z"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg></span><div style="min-width:0;"><div class="ep-name">${dlEsc(v.name||'–')}</div><div class="ep-sub" style="color:${meta[2]};">${meta[1]}</div></div></div>
+      ${ro?'':_epSeg(EP_VSTATES, st, 'epSetVehicleStatus', v.id)}</div>`;
+  }).join('') : '<div class="ep-empty">Keine Fahrzeuge hinterlegt. (Disposition → Einstellungen → Fahrzeuge)</div>';
+  return `
+    <div class="ep-sec-head"><h3>Personal <span class="ep-count">${pAvail}/${_epPersons.length} anwesend</span></h3>
+      ${ro?'':`<button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="epAllPersons('anwesend')">Alle anwesend</button>`}</div>
+    <div class="ep-grid">${pCards}</div>
+    <div class="ep-sec-head" style="margin-top:18px;"><h3>Fahrzeuge <span class="ep-count">${vAvail}/${_epVehicles.length} verfügbar</span></h3></div>
+    <div class="ep-grid">${vCards}</div>`;
+}
+function epPlanHtml(){
+  if(!_epProject) return '<div class="ep-empty">Kein Projekt vorhanden.</div>';
+  if(!_epTours.length) return '<div class="ep-empty">Dieses Projekt hat keine (echten) Touren.</div>';
+  const ro=!_epCanWrite();
+  const availVeh=_epVehicles.filter(_epVehAvail), availPers=_epPersons.filter(_epPersonAvail);
+  const besetzt=_epTours.filter(t=>(t.drivers&&t.drivers.length)||t.vehicleId).length;
+  // Auslastung (Personen-Verplanung) zählen
+  const load={}; _epTours.forEach(t=>(t.drivers||[]).forEach(n=>load[n]=(load[n]||0)+1));
+  const rows=_epTours.map(t=>{
+    const drivers=t.drivers||(t.assignedDriver?[t.assignedDriver]:[]);
+    const vehOk=!t.vehicleId || availVeh.find(v=>v.id===t.vehicleId);
+    const badVeh=t.vehicleId && !vehOk;
+    const driverChips=drivers.length?drivers.map((n,i)=>{
+      const sick=!availPers.find(p=>p.name===n) && _epPersons.find(p=>p.name===n); // Person existiert, aber heute nicht anwesend
+      return `<span class="ep-chip${sick?' warn':''}">${dlEsc(n)}${ro?'':`<i onclick="epRemoveDriver('${t.id}',${i})">×</i>`}</span>`;
+    }).join(''):'';
+    const vehSel=ro? (t.vehicleName?`<span class="ep-chip">${dlEsc(t.vehicleName)}</span>`:'<span class="ep-dash">–</span>')
+      : `<select class="ep-mini" onchange="epAssignVehicle('${t.id}',this.value)"><option value="">— Fahrzeug —</option>${_epVehicles.map(v=>`<option value="${dlEsc(v.id)}"${v.id===t.vehicleId?' selected':''}${_epVehAvail(v)?'':' disabled'}>${dlEsc(v.name)}${_epVehAvail(v)?'':' (nicht verfügbar)'}</option>`).join('')}</select>`;
+    const drvAdd=ro?'':`<select class="ep-mini" onchange="if(this.value){epAddDriver('${t.id}',this.value);this.selectedIndex=0;}"><option value="">+ Fahrer…</option>${availPers.filter(p=>!drivers.includes(p.name)).map(p=>`<option value="${dlEsc(p.name)}">${dlEsc(p.name)}</option>`).join('')}</select>`;
+    return `<tr>
+      <td><span class="ep-dot" style="background:${t.color||'#888'};"></span>${dlEsc(t.name||'Tour')}</td>
+      <td>${vehSel}${badVeh?'<div class="ep-warn">⚠ Fahrzeug nicht verfügbar</div>':''}</td>
+      <td><div class="ep-chips">${driverChips}${drvAdd}</div></td>
+    </tr>`;
+  }).join('');
+  const poolPers=availPers.map(p=>`<span class="ep-pool" title="in ${load[p.name]||0} Touren">${dlEsc(p.name)} <b>${load[p.name]||0}</b></span>`).join('')||'<span class="ep-dash">keine anwesend</span>';
+  return `
+    <div class="ep-pool-bar"><span class="ep-pool-lbl">Heute verfügbar</span>${poolPers}</div>
+    <table class="ep-table"><thead><tr><th style="width:38%;">Tour</th><th style="width:27%;">Fahrzeug</th><th>Fahrer</th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="ep-foot">${besetzt} / ${_epTours.length} Touren besetzt${ro?' · nur Lesezugriff':''}</div>`;
+}
+function renderEp(){
+  const root=document.getElementById('ep-root'); if(!root) return;
+  const orgSel=(currentRole==='superadmin'&&_epOrgs.length>1)
+    ? `<label class="ep-field">Mandant<select onchange="epChangeOrg(this.value)">${_epOrgs.map(o=>`<option value="${dlEsc(o.id)}"${o.id===_epOrg?' selected':''}>${dlEsc(o.name)}</option>`).join('')}</select></label>` : '';
+  const projSel=`<label class="ep-field">Projekt<select onchange="epChangeProject(this.value)">${_epProjects.length?_epProjects.map(p=>`<option value="${dlEsc(p.id)}"${p.id===_epProject?' selected':''}>${dlEsc(p.name)}</option>`).join(''):'<option value="">—</option>'}</select></label>`;
+  const dateSel=`<label class="ep-field">Tag<input type="date" value="${_epDate}" onchange="epChangeDate(this.value)"></label>`;
+  const tab=(k,lbl)=>`<button class="ep-tab${_epTab===k?' on':''}" onclick="epSetTab('${k}')">${lbl}</button>`;
+  root.innerHTML=`
+    <div class="ep-top">
+      <div class="ep-top-l"><div class="ep-title">Einsatzplaner</div>${orgSel}${projSel}${dateSel}</div>
+      <div class="ep-tabs">${tab('verfuegbar','Verfügbarkeit')}${tab('plan','Einsatzplan')}</div>
+    </div>
+    <div class="ep-body">${_epTab==='verfuegbar'?epVerfuegbarHtml():epPlanHtml()}</div>`;
+}
 function dispoGetResources(){
   return (Array.isArray(currentDispoResources)&&currentDispoResources.length)
     ? currentDispoResources.map(x=>({...x}))
@@ -8939,6 +9103,7 @@ Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,
   renderHandbuch,setHbTab,hbSearchDebounced,openHbImg,closeHbImg,
   dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
+  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetPersonStatus,epSetVehicleStatus,epAllPersons,epAssignVehicle,epAddDriver,epRemoveDriver,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
   renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,_fillMerge,
