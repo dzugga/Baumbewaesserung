@@ -3734,10 +3734,9 @@ function openProjekte(){
       </div>
       ${currentRole==='superadmin'?`
       <div class="form-section">Module je Projekt</div>
-      <div style="font-size:11px;color:var(--text3);margin:-4px 0 8px;line-height:1.5;">Legt fest, welche Reiter ein <b>einzelnes Projekt</b> anbietet (z. B. „Disposition" nur in passenden Projekten) — unabhängig von den mandantenweiten Rollen-Rechten. Projekt wählen, Haken setzen, speichern.</div>
+      <div style="font-size:11px;color:var(--text3);margin:-4px 0 8px;line-height:1.5;">Legt fest, welche Reiter ein <b>einzelnes Projekt</b> anbietet (z. B. „Disposition" nur in passenden Projekten) — unabhängig von den mandantenweiten Rollen-Rechten. Projekt wählen, Haken setzen — wird unten mit <b>„Speichern"</b> gesichert.</div>
       <select id="prj-mod-target" class="form-control" style="width:100%;margin-bottom:8px;font-size:13px;"><option>Lade…</option></select>
-      <div id="prj-mods" style="display:grid;grid-template-columns:1fr 1fr;gap:3px 12px;margin-bottom:6px;"></div>
-      <button id="prj-mod-save" class="btn btn-secondary" style="width:100%;">Module für gewähltes Projekt speichern</button>`:''}
+      <div id="prj-mods" style="display:grid;grid-template-columns:1fr 1fr;gap:3px 12px;margin-bottom:6px;"></div>`:''}
       <button class="btn btn-danger" id="prj-del" style="width:100%;margin-top:16px;">Projekt löschen</button>
     </div>
     <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
@@ -3755,9 +3754,20 @@ function openProjekte(){
   m.querySelector('#prj-save').onclick=async()=>{
     const name=m.querySelector('#prj-name').value.trim();
     if(!name){ notify('Projektname darf nicht leer sein'); return; }
-    await saveProjectSettings({name});
-    document.getElementById('active-project-name').textContent=name;
-    close(); notify('Projektname gespeichert');
+    try{
+      await saveProjectSettings({name});
+      document.getElementById('active-project-name').textContent=name;
+      // Superadmin: Module des gewählten Projekts gleich mitspeichern
+      if(currentRole==='superadmin'){
+        const tsel=m.querySelector('#prj-mod-target'); const pid=tsel?tsel.value:'';
+        if(pid){
+          const modules={}; m.querySelectorAll('#prj-mods .prj-mod').forEach(c=>{ modules[c.dataset.mod]=c.checked; });
+          await updateDoc(doc(db,'projects',pid),{modules});
+          if(pid===currentProjectId){ currentProjectData.modules=modules; applyModulePermissions(); }
+        }
+      }
+      close(); notify('Gespeichert');
+    }catch(e){ notify('Fehler: '+(e.message||e)); }
   };
   // Modul-Manager je Projekt (Superadmin): alle Projekte des Mandanten einzeln schaltbar
   if(currentRole==='superadmin'){
@@ -3776,16 +3786,6 @@ function openProjekte(){
       }catch(e){ console.warn('proj modules load',e); modsBox.innerHTML='<div style="font-size:11px;color:var(--red,#c0392b);">Konnte Projekte nicht laden</div>'; }
     })();
     sel.onchange=()=>renderMods(sel.value);
-    m.querySelector('#prj-mod-save').onclick=async()=>{
-      const pid=sel.value; if(!pid) return;
-      const modules={}; modsBox.querySelectorAll('.prj-mod').forEach(c=>{ modules[c.dataset.mod]=c.checked; });
-      try{
-        await updateDoc(doc(db,'projects',pid),{modules});
-        if(projCache[pid]) projCache[pid].modules=modules;
-        if(pid===currentProjectId){ currentProjectData.modules=modules; applyModulePermissions(); }
-        notify('✓ Module gespeichert für „'+((projCache[pid]&&projCache[pid].name)||pid)+'"');
-      }catch(e){ notify('Fehler: '+(e.message||e)); }
-    };
   }
 }
 
