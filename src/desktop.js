@@ -2263,19 +2263,7 @@ function openDetail(id){
     <div style="padding:5px 0 8px;font-size:13px;color:var(--text2);line-height:1.55;white-space:pre-wrap;">${dlEsc(tree.notiz)}</div>`:''}
 
     <div class="form-section">Touren (Mehrfachauswahl)</div>
-    <div style="padding:6px 0 4px;">
-      <div id="inline-tour-chips" style="max-height:170px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:8px;">
-        ${tours.length===0?'<div style="padding:10px;font-size:12px;color:var(--text3);">Keine Touren angelegt</div>':tours.map(t=>{
-          const sel=currentTourIds.includes(t.id);
-          return `<label data-tourid="${t.id}" style="display:flex;align-items:center;gap:9px;padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px;background:${sel?t.color+'14':'transparent'};">
-            <input type="checkbox"${sel?' checked':''} style="width:15px;height:15px;flex-shrink:0;cursor:pointer;accent-color:${t.color};">
-            <span style="width:11px;height:11px;border-radius:50%;background:${t.color};flex-shrink:0;"></span>
-            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${t.name}</span>
-          </label>`;
-        }).join('')}
-      </div>
-      <button class="btn btn-primary" style="padding:5px 12px;font-size:12px;width:100%;${isReadonly()?'opacity:.45;cursor:not-allowed;':''}" ${isReadonly()?'disabled title="Nur Lesezugriff"':`onclick="saveInlineFields('${id}')"`}>Touren speichern</button>
-    </div>
+    <div id="inline-tour-wrap" style="padding:6px 0 4px;"></div>
 
     ${(tree.fotos&&tree.fotos.length)?`
     <div class="form-section">Fotos (${tree.fotos.length})</div>
@@ -2299,6 +2287,7 @@ function openDetail(id){
 
 `;
   document.getElementById('panel-body').innerHTML=body;
+  renderInlineTourChips();
   const noCoords = !tree.lat || !tree.lng;
   document.getElementById('panel-actions').innerHTML=`
     ${noCoords ? `<button class="btn btn-secondary" style="flex:1;border-color:var(--amber);color:var(--amber);" onclick="startGpsPlacement('${id}')">
@@ -2573,13 +2562,45 @@ async function docDelete(treeId,idx){
   }catch(e){ notify('Fehler: '+(e.message||e.code)); }
 }
 
+// Inline-Tour-Mehrfachauswahl im Objekt-Detail: echte Touren immer, Übersichtstouren ein-/ausblendbar
+let showOverviewInDetail=false;
+function toggleOverviewInDetail(){ showOverviewInDetail=!showOverviewInDetail; renderInlineTourChips(); }
+function renderInlineTourChips(){
+  const wrap=document.getElementById('inline-tour-wrap'); if(!wrap) return;
+  const tree=trees.find(t=>t.id===selectedTreeId);
+  const cur=tree?getTreeTourIds(tree):[];
+  const ueb=tours.filter(t=>isOverviewTour(t.id));
+  const visible=tours.filter(t=>!isOverviewTour(t.id) || showOverviewInDetail); // echte Touren immer; Übersicht nur eingeblendet
+  const ro=isReadonly();
+  const rowHtml=t=>{
+    const sel=cur.includes(t.id);
+    return `<label data-tourid="${t.id}" style="display:flex;align-items:center;gap:9px;padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px;background:${sel?t.color+'14':'transparent'};">
+      <input type="checkbox"${sel?' checked':''} style="width:15px;height:15px;flex-shrink:0;cursor:pointer;accent-color:${t.color};">
+      <span style="width:11px;height:11px;border-radius:50%;background:${t.color};flex-shrink:0;"></span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(t.name)}${isOverviewTour(t.id)?' <span style="font-size:10px;color:var(--text3);font-weight:600;">Übersicht</span>':''}</span>
+    </label>`;
+  };
+  const chips = tours.length===0
+    ? '<div style="padding:10px;font-size:12px;color:var(--text3);">Keine Touren angelegt</div>'
+    : (visible.map(rowHtml).join('') || '<div style="padding:10px;font-size:12px;color:var(--text3);">Keine echten Touren — über „Übersichtstouren einblenden" anzeigen.</div>');
+  const toggle = ueb.length
+    ? `<div onclick="toggleOverviewInDetail()" style="cursor:pointer;font-size:12px;font-weight:600;color:var(--green);padding:5px 2px;">${showOverviewInDetail?'− Übersichtstouren ausblenden':`+ Übersichtstouren einblenden (${ueb.length})`}</div>`
+    : '';
+  wrap.innerHTML=`<div id="inline-tour-chips" style="max-height:170px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:6px;">${chips}</div>${toggle}
+    <button class="btn btn-primary" style="padding:5px 12px;font-size:12px;width:100%;${ro?'opacity:.45;cursor:not-allowed;':''}" ${ro?'disabled title="Nur Lesezugriff"':`onclick="saveInlineFields('${selectedTreeId}')"`}>Touren speichern</button>`;
+}
 async function saveInlineFields(id){
   if(isReadonly()){ notify('Nur Lesezugriff'); return; }
   const wasser=document.getElementById('inline-wasser')?.value;
   const zustand=document.getElementById('inline-zustand')?.value;
   // Touren aus Checkbox-Auswahl lesen
   const rows=document.querySelectorAll('#inline-tour-chips [data-tourid]');
-  const selectedTourIds=[...rows].filter(r=>r.querySelector('input[type=checkbox]')?.checked).map(r=>r.dataset.tourid);
+  const rendered=new Set([...rows].map(r=>r.dataset.tourid));
+  const checked=[...rows].filter(r=>r.querySelector('input[type=checkbox]')?.checked).map(r=>r.dataset.tourid);
+  // Eingeklappte (nicht gerenderte) Übersichts-Zuweisungen erhalten → kein Datenverlust
+  const tree0=trees.find(t=>t.id===id);
+  const hiddenUeb=(tree0?getTreeTourIds(tree0):[]).filter(tid=>isOverviewTour(tid) && !rendered.has(tid));
+  const selectedTourIds=[...new Set([...checked,...hiddenUeb])];
   const updates={};
   if(wasser)updates.wasser=wasser;
   if(zustand)updates.zustand=zustand;
@@ -8911,7 +8932,7 @@ Object.assign(window,{
   renderHandbuch,setHbTab,hbSearchDebounced,openHbImg,closeHbImg,
   dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
-  saveInlineFields,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
+  saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
   renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,_fillMerge,
   rankAdd,rankRename,rankSetColor,rankMove,rankMerge,rankDelete,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
