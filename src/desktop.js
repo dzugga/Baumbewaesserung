@@ -7484,8 +7484,9 @@ function renderDashboard(){
 }
 
 // Pro-Tour-Statistik (geteilte Quelle für KPI "Offen" und "Fortschritt je Tour")
+// Übersichtstouren sind nur Gruppierung (keine echten Touren) → ausgeschlossen, sonst Doppelzählung.
 function dashTourStats(reported){
-  return tours.map(t=>{
+  return tours.filter(t=>!t.uebersicht).map(t=>{
     // Nur Meldungen zu aktuell AKTIVEN Tour-Objekten zählen -> Fortschritt nie >100%
     // (bewässerte, danach deaktivierte/entfernte Objekte verzerren sonst den Zähler).
     const activeIds=new Set(trees.filter(x=>treeInTour(x,t.id)&&isActive(x)).map(x=>x.id));
