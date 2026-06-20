@@ -14,7 +14,7 @@ export const SI_DSGVO = [
   { status: 'ok',    label: 'Keine Tracking-Cookies', note: 'Kein Werbe-Tracking, keine Analyse-Dienste Dritter.' },
   { status: 'ok',    label: 'Karten von amtlichen Servern', note: 'Hintergrundkarten kommen von basemap.de (Bundesamt für Kartographie/BKG), nicht von Google/Esri — keine Standortdaten-Übertragung an kommerzielle Drittanbieter.' },
   { status: 'ok',    label: 'Datensparsamkeit', note: 'Von Personen werden nur Name, Rolle und Anmeldedaten verarbeitet.' },
-  { status: 'ok',    label: 'Datenschutzerklärung & Impressum', note: 'In allen Apps verlinkt (Avatar-Menü bzw. Anmeldeseite).' },
+  { status: 'ok',    label: 'Datenschutzerklärung & Impressum', note: 'In der Desktop-App (Planungsmanager) verlinkt — Avatar-Menü und Anmeldeseite.' },
   { status: 'offen', label: 'Platzhalter der Datenschutzerklärung ausfüllen', note: 'Betreiber, Datenschutzbeauftragter und Speicherfristen sind noch als Platzhalter hinterlegt.' },
   { status: 'offen', label: 'Auftragsverarbeitungsvertrag (AVV) mit Google Cloud', note: 'Google bietet die EU-Standardklauseln/AVV an — Abschluss dokumentieren.' },
   { status: 'offen', label: 'TOMs dokumentieren', note: 'Technische und organisatorische Maßnahmen schriftlich festhalten (Grundlage: Reiter „Sicherheit").' },
