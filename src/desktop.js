@@ -7893,7 +7893,7 @@ function epVerfuegbarHtml(){
   const vCards=_epVehicles.length? _epVehicles.map(v=>{
     const st=_epVStatus(v.id); const meta=EP_VSTATES.find(s=>s[0]===st);
     return `<div class="ep-card">
-      <div class="ep-card-head"><span class="ep-ava" style="background:${meta[3]};color:${meta[2]};"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17h13V7H3zM16 10h3l2 3v4h-5z"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg></span><div style="min-width:0;"><div class="ep-name">${dlEsc(v.name||'–')}</div><div class="ep-sub" style="color:${meta[2]};">${meta[1]}</div></div></div>
+      <div class="ep-card-head"><span class="ep-ava" style="background:${meta[3]};color:${meta[2]};"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17h13V7H3zM16 10h3l2 3v4h-5z"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg></span><div style="min-width:0;"><div class="ep-name">${dlEsc(v.name||'–')}</div>${(v.art||v.kennzeichen)?`<div style="font-size:11px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc([v.art,v.kennzeichen].filter(Boolean).join(' · '))}</div>`:''}<div class="ep-sub" style="color:${meta[2]};">${meta[1]}</div></div></div>
       ${ro?'':_epSeg(EP_VSTATES, st, 'epSetVehicleStatus', v.id)}</div>`;
   }).join('') : '<div class="ep-empty">Keine Fahrzeuge hinterlegt. (Disposition → Einstellungen → Fahrzeuge)</div>';
   return `
@@ -7934,6 +7934,46 @@ function epPlanHtml(){
     <table class="ep-table"><thead><tr><th style="width:38%;">Tour</th><th style="width:27%;">Fahrzeug</th><th>Fahrer</th></tr></thead><tbody>${rows}</tbody></table>
     <div class="ep-foot">${besetzt} / ${_epTours.length} Touren besetzt${ro?' · nur Lesezugriff':''}</div>`;
 }
+function epVehById(id){ return _epVehicles.find(v=>v.id===id); }
+function epVehField(id,field,val){
+  const v=epVehById(id); if(!v) return;
+  if(field==='arbeitszeitH'){ const h=parseFloat(val); v.arbeitszeitMin=isNaN(h)?0:Math.round(h*60); }
+  else v[field]=val;
+}
+function epVehAdd(){ if(!(currentRole==='superadmin'||currentCap==='admin'))return; _epVehicles.push({id:'v'+Math.random().toString(36).slice(2,8), name:'Neues Fahrzeug', art:'', kennzeichen:'', arbeitszeitMin:420, notiz:'', depot:null, maxBins:0}); renderEp(); }
+function epVehRemove(id){ if(!(currentRole==='superadmin'||currentCap==='admin'))return; _epVehicles=_epVehicles.filter(v=>v.id!==id); renderEp(); }
+async function epVehSave(){
+  if(!(currentRole==='superadmin'||currentCap==='admin')){ notify('Nur Administratoren dürfen den Fuhrpark ändern'); return; }
+  try{
+    await dlFnCall('setOrgDispo',{orgId:_epOrg, resources:_epVehicles});
+    if(_epOrg===currentProjectData?.orgId) currentDispoResources=_epVehicles.map(x=>({...x}));
+    notify('✓ Fuhrpark gespeichert');
+  }catch(e){ notify(fnErr(e)); }
+}
+function _epH(min){ return min?(+(min/60).toFixed(1))+' h':'–'; }
+function epFuhrparkHtml(){
+  const canEdit=currentRole==='superadmin'||currentCap==='admin';
+  const arten=['PKW','Kleintransporter','LKW','Schlepper','Kehrmaschine','Anhänger','Sonstiges'];
+  const rows=_epVehicles.map(v=>{
+    if(!canEdit) return `<tr><td><span class="ep-dot" style="background:#888;"></span>${dlEsc(v.name||'–')}</td><td>${dlEsc(v.art||'–')}</td><td>${dlEsc(v.kennzeichen||'–')}</td><td>${_epH(v.arbeitszeitMin)}</td><td>${dlEsc(v.notiz||'')}</td></tr>`;
+    return `<tr>
+      <td><input class="ep-mini" style="width:100%;" value="${dlEsc(v.name||'')}" onchange="epVehField('${v.id}','name',this.value)" placeholder="Bezeichnung"></td>
+      <td><input class="ep-mini" style="width:100%;" list="ep-veh-arten" value="${dlEsc(v.art||'')}" onchange="epVehField('${v.id}','art',this.value)" placeholder="Art/Typ"></td>
+      <td><input class="ep-mini" style="width:100%;" value="${dlEsc(v.kennzeichen||'')}" onchange="epVehField('${v.id}','kennzeichen',this.value)" placeholder="z. B. RÜS-AB 123"></td>
+      <td><input class="ep-mini" type="number" min="0" step="0.5" style="width:64px;" value="${v.arbeitszeitMin?+(v.arbeitszeitMin/60):''}" onchange="epVehField('${v.id}','arbeitszeitH',this.value)" title="Arbeitszeit Std/Tag"></td>
+      <td><input class="ep-mini" style="width:100%;" value="${dlEsc(v.notiz||'')}" onchange="epVehField('${v.id}','notiz',this.value)" placeholder="Notiz"></td>
+      <td style="text-align:right;"><button class="btn btn-danger" style="padding:3px 8px;font-size:12px;" onclick="epVehRemove('${v.id}')">✕</button></td>
+    </tr>`;
+  }).join('');
+  const head=canEdit?'<th style="width:24%;">Bezeichnung</th><th style="width:18%;">Art/Typ</th><th style="width:18%;">Kennzeichen</th><th style="width:80px;">Std/Tag</th><th>Notiz</th><th style="width:40px;"></th>'
+                    :'<th style="width:28%;">Bezeichnung</th><th>Art/Typ</th><th>Kennzeichen</th><th style="width:80px;">Std/Tag</th><th>Notiz</th>';
+  return `
+    <datalist id="ep-veh-arten">${arten.map(a=>`<option value="${a}">`).join('')}</datalist>
+    <div class="ep-sec-head"><h3>Fuhrpark <span class="ep-count">${_epVehicles.length} Fahrzeuge</span></h3>
+      ${canEdit?`<button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="epVehAdd()">+ Fahrzeug</button><button class="btn btn-primary" style="font-size:11px;padding:5px 14px;margin-left:auto;" onclick="epVehSave()">Speichern</button>`:'<span class="ep-count" style="margin-left:auto;">nur Lesezugriff</span>'}</div>
+    <table class="ep-table"><thead><tr>${head}</tr></thead><tbody>${rows||'<tr><td colspan="6" style="color:var(--text3);">Noch keine Fahrzeuge — „+ Fahrzeug" anlegen.</td></tr>'}</tbody></table>
+    <div class="ep-foot">Gemeinsame Fahrzeugquelle für Einsatzplaner und Disposition. Änderungen erst mit „Speichern" sichern.</div>`;
+}
 function renderEp(){
   const root=document.getElementById('ep-root'); if(!root) return;
   const orgSel=(currentRole==='superadmin'&&_epOrgs.length>1)
@@ -7944,9 +7984,9 @@ function renderEp(){
   root.innerHTML=`
     <div class="ep-top">
       <div class="ep-top-l"><div class="ep-title">Einsatzplaner</div>${orgSel}${projSel}${dateSel}</div>
-      <div class="ep-tabs">${tab('verfuegbar','Verfügbarkeit')}${tab('plan','Einsatzplan')}</div>
+      <div class="ep-tabs">${tab('verfuegbar','Verfügbarkeit')}${tab('plan','Einsatzplan')}${tab('fuhrpark','Fuhrpark')}</div>
     </div>
-    <div class="ep-body">${_epTab==='verfuegbar'?epVerfuegbarHtml():epPlanHtml()}</div>`;
+    <div class="ep-body">${_epTab==='verfuegbar'?epVerfuegbarHtml():_epTab==='plan'?epPlanHtml():epFuhrparkHtml()}</div>`;
 }
 function dispoGetResources(){
   return (Array.isArray(currentDispoResources)&&currentDispoResources.length)
@@ -8472,7 +8512,7 @@ function dispoOpenSettings(){
     const std=dispoIsStandardDepot(r.depot);
     const dAttr=std?'':JSON.stringify({lat:r.depot.lat,lng:r.depot.lng});
     const hof=std?`Standard: ${stdName}`:`Eigener Hof (${r.depot.lat.toFixed(4)}, ${r.depot.lng.toFixed(4)})`;
-    return `<div class="ds-row" style="display:flex;gap:6px;align-items:center;margin-bottom:6px;" data-depot='${dAttr}'>
+    return `<div class="ds-row" style="display:flex;gap:6px;align-items:center;margin-bottom:6px;" data-depot='${dAttr}' data-id="${dlEsc(r.id||'')}">
       <input class="form-control ds-r-name" style="flex:1;min-width:0;padding:5px 8px;font-size:12px;" value="${r.name||('Fahrzeug '+(i+1))}">
       <input class="form-control ds-r-time" type="number" style="width:56px;padding:5px 8px;font-size:12px;" value="${Math.round((r.arbeitszeitMin||420)/60*10)/10}"><span style="font-size:11px;color:var(--text3);">h</span>
       <input class="form-control ds-r-max" type="number" min="0" title="Max. Körbe je Tour (0 = unbegrenzt)" style="width:56px;padding:5px 8px;font-size:12px;" value="${r.maxBins||0}">
@@ -8521,9 +8561,12 @@ function dispoOpenSettings(){
   function collectSave(){
     const newCfg={...cfg, kritisch:num('ds-krit',80), planbar:num('ds-plan',50), aus:num('ds-plan',50), emptyMin:num('ds-empty',3), reservePct:num('ds-res',10), speedKmh:num('ds-speed',25), binCount:Math.round(num('ds-count',40))};
     dispoSetConfig(newCfg);
+    const _origRes=dispoGetResources();
     const newRes=[...listEl.querySelectorAll('.ds-row')].map((row,i)=>{
       let depot=null; const da=row.getAttribute('data-depot'); if(da){ try{ depot=JSON.parse(da); }catch(e){} }
-      return { id:'r'+(i+1), name:row.querySelector('.ds-r-name').value.trim()||('Fahrzeug '+(i+1)),
+      const id=row.getAttribute('data-id')||('v'+Math.random().toString(36).slice(2,8));
+      const prev=_origRes.find(o=>o.id===id)||{}; // Zusatzfelder (art/kennzeichen/notiz) erhalten + stabile id
+      return { ...prev, id, name:row.querySelector('.ds-r-name').value.trim()||('Fahrzeug '+(i+1)),
         arbeitszeitMin:Math.round((parseFloat(row.querySelector('.ds-r-time').value)||7)*60),
         maxBins:Math.max(0, Math.round(parseFloat(row.querySelector('.ds-r-max').value)||0)), depot };
     });
@@ -9103,7 +9146,7 @@ Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,
   renderHandbuch,setHbTab,hbSearchDebounced,openHbImg,closeHbImg,
   dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
-  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetPersonStatus,epSetVehicleStatus,epAllPersons,epAssignVehicle,epAddDriver,epRemoveDriver,
+  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetPersonStatus,epSetVehicleStatus,epAllPersons,epAssignVehicle,epAddDriver,epRemoveDriver,epVehField,epVehAdd,epVehRemove,epVehSave,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
   renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,_fillMerge,
