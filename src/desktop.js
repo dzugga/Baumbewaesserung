@@ -7955,6 +7955,7 @@ const EP_PSTATES=[['anwesend','Anwesend','#15803d','#e7f3ea'],['krank','Krank','
 const EP_VSTATES=[['verfuegbar','Verfügbar','#15803d','#e7f3ea'],['werkstatt','Werkstatt','#b45309','#fbf0df'],['ausgefallen','Ausgefallen','#c0392b','#fbeaea']];
 function _epToday(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 let _epWeekMon=''; // Montag (YYYY-MM-DD) der angezeigten Woche im Reiter „Woche"
+let _epWeekQuery=''; // Live-Filter (Tourname) im Reiter „Woche"
 function _epFmtDate(dt){ return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'); }
 function _epMondayOf(date){ const [Y,M,D]=date.split('-').map(Number); const dt=new Date(Y,M-1,D); const wd=dt.getDay(); dt.setDate(dt.getDate()+(wd===0?-6:1-wd)); return _epFmtDate(dt); }
 function _epAddDays(date,n){ const [Y,M,D]=date.split('-').map(Number); const dt=new Date(Y,M-1,D); dt.setDate(dt.getDate()+n); return _epFmtDate(dt); }
@@ -7962,6 +7963,13 @@ function _epIsoWeek(date){ const [Y,M,D]=date.split('-').map(Number); const dt=n
 function _epIntervalLabel(t){ const iv=(t&&t.interval)||''; if(iv==='bedarf') return 'nur bei Bedarf'; if(!iv) return 'immer (Bestand)'; const base={taeglich:'täglich',woechentlich:'wöchentlich','14taeglich':'14-täglich','4woechentlich':'4-wöchentlich'}[iv]||iv; return (iv!=='taeglich'&&t.startDate)?base+' ('+_epWdLetter(t.startDate)+')':base; }
 function epWeekShift(d){ _epWeekMon=_epAddDays(_epWeekMon||_epMondayOf(_epDate||_epToday()),7*(d|0)); renderEp(); }
 function epWeekThis(){ _epWeekMon=_epMondayOf(_epToday()); renderEp(); }
+// Live-Filter im Wochenraster: blendet Zeilen ohne Treffer aus (kein Re-Render → Fokus bleibt)
+function epWeekFilter(q){
+  _epWeekQuery=(q||'').trim().toLowerCase();
+  let vis=0, total=0;
+  document.querySelectorAll('#ep-week-tbody tr').forEach(tr=>{ total++; const n=tr.getAttribute('data-epname')||''; const show=!_epWeekQuery||n.includes(_epWeekQuery); tr.style.display=show?'':'none'; if(show) vis++; });
+  const c=document.getElementById('ep-week-count'); if(c) c.textContent=_epWeekQuery?`${vis} / ${total} Touren`:`${total} Tour${total===1?'':'en'} mit Rhythmus`;
+}
 let _epAbsMonth=''; // YYYY-MM für die Abwesenheits-Timeline
 let _epShowBedarf=false; // Bedarfstouren-Abschnitt im Einsatzplan aufgeklappt?
 function epToggleBedarf(){ _epShowBedarf=!_epShowBedarf; renderEp(); }
@@ -8014,8 +8022,8 @@ async function epLoadTours(){
   if(!_epProject) return;
   try{ const qs=await db.collection('projects').doc(_epProject).collection('tours').get(); _epTours=qs.docs.map(d=>({id:d.id,...d.data()})).filter(t=>!t.uebersicht).sort((a,b)=>(a.name||'').localeCompare(b.name||'')); }catch(e){ console.warn('ep tours',e); }
 }
-async function epChangeOrg(v){ _epOrg=v; _epProject=''; const r=document.getElementById('ep-root'); if(r) r.innerHTML='<div style="padding:48px;text-align:center;color:var(--text3);">Lädt…</div>'; await epLoadOrgScope(); renderEp(); }
-async function epChangeProject(v){ _epProject=v; await epLoadTours(); renderEp(); }
+async function epChangeOrg(v){ _epOrg=v; _epProject=''; _epWeekQuery=''; const r=document.getElementById('ep-root'); if(r) r.innerHTML='<div style="padding:48px;text-align:center;color:var(--text3);">Lädt…</div>'; await epLoadOrgScope(); renderEp(); }
+async function epChangeProject(v){ _epProject=v; _epWeekQuery=''; await epLoadTours(); renderEp(); }
 async function epChangeDate(v){ _epDate=v||_epToday(); await epLoadAvail(); renderEp(); }
 function epSetTab(t){ _epTab=t; renderEp(); }
 function _epCanWrite(){ return currentRole==='superadmin'||currentCap==='admin'||currentCap==='editor'; }
@@ -8126,14 +8134,18 @@ function epWeekHtml(){
   const rowFor=t=>{
     const col=t.color||'#888';
     const cnt=days.filter(d=>tourDueOn(t,d)).length;
+    const hay=((t.name||'Tour')+' '+_epIntervalLabel(t)).toLowerCase();
+    const hide=_epWeekQuery && !hay.includes(_epWeekQuery);
     const cells=days.map(d=>{
       const we=_epWeekend(d);
       if(tourDueOn(t,d)) return `<td style="padding:3px;${we?'background:var(--surface2);':''}"><div title="${dlEsc(t.name||'Tour')} — ${_epWdLetter(d)} ${+d.slice(8)}.${+d.slice(5,7)}." style="height:22px;border-radius:5px;background:${col}26;border:1px solid ${col}66;display:flex;align-items:center;justify-content:center;"><span style="width:7px;height:7px;border-radius:50%;background:${col};"></span></div></td>`;
       return `<td style="padding:3px;${we?'background:var(--surface2);':''}"><div style="height:22px;"></div></td>`;
     }).join('');
-    return `<tr style="border-top:1px solid var(--border);${cnt?'':'opacity:.5;'}"${cw?` oncontextmenu="epTourCtx(event,'${t.id}')"`:''}><td style="padding:6px 10px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><span class="ep-dot" style="background:${col};"></span>${dlEsc(t.name||'Tour')}<div style="font-size:10px;color:var(--text3);margin-left:16px;">${dlEsc(_epIntervalLabel(t))}${cnt?'':' · diese Woche kein Termin'}</div></td>${cells}</tr>`;
+    return `<tr data-epname="${dlEsc(hay)}" style="border-top:1px solid var(--border);${cnt?'':'opacity:.5;'}${hide?'display:none;':''}"${cw?` oncontextmenu="epTourCtx(event,'${t.id}')"`:''}><td style="padding:6px 10px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><span class="ep-dot" style="background:${col};"></span>${dlEsc(t.name||'Tour')}<div style="font-size:10px;color:var(--text3);margin-left:16px;">${dlEsc(_epIntervalLabel(t))}${cnt?'':' · diese Woche kein Termin'}</div></td>${cells}</tr>`;
   };
   const rows=real.map(rowFor).join('');
+  const visCount=_epWeekQuery?real.filter(t=>(((t.name||'Tour')+' '+_epIntervalLabel(t)).toLowerCase()).includes(_epWeekQuery)).length:real.length;
+  const countTxt=_epWeekQuery?`${visCount} / ${real.length} Touren`:`${real.length} Tour${real.length===1?'':'en'} mit Rhythmus`;
   const footCells=dueCount.map((c,i)=>`<td style="text-align:center;padding:7px 0;font-size:12px;font-weight:500;color:var(--text2);${_epWeekend(days[i])?'background:var(--surface2);':''}">${c||'–'}</td>`).join('');
   const bedarfNote=bedarf.length?`<div class="ep-foot" style="margin-top:10px;"><b>${bedarf.length} Bedarfstour${bedarf.length>1?'en':''}</b> ohne festen Rhythmus (${dlEsc(bedarf.map(t=>t.name||'Tour').join(', '))}) — erscheinen hier nicht, da sie nur bei Bedarf eingeplant werden.</div>`:'';
   return `
@@ -8142,13 +8154,14 @@ function epWeekHtml(){
       <span style="font-size:14px;font-weight:700;min-width:200px;text-align:center;">${rangeLbl}</span>
       <button class="btn btn-secondary" style="padding:4px 11px;font-size:14px;" onclick="epWeekShift(1)">›</button>
       <button class="btn btn-secondary" style="font-size:12px;padding:5px 12px;" onclick="epWeekThis()">Diese Woche</button>
-      <span style="margin-left:auto;font-size:11px;color:var(--text3);">${real.length} Tour${real.length===1?'':'en'} mit Rhythmus</span>
+      <input id="ep-week-search" value="${dlEsc(_epWeekQuery)}" oninput="epWeekFilter(this.value)" placeholder="🔍 Tour suchen…" autocomplete="off" style="padding:5px 10px;font-size:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);min-width:170px;font-family:inherit;">
+      <span id="ep-week-count" style="margin-left:auto;font-size:11px;color:var(--text3);">${countTxt}</span>
     </div>
     <div style="overflow-x:auto;border:1px solid var(--border);border-radius:10px;background:var(--surface);">
       <table style="width:100%;border-collapse:collapse;table-layout:fixed;min-width:560px;">
         <colgroup><col style="width:190px;">${days.map(()=>'<col>').join('')}</colgroup>
         <thead><tr><th style="text-align:left;padding:6px 10px;font-size:10px;color:var(--text3);">Tour</th>${head}</tr></thead>
-        <tbody>${rows}</tbody>
+        <tbody id="ep-week-tbody">${rows}</tbody>
         <tfoot><tr style="border-top:2px solid var(--border);"><td style="padding:7px 10px;font-size:10px;color:var(--text3);">fällige Touren</td>${footCells}</tr></tfoot>
       </table>
     </div>
@@ -9704,7 +9717,7 @@ Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,
   renderHandbuch,setHbTab,hbSearchDebounced,openHbImg,closeHbImg,
   dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
-  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,epWeekShift,epWeekThis,epTourCtx,epEditTour,_epCloseCtx,epPersonOpenCard,
+  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,epWeekShift,epWeekThis,epWeekFilter,epTourCtx,epEditTour,_epCloseCtx,epPersonOpenCard,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
   renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,_fillMerge,
