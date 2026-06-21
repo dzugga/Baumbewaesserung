@@ -7956,6 +7956,7 @@ const EP_VSTATES=[['verfuegbar','Verfügbar','#15803d','#e7f3ea'],['werkstatt','
 function _epToday(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 let _epWeekMon=''; // Montag (YYYY-MM-DD) der angezeigten Woche im Reiter „Woche"
 let _epWeekQuery=''; // Live-Filter (Tourname) im Reiter „Woche"
+let _epWeekHideEmpty=true; // Touren ohne Termin in dieser Woche standardmäßig ausblenden
 let _epDayQuery=''; // Live-Filter (Tour/Fahrer/Fahrzeug) im Reiter „Einsatzplan"
 function _epFmtDate(dt){ return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'); }
 function _epMondayOf(date){ const [Y,M,D]=date.split('-').map(Number); const dt=new Date(Y,M-1,D); const wd=dt.getDay(); dt.setDate(dt.getDate()+(wd===0?-6:1-wd)); return _epFmtDate(dt); }
@@ -7964,6 +7965,7 @@ function _epIsoWeek(date){ const [Y,M,D]=date.split('-').map(Number); const dt=n
 function _epIntervalLabel(t){ const iv=(t&&t.interval)||''; if(iv==='bedarf') return 'nur bei Bedarf'; if(!iv) return 'immer (Bestand)'; const base={taeglich:'täglich',woechentlich:'wöchentlich','14taeglich':'14-täglich','4woechentlich':'4-wöchentlich'}[iv]||iv; return (iv!=='taeglich'&&t.startDate)?base+' ('+_epWdLetter(t.startDate)+')':base; }
 function epWeekShift(d){ _epWeekMon=_epAddDays(_epWeekMon||_epMondayOf(_epDate||_epToday()),7*(d|0)); renderEp(); }
 function epWeekThis(){ _epWeekMon=_epMondayOf(_epToday()); renderEp(); }
+function epWeekToggleEmpty(){ _epWeekHideEmpty=!_epWeekHideEmpty; renderEp(); }
 // Live-Filter im Wochenraster: blendet Zeilen ohne Treffer aus (kein Re-Render → Fokus bleibt)
 function epWeekFilter(q){
   _epWeekQuery=(q||'').trim().toLowerCase();
@@ -8151,9 +8153,12 @@ function epWeekHtml(){
     }).join('');
     return `<tr data-epname="${dlEsc(hay)}" style="border-top:1px solid var(--border);${cnt?'':'opacity:.5;'}${hide?'display:none;':''}"${cw?` oncontextmenu="epTourCtx(event,'${t.id}')"`:''}><td style="padding:6px 10px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><span class="ep-dot" style="background:${col};"></span>${dlEsc(t.name||'Tour')}<div style="font-size:10px;color:var(--text3);margin-left:16px;">${dlEsc(_epIntervalLabel(t))}${cnt?'':' · diese Woche kein Termin'}</div></td>${cells}</tr>`;
   };
-  const rows=real.map(rowFor).join('');
-  const visCount=_epWeekQuery?real.filter(t=>(((t.name||'Tour')+' '+_epIntervalLabel(t)).toLowerCase()).includes(_epWeekQuery)).length:real.length;
-  const countTxt=_epWeekQuery?`${visCount} / ${real.length} Touren`:`${real.length} Tour${real.length===1?'':'en'} mit Rhythmus`;
+  const _dueThisWeek=t=>days.some(d=>tourDueOn(t,d));
+  const emptyCount=real.filter(t=>!_dueThisWeek(t)).length;
+  const shown=_epWeekHideEmpty?real.filter(_dueThisWeek):real;
+  const rows=shown.map(rowFor).join('')||`<tr><td colspan="${days.length+1}" style="padding:18px;text-align:center;color:var(--text3);">Diese Woche ist keine Tour fällig.</td></tr>`;
+  const visCount=_epWeekQuery?shown.filter(t=>(((t.name||'Tour')+' '+_epIntervalLabel(t)).toLowerCase()).includes(_epWeekQuery)).length:shown.length;
+  const countTxt=_epWeekQuery?`${visCount} / ${shown.length} Touren`:`${shown.length} Tour${shown.length===1?'':'en'}${(_epWeekHideEmpty&&emptyCount)?` (von ${real.length})`:' mit Rhythmus'}`;
   const footCells=dueCount.map((c,i)=>`<td style="text-align:center;padding:7px 0;font-size:12px;font-weight:500;color:var(--text2);${_epWeekend(days[i])?'background:var(--surface2);':''}">${c||'–'}</td>`).join('');
   const bedarfNote=bedarf.length?`<div class="ep-foot" style="margin-top:10px;"><b>${bedarf.length} Bedarfstour${bedarf.length>1?'en':''}</b> ohne festen Rhythmus (${dlEsc(bedarf.map(t=>t.name||'Tour').join(', '))}) — erscheinen hier nicht, da sie nur bei Bedarf eingeplant werden.</div>`:'';
   return `
@@ -8163,6 +8168,7 @@ function epWeekHtml(){
       <button class="btn btn-secondary" style="padding:4px 11px;font-size:14px;" onclick="epWeekShift(1)">›</button>
       <button class="btn btn-secondary" style="font-size:12px;padding:5px 12px;" onclick="epWeekThis()">Diese Woche</button>
       <input id="ep-week-search" value="${dlEsc(_epWeekQuery)}" oninput="epWeekFilter(this.value)" placeholder="🔍 Tour suchen…" autocomplete="off" style="padding:5px 10px;font-size:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);min-width:170px;font-family:inherit;">
+      ${(emptyCount>0||!_epWeekHideEmpty)?`<button class="btn btn-secondary" style="font-size:12px;padding:5px 12px;" onclick="epWeekToggleEmpty()" title="Touren, die diese Woche nicht laufen">${_epWeekHideEmpty?`Ohne Termin einblenden${emptyCount?` (${emptyCount})`:''}`:'Ohne Termin ausblenden'}</button>`:''}
       <span id="ep-week-count" style="margin-left:auto;font-size:11px;color:var(--text3);">${countTxt}</span>
     </div>
     <div style="overflow-x:auto;border:1px solid var(--border);border-radius:10px;background:var(--surface);">
@@ -9730,7 +9736,7 @@ Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,
   renderHandbuch,setHbTab,hbSearchDebounced,openHbImg,closeHbImg,
   dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
-  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,epWeekShift,epWeekThis,epWeekFilter,epDayFilter,epTourCtx,epEditTour,_epCloseCtx,epPersonOpenCard,
+  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,epWeekShift,epWeekThis,epWeekToggleEmpty,epWeekFilter,epDayFilter,epTourCtx,epEditTour,_epCloseCtx,epPersonOpenCard,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
   renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,_fillMerge,
