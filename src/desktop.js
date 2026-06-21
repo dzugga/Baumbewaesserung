@@ -7875,6 +7875,38 @@ async function epRemoveDriver(tid, idx){
   drivers.splice(idx,1);
   if(await epTourUpdate(tid,{drivers, assignedDriver:drivers[0]||''})){ if(t){ t.drivers=drivers; t.assignedDriver=drivers[0]||''; } renderEp(); }
 }
+// Aktuelle Besetzung als festen Standard der Tour speichern (projektscharf am Tour-Doc)
+async function epSetStandard(tid){
+  const t=_epTours.find(x=>x.id===tid); if(!t) return;
+  const stdDrivers=[...(t.drivers||(t.assignedDriver?[t.assignedDriver]:[]))];
+  if(await epTourUpdate(tid,{stdVehicleId:t.vehicleId||'', stdVehicleName:t.vehicleName||'', stdDrivers})){
+    t.stdVehicleId=t.vehicleId||''; t.stdVehicleName=t.vehicleName||''; t.stdDrivers=stdDrivers;
+    notify('★ Standard für „'+(t.name||'Tour')+'" gespeichert'); renderEp();
+  }
+}
+async function epApplyStandards(){
+  if(!_epCanWrite()) return;
+  const withStd=_epTours.filter(t=>t.stdVehicleId||(t.stdDrivers&&t.stdDrivers.length));
+  if(!withStd.length){ notify('Noch keine Standards gespeichert'); return; }
+  if(!confirm('Heutige Besetzung mit den gespeicherten Standards überschreiben?\n\n'+withStd.length+' Touren · nur heute verfügbare Ressourcen werden gesetzt.')) return;
+  const availVehIds=new Set(_epVehicles.filter(_epVehAvail).map(v=>v.id));
+  const availNames=new Set(_epPersons.filter(_epPersonAvail).map(p=>p.name));
+  let skipped=0;
+  try{
+    const batch=db.batch();
+    withStd.forEach(t=>{
+      const veh=(t.stdVehicleId&&availVehIds.has(t.stdVehicleId))?t.stdVehicleId:'';
+      const vehName=veh?((_epVehicles.find(v=>v.id===veh)||{}).name||''):'';
+      const drivers=(t.stdDrivers||[]).filter(n=>availNames.has(n));
+      if((t.stdVehicleId&&!veh)||((t.stdDrivers||[]).length>drivers.length)) skipped++;
+      batch.update(db.collection('projects').doc(_epProject).collection('tours').doc(t.id), {vehicleId:veh, vehicleName:vehName, drivers, assignedDriver:drivers[0]||''});
+      t.vehicleId=veh; t.vehicleName=vehName; t.drivers=drivers; t.assignedDriver=drivers[0]||'';
+    });
+    await batch.commit();
+    renderEp();
+    notify('✓ Standardbesetzung übernommen ('+withStd.length+' Touren'+(skipped?', '+skipped+' mit nicht verfügbaren Ressourcen':'')+')');
+  }catch(e){ notify('Fehler: '+(e.message||e)); }
+}
 
 function _epInitials(n){ return (n||'?').split(/\s+/).map(w=>w[0]||'').join('').slice(0,2).toUpperCase(); }
 function _epSeg(states, cur, fn, id){
@@ -7911,6 +7943,7 @@ function epPlanHtml(){
   const besetzt=_epTours.filter(t=>(t.drivers&&t.drivers.length)||t.vehicleId).length;
   // Auslastung (Personen-Verplanung) zählen
   const load={}; _epTours.forEach(t=>(t.drivers||[]).forEach(n=>load[n]=(load[n]||0)+1));
+  const anyStd=_epTours.some(t=>t.stdVehicleId||(t.stdDrivers&&t.stdDrivers.length));
   const rows=_epTours.map(t=>{
     const drivers=t.drivers||(t.assignedDriver?[t.assignedDriver]:[]);
     const vehOk=!t.vehicleId || availVeh.find(v=>v.id===t.vehicleId);
@@ -7922,16 +7955,25 @@ function epPlanHtml(){
     const vehSel=ro? (t.vehicleName?`<span class="ep-chip">${dlEsc(t.vehicleName)}</span>`:'<span class="ep-dash">–</span>')
       : `<select class="ep-mini" onchange="epAssignVehicle('${t.id}',this.value)"><option value="">— Fahrzeug —</option>${_epVehicles.map(v=>`<option value="${dlEsc(v.id)}"${v.id===t.vehicleId?' selected':''}${_epVehAvail(v)?'':' disabled'}>${dlEsc(v.name)}${_epVehAvail(v)?'':' (nicht verfügbar)'}</option>`).join('')}</select>`;
     const drvAdd=ro?'':`<select class="ep-mini" onchange="if(this.value){epAddDriver('${t.id}',this.value);this.selectedIndex=0;}"><option value="">+ Fahrer…</option>${availPers.filter(p=>!drivers.includes(p.name)).map(p=>`<option value="${dlEsc(p.name)}">${dlEsc(p.name)}</option>`).join('')}</select>`;
+    const stdSet=!!(t.stdVehicleId||(t.stdDrivers&&t.stdDrivers.length));
+    const stdTxt=[t.stdVehicleName||'',...(t.stdDrivers||[])].filter(Boolean).join(' · ');
+    const stdHint=stdSet?`<div class="ep-std-hint" title="Standard">★ ${dlEsc(stdTxt)}</div>`:'';
+    const star=ro?'':`<button class="ep-star${stdSet?' on':''}" title="${stdSet?'Standard: '+dlEsc(stdTxt)+' — ':''}aktuelle Besetzung als Standard für diese Tour speichern" onclick="epSetStandard('${t.id}')">★</button>`;
     return `<tr>
-      <td><span class="ep-dot" style="background:${t.color||'#888'};"></span>${dlEsc(t.name||'Tour')}</td>
+      <td><span class="ep-dot" style="background:${t.color||'#888'};"></span>${dlEsc(t.name||'Tour')}${stdHint}</td>
       <td>${vehSel}${badVeh?'<div class="ep-warn">⚠ Fahrzeug nicht verfügbar</div>':''}</td>
       <td><div class="ep-chips">${driverChips}${drvAdd}</div></td>
+      <td style="text-align:center;">${star}</td>
     </tr>`;
   }).join('');
   const poolPers=availPers.map(p=>`<span class="ep-pool" title="in ${load[p.name]||0} Touren">${dlEsc(p.name)} <b>${load[p.name]||0}</b></span>`).join('')||'<span class="ep-dash">keine anwesend</span>';
+  const stdBar=ro?'':`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+    <button class="btn btn-secondary" style="font-size:12px;padding:6px 12px;${anyStd?'':'opacity:.5;cursor:not-allowed;'}" ${anyStd?'onclick="epApplyStandards()"':'disabled title="Noch keine Standards gespeichert"'}>★ Standardbesetzung übernehmen</button>
+    <span style="font-size:11px;color:var(--text3);">Stern je Tour = aktuelle Besetzung als Standard merken. „Übernehmen" füllt den Tag aus den Standards (nur verfügbare).</span></div>`;
   return `
+    ${stdBar}
     <div class="ep-pool-bar"><span class="ep-pool-lbl">Heute verfügbar</span>${poolPers}</div>
-    <table class="ep-table"><thead><tr><th style="width:38%;">Tour</th><th style="width:27%;">Fahrzeug</th><th>Fahrer</th></tr></thead><tbody>${rows}</tbody></table>
+    <table class="ep-table"><thead><tr><th style="width:36%;">Tour</th><th style="width:25%;">Fahrzeug</th><th>Fahrer</th><th style="width:48px;text-align:center;" title="Standard für diese Tour">Std.</th></tr></thead><tbody>${rows}</tbody></table>
     <div class="ep-foot">${besetzt} / ${_epTours.length} Touren besetzt${ro?' · nur Lesezugriff':''}</div>`;
 }
 function epVehById(id){ return _epVehicles.find(v=>v.id===id); }
@@ -9146,7 +9188,7 @@ Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,
   renderHandbuch,setHbTab,hbSearchDebounced,openHbImg,closeHbImg,
   dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
-  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetPersonStatus,epSetVehicleStatus,epAllPersons,epAssignVehicle,epAddDriver,epRemoveDriver,epVehField,epVehAdd,epVehRemove,epVehSave,
+  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetPersonStatus,epSetVehicleStatus,epAllPersons,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epVehField,epVehAdd,epVehRemove,epVehSave,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
   renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,_fillMerge,
