@@ -7875,8 +7875,8 @@ const EP_ABS={urlaub:['Urlaub','#FAC775','#633806'], krank:['Krank','#F09595','#
 // Abwesenheit (Zeitraum an der Person) für ein Datum → Status oder null
 function _epAbsenceFor(p,date){ if(!p||!Array.isArray(p.absences)) return null; return p.absences.find(a=>a&&a.from<=date&&a.to>=date)||null; }
 function _epAbsenceStatus(p){ const a=_epAbsenceFor(p,_epDate); return a?a.type:null; }
-// Tagesstatus = kurzfristiger Tages-Override (gewinnt) > abgeleitete Abwesenheit > anwesend
-function _epPStatus(id){ if(_epAvail.persons[id]) return _epAvail.persons[id]; const p=_epPersons.find(x=>x.id===id); return _epAbsenceStatus(p)||'anwesend'; }
+// Tagesstatus des Personals = ausschließlich aus den Abwesenheiten abgeleitet (eine Quelle)
+function _epPStatus(id){ const p=_epPersons.find(x=>x.id===id); return _epAbsenceStatus(p)||'anwesend'; }
 function _epVStatus(id){ return _epAvail.vehicles[id]||'verfuegbar'; }
 function _epPersonAvail(p){ return _epPStatus(p.id)==='anwesend'; }
 function _epVehAvail(v){ return _epVStatus(v.id)==='verfuegbar'; }
@@ -7930,9 +7930,23 @@ function epPersist(){
       .catch(e=>notify('Verfügbarkeit speichern fehlgeschlagen: '+(e.message||e)));
   },400);
 }
-function epSetPersonStatus(id,st){ if(!_epCanWrite())return; const p=_epPersons.find(x=>x.id===id); const derived=_epAbsenceStatus(p)||'anwesend'; if(st===derived) delete _epAvail.persons[id]; else _epAvail.persons[id]=st; epPersist(); renderEp(); }
 function epSetVehicleStatus(id,st){ if(!_epCanWrite())return; if(st==='verfuegbar') delete _epAvail.vehicles[id]; else _epAvail.vehicles[id]=st; epPersist(); renderEp(); }
-function epAllPersons(st){ if(!_epCanWrite())return; if(st==='anwesend') _epAvail.persons={}; else _epPersons.forEach(p=>{ _epAvail.persons[p.id]=st; }); epPersist(); renderEp(); }
+// Schnellaktion in „Verfügbarkeit": kurzfristige Abwesenheit nur für HEUTE (1-Tages-Eintrag in Abwesenheiten)
+async function epQuickAbsence(personId,type){
+  if(!_epCanWrite())return;
+  const p=_epPersons.find(x=>x.id===personId); if(!p) return;
+  const list=(p.absences||[]).filter(a=>!(a.from===_epDate&&a.to===_epDate)); // bestehenden Heute-Eintrag ersetzen
+  list.push({id:'a'+Math.random().toString(36).slice(2,8), type, from:_epDate, to:_epDate});
+  try{ await db.collection('drivers').doc(personId).update({absences:list}); p.absences=list; renderEp(); }
+  catch(e){ notify('Fehler: '+(e.message||e)); }
+}
+async function epQuickPresent(personId){
+  if(!_epCanWrite())return;
+  const p=_epPersons.find(x=>x.id===personId); if(!p) return;
+  const list=(p.absences||[]).filter(a=>!(a.from===_epDate&&a.to===_epDate)); // nur den Heute-Eintrag entfernen; geplante Zeiträume bleiben
+  try{ await db.collection('drivers').doc(personId).update({absences:list}); p.absences=list; renderEp(); }
+  catch(e){ notify('Fehler: '+(e.message||e)); }
+}
 
 // Tour-Schreibvorgänge projektscharf (rohes db, KEIN _injectOrg — Projekt-Org kann vom aktuellen abweichen)
 async function epTourUpdate(tid, patch){
@@ -8005,9 +8019,22 @@ function epVerfuegbarHtml(){
   // Personal-Karten
   const pCards=_epPersons.length? _epPersons.map(p=>{
     const st=_epPStatus(p.id); const meta=EP_PSTATES.find(s=>s[0]===st);
+    const todayAbs=(p.absences||[]).find(a=>a.from===_epDate&&a.to===_epDate);
+    const rangeAbs=_epAbsenceFor(p,_epDate);
+    let action='';
+    if(!ro){
+      if(st==='anwesend'){
+        action=`<div class="ep-quick"><span class="ep-quick-lbl">Heute abwesend:</span><button onclick="epQuickAbsence('${p.id}','krank')">Krank</button><button onclick="epQuickAbsence('${p.id}','urlaub')">Urlaub</button><button onclick="epQuickAbsence('${p.id}','abwesend')">Abwesend</button></div>`;
+      } else if(todayAbs){
+        action=`<button class="ep-quick-undo" onclick="epQuickPresent('${p.id}')">↺ Heute doch da</button>`;
+      } else {
+        const bis=rangeAbs?(' bis '+(()=>{const x=(rangeAbs.to||'').split('-');return x[2]+'.'+x[1]+'.';})()):'';
+        action=`<div class="ep-quick-note">geplant${bis} · <span class="ep-link" onclick="epSetTab('abwesenheiten')">in Abwesenheiten ändern</span></div>`;
+      }
+    }
     return `<div class="ep-card">
       <div class="ep-card-head"><span class="ep-ava" style="background:${meta[3]};color:${meta[2]};">${_epInitials(p.name)}</span><div style="min-width:0;"><div class="ep-name">${dlEsc(p.name||'–')}</div>${p.funktion?`<div style="font-size:11px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(p.funktion)}</div>`:''}<div class="ep-sub" style="color:${meta[2]};">${meta[1]}</div></div></div>
-      ${ro?'':_epSeg(EP_PSTATES, st, 'epSetPersonStatus', p.id)}</div>`;
+      ${action}</div>`;
   }).join('') : '<div class="ep-empty">Keine Personen in diesem Mandanten. (Admin → Benutzer → Personen)</div>';
   const vCards=_epVehicles.length? _epVehicles.map(v=>{
     const st=_epVStatus(v.id); const meta=EP_VSTATES.find(s=>s[0]===st);
@@ -8017,7 +8044,7 @@ function epVerfuegbarHtml(){
   }).join('') : '<div class="ep-empty">Keine Fahrzeuge hinterlegt. (Disposition → Einstellungen → Fahrzeuge)</div>';
   return `
     <div class="ep-sec-head"><h3>Personal <span class="ep-count">${pAvail}/${_epPersons.length} anwesend</span></h3>
-      ${ro?'':`<button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="epAllPersons('anwesend')">Alle anwesend</button>`}</div>
+      <span style="margin-left:auto;font-size:11px;color:var(--text3);">Urlaub/Krank als Zeitraum → Reiter „Abwesenheiten"</span></div>
     <div class="ep-grid">${pCards}</div>
     <div class="ep-sec-head" style="margin-top:18px;"><h3>Fahrzeuge <span class="ep-count">${vAvail}/${_epVehicles.length} verfügbar</span></h3></div>
     <div class="ep-grid">${vCards}</div>`;
@@ -9429,7 +9456,7 @@ Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,
   renderHandbuch,setHbTab,hbSearchDebounced,openHbImg,closeHbImg,
   dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
-  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetPersonStatus,epSetVehicleStatus,epAllPersons,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,
+  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epQuickAbsence,epQuickPresent,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
   renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,_fillMerge,
