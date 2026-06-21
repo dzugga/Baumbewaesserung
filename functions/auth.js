@@ -262,6 +262,19 @@ exports.setOrgDispo = onCall({ region: REGION }, async (req) => {
   return { ok: true };
 });
 
+// ── Admin pflegt die Funktions-Liste (Einsatzgruppen) seines Mandanten ──────
+exports.setOrgFunktionen = onCall({ region: REGION }, async (req) => {
+  const { role, callerOrg } = requireAdmin(req.auth);
+  const { orgId, funktionen } = req.data || {};
+  const targetOrg = orgId || callerOrg;
+  const isSuper = role === 'superadmin';
+  if (!isSuper && targetOrg !== callerOrg) throw new HttpsError('permission-denied', 'Fremder Mandant');
+  if (!Array.isArray(funktionen)) throw new HttpsError('invalid-argument', 'funktionen muss ein Array sein');
+  const clean = [...new Set(funktionen.map(s => String(s || '').trim()).filter(Boolean))].slice(0, 100);
+  await db.collection('orgs').doc(targetOrg).set({ funktionen: clean }, { merge: true });
+  return { ok: true, funktionen: clean };
+});
+
 // ── Admin setzt den KI-Analyse-Modus seines Mandanten (stadtscharf) ─────────
 exports.setOrgKiMode = onCall({ region: REGION }, async (req) => {
   const { role, callerOrg } = requireAdmin(req.auth);

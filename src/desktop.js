@@ -5480,6 +5480,22 @@ let driverLoginsOrg = '';
 let benutzerOrg = ''; // zentraler Stadt-/Mandanten-Umschalter (Benutzer-Seite)
 let dtaProjectId = ''; // Schritt 4: gewähltes Projekt für Tour-Zuweisung
 let dlPinEdit = null;
+// Gepflegte Funktions-/Einsatzgruppen-Liste je Mandant (Dropdown im Personal — kein Freitext)
+const DEFAULT_FUNKTIONEN = ['Fahrer','Reiniger','Lader','Springer','Vorarbeiter'];
+let _dlFunktionen = []; // wirksame Liste in der Benutzerverwaltung (org.funktionen oder Fallback)
+function _effFunktionen(orgList, persons){
+  if(Array.isArray(orgList) && orgList.length) return orgList.slice();
+  const fromP=[...new Set((persons||[]).map(p=>(p.funktion||'').trim()).filter(Boolean))];
+  return [...new Set([...DEFAULT_FUNKTIONEN, ...fromP])];
+}
+// <option>-Liste für ein Funktion-Dropdown; bewahrt einen evtl. nicht (mehr) gelisteten Bestandswert.
+function funktionenOptions(list, current){
+  const cur=(current||'').trim(), seen=new Set();
+  let opts='<option value="">— Funktion —</option>';
+  (list&&list.length?list:DEFAULT_FUNKTIONEN).forEach(f=>{ f=(f||'').trim(); if(f&&!seen.has(f)){ seen.add(f); opts+=`<option value="${dlEsc(f)}"${f===cur?' selected':''}>${dlEsc(f)}</option>`; } });
+  if(cur && !seen.has(cur)) opts+=`<option value="${dlEsc(cur)}" selected>${dlEsc(cur)}</option>`;
+  return opts;
+}
 function dlFnCall(name,data){
   try{
     if(!window.firebase?.app || !firebase.app().functions) return Promise.reject({code:'unavailable'});
@@ -5510,7 +5526,8 @@ async function renderDriverLogins(){
   let drivers=[];
   try{ const qs=await db.collection('drivers').where('orgId','==',org).get(); qs.forEach(d=>drivers.push({id:d.id,...d.data()})); }catch(e){}
   drivers.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
-  let orgCode=''; try{ const os=await db.collection('orgs').doc(org).get(); if(os.exists) orgCode=os.data().code||''; }catch(e){}
+  let orgCode='', orgFunktionen=null; try{ const os=await db.collection('orgs').doc(org).get(); if(os.exists){ orgCode=os.data().code||''; orgFunktionen=os.data().funktionen||null; } }catch(e){}
+  _dlFunktionen=_effFunktionen(orgFunktionen, drivers);
   const requested=drivers.filter(d=>d.loginRequested && !(!d.noLogin && (d.pinHash||d.role)));
   const reqBanner=requested.length?`
     <div style="border:1px solid #e9c46a;background:#fcefcb;border-radius:8px;padding:10px 12px;margin-bottom:12px;">
@@ -5531,13 +5548,19 @@ async function renderDriverLogins(){
       <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px;" onclick="saveOrgCode()">Speichern</button>
       <span style="font-size:11px;color:var(--text3);">Fallback, falls Name+PIN in mehreren Städten gleich sind.</span>
     </div>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border);">
+      <span style="font-size:12px;font-weight:600;">Funktionen</span>
+      ${_dlFunktionen.map(f=>`<span style="display:inline-flex;align-items:center;gap:3px;font-size:12px;background:var(--surface2);padding:3px 4px 3px 9px;border-radius:99px;">${dlEsc(f)}<i onclick="dlFunktionRemove('${dlEsc(f)}')" title="entfernen" style="cursor:pointer;color:var(--text3);font-style:normal;padding:0 3px;">×</i></span>`).join('')||'<span style="font-size:11px;color:var(--text3);">noch keine</span>'}
+      <input id="dl-new-funktion-name" class="form-control" placeholder="neue Funktion…" style="width:140px;padding:5px 8px;font-size:12px;" onkeydown="if(event.key==='Enter')dlFunktionAdd()">
+      <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px;" onclick="dlFunktionAdd()">+ Funktion</button>
+      <span style="font-size:11px;color:var(--text3);">Auswahl im Personal (hier & Einsatzplaner) — kein Freitext.</span>
+    </div>
     <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:10px;">
       ${drivers.length?drivers.map(dlRow).join(''):`<div style="font-size:12px;color:var(--text3);">Noch keine Personen in diesem Mandanten.</div>`}
     </div>
-    <datalist id="dl-funktionen"><option value="Fahrer"><option value="Reiniger"><option value="Lader"><option value="Springer"><option value="Vorarbeiter"></datalist>
     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:10px;">
       <input id="dl-new-name" class="form-control" placeholder="Name…" style="flex:1;min-width:120px;padding:5px 8px;font-size:12px;">
-      <input id="dl-new-funktion" class="form-control" list="dl-funktionen" placeholder="Funktion (z. B. Fahrer)" style="width:150px;padding:5px 8px;font-size:12px;">
+      <select id="dl-new-funktion" class="form-control" style="width:150px;padding:5px 8px;font-size:12px;">${funktionenOptions(_dlFunktionen,'')}</select>
       <label style="font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer;" title="Reiner Mitarbeiter-Stammsatz ohne App-Zugang"><input type="checkbox" id="dl-new-nologin" onchange="dlToggleNoLogin()" style="margin:0;cursor:pointer;"> ohne Login</label>
       <select id="dl-new-role" style="padding:5px 6px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">${personRoleOptionsHtml('fahrer')}</select>
       <input id="dl-new-pin" class="form-control" placeholder="6-stellige PIN" inputmode="numeric" maxlength="6" style="width:120px;padding:5px 8px;font-size:12px;">
@@ -5557,7 +5580,7 @@ function dlRow(d){
   const roleSel=`<select onchange="changeDriverRole('${dlEsc(d.id)}',this.value)" title="Rolle ändern" style="font-size:11px;padding:2px 5px;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-family:inherit;">${personRoleOptionsHtml(d.role||'fahrer')}</select>`;
   return `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--bg);border-radius:6px;flex-wrap:wrap;">
     <span style="flex:1;min-width:120px;font-size:13px;${active?'':'color:var(--text3);text-decoration:line-through;'}">${dlEsc(d.name)}</span>
-    <input value="${dlEsc(d.funktion||'')}" list="dl-funktionen" placeholder="Funktion" title="Funktion / Einsatzgruppe" onchange="setDriverFunktion('${dlEsc(d.id)}',this.value)" style="width:118px;font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-family:inherit;">
+    <select title="Funktion / Einsatzgruppe" onchange="setDriverFunktion('${dlEsc(d.id)}',this.value)" style="width:118px;font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-family:inherit;">${funktionenOptions(_dlFunktionen, d.funktion)}</select>
     <label style="font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--text2);" title="Im Einsatzplaner berücksichtigen"><input type="checkbox" ${inPlan?'checked':''} onchange="setDriverEinsatz('${dlEsc(d.id)}',this.checked)" style="margin:0;cursor:pointer;"> Einsatz</label>
     ${hasLogin?roleSel:(d.loginRequested?'<span style="font-size:10px;font-weight:700;color:#9a6700;background:#fcefcb;padding:2px 7px;border-radius:5px;" title="App-Login vom Einsatzleiter angefordert">🔑 Login angefordert</span>':'<span style="font-size:10px;font-weight:700;color:var(--text3);background:var(--surface2);padding:2px 7px;border-radius:5px;">ohne Login</span>')}
     <span style="font-size:10px;font-weight:700;color:${active?'var(--green)':'var(--text3)'};">${active?'aktiv':'inaktiv'}</span>
@@ -5587,6 +5610,21 @@ async function addDriverLogin(){
   }catch(e){ notify(fnErr(e)); }
 }
 async function setDriverFunktion(id,val){ try{ await db.collection('drivers').doc(id).set({funktion:(val||'').trim()},{merge:true}); }catch(e){ notify(dlErr(e)); } }
+async function _dlSaveFunktionen(list){
+  const org=driverLoginsOrg||currentOrg; if(!org){ notify('Kein Mandant gewählt'); return; }
+  try{ const r=await dlFnCall('setOrgFunktionen',{orgId:org,funktionen:list}); _dlFunktionen=(r&&r.data&&r.data.funktionen)||list; notify('✓ Funktionen gespeichert'); renderDriverLogins(); }
+  catch(e){ notify(fnErr(e)); }
+}
+async function dlFunktionAdd(){
+  const inp=document.getElementById('dl-new-funktion-name'); const v=(inp?.value||'').trim();
+  if(!v) return;
+  if((_dlFunktionen||[]).some(f=>f.toLowerCase()===v.toLowerCase())){ notify('„'+v+'" gibt es schon'); return; }
+  await _dlSaveFunktionen([...(_dlFunktionen||[]), v]);
+}
+function dlFunktionRemove(name){
+  if(!confirm('Funktion „'+name+'" aus der Auswahl entfernen?\n\nBereits an Personen gespeicherte Werte bleiben erhalten.')) return;
+  _dlSaveFunktionen((_dlFunktionen||[]).filter(f=>f!==name));
+}
 async function setDriverEinsatz(id,checked){ try{ await db.collection('drivers').doc(id).set({einsatz:!!checked},{merge:true}); }catch(e){ notify(dlErr(e)); } }
 async function saveOrgCode(){
   const org=driverLoginsOrg||currentOrg;
@@ -7909,7 +7947,7 @@ function dispoDefaultDepot(){
 // Verfügbarkeit (Personal & Fahrzeuge) ist MANDANTENWEIT (orgs-Ressourcen, je Tag);
 // die Tour-Besetzung ist PROJEKTSCHARF. Superadmin wählt Mandant + Projekt, sonst Mandant fix.
 let _epOrg='', _epProject='', _epDate='', _epTab='plan';
-let _epOrgs=[], _epPersons=[], _epVehicles=[], _epProjects=[], _epTours=[];
+let _epOrgs=[], _epPersons=[], _epVehicles=[], _epProjects=[], _epTours=[], _epFunktionen=[];
 let _epAvail={persons:{}, vehicles:{}}, _epSaveTimer=null;
 const EP_PSTATES=[['anwesend','Anwesend','#15803d','#e7f3ea'],['krank','Krank','#c0392b','#fbeaea'],['urlaub','Urlaub','#b45309','#fbf0df'],['abwesend','Abwesend','#5f5e5a','#eeece6']];
 const EP_VSTATES=[['verfuegbar','Verfügbar','#15803d','#e7f3ea'],['werkstatt','Werkstatt','#b45309','#fbf0df'],['ausgefallen','Ausgefallen','#c0392b','#fbeaea']];
@@ -7959,7 +7997,7 @@ async function epLoadOrgScope(){
   _epPersons=[]; _epVehicles=[]; _epProjects=[];
   if(!_epOrg) return;
   try{ const qs=await db.collection('drivers').where('orgId','==',_epOrg).get(); _epPersons=qs.docs.map(d=>({id:d.id,...d.data()})).filter(p=>_epPersonInPlan(p)).sort((a,b)=>(a.name||'').localeCompare(b.name||'')); }catch(e){ console.warn('ep drivers',e); }
-  try{ const os=await db.collection('orgs').doc(_epOrg).get(); const r=os.exists?os.data().dispoResources:null; _epVehicles=(Array.isArray(r)&&r.length)?r.map(x=>({...x})):DISPO_DEFAULT_RES.map(x=>({...x})); }catch(e){ _epVehicles=DISPO_DEFAULT_RES.map(x=>({...x})); }
+  try{ const os=await db.collection('orgs').doc(_epOrg).get(); const od=os.exists?os.data():{}; const r=od.dispoResources; _epVehicles=(Array.isArray(r)&&r.length)?r.map(x=>({...x})):DISPO_DEFAULT_RES.map(x=>({...x})); _epFunktionen=_effFunktionen(od.funktionen, _epPersons); }catch(e){ _epVehicles=DISPO_DEFAULT_RES.map(x=>({...x})); _epFunktionen=_effFunktionen(null, _epPersons); }
   try{ const qs=await db.collection('projects').where('orgId','==',_epOrg).get(); _epProjects=qs.docs.map(d=>({id:d.id,name:d.data().name||d.id})).sort((a,b)=>a.name.localeCompare(b.name)); }catch(e){ console.warn('ep projects',e); }
   if(!_epProject || !_epProjects.find(p=>p.id===_epProject)) _epProject=(_epProjects.find(p=>p.id===currentProjectId)?.id)||_epProjects[0]?.id||'';
   await epLoadAvail(); await epLoadTours();
@@ -8331,7 +8369,7 @@ function epPersonOpenCard(personId){
     <div style="padding:14px 18px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;">${isNew?'Mitarbeiter anlegen':'Person verwalten'}<div style="font-size:11px;font-weight:400;color:var(--text3);margin-top:2px;">${dlEsc(orgName)}</div></div>
     <div style="padding:16px 18px;display:flex;flex-direction:column;gap:12px;">
       <label style="font-size:12px;color:var(--text3);">Name<input id="pc-name" class="form-control" style="width:100%;margin-top:3px;" value="${dlEsc(p?p.name:'')}" placeholder="Vor- und Nachname" ${readOnly?'readonly':''}></label>
-      <label style="font-size:12px;color:var(--text3);">Funktion / Einsatzgruppe<input id="pc-funktion" class="form-control" list="dl-funktionen" style="width:100%;margin-top:3px;" value="${dlEsc(p?p.funktion||'':'')}" placeholder="z. B. Fahrer, Kolonne 2" ${readOnly?'readonly':''}></label>
+      <label style="font-size:12px;color:var(--text3);">Funktion / Einsatzgruppe<select id="pc-funktion" class="form-control" style="width:100%;margin-top:3px;" ${readOnly?'disabled':''}>${funktionenOptions(_epFunktionen, p?p.funktion||'':'')}</select></label>
       ${loginBox}
       ${dangerRow}
       <div style="font-size:11px;color:var(--text3);border-top:1px solid var(--border);padding-top:8px;">🔒 Kein PIN-Feld — den App-Login aktiviert ausschließlich der Superadmin (kostenpflichtig).</div>
@@ -9691,7 +9729,7 @@ Object.assign(window,{
   addWmsLayer,deleteWmsLayer,editWmsLayer,cancelWmsEdit,renderWmsList,
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,toggleTourCounts,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
-  renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,saveOrgCode,dlToggleNoLogin,setDriverFunktion,setDriverEinsatz,dlDismissLoginRequest,
+  renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,saveOrgCode,dlToggleNoLogin,setDriverFunktion,setDriverEinsatz,dlDismissLoginRequest,dlFunktionAdd,dlFunktionRemove,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
   renderRollenView,saveRole,addRole,deleteRole,toggleBenutzerRollen,toggleBenutzerTouren,changeBenutzerOrg,changeDtaProject,renderUsage,exportUsageCSV,
