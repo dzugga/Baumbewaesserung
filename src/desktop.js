@@ -7956,6 +7956,7 @@ const EP_VSTATES=[['verfuegbar','Verfügbar','#15803d','#e7f3ea'],['werkstatt','
 function _epToday(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 let _epWeekMon=''; // Montag (YYYY-MM-DD) der angezeigten Woche im Reiter „Woche"
 let _epWeekQuery=''; // Live-Filter (Tourname) im Reiter „Woche"
+let _epDayQuery=''; // Live-Filter (Tour/Fahrer/Fahrzeug) im Reiter „Einsatzplan"
 function _epFmtDate(dt){ return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'); }
 function _epMondayOf(date){ const [Y,M,D]=date.split('-').map(Number); const dt=new Date(Y,M-1,D); const wd=dt.getDay(); dt.setDate(dt.getDate()+(wd===0?-6:1-wd)); return _epFmtDate(dt); }
 function _epAddDays(date,n){ const [Y,M,D]=date.split('-').map(Number); const dt=new Date(Y,M-1,D); dt.setDate(dt.getDate()+n); return _epFmtDate(dt); }
@@ -7969,6 +7970,13 @@ function epWeekFilter(q){
   let vis=0, total=0;
   document.querySelectorAll('#ep-week-tbody tr').forEach(tr=>{ total++; const n=tr.getAttribute('data-epname')||''; const show=!_epWeekQuery||n.includes(_epWeekQuery); tr.style.display=show?'':'none'; if(show) vis++; });
   const c=document.getElementById('ep-week-count'); if(c) c.textContent=_epWeekQuery?`${vis} / ${total} Touren`:`${total} Tour${total===1?'':'en'} mit Rhythmus`;
+}
+// Live-Filter im Einsatzplan (Tagesansicht): Tour/Fahrer/Fahrzeug; blendet Zeilen aus (kein Re-Render)
+function epDayFilter(q){
+  _epDayQuery=(q||'').trim().toLowerCase();
+  document.querySelectorAll('.ep-table tr[data-epname]').forEach(tr=>{ const n=tr.getAttribute('data-epname')||''; tr.style.display=(!_epDayQuery||n.includes(_epDayQuery))?'':'none'; });
+  let vis=0,total=0; document.querySelectorAll('#ep-day-tbody tr[data-epname]').forEach(tr=>{ total++; if(tr.style.display!=='none') vis++; });
+  const c=document.getElementById('ep-day-count'); if(c) c.textContent=_epDayQuery?`${vis} / ${total}`:'';
 }
 let _epAbsMonth=''; // YYYY-MM für die Abwesenheits-Timeline
 let _epShowBedarf=false; // Bedarfstouren-Abschnitt im Einsatzplan aufgeklappt?
@@ -8022,8 +8030,8 @@ async function epLoadTours(){
   if(!_epProject) return;
   try{ const qs=await db.collection('projects').doc(_epProject).collection('tours').get(); _epTours=qs.docs.map(d=>({id:d.id,...d.data()})).filter(t=>!t.uebersicht).sort((a,b)=>(a.name||'').localeCompare(b.name||'')); }catch(e){ console.warn('ep tours',e); }
 }
-async function epChangeOrg(v){ _epOrg=v; _epProject=''; _epWeekQuery=''; const r=document.getElementById('ep-root'); if(r) r.innerHTML='<div style="padding:48px;text-align:center;color:var(--text3);">Lädt…</div>'; await epLoadOrgScope(); renderEp(); }
-async function epChangeProject(v){ _epProject=v; _epWeekQuery=''; await epLoadTours(); renderEp(); }
+async function epChangeOrg(v){ _epOrg=v; _epProject=''; _epWeekQuery=''; _epDayQuery=''; const r=document.getElementById('ep-root'); if(r) r.innerHTML='<div style="padding:48px;text-align:center;color:var(--text3);">Lädt…</div>'; await epLoadOrgScope(); renderEp(); }
+async function epChangeProject(v){ _epProject=v; _epWeekQuery=''; _epDayQuery=''; await epLoadTours(); renderEp(); }
 async function epChangeDate(v){ _epDate=v||_epToday(); await epLoadAvail(); renderEp(); }
 function epSetTab(t){ _epTab=t; renderEp(); }
 function _epCanWrite(){ return currentRole==='superadmin'||currentCap==='admin'||currentCap==='editor'; }
@@ -8214,6 +8222,8 @@ function epPlanHtml(){
   const anyStd=activeTours.some(t=>t.stdVehicleId||(t.stdDrivers&&t.stdDrivers.length));
   const rowFor=t=>{
     const drivers=t.drivers||(t.assignedDriver?[t.assignedDriver]:[]);
+    const _hay=((t.name||'Tour')+' '+drivers.join(' ')+' '+(t.vehicleName||'')).toLowerCase();
+    const _hide=_epDayQuery && !_hay.includes(_epDayQuery);
     const vehOk=!t.vehicleId || availVeh.find(v=>v.id===t.vehicleId);
     const badVeh=t.vehicleId && !vehOk;
     const driverChips=drivers.length?drivers.map((n,i)=>{
@@ -8236,7 +8246,7 @@ function epPlanHtml(){
     const stdTxt=[t.stdVehicleName||'',...(t.stdDrivers||[])].filter(Boolean).join(' · ');
     const stdHint=stdSet?`<div class="ep-std-hint" title="Standard">★ ${dlEsc(stdTxt)}</div>`:'';
     const star=ro?'':`<button class="ep-star${stdSet?' on':''}" title="${stdSet?'Standard: '+dlEsc(stdTxt)+' — ':''}aktuelle Besetzung als Standard für diese Tour speichern" onclick="epSetStandard('${t.id}')">★</button>`;
-    return `<tr ${ro?'':`oncontextmenu="epTourCtx(event,'${t.id}')" ondragover="epDragOver(event)" ondragenter="this.classList.add('ep-drop')" ondragleave="this.classList.remove('ep-drop')" ondrop="this.classList.remove('ep-drop');epDrop(event,'${t.id}')"`}>
+    return `<tr data-epname="${dlEsc(_hay)}"${_hide?' style="display:none;"':''} ${ro?'':`oncontextmenu="epTourCtx(event,'${t.id}')" ondragover="epDragOver(event)" ondragenter="this.classList.add('ep-drop')" ondragleave="this.classList.remove('ep-drop')" ondrop="this.classList.remove('ep-drop');epDrop(event,'${t.id}')"`}>
       <td><span class="ep-dot" style="background:${t.color||'#888'};"></span>${dlEsc(t.name||'Tour')}${stdHint}</td>
       <td>${vehSel}${badVeh?'<div class="ep-warn">⚠ Fahrzeug nicht verfügbar</div>':''}</td>
       <td><div class="ep-chips">${driverChips}${drvAdd}</div></td>
@@ -8245,6 +8255,8 @@ function epPlanHtml(){
   };
   const notRunning=_epTours.length-dueTours.length-bedarfTours.length;
   const besetzt=dueTours.filter(t=>(t.drivers&&t.drivers.length)||t.vehicleId).length;
+  const _dayHay=t=>((t.name||'Tour')+' '+(t.drivers||(t.assignedDriver?[t.assignedDriver]:[])).join(' ')+' '+(t.vehicleName||'')).toLowerCase();
+  const dayCountTxt=_epDayQuery?`${dueTours.filter(t=>_dayHay(t).includes(_epDayQuery)).length} / ${dueTours.length}`:'';
   const rows=dueTours.map(rowFor).join('')||`<tr><td colspan="4" style="padding:18px;text-align:center;color:var(--text3);">Heute läuft keine planmäßige Tour.</td></tr>`;
   const usedVehIds=new Set(activeTours.map(x=>x.vehicleId).filter(Boolean));
   const poolPers=availPers.map(p=>{ const used=(load[p.name]||0)>0; return `<span class="ep-pool${used?' used':''}" ${used?'':`draggable="true" ondragstart="epDragStart(event,'driver','${dlEsc(p.name)}')"`} title="${used?'bereits verplant':'auf eine Tour ziehen'}">${dlEsc(p.name)}${used?' ✓':''}</span>`; }).join('')||'<span class="ep-dash">keine anwesend</span>';
@@ -8255,7 +8267,8 @@ function epPlanHtml(){
   return `
     ${stdBar}
     <div class="ep-pool-wrap"><div class="ep-pool-bar"><span class="ep-pool-lbl">Personen</span>${poolPers}</div><div class="ep-pool-bar"><span class="ep-pool-lbl">Fahrzeuge</span>${poolVeh}</div><div class="ep-pool-tip">Chip auf eine Tourzeile ziehen oder im „＋"-Feld per Tippsuche wählen.</div></div>
-    <table class="ep-table"><thead><tr><th style="width:36%;">Tour</th><th style="width:25%;">Fahrzeug</th><th>Fahrer</th><th style="width:48px;text-align:center;" title="Standard für diese Tour">Std.</th></tr></thead><tbody>${rows}</tbody></table>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><input id="ep-day-search" value="${dlEsc(_epDayQuery)}" oninput="epDayFilter(this.value)" placeholder="🔍 Tour oder Fahrer suchen…" autocomplete="off" style="padding:5px 10px;font-size:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);min-width:200px;font-family:inherit;"><span id="ep-day-count" style="font-size:11px;color:var(--text3);">${dayCountTxt}</span></div>
+    <table class="ep-table"><thead><tr><th style="width:36%;">Tour</th><th style="width:25%;">Fahrzeug</th><th>Fahrer</th><th style="width:48px;text-align:center;" title="Standard für diese Tour">Std.</th></tr></thead><tbody id="ep-day-tbody">${rows}</tbody></table>
     ${bedarfTours.length?`<div style="margin-top:16px;">
       <button class="ep-bedarf-h" onclick="epToggleBedarf()">${_epShowBedarf?'▾':'▸'} Bedarfstouren (${bedarfTours.length}) — nur bei Bedarf einplanen</button>
       ${_epShowBedarf?`<table class="ep-table" style="margin-top:6px;"><thead><tr><th style="width:36%;">Tour</th><th style="width:25%;">Fahrzeug</th><th>Fahrer</th><th style="width:48px;text-align:center;">Std.</th></tr></thead><tbody>${bedarfTours.map(rowFor).join('')}</tbody></table>`:''}
@@ -9717,7 +9730,7 @@ Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,
   renderHandbuch,setHbTab,hbSearchDebounced,openHbImg,closeHbImg,
   dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
-  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,epWeekShift,epWeekThis,epWeekFilter,epTourCtx,epEditTour,_epCloseCtx,epPersonOpenCard,
+  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,epWeekShift,epWeekThis,epWeekFilter,epDayFilter,epTourCtx,epEditTour,_epCloseCtx,epPersonOpenCard,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
   renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,_fillMerge,
