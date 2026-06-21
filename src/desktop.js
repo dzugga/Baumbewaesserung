@@ -5763,7 +5763,7 @@ async function renderDriverMgmt(){
   }
   // Touren des gewählten Projekts + Personen des Mandanten laden
   let tlist=[],persons=[];
-  try{ const ts=await db.collection('projects').doc(dtaProjectId).collection('tours').get(); tlist=ts.docs.map(d=>({id:d.id,...d.data()})); }catch(e){}
+  try{ const ts=await db.collection('projects').doc(dtaProjectId).collection('tours').get(); tlist=ts.docs.map(d=>({id:d.id,...d.data()})).filter(t=>!t.uebersicht); }catch(e){} // Übersichtstouren nicht zuweisbar
   try{ if(org){ const qs=await db.collection('drivers').where('orgId','==',org).get(); qs.forEach(d=>{ if(d.data().active!==false) persons.push(d.data().name); }); } }catch(e){}
   persons=[...new Set(persons.filter(Boolean))].sort((a,b)=>a.localeCompare(b));
   if(tlist.length===0){
