@@ -7878,6 +7878,7 @@ async function epTourUpdate(tid, patch){
   catch(e){ notify('Fehler: '+(e.message||e)); return false; }
 }
 async function epAssignVehicle(tid, vehId){
+  if(vehId){ const other=_epTours.find(x=>x.id!==tid && x.vehicleId===vehId); if(other){ notify('Dieses Fahrzeug ist heute schon in „'+(other.name||'Tour')+'" verplant'); return; } }
   const v=_epVehicles.find(x=>x.id===vehId);
   if(await epTourUpdate(tid,{vehicleId:vehId||'', vehicleName:v?v.name:''})){ const t=_epTours.find(x=>x.id===tid); if(t){ t.vehicleId=vehId||''; t.vehicleName=v?v.name:''; } renderEp(); }
 }
@@ -7885,6 +7886,8 @@ async function epAddDriver(tid, name){
   if(!name) return;
   const t=_epTours.find(x=>x.id===tid); const drivers=[...(t&&t.drivers||(t&&t.assignedDriver?[t.assignedDriver]:[]))];
   if(drivers.includes(name)){ notify('Bereits zugewiesen'); return; }
+  const other=_epTours.find(x=>x.id!==tid && (x.drivers||[]).includes(name));
+  if(other){ notify('„'+name+'" ist heute schon in „'+(other.name||'Tour')+'" verplant'); return; }
   drivers.push(name);
   if(await epTourUpdate(tid,{drivers, assignedDriver:drivers[0]})){ if(t){ t.drivers=drivers; t.assignedDriver=drivers[0]; } renderEp(); }
 }
@@ -7980,20 +7983,22 @@ function epPlanHtml(){
     const stdTxt=[t.stdVehicleName||'',...(t.stdDrivers||[])].filter(Boolean).join(' · ');
     const stdHint=stdSet?`<div class="ep-std-hint" title="Standard">★ ${dlEsc(stdTxt)}</div>`:'';
     const star=ro?'':`<button class="ep-star${stdSet?' on':''}" title="${stdSet?'Standard: '+dlEsc(stdTxt)+' — ':''}aktuelle Besetzung als Standard für diese Tour speichern" onclick="epSetStandard('${t.id}')">★</button>`;
-    return `<tr>
+    return `<tr ${ro?'':`ondragover="epDragOver(event)" ondragenter="this.classList.add('ep-drop')" ondragleave="this.classList.remove('ep-drop')" ondrop="this.classList.remove('ep-drop');epDrop(event,'${t.id}')"`}>
       <td><span class="ep-dot" style="background:${t.color||'#888'};"></span>${dlEsc(t.name||'Tour')}${stdHint}</td>
       <td>${vehSel}${badVeh?'<div class="ep-warn">⚠ Fahrzeug nicht verfügbar</div>':''}</td>
       <td><div class="ep-chips">${driverChips}${drvAdd}</div></td>
       <td style="text-align:center;">${star}</td>
     </tr>`;
   }).join('');
-  const poolPers=availPers.map(p=>`<span class="ep-pool" title="in ${load[p.name]||0} Touren">${dlEsc(p.name)} <b>${load[p.name]||0}</b></span>`).join('')||'<span class="ep-dash">keine anwesend</span>';
+  const usedVehIds=new Set(_epTours.map(x=>x.vehicleId).filter(Boolean));
+  const poolPers=availPers.map(p=>{ const used=(load[p.name]||0)>0; return `<span class="ep-pool${used?' used':''}" ${used?'':`draggable="true" ondragstart="epDragStart(event,'driver','${dlEsc(p.name)}')"`} title="${used?'bereits verplant':'auf eine Tour ziehen'}">${dlEsc(p.name)}${used?' ✓':''}</span>`; }).join('')||'<span class="ep-dash">keine anwesend</span>';
+  const poolVeh=availVeh.map(v=>{ const used=usedVehIds.has(v.id); return `<span class="ep-pool veh${used?' used':''}" ${used?'':`draggable="true" ondragstart="epDragStart(event,'vehicle','${dlEsc(v.id)}')"`} title="${used?'bereits verplant':'auf eine Tour ziehen'}">${dlEsc(v.name)}${used?' ✓':''}</span>`; }).join('')||'<span class="ep-dash">keine verfügbar</span>';
   const stdBar=ro?'':`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
     <button class="btn btn-secondary" style="font-size:12px;padding:6px 12px;${anyStd?'':'opacity:.5;cursor:not-allowed;'}" ${anyStd?'onclick="epApplyStandards()"':'disabled title="Noch keine Standards gespeichert"'}>★ Standardbesetzung übernehmen</button>
     <span style="font-size:11px;color:var(--text3);">Stern je Tour = aktuelle Besetzung als Standard merken. „Übernehmen" füllt den Tag aus den Standards (nur verfügbare).</span></div>`;
   return `
     ${stdBar}
-    <div class="ep-pool-bar"><span class="ep-pool-lbl">Heute verfügbar</span>${poolPers}</div>
+    <div class="ep-pool-wrap"><div class="ep-pool-bar"><span class="ep-pool-lbl">Personen</span>${poolPers}</div><div class="ep-pool-bar"><span class="ep-pool-lbl">Fahrzeuge</span>${poolVeh}</div><div class="ep-pool-tip">Chip auf eine Tourzeile ziehen oder im „＋"-Feld per Tippsuche wählen.</div></div>
     <table class="ep-table"><thead><tr><th style="width:36%;">Tour</th><th style="width:25%;">Fahrzeug</th><th>Fahrer</th><th style="width:48px;text-align:center;" title="Standard für diese Tour">Std.</th></tr></thead><tbody>${rows}</tbody></table>
     <div class="ep-foot">${besetzt} / ${_epTours.length} Touren besetzt${ro?' · nur Lesezugriff':''}</div>`;
 }
@@ -8009,10 +8014,12 @@ function epOpenPicker(type, tid, btn){
   let items=[];
   if(type==='driver'){
     const drivers=t.drivers||(t.assignedDriver?[t.assignedDriver]:[]);
-    const load={}; _epTours.forEach(x=>(x.drivers||[]).forEach(n=>load[n]=(load[n]||0)+1));
-    items=_epPersons.filter(_epPersonAvail).filter(p=>!drivers.includes(p.name)).map(p=>({v:p.name, l:p.name, sub:'', right:(load[p.name]||0)+' Touren', warn:(load[p.name]||0)>0, dis:false}));
+    const elsewhere={}; _epTours.forEach(x=>{ if(x.id!==tid)(x.drivers||[]).forEach(n=>{ elsewhere[n]=x.name; }); }); // heute schon in anderer Tour
+    items=_epPersons.filter(_epPersonAvail).filter(p=>!drivers.includes(p.name)).map(p=>({v:p.name, l:p.name, sub:p.funktion||'', right:elsewhere[p.name]?('in '+elsewhere[p.name]):'', warn:!!elsewhere[p.name], dis:!!elsewhere[p.name]}))
+      .sort((a,b)=>(a.dis?1:0)-(b.dis?1:0)||a.l.localeCompare(b.l));
   } else {
-    items=_epVehicles.map(v=>{ const av=_epVehAvail(v); return {v:v.id, l:v.name, sub:[v.art,v.kennzeichen].filter(Boolean).join(' · '), right:av?'':'nicht verfügbar', warn:false, dis:!av}; })
+    const used={}; _epTours.forEach(x=>{ if(x.id!==tid && x.vehicleId) used[x.vehicleId]=x.name; });
+    items=_epVehicles.map(v=>{ const av=_epVehAvail(v), u=used[v.id]; return {v:v.id, l:v.name, sub:[v.art,v.kennzeichen].filter(Boolean).join(' · '), right:!av?'nicht verfügbar':(u?('in '+u):''), warn:!!u, dis:!av||!!u}; })
       .sort((a,b)=>(a.dis?1:0)-(b.dis?1:0)||a.l.localeCompare(b.l));
   }
   const el=document.createElement('div'); el.className='ep-picker';
@@ -8038,6 +8045,11 @@ function epOpenPicker(type, tid, btn){
   input.onkeydown=e=>{ if(e.key==='Enter'){ const first=listEl.querySelector('.ep-picker-item:not(.dis)'); if(first) pick(first.dataset.v); } };
   setTimeout(()=>{ input.focus(); document.addEventListener('mousedown',_epPickerOutside,true); document.addEventListener('keydown',_epPickerKey,true); },0);
 }
+// Drag & Drop: Pool-Chip auf eine Tourzeile ziehen
+let _epDrag=null;
+function epDragStart(e,type,val){ _epDrag={type,val}; try{ e.dataTransfer.setData('text/plain',type+':'+val); e.dataTransfer.effectAllowed='copy'; }catch(_){ } }
+function epDragOver(e){ e.preventDefault(); try{ e.dataTransfer.dropEffect='copy'; }catch(_){ } }
+function epDrop(e,tid){ e.preventDefault(); let d=_epDrag; if(!d){ let s=''; try{ s=e.dataTransfer.getData('text/plain')||''; }catch(_){ } const p=s.split(':'); if(p.length>=2) d={type:p[0],val:p.slice(1).join(':')}; } _epDrag=null; if(!d||!d.val) return; if(d.type==='driver') epAddDriver(tid,d.val); else if(d.type==='vehicle') epAssignVehicle(tid,d.val); }
 function epVehById(id){ return _epVehicles.find(v=>v.id===id); }
 function epVehField(id,field,val){
   const v=epVehById(id); if(!v) return;
@@ -9250,7 +9262,7 @@ Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,
   renderHandbuch,setHbTab,hbSearchDebounced,openHbImg,closeHbImg,
   dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
-  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetPersonStatus,epSetVehicleStatus,epAllPersons,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epOpenPicker,epVehField,epVehAdd,epVehRemove,epVehSave,
+  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetPersonStatus,epSetVehicleStatus,epAllPersons,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epOpenPicker,epDragStart,epDragOver,epDrop,epVehField,epVehAdd,epVehRemove,epVehSave,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
   renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,_fillMerge,
