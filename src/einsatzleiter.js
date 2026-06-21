@@ -2,6 +2,8 @@ import { initAppCheck } from './appcheck.js';
 import { BASEMAP_FARBE, BASEMAP_ATTR } from './basemaps.js';
 import { firebaseConfig } from './firebase-config.js';
 import { esc } from './esc.js';
+import { startSession, endSession } from './session.js';
+function _onSessionKicked(){ try{ alert('Abgemeldet: Diese Kennung wurde an einem anderen Gerät angemeldet.'); }catch(_){}; try{ firebase.auth().signOut(); }catch(_){}; location.reload(); }
 // ─── FIREBASE CONFIG (zentral in firebase-config.js) ──────────
 const fbApp = firebase.initializeApp(firebaseConfig);
 initAppCheck();
@@ -483,10 +485,11 @@ async function doLogin(){
   if(!/^\d{6}$/.test(pin)){ _elErr('PIN muss 6-stellig sein.'); return; }
   _elBtn('Anmelden…', true);
   try{
-    const res=await firebase.app().functions('europe-west3').httpsCallable('driverLogin')({orgCode:orgcode.toUpperCase(),name,pin});
+    const res=await firebase.app().functions('europe-west3').httpsCallable('driverLogin')({orgCode:orgcode.toUpperCase(),name,pin,app:'einsatzleiter'});
     try{ localStorage.setItem('bwt_mobile_orgcode',orgcode.toUpperCase()); localStorage.setItem('bwt_mobile_name',name); }catch(_){}
     await firebase.auth().signInWithCustomToken(res.data.token);
-  }catch(e){ const c=e&&e.code||'',m=e&&e.message||''; _elErr(/permission-denied|not-found|unauthenticated|resource-exhausted/.test(c)?(m||'Name oder PIN falsch'):('Fehler: '+(m||c))); _elBtn('Anmelden',false); }
+    startSession(res.data.sessionId, _onSessionKicked);
+  }catch(e){ const c=e&&e.code||'',m=e&&e.message||''; if(/already-exists/.test(c)){ _elErr(m||'Diese Kennung ist bereits an einem anderen Gerät angemeldet.'); _elBtn('Anmelden',false); return; } _elErr(/permission-denied|not-found|unauthenticated|resource-exhausted/.test(c)?(m||'Name oder PIN falsch'):('Fehler: '+(m||c))); _elBtn('Anmelden',false); }
 }
 
 async function startEinsatzleiter(pid){
@@ -508,6 +511,7 @@ async function startEinsatzleiter(pid){
 async function doLogout(){
   if(!confirm('Abmelden?')) return;
   if(unsubTrees) unsubTrees(); if(unsubTours) unsubTours(); if(unsubHistory) unsubHistory();
+  try{ await endSession(); }catch(_){}
   try{ await firebase.auth().signOut(); }catch(_){}
   location.reload();
 }

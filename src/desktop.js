@@ -9509,7 +9509,7 @@ async function doLogin(){
   if(!/^\d{6}$/.test(pin)){ if(err) err.textContent='PIN muss 6-stellig sein'; return; }
   if(btn){ btn.disabled=true; btn.textContent='Anmelden…'; }
   try{
-    const res=await firebase.app().functions('europe-west3').httpsCallable('driverLogin')({orgCode:orgcode.toUpperCase(),name,pin});
+    const res=await firebase.app().functions('europe-west3').httpsCallable('driverLogin')({orgCode:orgcode.toUpperCase(),name,pin,allowParallel:true});
     try{ localStorage.setItem('bwt_desktop_orgcode',orgcode.toUpperCase()); localStorage.setItem('bwt_desktop_name',name); }catch(_){}
     await firebase.auth().signInWithCustomToken(res.data.token);
   }catch(e){ const c=e&&e.code||'',m=e&&e.message||''; if(err) err.textContent=/permission-denied|not-found|unauthenticated|resource-exhausted/.test(c)?(m||'Name oder PIN falsch'):('Fehler: '+(m||c)); if(btn){ btn.disabled=false; btn.textContent='Anmelden'; } }

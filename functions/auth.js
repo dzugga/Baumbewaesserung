@@ -15,6 +15,7 @@ const db = admin.firestore();
 const REGION = 'europe-west3'; // Frankfurt — wie Firestore/Storage (EU-Datenverarbeitung)
 const MAX_FAILS = 5;
 const LOCK_MS = 15 * 60 * 1000; // 15 Min Sperre nach zu vielen Fehlversuchen
+const SESSION_STALE_MS = 90 * 1000; // ältere aktive Sitzung gilt als tot (Gerät zu/abgestürzt) → Übernahme erlaubt
 
 // ---- PIN-Hashing (scrypt, ohne Zusatz-Abhaengigkeit) ----
 function makeSalt() { return crypto.randomBytes(16).toString('hex'); }
@@ -72,13 +73,25 @@ exports.driverLogin = onCall({ region: REGION }, async (req) => {
   if (matches.length === 1) {
     const { ref, d } = matches[0];
     const oid2 = d.orgId;
-    await ref.update({ failedAttempts: 0, lockedUntil: 0, lastLogin: new Date().toISOString() });
+    // Single-Session: nur EIN Gerät je Kennung gleichzeitig (Desktop schickt allowParallel=true → ausgenommen).
+    const allowParallel = !!(req.data && req.data.allowParallel);
+    const upd = { failedAttempts: 0, lockedUntil: 0, lastLogin: new Date().toISOString() };
+    let sessionId = '';
+    if (!allowParallel) {
+      const s = d.session;
+      if (s && s.lastSeen && (now - s.lastSeen) < SESSION_STALE_MS) {
+        throw new HttpsError('already-exists', 'Diese Kennung ist bereits an einem anderen Gerät angemeldet. Bitte dort abmelden oder kurz warten.');
+      }
+      sessionId = makeSalt();
+      upd.session = { id: sessionId, lastSeen: now, app: String((req.data && req.data.app) || '') };
+    }
+    await ref.update(upd);
     const personRole = d.role || 'fahrer';
     const personCap = await capForRole(personRole, oid2);
     const token = await admin.auth().createCustomToken('drv_' + ref.id, {
       orgId: oid2, role: personRole, cap: personCap, driverId: ref.id, name: d.name,
     });
-    return { token, driverId: ref.id, name: d.name, orgId: oid2, role: personRole };
+    return { token, driverId: ref.id, name: d.name, orgId: oid2, role: personRole, sessionId };
   }
 
   // Kein Treffer: Fehlversuch auf ALLE getesteten (nicht gesperrten) Kandidaten zaehlen.
@@ -89,6 +102,33 @@ exports.driverLogin = onCall({ region: REGION }, async (req) => {
     return x.ref.update(fails >= MAX_FAILS ? { failedAttempts: 0, lockedUntil: now + LOCK_MS } : { failedAttempts: fails });
   }));
   throw new HttpsError('permission-denied', 'Name oder PIN falsch');
+});
+
+// ── Heartbeat: hält die eigene Sitzung am Leben; meldet, wenn sie übernommen wurde ──
+exports.driverHeartbeat = onCall({ region: REGION }, async (req) => {
+  const uid = req.auth && req.auth.uid;
+  if (!uid || uid.indexOf('drv_') !== 0) throw new HttpsError('unauthenticated', 'Nicht angemeldet');
+  const driverId = uid.slice(4);
+  const { sessionId } = req.data || {};
+  const ref = db.collection('drivers').doc(driverId);
+  const s = await ref.get();
+  if (!s.exists) return { ok: false };
+  const sess = s.data().session;
+  if (!sess || sess.id !== sessionId) return { ok: false }; // andere Sitzung aktiv → dieser Client ist „raus"
+  await ref.update({ 'session.lastSeen': nowMs() });
+  return { ok: true };
+});
+
+// ── Logout: gibt die eigene Sitzung frei (sofortige Neuanmeldung möglich) ──
+exports.driverLogout = onCall({ region: REGION }, async (req) => {
+  const uid = req.auth && req.auth.uid;
+  if (!uid || uid.indexOf('drv_') !== 0) return { ok: true };
+  const driverId = uid.slice(4);
+  const { sessionId } = req.data || {};
+  const ref = db.collection('drivers').doc(driverId);
+  const s = await ref.get();
+  if (s.exists) { const sess = s.data().session; if (sess && sess.id === sessionId) await ref.update({ session: admin.firestore.FieldValue.delete() }); }
+  return { ok: true };
 });
 
 // ── Admin legt Person an / aendert PIN, Name oder Rolle ─────────────────────

@@ -2,6 +2,8 @@ import { initAppCheck } from './appcheck.js';
 import { BASEMAP_FARBE, BASEMAP_ATTR } from './basemaps.js';
 import { firebaseConfig } from './firebase-config.js';
 import { esc } from './esc.js';
+import { startSession, endSession } from './session.js';
+function _onSessionKicked(){ try{ alert('Abgemeldet: Diese Kennung wurde an einem anderen Gerät angemeldet.'); }catch(_){}; try{ firebase.auth().signOut(); }catch(_){}; location.reload(); }
 // Firebase compat API shims — maps modular API calls to compat SDK
 function initializeApp(cfg){ return firebase.initializeApp(cfg); }
 function getFirestore(app){ return firebase.firestore(app); }
@@ -167,14 +169,16 @@ async function doLogin() {
   if(!/^\d{6}$/.test(pin)){ _loginErr('PIN muss 6-stellig sein.'); return; }
   _setLoginBtn('Anmelden…', true);
   try{
-    const res=await firebase.app().functions('europe-west3').httpsCallable('driverLogin')({orgCode:orgcode.toUpperCase(), name, pin});
+    const res=await firebase.app().functions('europe-west3').httpsCallable('driverLogin')({orgCode:orgcode.toUpperCase(), name, pin, app:'navi'});
     const data=res.data||{};
     await firebase.auth().signInWithCustomToken(data.token);
+    startSession(data.sessionId, _onSessionKicked);
     _driverAuth={orgId:data.orgId, name:data.name||name, driverId:data.driverId};
     try{ localStorage.setItem('bwt_mobile_orgcode',orgcode.toUpperCase()); localStorage.setItem('bwt_mobile_name',name); }catch(_){}
     await pickTour(_driverAuth.orgId, _driverAuth.name);
   }catch(e){
     const code=e&&e.code||''; const msg=e&&e.message||'';
+    if(/already-exists/.test(code)){ _loginErr(msg||'Diese Kennung ist bereits an einem anderen Gerät angemeldet.'); _setLoginBtn('Anmelden', false); return; }
     _loginErr(/permission-denied|not-found|unauthenticated|resource-exhausted/.test(code)||/PIN|falsch|Versuche/i.test(msg)
       ? (msg||'Name oder PIN falsch') : ('Fehler: '+(msg||code)));
     _setLoginBtn('Anmelden', false);
@@ -210,6 +214,7 @@ async function pickTour(orgId, name){
 
 async function doLogout() {
   if (!confirm('Abmelden?')) return;
+  try{ await endSession(); }catch(_){}
   try{ localStorage.removeItem('bwt_mobile_session'); }catch(_){}
   try{ await firebase.auth().signOut(); }catch(_){}
   location.reload();

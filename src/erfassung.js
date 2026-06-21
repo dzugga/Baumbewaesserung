@@ -2,6 +2,8 @@ import { initAppCheck } from './appcheck.js';
 import { BASEMAP_FARBE, BASEMAP_ATTR } from './basemaps.js';
 import { firebaseConfig } from './firebase-config.js';
 import { esc } from './esc.js';
+import { startSession, endSession } from './session.js';
+function _onSessionKicked(){ try{ alert('Abgemeldet: Diese Kennung wurde an einem anderen Gerät angemeldet.'); }catch(_){}; try{ firebase.auth().signOut(); }catch(_){}; location.reload(); }
 // ─── FIREBASE CONFIG (zentral in firebase-config.js) ──────────
 const fbApp = firebase.initializeApp(firebaseConfig);
 initAppCheck();
@@ -583,10 +585,11 @@ async function doLogin() {
   if(!/^\d{6}$/.test(pin)){ _erfErr('PIN muss 6-stellig sein.'); return; }
   _erfBtn('Anmelden…', true);
   try{
-    const res=await firebase.app().functions('europe-west3').httpsCallable('driverLogin')({orgCode:orgcode.toUpperCase(),name,pin});
+    const res=await firebase.app().functions('europe-west3').httpsCallable('driverLogin')({orgCode:orgcode.toUpperCase(),name,pin,app:'erfassung'});
     try{ localStorage.setItem('bwt_mobile_orgcode',orgcode.toUpperCase()); localStorage.setItem('bwt_mobile_name',name); }catch(_){}
     await firebase.auth().signInWithCustomToken(res.data.token);
-  }catch(e){ const c=e&&e.code||'',m=e&&e.message||''; _erfErr(/permission-denied|not-found|unauthenticated|resource-exhausted/.test(c)?(m||'Name oder PIN falsch'):('Fehler: '+(m||c))); _erfBtn('Anmelden',false); }
+    startSession(res.data.sessionId, _onSessionKicked);
+  }catch(e){ const c=e&&e.code||'',m=e&&e.message||''; if(/already-exists/.test(c)){ _erfErr(m||'Diese Kennung ist bereits an einem anderen Gerät angemeldet.'); _erfBtn('Anmelden',false); return; } _erfErr(/permission-denied|not-found|unauthenticated|resource-exhausted/.test(c)?(m||'Name oder PIN falsch'):('Fehler: '+(m||c))); _erfBtn('Anmelden',false); }
 }
 
 // Bäume per Listener statt Einmal-Read: Firestore-Persistenz (IndexedDB) liefert beim
@@ -658,6 +661,7 @@ async function startErfassung(pid){
 
 async function doLogout() {
   if (!confirm('Abmelden?')) return;
+  try{ await endSession(); }catch(_){}
   try{ await firebase.auth().signOut(); }catch(_){}
   location.reload();
 }
