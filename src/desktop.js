@@ -7862,7 +7862,7 @@ function dispoDefaultDepot(){
 // ─── EINSATZPLANER (eigener Menüpunkt) ───────────────────────────────────────
 // Verfügbarkeit (Personal & Fahrzeuge) ist MANDANTENWEIT (orgs-Ressourcen, je Tag);
 // die Tour-Besetzung ist PROJEKTSCHARF. Superadmin wählt Mandant + Projekt, sonst Mandant fix.
-let _epOrg='', _epProject='', _epDate='', _epTab='verfuegbar';
+let _epOrg='', _epProject='', _epDate='', _epTab='plan';
 let _epOrgs=[], _epPersons=[], _epVehicles=[], _epProjects=[], _epTours=[];
 let _epAvail={persons:{}, vehicles:{}}, _epSaveTimer=null;
 const EP_PSTATES=[['anwesend','Anwesend','#15803d','#e7f3ea'],['krank','Krank','#c0392b','#fbeaea'],['urlaub','Urlaub','#b45309','#fbf0df'],['abwesend','Abwesend','#5f5e5a','#eeece6']];
@@ -7931,22 +7931,6 @@ function epPersist(){
   },400);
 }
 function epSetVehicleStatus(id,st){ if(!_epCanWrite())return; if(st==='verfuegbar') delete _epAvail.vehicles[id]; else _epAvail.vehicles[id]=st; epPersist(); renderEp(); }
-// Schnellaktion in „Verfügbarkeit": kurzfristige Abwesenheit nur für HEUTE (1-Tages-Eintrag in Abwesenheiten)
-async function epQuickAbsence(personId,type){
-  if(!_epCanWrite())return;
-  const p=_epPersons.find(x=>x.id===personId); if(!p) return;
-  const list=(p.absences||[]).filter(a=>!(a.from===_epDate&&a.to===_epDate)); // bestehenden Heute-Eintrag ersetzen
-  list.push({id:'a'+Math.random().toString(36).slice(2,8), type, from:_epDate, to:_epDate});
-  try{ await db.collection('drivers').doc(personId).update({absences:list}); p.absences=list; renderEp(); }
-  catch(e){ notify('Fehler: '+(e.message||e)); }
-}
-async function epQuickPresent(personId){
-  if(!_epCanWrite())return;
-  const p=_epPersons.find(x=>x.id===personId); if(!p) return;
-  const list=(p.absences||[]).filter(a=>!(a.from===_epDate&&a.to===_epDate)); // nur den Heute-Eintrag entfernen; geplante Zeiträume bleiben
-  try{ await db.collection('drivers').doc(personId).update({absences:list}); p.absences=list; renderEp(); }
-  catch(e){ notify('Fehler: '+(e.message||e)); }
-}
 
 // Tour-Schreibvorgänge projektscharf (rohes db, KEIN _injectOrg — Projekt-Org kann vom aktuellen abweichen)
 async function epTourUpdate(tid, patch){
@@ -8015,38 +7999,16 @@ function _epSeg(states, cur, fn, id){
 }
 function epVerfuegbarHtml(){
   const ro=!_epCanWrite();
-  const pAvail=_epPersons.filter(_epPersonAvail).length, vAvail=_epVehicles.filter(_epVehAvail).length;
-  // Personal-Karten
-  const pCards=_epPersons.length? _epPersons.map(p=>{
-    const st=_epPStatus(p.id); const meta=EP_PSTATES.find(s=>s[0]===st);
-    const todayAbs=(p.absences||[]).find(a=>a.from===_epDate&&a.to===_epDate);
-    const rangeAbs=_epAbsenceFor(p,_epDate);
-    let action='';
-    if(!ro){
-      if(st==='anwesend'){
-        action=`<div class="ep-quick"><span class="ep-quick-lbl">Heute abwesend:</span><button onclick="epQuickAbsence('${p.id}','krank')">Krank</button><button onclick="epQuickAbsence('${p.id}','urlaub')">Urlaub</button><button onclick="epQuickAbsence('${p.id}','abwesend')">Abwesend</button></div>`;
-      } else if(todayAbs){
-        action=`<button class="ep-quick-undo" onclick="epQuickPresent('${p.id}')">↺ Heute doch da</button>`;
-      } else {
-        const bis=rangeAbs?(' bis '+(()=>{const x=(rangeAbs.to||'').split('-');return x[2]+'.'+x[1]+'.';})()):'';
-        action=`<div class="ep-quick-note">geplant${bis} · <span class="ep-link" onclick="epSetTab('abwesenheiten')">in Abwesenheiten ändern</span></div>`;
-      }
-    }
-    return `<div class="ep-card">
-      <div class="ep-card-head"><span class="ep-ava" style="background:${meta[3]};color:${meta[2]};">${_epInitials(p.name)}</span><div style="min-width:0;"><div class="ep-name">${dlEsc(p.name||'–')}</div>${p.funktion?`<div style="font-size:11px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(p.funktion)}</div>`:''}<div class="ep-sub" style="color:${meta[2]};">${meta[1]}</div></div></div>
-      ${action}</div>`;
-  }).join('') : '<div class="ep-empty">Keine Personen in diesem Mandanten. (Admin → Benutzer → Personen)</div>';
+  const vAvail=_epVehicles.filter(_epVehAvail).length;
   const vCards=_epVehicles.length? _epVehicles.map(v=>{
     const st=_epVStatus(v.id); const meta=EP_VSTATES.find(s=>s[0]===st);
     return `<div class="ep-card">
       <div class="ep-card-head"><span class="ep-ava" style="background:${meta[3]};color:${meta[2]};"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17h13V7H3zM16 10h3l2 3v4h-5z"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg></span><div style="min-width:0;"><div class="ep-name">${dlEsc(v.name||'–')}</div>${(v.art||v.kennzeichen)?`<div style="font-size:11px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc([v.art,v.kennzeichen].filter(Boolean).join(' · '))}</div>`:''}<div class="ep-sub" style="color:${meta[2]};">${meta[1]}</div></div></div>
       ${ro?'':_epSeg(EP_VSTATES, st, 'epSetVehicleStatus', v.id)}</div>`;
-  }).join('') : '<div class="ep-empty">Keine Fahrzeuge hinterlegt. (Disposition → Einstellungen → Fahrzeuge)</div>';
+  }).join('') : '<div class="ep-empty">Keine Fahrzeuge hinterlegt. (Reiter „Fuhrpark")</div>';
   return `
-    <div class="ep-sec-head"><h3>Personal <span class="ep-count">${pAvail}/${_epPersons.length} anwesend</span></h3>
-      <span style="margin-left:auto;font-size:11px;color:var(--text3);">Urlaub/Krank als Zeitraum → Reiter „Abwesenheiten"</span></div>
-    <div class="ep-grid">${pCards}</div>
-    <div class="ep-sec-head" style="margin-top:18px;"><h3>Fahrzeuge <span class="ep-count">${vAvail}/${_epVehicles.length} verfügbar</span></h3></div>
+    <div class="ep-sec-head"><h3>Fahrzeuge — heute <span class="ep-count">${vAvail}/${_epVehicles.length} verfügbar</span></h3>
+      <span style="margin-left:auto;font-size:11px;color:var(--text3);">Stammdaten unter „Fuhrpark" · Personal im Reiter „Personal"</span></div>
     <div class="ep-grid">${vCards}</div>`;
 }
 function epPlanHtml(){
@@ -8163,12 +8125,14 @@ function epAbsenceHtml(){
   const ro=!_epCanWrite();
   const days=_epMonthDays(_epAbsMonth);
   const colW=Math.max(22, Math.floor(760/days.length));
-  const headCells=days.map(d=>`<th style="padding:4px 0;font-weight:400;font-size:9px;color:var(--text3);${_epWeekend(d)?'background:var(--surface2);':''}">${+d.slice(8)}<br>${_epWdLetter(d)}</th>`).join('');
+  const sel=_epDate, anw=_epPersons.filter(_epPersonAvail).length;
+  const todayMark=d=>d===sel?'box-shadow:inset 2px 0 0 #1d9e75,inset -2px 0 0 #1d9e75;':'';
+  const headCells=days.map(d=>`<th style="padding:4px 0;font-weight:${d===sel?'700':'400'};font-size:9px;color:${d===sel?'#0f6e56':'var(--text3)'};${_epWeekend(d)?'background:var(--surface2);':''}${todayMark(d)}">${+d.slice(8)}<br>${_epWdLetter(d)}</th>`).join('');
   const rows=_epPersons.map(p=>{
     const cells=days.map(d=>{
       const a=_epAbsenceFor(p,d), we=_epWeekend(d);
-      if(a){ const c=EP_ABS[a.type]||EP_ABS.abwesend; return `<td style="padding:1px;${we?'background:var(--surface2);':''}"><div title="${c[0]} ${a.from}–${a.to}" ${ro?'':`onclick="epAbsOpenForm('${p.id}','${a.id||''}','')"`} style="height:18px;background:${c[1]};border-radius:3px;cursor:${ro?'default':'pointer'};"></div></td>`; }
-      return `<td style="padding:1px;${we?'background:var(--surface2);':''}" ${ro?'':`onclick="epAbsOpenForm('${p.id}','','${d}')"`}><div style="height:18px;cursor:${ro?'default':'pointer'};"></div></td>`;
+      if(a){ const c=EP_ABS[a.type]||EP_ABS.abwesend; return `<td style="padding:1px;${we?'background:var(--surface2);':''}${todayMark(d)}"><div title="${c[0]} ${a.from}–${a.to}" ${ro?'':`onclick="epAbsOpenForm('${p.id}','${a.id||''}','')"`} style="height:18px;background:${c[1]};border-radius:3px;cursor:${ro?'default':'pointer'};"></div></td>`; }
+      return `<td style="padding:1px;${we?'background:var(--surface2);':''}${todayMark(d)}" ${ro?'':`onclick="epAbsOpenForm('${p.id}','','${d}')"`}><div style="height:18px;cursor:${ro?'default':'pointer'};"></div></td>`;
     }).join('');
     return `<tr style="border-top:1px solid var(--border);"><td style="padding:4px 10px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${dlEsc(p.name)}${p.funktion?` <span style="font-size:10px;color:var(--text3);">${dlEsc(p.funktion)}</span>`:''}</td>${cells}</tr>`;
   }).join('')||`<tr><td colspan="${days.length+1}" style="padding:18px;color:var(--text3);text-align:center;">Kein operatives Personal in diesem Mandanten.</td></tr>`;
@@ -8178,6 +8142,7 @@ function epAbsenceHtml(){
       <button class="btn btn-secondary" style="padding:4px 11px;font-size:14px;" onclick="epAbsShiftMonth(-1)">‹</button>
       <span style="font-size:14px;font-weight:700;min-width:130px;text-align:center;">${_epMonthLabel(_epAbsMonth)}</span>
       <button class="btn btn-secondary" style="padding:4px 11px;font-size:14px;" onclick="epAbsShiftMonth(1)">›</button>
+      <span style="font-size:12px;background:var(--surface2);padding:4px 11px;border-radius:99px;color:var(--text2);" title="Anwesend am oben gewählten Tag">Gewählter Tag: <b>${anw}/${_epPersons.length}</b> anwesend</span>
       ${ro?'':`<button class="btn btn-primary" style="font-size:12px;padding:5px 12px;" onclick="epAbsOpenForm('','','')">+ Abwesenheit</button>`}
       <span style="margin-left:auto;display:flex;gap:12px;align-items:center;">${legend}</span>
     </div>
@@ -8188,7 +8153,7 @@ function epAbsenceHtml(){
         <tbody>${rows}</tbody>
       </table>
     </div>
-    <div class="ep-foot">Klick auf einen freien Tag legt eine Abwesenheit an, Klick auf einen Balken bearbeitet/löscht ihn. Wirkt automatisch auf „Verfügbarkeit" und den Einsatzplan.</div>`;
+    <div class="ep-foot">Leere Zelle = anwesend. Klick auf einen freien Tag legt eine Abwesenheit an, Klick auf einen Balken bearbeitet/löscht ihn (auch kurzfristig „heute krank" = 1 Tag). Das verfügbare Personal im Einsatzplan ergibt sich automatisch hieraus.</div>`;
 }
 function epAbsOpenForm(personId, absId, prefillDate){
   if(!_epCanWrite()) return;
@@ -8294,7 +8259,7 @@ function renderEp(){
   root.innerHTML=`
     <div class="ep-top">
       <div class="ep-top-l"><div class="ep-title">Einsatzplaner</div>${orgSel}${projSel}${dateSel}</div>
-      <div class="ep-tabs">${tab('verfuegbar','Verfügbarkeit')}${tab('plan','Einsatzplan')}${tab('abwesenheiten','Abwesenheiten')}${tab('fuhrpark','Fuhrpark')}</div>
+      <div class="ep-tabs">${tab('plan','Einsatzplan')}${tab('abwesenheiten','Personal')}${tab('verfuegbar','Fahrzeuge')}${tab('fuhrpark','Fuhrpark')}</div>
     </div>
     <div class="ep-body">${_epTab==='verfuegbar'?epVerfuegbarHtml():_epTab==='plan'?epPlanHtml():_epTab==='abwesenheiten'?epAbsenceHtml():epFuhrparkHtml()}</div>`;
 }
@@ -9456,7 +9421,7 @@ Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,
   renderHandbuch,setHbTab,hbSearchDebounced,openHbImg,closeHbImg,
   dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
-  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epQuickAbsence,epQuickPresent,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,
+  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
   renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,_fillMerge,
