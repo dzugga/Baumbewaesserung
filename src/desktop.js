@@ -26,6 +26,42 @@ function addDoc(ref,data){ const p=ref.add(_injectOrg(ref,data)); _bumpUsage('wr
 function setDoc(ref,data,opts){ data=_injectOrg(ref,data); const p=opts?ref.set(data,opts):ref.set(data); _bumpUsage('writes',1,ref); return p; }
 function updateDoc(ref,data){ const p=ref.update(data); _bumpUsage('writes',1,ref); return p; }
 function deleteDoc(ref){ const p=ref.delete(); _bumpUsage('deletes',1,ref); return p; }
+// Sicherheits-Bestätigung vor dem Löschen: der Name muss exakt eingetippt werden (wie „Tour/Projekt löschen").
+// Aufruf: if(!await confirmByName({label:'Fahrer', name:p.name, warn:'…'})) return;
+// Ohne Namen (name leer) muss das Wort „LÖSCHEN" getippt werden. Vergleich getrimmt & ohne Groß/Kleinschreibung.
+function confirmByName(opts){
+  opts=opts||{};
+  const expected=(opts.name||'').trim();
+  const typed=expected||'LÖSCHEN';
+  const title=opts.title||((opts.label?opts.label+' ':'')+'löschen');
+  const warn=opts.warn||((opts.label?dlEsc(opts.label):'Der Eintrag')+' <b style="color:var(--text);">'+dlEsc(typed)+'</b> wird endgültig gelöscht. Das kann nicht rückgängig gemacht werden.');
+  return new Promise(resolve=>{
+    const modal=document.createElement('div');
+    modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100050;display:flex;align-items:center;justify-content:center;padding:20px;';
+    modal.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:400px;max-width:92vw;overflow:hidden;">
+      <div style="padding:18px 20px 10px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;color:var(--red);">⚠ ${dlEsc(title)}</div>
+      <div style="padding:14px 20px 6px;font-size:13px;color:var(--text2);line-height:1.6;">${warn}</div>
+      <div style="padding:6px 20px 10px;">
+        <input id="cbn-input" class="form-control" placeholder="${expected?'Name zur Bestätigung eingeben':'LÖSCHEN eingeben'}" style="border-color:var(--red-light,#f3b4b4);" autocomplete="off">
+        <div style="font-size:11px;color:var(--text3);margin-top:4px;">Gib <b>${dlEsc(typed)}</b> ein, um zu bestätigen.</div>
+      </div>
+      <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
+        <button id="cbn-cancel" style="padding:7px 16px;border:1.5px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;font-size:13px;font-weight:600;">Abbrechen</button>
+        <button id="cbn-ok" style="padding:7px 16px;border:none;border-radius:6px;background:var(--red);color:#fff;cursor:pointer;font-size:13px;font-weight:600;opacity:0.4;" disabled>${dlEsc(opts.confirmText||'Löschen')}</button>
+      </div>
+    </div>`;
+    document.body.appendChild(modal);
+    const input=modal.querySelector('#cbn-input'), ok=modal.querySelector('#cbn-ok');
+    const match=()=>input.value.trim().toLowerCase()===typed.toLowerCase();
+    input.oninput=()=>{ ok.disabled=!match(); ok.style.opacity=ok.disabled?'0.4':'1'; };
+    const done=v=>{ modal.remove(); resolve(v); };
+    modal.querySelector('#cbn-cancel').onclick=()=>done(false);
+    ok.onclick=()=>{ if(match()) done(true); };
+    input.onkeydown=e=>{ if(e.key==='Enter'&&match()) done(true); else if(e.key==='Escape') done(false); };
+    modal.onclick=e=>{ if(e.target===modal) done(false); };
+    setTimeout(()=>input.focus(),50);
+  });
+}
 function onSnapshot(ref,cb){ return ref.onSnapshot(snap=>{ try{ const n=snap.docChanges?snap.docChanges().length:1; _bumpUsage('reads',n||1,ref); }catch(_){ _bumpUsage('reads',1,ref); } cb(snap); }); }
 function serverTimestamp(){ return firebase.firestore.FieldValue.serverTimestamp(); }
 function query(ref,...constraints){ constraints.forEach(c=>{ if(typeof c==='function') c(ref); }); return ref; }
@@ -2572,7 +2608,7 @@ function refreshMediaViews(treeId){
 async function docDelete(treeId,idx){
   if(isReadonly()){ notify('Nur Lesezugriff'); return; }
   const tree=trees.find(t=>t.id===treeId); const d=tree?.dokumente?.[idx]; if(!d) return;
-  if(!confirm(`„${d.name||'Dokument'}" entfernen?${d.typ==='link'?'':' Die Datei wird endgültig gelöscht.'}`)) return;
+  if(!await confirmByName({title:'Dokument entfernen', label:'Dokument', name:d.name||'Dokument', confirmText:'Entfernen', warn:`Dokument <b style="color:var(--text);">${dlEsc(d.name||'Dokument')}</b> entfernen?${d.typ==='link'?'':' Die Datei wird endgültig gelöscht.'}`})) return;
   try{
     if(d.typ!=='link'){ try{ await storage.refFromURL(d.u).delete(); }catch(e){ if(e.code!=='storage/object-not-found') throw e; } }
     await db.collection('projects').doc(currentProjectId).collection('trees').doc(treeId)
@@ -2847,9 +2883,8 @@ async function deleteTree(id){
     return;
   }
   const tourCnt=getTreeTourIds(tree).length;
-  if(!confirm(`„${tree.name||'Objekt'}" ENDGÜLTIG löschen?\n\n`+
-    (tourCnt?`• Wird aus ${tourCnt} Tour(en) entfernt\n`:'')+
-    `• Kann nicht rückgängig gemacht werden`)) return;
+  if(!await confirmByName({title:'Objekt löschen', label:'Objekt', name:tree.name||'Objekt',
+    warn:`Objekt <b style="color:var(--text);">${dlEsc(tree.name||'Objekt')}</b> ENDGÜLTIG löschen?`+(tourCnt?`<br>Wird aus ${tourCnt} Tour(en) entfernt.`:'')+`<br><span style="color:var(--red);">Kann nicht rückgängig gemacht werden.</span>`})) return;
   setSyncState('syncing','Löscht…');
   try{
     await removeTreeFromRoutes(id);
@@ -3728,7 +3763,9 @@ function addWmsLayer(){
   if(scope==='org') saveOrgWms(list).then(done).catch(e=>notify(dlErr(e)));
   else { saveWmsLayers(list); done(); }
 }
-function deleteWmsLayer(scope,id){
+async function deleteWmsLayer(scope,id){
+  const lyr=getWmsLayers().find(l=>l._scope===scope && l.id===id);
+  if(!await confirmByName({title:'WMS-Ebene löschen', label:'WMS-Ebene', name:(lyr&&lyr.name)||'WMS-Ebene'})) return;
   if(editingWmsId===id) cancelWmsEdit();
   const list=getWmsLayers().filter(l=>l._scope===scope && l.id!==id);
   const done=()=>{ rebuildLayerControl(); renderWmsList(); notify(scope==='org'?'Stadt-Standard gelöscht':'WMS-Ebene gelöscht'); };
@@ -4328,7 +4365,7 @@ async function deleteArt(id){
   if(isReadonly()) return;
   const a=artenList.find(x=>x.id===id); if(!a) return;
   if((artCountById()[id]||0)>0){ notify('Nur löschbar bei Häufigkeit 0'); return; }
-  if(!confirm('„'+a.name+'" löschen?')) return;
+  if(!await confirmByName({label:'Art', name:a.name})) return;
   await deleteDoc(doc(db,'projects',currentProjectId,'arten',id));
   await loadArten(); renderArtenList();
   notify('✓ Gelöscht');
@@ -4400,7 +4437,7 @@ async function deleteListVal(fieldKey,id){
   if(isReadonly()) return;
   const e=(listValues[fieldKey]||[]).find(x=>x.id===id); if(!e) return;
   if(_treesUsing(fieldKey,e.label).length>0){ notify('Nur löschbar, wenn kein Objekt den Wert nutzt'); return; }
-  if(!confirm('„'+e.label+'" löschen?')) return;
+  if(!await confirmByName({label:'Wert', name:e.label})) return;
   listValues[fieldKey]=(listValues[fieldKey]||[]).filter(x=>x.id!==id);
   await saveListValues(); renderFieldCatalog(); notify('✓ Gelöscht');
 }
@@ -4434,7 +4471,7 @@ async function renameCustomField(key){
 async function removeCustomField(key){
   if(isReadonly()) return;
   const c=customFields.find(x=>x.key===key); if(!c) return;
-  if(!confirm(`Kundenfeld „${c.label}" entfernen? Die Werteliste wird gelöscht; bereits an Objekten gespeicherte Werte bleiben erhalten, das Feld wird ausgeblendet.`)) return;
+  if(!await confirmByName({title:'Kundenfeld entfernen', label:'Kundenfeld', name:c.label, confirmText:'Entfernen', warn:`Kundenfeld <b style="color:var(--text);">${dlEsc(c.label)}</b> entfernen? Die Werteliste wird gelöscht; bereits an Objekten gespeicherte Werte bleiben erhalten, das Feld wird ausgeblendet.`})) return;
   customFields=customFields.filter(x=>x.key!==key);
   delete listValues[key];
   _fieldDetailKey=null;
@@ -4506,7 +4543,7 @@ async function rankDelete(fieldKey,id){
   if(isReadonly()) return; _materializeRank(fieldKey);
   const e=listValues[fieldKey].find(x=>x.id===id); if(!e) return;
   if(_rankUseCount(fieldKey,id)>0){ notify('Nur löschbar, wenn kein Objekt den Wert nutzt'); return; }
-  if(!confirm('„'+e.label+'" löschen?')) return;
+  if(!await confirmByName({label:'Wert', name:e.label})) return;
   listValues[fieldKey]=listValues[fieldKey].filter(x=>x.id!==id);
   await saveListValues(); _afterRankChange(); notify('✓ Gelöscht');
 }
@@ -5661,12 +5698,12 @@ async function changeUserRole(uid,newRole){
   catch(e){ notify(fnErr(e)); renderUserMgmt(); }
 }
 async function deleteOrgUserUi(uid,email){
-  if(!confirm(`Konto „${email||uid}" endgültig löschen?\n\nDer Login wird entfernt. Erfasste Daten und Historie bleiben erhalten.`)) return;
+  if(!await confirmByName({title:'Konto löschen', label:'Konto', name:email||uid, warn:`Konto <b style="color:var(--text);">${dlEsc(email||uid)}</b> endgültig löschen? Der Login wird entfernt. Erfasste Daten und Historie bleiben erhalten.`})) return;
   try{ await dlFnCall('deleteOrgUser',{uid}); notify('✓ Konto gelöscht'); renderUserMgmt(); }
   catch(e){ notify(fnErr(e)); }
 }
 async function deleteDriverUi(driverId,name){
-  if(!confirm(`Fahrer „${name||driverId}" löschen?\n\nDer PIN-Login wird entfernt. Tour-Historie bleibt erhalten.`)) return;
+  if(!await confirmByName({title:'Person löschen', label:'Person', name:name||driverId, warn:`<b style="color:var(--text);">${dlEsc(name||driverId)}</b> löschen? Ein evtl. PIN-Login wird entfernt. Tour-Historie bleibt erhalten.`})) return;
   try{ await db.collection('drivers').doc(driverId).delete(); notify('✓ Fahrer gelöscht'); renderDriverLogins(); }
   catch(e){ notify(dlErr(e)); }
 }
@@ -5783,7 +5820,7 @@ async function addRole(){
 }
 async function deleteRole(key){
   if(BUILTIN_ROLES[key]){ notify('Vorlagen können nicht gelöscht werden'); return; }
-  if(!confirm(`Rolle „${rolesCache[key]?.name||key}" löschen?`)) return;
+  if(!await confirmByName({label:'Rolle', name:rolesCache[key]?.name||key})) return;
   try{ await rolesCol(rolesOrg()).doc(key).delete(); notify('✓ Rolle gelöscht'); renderRollenView(); }
   catch(e){ notify(dlErr(e)); }
 }
@@ -5927,6 +5964,8 @@ async function addReasonMgmt(){
 
 async function deleteReasonMgmt(id){
   if(!currentProjectId)return;
+  const r=reasons.find(x=>x.id===id);
+  if(!await confirmByName({title:'Grund löschen', label:'Grund', name:(r&&r.text)||'', confirmText:'Entfernen'})) return;
   await deleteDoc(doc(db,'projects',currentProjectId,'reasons',id));
   await loadReasons();
   renderReasonsMgmt();
@@ -5969,6 +6008,8 @@ async function addReason(){
 
 async function deleteReason(id){
   if(!currentProjectId)return;
+  const r=reasons.find(x=>x.id===id);
+  if(!await confirmByName({title:'Grund löschen', label:'Grund', name:(r&&r.text)||'', confirmText:'Entfernen'})) return;
   await deleteDoc(doc(db,'projects',currentProjectId,'reasons',id));
   await loadReasons();
 }
@@ -7030,23 +7071,10 @@ async function saveHistoryEdits(histId){
 }
 
 async function deleteHistoryEntry(histId){
-  const modal=document.createElement('div');
-  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;';
-  modal.innerHTML=`<div style="background:var(--surface);border-radius:var(--radius);padding:24px;width:340px;box-shadow:var(--shadow-md);">
-    <div style="font-size:15px;font-weight:600;margin-bottom:8px;">Eintrag löschen?</div>
-    <div style="font-size:13px;color:var(--text2);margin-bottom:20px;">Dieser historische Tour-Eintrag wird dauerhaft gelöscht.</div>
-    <div style="display:flex;gap:8px;justify-content:flex-end;">
-      <button id="dc" style="padding:7px 16px;border:1.5px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;font-weight:600;">Abbrechen</button>
-      <button id="dok" style="padding:7px 16px;border:none;border-radius:6px;background:var(--red);color:#fff;cursor:pointer;">Löschen</button>
-    </div>
-  </div>`;
-  document.body.appendChild(modal);
-  setTimeout(()=>modal.querySelector('#dc').focus(),50);
-  const ok=await new Promise(r=>{
-    modal.querySelector('#dc').onclick=()=>{modal.remove();r(false);};
-    modal.querySelector('#dok').onclick=()=>{modal.remove();r(true);};
-  });
-  if(!ok)return;
+  const h=historyCache[histId]||{};
+  const nm=h.tourName||h.name||'';
+  if(!await confirmByName({title:'Historien-Eintrag löschen', label:'Eintrag', name:nm,
+    warn:`Dieser historische Tour-Eintrag${nm?` (<b style="color:var(--text);">${dlEsc(nm)}</b>)`:''} wird dauerhaft gelöscht (Controlling-Daten gehen verloren).`})) return;
   await deleteDoc(doc(db,'projects',currentProjectId,'tourHistory',histId));
   delete historyCache[histId];
   document.getElementById('history-modal')?.remove();
@@ -7481,6 +7509,7 @@ async function addErfasser(){
 }
 
 async function removeErfasser(name){
+  if(!await confirmByName({title:'Erfasser entfernen', label:'Erfasser', name:name||'', confirmText:'Entfernen'})) return;
   const projSnap=await getDoc(doc(db,'projects',currentProjectId));
   const erfasser=(projSnap.data()?.erfasser||[]).filter(n=>n!==name);
   await updateDoc(doc(db,'projects',currentProjectId),{erfasser});
@@ -8362,7 +8391,7 @@ async function epPersonToggleActive(id, deactivate){
 async function epPersonDelete(id, name){
   const p=_epPersons.find(x=>x.id===id); if(!p) return;
   if(_epHasLogin(p)){ notify('Personen mit Login löscht der Superadmin (Admin → Benutzer).'); return; }
-  if(!confirm('„'+(name||'Person')+'" wirklich löschen?\n\nNur möglich, weil die Person keinen App-Login hat.')) return;
+  if(!await confirmByName({label:'Person', name:name||'Person', warn:`<b style="color:var(--text);">${dlEsc(name||'Person')}</b> wirklich löschen? Nur möglich, weil die Person keinen App-Login hat.`})) return;
   try{
     await db.collection('drivers').doc(id).delete();
     notify('Person gelöscht');
