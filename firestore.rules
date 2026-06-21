@@ -72,12 +72,27 @@ service cloud.firestore {
 
     // ----- Fahrer (Name + PIN-Hash) — PIN-Pruefung serverseitig -----
     match /drivers/{did} {
+      // "Person ohne Login": kein PIN-Hash, keine Rolle, noLogin==true → kostet keine Lizenz, gewaehrt keinen Zugang.
+      function isLoginless(d) {
+        return d.noLogin == true
+            && !('pinHash' in d) && !('pinSalt' in d)
+            && (!('role' in d) || d.role == '');
+      }
       allow read:   if canPlan(resource.data.orgId);   // Planer dürfen Namen lesen (Einsatzplaner/Tour-Besetzung); Hash ist scrypt
-      allow create: if canManage(request.resource.data.orgId);
-      // Admin: alles. Planer: nur Abwesenheiten (Urlaub/Krank-Zeiträume) im Einsatzplaner.
+      // Admin: alles. Planer/Einsatzleiter: NUR Login-lose Personen anlegen (nie PIN/Rolle → keine Rechteausweitung).
+      allow create: if canManage(request.resource.data.orgId)
+                    || (canPlan(request.resource.data.orgId) && isLoginless(request.resource.data));
+      // Admin: alles. Planer: (a) Abwesenheiten an JEDER Person (auch Login-Fahrer „krank"),
+      // ODER (b) Pflegefelder NUR an Login-losen Personen — Anmeldedaten/Rolle/noLogin bleiben unberührt (nicht in der Liste).
       allow update: if canManage(resource.data.orgId)
-                    || (canPlan(resource.data.orgId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['absences']));
-      allow delete: if canManage(resource.data.orgId);
+                    || (canPlan(resource.data.orgId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['absences']))
+                    || (canPlan(resource.data.orgId) && resource.data.noLogin == true
+                        && request.resource.data.diff(resource.data).affectedKeys()
+                             .hasOnly(['name','nameLower','funktion','einsatz','loginRequested','active','absences','notiz']));
+      // Admin: alles. Planer: nur Login-lose Personen loeschen.
+      allow delete: if canManage(resource.data.orgId)
+                    || (canPlan(resource.data.orgId) && resource.data.noLogin == true
+                        && !('pinHash' in resource.data) && !('pinSalt' in resource.data));
     }
 
     // ----- Verfügbarkeit Personal & Fahrzeuge je Mandant/Tag (Einsatzplaner) -----

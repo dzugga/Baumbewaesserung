@@ -5474,7 +5474,20 @@ async function renderDriverLogins(){
   try{ const qs=await db.collection('drivers').where('orgId','==',org).get(); qs.forEach(d=>drivers.push({id:d.id,...d.data()})); }catch(e){}
   drivers.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   let orgCode=''; try{ const os=await db.collection('orgs').doc(org).get(); if(os.exists) orgCode=os.data().code||''; }catch(e){}
-  body.innerHTML=`
+  const requested=drivers.filter(d=>d.loginRequested && !(!d.noLogin && (d.pinHash||d.role)));
+  const reqBanner=requested.length?`
+    <div style="border:1px solid #e9c46a;background:#fcefcb;border-radius:8px;padding:10px 12px;margin-bottom:12px;">
+      <div style="font-size:13px;font-weight:700;color:#9a6700;margin-bottom:6px;">🔑 ${requested.length} App-Login angefordert (vom Einsatzleiter)</div>
+      <div style="display:flex;flex-direction:column;gap:5px;">
+        ${requested.map(d=>`<div style="display:flex;align-items:center;gap:8px;font-size:12px;">
+          <span style="flex:1;min-width:120px;">${dlEsc(d.name)}${d.funktion?` <span style="color:var(--text3);">· ${dlEsc(d.funktion)}</span>`:''}</span>
+          <button class="btn btn-primary" style="padding:4px 10px;font-size:11px;" onclick="dlEditPin('${dlEsc(d.id)}')">PIN vergeben →</button>
+          <button class="btn btn-secondary" style="padding:4px 10px;font-size:11px;" onclick="dlDismissLoginRequest('${dlEsc(d.id)}')">Ablehnen</button>
+        </div>`).join('')}
+      </div>
+      <div style="font-size:11px;color:#9a6700;margin-top:6px;">„PIN vergeben" aktiviert den kostenpflichtigen Login. „Ablehnen" zieht die Anfrage zurück (Person bleibt ohne Login).</div>
+    </div>`:'';
+  body.innerHTML=reqBanner+`
     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border);">
       <span style="font-size:12px;font-weight:600;">Stadt-Code</span>
       <input id="dl-org-code" class="form-control" placeholder="z. B. RUESSEL" maxlength="12" value="${dlEsc(orgCode)}" style="width:140px;padding:5px 8px;font-size:12px;text-transform:uppercase;">
@@ -5509,7 +5522,7 @@ function dlRow(d){
     <span style="flex:1;min-width:120px;font-size:13px;${active?'':'color:var(--text3);text-decoration:line-through;'}">${dlEsc(d.name)}</span>
     <input value="${dlEsc(d.funktion||'')}" list="dl-funktionen" placeholder="Funktion" title="Funktion / Einsatzgruppe" onchange="setDriverFunktion('${dlEsc(d.id)}',this.value)" style="width:118px;font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-family:inherit;">
     <label style="font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--text2);" title="Im Einsatzplaner berücksichtigen"><input type="checkbox" ${inPlan?'checked':''} onchange="setDriverEinsatz('${dlEsc(d.id)}',this.checked)" style="margin:0;cursor:pointer;"> Einsatz</label>
-    ${hasLogin?roleSel:'<span style="font-size:10px;font-weight:700;color:var(--text3);background:var(--surface2);padding:2px 7px;border-radius:5px;">ohne Login</span>'}
+    ${hasLogin?roleSel:(d.loginRequested?'<span style="font-size:10px;font-weight:700;color:#9a6700;background:#fcefcb;padding:2px 7px;border-radius:5px;" title="App-Login vom Einsatzleiter angefordert">🔑 Login angefordert</span>':'<span style="font-size:10px;font-weight:700;color:var(--text3);background:var(--surface2);padding:2px 7px;border-radius:5px;">ohne Login</span>')}
     <span style="font-size:10px;font-weight:700;color:${active?'var(--green)':'var(--text3)'};">${active?'aktiv':'inaktiv'}</span>
     ${editing
       ? `<input id="dl-pin-${dlEsc(d.id)}" class="form-control" placeholder="neue PIN" inputmode="numeric" maxlength="6" style="width:110px;padding:4px 6px;font-size:12px;">
@@ -5552,7 +5565,11 @@ async function changeDriverRole(driverId,personRole){
 async function saveDriverPin(driverId){
   const pin=(document.getElementById('dl-pin-'+driverId)?.value||'').trim();
   if(!/^\d{6}$/.test(pin)){ notify('PIN muss 6-stellig sein'); return; }
-  try{ await dlFnCall('setDriverPin',{driverId,orgId:driverLoginsOrg,pin}); await db.collection('drivers').doc(driverId).set({noLogin:false},{merge:true}); dlPinEdit=null; notify('✓ PIN gesetzt — Person hat jetzt einen Login'); renderDriverLogins(); }
+  try{ await dlFnCall('setDriverPin',{driverId,orgId:driverLoginsOrg,pin}); await db.collection('drivers').doc(driverId).set({noLogin:false, loginRequested:false},{merge:true}); dlPinEdit=null; notify('✓ PIN gesetzt — Person hat jetzt einen Login'); renderDriverLogins(); }
+  catch(e){ notify(dlErr(e)); }
+}
+async function dlDismissLoginRequest(driverId){
+  try{ await db.collection('drivers').doc(driverId).set({loginRequested:false},{merge:true}); notify('Login-Anfrage zurückgezogen'); renderDriverLogins(); }
   catch(e){ notify(dlErr(e)); }
 }
 async function toggleDriverLoginActive(driverId,currentlyActive){
@@ -7892,6 +7909,8 @@ function _epVehAvail(v){ return _epVStatus(v.id)==='verfuegbar'; }
 function _epPersonInPlan(p){ if(typeof p.einsatz==='boolean') return p.einsatz; return !['superadmin','orgadmin','admin','planer'].includes(p.role||''); }
 // Läuft die Tour am gewählten Tag? (Besetzung sitzt an der Tour, belegt Ressourcen aber nur an deren Lauftagen.)
 function _epRunsOn(t){ return !!t && ((t.interval||'')==='bedarf' ? _tourInValidity(t,_epDate) : tourDueOn(t,_epDate)); }
+function _epPersonActive(p){ return !!p && p.active!==false; } // inaktive werden im Personal-Reiter grau gezeigt, aber nicht verplant
+function _epHasLogin(p){ return !!p && !p.noLogin && (p.pinHash || p.role); }
 function _epPersonName(id){ const p=_epPersons.find(x=>x.id===id); return p?p.name:id; }
 
 async function initEinsatzplaner(){
@@ -7910,7 +7929,7 @@ async function initEinsatzplaner(){
 async function epLoadOrgScope(){
   _epPersons=[]; _epVehicles=[]; _epProjects=[];
   if(!_epOrg) return;
-  try{ const qs=await db.collection('drivers').where('orgId','==',_epOrg).get(); _epPersons=qs.docs.map(d=>({id:d.id,...d.data()})).filter(p=>p.active!==false && _epPersonInPlan(p)).sort((a,b)=>(a.name||'').localeCompare(b.name||'')); }catch(e){ console.warn('ep drivers',e); }
+  try{ const qs=await db.collection('drivers').where('orgId','==',_epOrg).get(); _epPersons=qs.docs.map(d=>({id:d.id,...d.data()})).filter(p=>_epPersonInPlan(p)).sort((a,b)=>(a.name||'').localeCompare(b.name||'')); }catch(e){ console.warn('ep drivers',e); }
   try{ const os=await db.collection('orgs').doc(_epOrg).get(); const r=os.exists?os.data().dispoResources:null; _epVehicles=(Array.isArray(r)&&r.length)?r.map(x=>({...x})):DISPO_DEFAULT_RES.map(x=>({...x})); }catch(e){ _epVehicles=DISPO_DEFAULT_RES.map(x=>({...x})); }
   try{ const qs=await db.collection('projects').where('orgId','==',_epOrg).get(); _epProjects=qs.docs.map(d=>({id:d.id,name:d.data().name||d.id})).sort((a,b)=>a.name.localeCompare(b.name)); }catch(e){ console.warn('ep projects',e); }
   if(!_epProject || !_epProjects.find(p=>p.id===_epProject)) _epProject=(_epProjects.find(p=>p.id===currentProjectId)?.id)||_epProjects[0]?.id||'';
@@ -7982,7 +8001,7 @@ async function epApplyStandards(){
   if(!withStd.length){ notify('Für den gewählten Tag sind keine Standardbesetzungen hinterlegt.'); return; }
   if(!confirm('Heutige Besetzung mit den gespeicherten Standards überschreiben?\n\n'+withStd.length+' Touren · nur heute verfügbare Ressourcen werden gesetzt.')) return;
   const availVehIds=new Set(_epVehicles.filter(_epVehAvail).map(v=>v.id));
-  const availNames=new Set(_epPersons.filter(_epPersonAvail).map(p=>p.name));
+  const availNames=new Set(_epPersons.filter(p=>_epPersonActive(p)&&_epPersonAvail(p)).map(p=>p.name));
   let skipped=0;
   try{
     const usedNames=new Set(), usedVeh=new Set();
@@ -8103,7 +8122,7 @@ function epPlanHtml(){
   if(!_epProject) return '<div class="ep-empty">Kein Projekt vorhanden.</div>';
   if(!_epTours.length) return '<div class="ep-empty">Dieses Projekt hat keine (echten) Touren.</div>';
   const ro=!_epCanWrite();
-  const availVeh=_epVehicles.filter(_epVehAvail), availPers=_epPersons.filter(_epPersonAvail);
+  const availVeh=_epVehicles.filter(_epVehAvail), availPers=_epPersons.filter(p=>_epPersonActive(p)&&_epPersonAvail(p));
   // Nur die am gewählten Tag laufenden Touren belegen Personal/Fahrzeuge — an anderen Tagen ist die Ressource frei.
   const dueTours=_epTours.filter(t=>tourDueOn(t,_epDate));
   const bedarfTours=_epTours.filter(t=>t.interval==='bedarf' && _tourInValidity(t,_epDate));
@@ -8174,7 +8193,7 @@ function epOpenPicker(type, tid, btn){
   if(type==='driver'){
     const drivers=t.drivers||(t.assignedDriver?[t.assignedDriver]:[]);
     const elsewhere={}; _epTours.forEach(x=>{ if(x.id!==tid && _epRunsOn(x))(x.drivers||[]).forEach(n=>{ elsewhere[n]=x.name; }); }); // heute schon in anderer (laufender) Tour
-    items=_epPersons.filter(_epPersonAvail).filter(p=>!drivers.includes(p.name)).map(p=>({v:p.name, l:p.name, sub:p.funktion||'', right:elsewhere[p.name]?('in '+elsewhere[p.name]):'', warn:!!elsewhere[p.name], dis:!!elsewhere[p.name]}))
+    items=_epPersons.filter(p=>_epPersonActive(p)&&_epPersonAvail(p)).filter(p=>!drivers.includes(p.name)).map(p=>({v:p.name, l:p.name, sub:p.funktion||'', right:elsewhere[p.name]?('in '+elsewhere[p.name]):'', warn:!!elsewhere[p.name], dis:!!elsewhere[p.name]}))
       .sort((a,b)=>(a.dis?1:0)-(b.dis?1:0)||a.l.localeCompare(b.l));
   } else {
     const used={}; _epTours.forEach(x=>{ if(x.id!==tid && _epRunsOn(x) && x.vehicleId) used[x.vehicleId]=x.name; });
@@ -8215,7 +8234,9 @@ function epAbsenceHtml(){
   const ro=!_epCanWrite();
   const days=_epMonthDays(_epAbsMonth);
   const colW=Math.max(22, Math.floor(760/days.length));
-  const sel=_epDate, anw=_epPersons.filter(_epPersonAvail).length;
+  const activePersons=_epPersons.filter(_epPersonActive);
+  const sel=_epDate, anw=activePersons.filter(_epPersonAvail).length;
+  const reqCount=_epPersons.filter(p=>p.loginRequested && !_epHasLogin(p)).length;
   const todayMark=d=>d===sel?'box-shadow:inset 2px 0 0 #1d9e75,inset -2px 0 0 #1d9e75;':'';
   const headCells=days.map(d=>`<th style="padding:4px 0;font-weight:${d===sel?'700':'400'};font-size:9px;color:${d===sel?'#0f6e56':'var(--text3)'};${_epWeekend(d)?'background:var(--surface2);':''}${todayMark(d)}">${+d.slice(8)}<br>${_epWdLetter(d)}</th>`).join('');
   const rows=_epPersons.map(p=>{
@@ -8224,16 +8245,26 @@ function epAbsenceHtml(){
       if(a){ const c=EP_ABS[a.type]||EP_ABS.abwesend; return `<td style="padding:1px;${we?'background:var(--surface2);':''}${todayMark(d)}"><div title="${c[0]} ${a.from}–${a.to}" ${ro?'':`onclick="epAbsOpenForm('${p.id}','${a.id||''}','')"`} style="height:18px;background:${c[1]};border-radius:3px;cursor:${ro?'default':'pointer'};"></div></td>`; }
       return `<td style="padding:1px;${we?'background:var(--surface2);':''}${todayMark(d)}" ${ro?'':`onclick="epAbsOpenForm('${p.id}','','${d}')"`}><div style="height:18px;cursor:${ro?'default':'pointer'};"></div></td>`;
     }).join('');
-    return `<tr style="border-top:1px solid var(--border);"><td style="padding:4px 10px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${dlEsc(p.name)}${p.funktion?` <span style="font-size:10px;color:var(--text3);">${dlEsc(p.funktion)}</span>`:''}</td>${cells}</tr>`;
-  }).join('')||`<tr><td colspan="${days.length+1}" style="padding:18px;color:var(--text3);text-align:center;">Kein operatives Personal in diesem Mandanten.</td></tr>`;
+    const inactive=!_epPersonActive(p);
+    const badge=inactive
+      ? '<span style="font-size:9px;font-weight:700;color:var(--text3);background:var(--surface2);padding:1px 6px;border-radius:5px;">inaktiv</span>'
+      : (p.loginRequested && !_epHasLogin(p)
+          ? '<span style="font-size:9px;font-weight:700;color:#9a6700;background:#fcefcb;padding:1px 6px;border-radius:5px;" title="App-Login beim Superadmin angefordert">🔑 Login angefordert</span>'
+          : (_epHasLogin(p) ? '' : '<span style="font-size:9px;font-weight:700;color:var(--text3);background:var(--surface2);padding:1px 6px;border-radius:5px;">ohne Login</span>'));
+    const nameCell=ro
+      ? `${dlEsc(p.name)}${p.funktion?` <span style="font-size:10px;color:var(--text3);">${dlEsc(p.funktion)}</span>`:''} ${badge}`
+      : `<span onclick="epPersonOpenCard('${dlEsc(p.id)}')" title="Person verwalten" style="cursor:pointer;border-radius:5px;padding:1px 3px;">${dlEsc(p.name)}${p.funktion?` <span style="font-size:10px;color:var(--text3);">${dlEsc(p.funktion)}</span>`:''} ${badge}</span>`;
+    return `<tr style="border-top:1px solid var(--border);${inactive?'opacity:.5;':''}"><td style="padding:4px 10px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${nameCell}</td>${cells}</tr>`;
+  }).join('')||`<tr><td colspan="${days.length+1}" style="padding:18px;color:var(--text3);text-align:center;">Noch kein Personal in diesem Mandanten — oben „＋ Mitarbeiter".</td></tr>`;
   const legend=Object.values(EP_ABS).map(c=>`<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);"><span style="width:11px;height:11px;border-radius:3px;background:${c[1]};"></span>${c[0]}</span>`).join('');
   return `
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
       <button class="btn btn-secondary" style="padding:4px 11px;font-size:14px;" onclick="epAbsShiftMonth(-1)">‹</button>
       <span style="font-size:14px;font-weight:700;min-width:130px;text-align:center;">${_epMonthLabel(_epAbsMonth)}</span>
       <button class="btn btn-secondary" style="padding:4px 11px;font-size:14px;" onclick="epAbsShiftMonth(1)">›</button>
-      <span style="font-size:12px;background:var(--surface2);padding:4px 11px;border-radius:99px;color:var(--text2);" title="Anwesend am oben gewählten Tag">Gewählter Tag: <b>${anw}/${_epPersons.length}</b> anwesend</span>
-      ${ro?'':`<button class="btn btn-primary" style="font-size:12px;padding:5px 12px;" onclick="epAbsOpenForm('','','')">+ Abwesenheit</button>`}
+      <span style="font-size:12px;background:var(--surface2);padding:4px 11px;border-radius:99px;color:var(--text2);" title="Anwesend am oben gewählten Tag">Gewählter Tag: <b>${anw}/${activePersons.length}</b> anwesend</span>
+      ${ro?'':`<button class="btn btn-secondary" style="font-size:12px;padding:5px 12px;" onclick="epAbsOpenForm('','','')">+ Abwesenheit</button>
+      <button class="btn btn-primary" style="font-size:12px;padding:5px 12px;" onclick="epPersonOpenCard('')">+ Mitarbeiter</button>`}
       <span style="margin-left:auto;display:flex;gap:12px;align-items:center;">${legend}</span>
     </div>
     <div style="overflow-x:auto;border:1px solid var(--border);border-radius:10px;background:var(--surface);">
@@ -8243,7 +8274,100 @@ function epAbsenceHtml(){
         <tbody>${rows}</tbody>
       </table>
     </div>
-    <div class="ep-foot">Leere Zelle = anwesend. Klick auf einen freien Tag legt eine Abwesenheit an, Klick auf einen Balken bearbeitet/löscht ihn (auch kurzfristig „heute krank" = 1 Tag). Das verfügbare Personal im Einsatzplan ergibt sich automatisch hieraus.</div>`;
+    <div class="ep-foot">Klick auf einen <b>Namen</b> verwaltet die Person (umbenennen, Funktion, App-Login anfordern, deaktivieren/löschen). Klick auf eine <b>Tageszelle</b> setzt/bearbeitet eine Abwesenheit (auch „heute krank" = 1 Tag). „＋ Mitarbeiter" legt eine Person ohne Login an (kostenlos, sofort planbar). Den App-Login aktiviert nur der Superadmin.${reqCount?` · <b style="color:#9a6700;">${reqCount} Login-Anfrage${reqCount>1?'n':''} offen</b>`:''}</div>`;
+}
+// ── Person verwalten (Login-lose Mitarbeiter anlegen/pflegen; Login anfordern; deaktivieren/löschen) ──
+function epPersonOpenCard(personId){
+  if(!_epCanWrite()) return;
+  if(!_epOrg){ notify('Kein Mandant gewählt'); return; }
+  const p=personId?_epPersons.find(x=>x.id===personId):null;
+  const isNew=!p, hasLogin=_epHasLogin(p), inactive=p&&!_epPersonActive(p), requested=p&&p.loginRequested&&!hasLogin;
+  const canAdmin=(currentRole==='superadmin'||currentCap==='admin');
+  const readOnly=hasLogin&&!canAdmin; // Login-Personen darf nur der Admin umbenennen (Rules erzwingen das)
+  const orgName=(_epOrgs.find(o=>o.id===_epOrg)||{}).name||_epOrg;
+  const m=document.createElement('div');
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100001;display:flex;align-items:center;justify-content:center;padding:20px;';
+  const loginBox = isNew ? '' : (hasLogin
+    ? `<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#e7f3ea;border-radius:8px;"><span style="font-size:18px;">✓</span><div style="flex:1;font-size:12px;color:#15803d;">Hat einen App-Login. PIN/Deaktivierung verwaltet der Superadmin unter Admin → Benutzer.</div></div>`
+    : `<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:${requested?'#fcefcb':'var(--surface2)'};border-radius:8px;">
+        <span style="font-size:20px;">🔑</span>
+        <div style="flex:1;"><div style="font-size:13px;font-weight:700;color:${requested?'#9a6700':'var(--text)'};">${requested?'App-Login angefordert':'App-Login anfordern'}</div><div style="font-size:11px;color:var(--text3);">${requested?'Der Superadmin vergibt die PIN (kostenpflichtig).':'Meldet dem Superadmin: Person braucht einen Login.'}</div></div>
+        <button id="pc-req" class="btn ${requested?'btn-secondary':'btn-primary'}" style="padding:6px 12px;font-size:12px;">${requested?'Anfrage zurückziehen':'Anfordern'}</button>
+      </div>`);
+  const dangerRow = (isNew||hasLogin) ? '' : `<div style="display:flex;gap:8px;">
+      <button id="pc-active" class="btn btn-secondary" style="flex:1;padding:7px;font-size:12px;">${inactive?'Reaktivieren':'Deaktivieren'}</button>
+      <button id="pc-del" class="btn btn-secondary" style="flex:1;padding:7px;font-size:12px;color:#c0392b;">Löschen</button>
+    </div>`;
+  m.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:400px;max-width:94vw;overflow:hidden;">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;">${isNew?'Mitarbeiter anlegen':'Person verwalten'}<div style="font-size:11px;font-weight:400;color:var(--text3);margin-top:2px;">${dlEsc(orgName)}</div></div>
+    <div style="padding:16px 18px;display:flex;flex-direction:column;gap:12px;">
+      <label style="font-size:12px;color:var(--text3);">Name<input id="pc-name" class="form-control" style="width:100%;margin-top:3px;" value="${dlEsc(p?p.name:'')}" placeholder="Vor- und Nachname" ${readOnly?'readonly':''}></label>
+      <label style="font-size:12px;color:var(--text3);">Funktion / Einsatzgruppe<input id="pc-funktion" class="form-control" list="dl-funktionen" style="width:100%;margin-top:3px;" value="${dlEsc(p?p.funktion||'':'')}" placeholder="z. B. Fahrer, Kolonne 2" ${readOnly?'readonly':''}></label>
+      ${loginBox}
+      ${dangerRow}
+      <div style="font-size:11px;color:var(--text3);border-top:1px solid var(--border);padding-top:8px;">🔒 Kein PIN-Feld — den App-Login aktiviert ausschließlich der Superadmin (kostenpflichtig).</div>
+    </div>
+    <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
+      <button id="pc-cancel" class="btn btn-secondary" style="padding:7px 12px;">${readOnly?'Schließen':'Abbrechen'}</button>
+      ${readOnly?'':`<button id="pc-save" class="btn btn-primary" style="padding:7px 14px;">${isNew?'Anlegen':'Speichern'}</button>`}
+    </div>
+  </div>`;
+  document.body.appendChild(m);
+  const close=()=>m.remove();
+  m.addEventListener('click',e=>{ if(e.target===m) close(); });
+  m.querySelector('#pc-cancel').onclick=close;
+  const saveBtn=m.querySelector('#pc-save');
+  if(saveBtn) saveBtn.onclick=async()=>{
+    const name=(m.querySelector('#pc-name').value||'').trim();
+    const funktion=(m.querySelector('#pc-funktion').value||'').trim();
+    if(!name){ notify('Bitte Name eingeben'); return; }
+    close();
+    if(isNew) await epPersonCreate(name, funktion);
+    else await epPersonSave(p.id, name, funktion);
+  };
+  const reqBtn=m.querySelector('#pc-req'); if(reqBtn) reqBtn.onclick=()=>{ close(); epPersonRequestLogin(p.id, !requested); };
+  const actBtn=m.querySelector('#pc-active'); if(actBtn) actBtn.onclick=()=>{ close(); epPersonToggleActive(p.id, !inactive); };
+  const delBtn=m.querySelector('#pc-del'); if(delBtn) delBtn.onclick=()=>{ close(); epPersonDelete(p.id, p.name); };
+  setTimeout(()=>m.querySelector('#pc-name')?.focus(),0);
+}
+async function epPersonCreate(name, funktion){
+  if(!_epCanWrite()||!_epOrg) return;
+  try{
+    await db.collection('drivers').add({ orgId:_epOrg, name, nameLower:name.toLowerCase(), funktion, einsatz:true, noLogin:true, role:'', active:true, createdAt:firebase.firestore.FieldValue.serverTimestamp() });
+    notify('✓ „'+name+'" angelegt (ohne Login)');
+    await epLoadOrgScope(); renderEp();
+  }catch(e){ notify('Anlegen fehlgeschlagen: '+(e.message||e)); }
+}
+async function epPersonSave(id, name, funktion){
+  const p=_epPersons.find(x=>x.id===id); if(!p) return;
+  try{
+    await db.collection('drivers').doc(id).update({ name, nameLower:name.toLowerCase(), funktion });
+    p.name=name; p.nameLower=name.toLowerCase(); p.funktion=funktion; notify('✓ Gespeichert'); renderEp();
+  }catch(e){ notify('Speichern fehlgeschlagen: '+(e.message||e)); }
+}
+async function epPersonRequestLogin(id, want){
+  const p=_epPersons.find(x=>x.id===id); if(!p) return;
+  try{
+    await db.collection('drivers').doc(id).update({ loginRequested:!!want });
+    p.loginRequested=!!want; notify(want?'🔑 App-Login angefordert — der Superadmin vergibt die PIN':'Anfrage zurückgezogen'); renderEp();
+  }catch(e){ notify('Fehler: '+(e.message||e)); }
+}
+async function epPersonToggleActive(id, deactivate){
+  const p=_epPersons.find(x=>x.id===id); if(!p) return;
+  try{
+    await db.collection('drivers').doc(id).update({ active:!deactivate });
+    p.active=!deactivate; notify(deactivate?'Person deaktiviert':'Person reaktiviert'); renderEp();
+  }catch(e){ notify('Fehler: '+(e.message||e)); }
+}
+async function epPersonDelete(id, name){
+  const p=_epPersons.find(x=>x.id===id); if(!p) return;
+  if(_epHasLogin(p)){ notify('Personen mit Login löscht der Superadmin (Admin → Benutzer).'); return; }
+  if(!confirm('„'+(name||'Person')+'" wirklich löschen?\n\nNur möglich, weil die Person keinen App-Login hat.')) return;
+  try{
+    await db.collection('drivers').doc(id).delete();
+    notify('Person gelöscht');
+    await epLoadOrgScope(); renderEp();
+  }catch(e){ notify('Löschen fehlgeschlagen: '+(e.message||e)); }
 }
 function epAbsOpenForm(personId, absId, prefillDate){
   if(!_epCanWrite()) return;
@@ -9511,7 +9635,7 @@ Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,
   renderHandbuch,setHbTab,hbSearchDebounced,openHbImg,closeHbImg,
   dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
-  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,epWeekShift,epWeekThis,epTourCtx,epEditTour,_epCloseCtx,
+  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,epWeekShift,epWeekThis,epTourCtx,epEditTour,_epCloseCtx,epPersonOpenCard,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
   renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,_fillMerge,
@@ -9538,7 +9662,7 @@ Object.assign(window,{
   addWmsLayer,deleteWmsLayer,editWmsLayer,cancelWmsEdit,renderWmsList,
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,toggleTourCounts,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
-  renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,saveOrgCode,dlToggleNoLogin,setDriverFunktion,setDriverEinsatz,
+  renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,saveOrgCode,dlToggleNoLogin,setDriverFunktion,setDriverEinsatz,dlDismissLoginRequest,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
   renderRollenView,saveRole,addRole,deleteRole,toggleBenutzerRollen,toggleBenutzerTouren,changeBenutzerOrg,changeDtaProject,renderUsage,exportUsageCSV,
