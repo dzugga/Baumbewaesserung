@@ -8140,7 +8140,7 @@ function epWeekHtml(){
   const dueCount=days.map(d=>real.filter(t=>tourDueOn(t,d)).length);
   const a=_epWeekMon.split('-'), b=days[6].split('-');
   const rangeLbl='KW '+_epIsoWeek(_epWeekMon)+' · '+(+a[2])+'.'+(+a[1])+'.–'+(+b[2])+'.'+(+b[1])+'.'+b[0];
-  const head=days.map(d=>{ const we=_epWeekend(d), to=d===today; return `<th style="padding:6px 0;font-size:11px;font-weight:${to?'700':'400'};color:${to?'#0f6e56':'var(--text3)'};${we?'background:var(--surface2);':''}${to?'box-shadow:inset 0 -2px 0 #1d9e75;':''}">${_epWdLetter(d)}<br><span style="font-size:10px;">${+d.slice(8)}.${+d.slice(5,7)}.</span></th>`; }).join('');
+  const head=days.map(d=>{ const we=_epWeekend(d), to=d===today; return `<th style="padding:6px 0;font-size:11px;font-weight:${to?'700':'400'};color:${to?'#0f6e56':'var(--text3)'};background:${we?'var(--surface2)':'var(--surface)'};position:sticky;top:0;z-index:2;${to?'box-shadow:inset 0 -2px 0 #1d9e75;':''}">${_epWdLetter(d)}<br><span style="font-size:10px;">${+d.slice(8)}.${+d.slice(5,7)}.</span></th>`; }).join('');
   const rowFor=t=>{
     const col=t.color||'#888';
     const cnt=days.filter(d=>tourDueOn(t,d)).length;
@@ -8159,7 +8159,7 @@ function epWeekHtml(){
   const rows=shown.map(rowFor).join('')||`<tr><td colspan="${days.length+1}" style="padding:18px;text-align:center;color:var(--text3);">Diese Woche ist keine Tour fällig.</td></tr>`;
   const visCount=_epWeekQuery?shown.filter(t=>(((t.name||'Tour')+' '+_epIntervalLabel(t)).toLowerCase()).includes(_epWeekQuery)).length:shown.length;
   const countTxt=_epWeekQuery?`${visCount} / ${shown.length} Touren`:`${shown.length} Tour${shown.length===1?'':'en'}${(_epWeekHideEmpty&&emptyCount)?` (von ${real.length})`:' mit Rhythmus'}`;
-  const footCells=dueCount.map((c,i)=>`<td style="text-align:center;padding:7px 0;font-size:12px;font-weight:500;color:var(--text2);${_epWeekend(days[i])?'background:var(--surface2);':''}">${c||'–'}</td>`).join('');
+  const footCells=dueCount.map((c,i)=>`<td style="text-align:center;padding:7px 0;font-size:12px;font-weight:500;color:var(--text2);background:${_epWeekend(days[i])?'var(--surface2)':'var(--surface)'};border-top:2px solid var(--border);position:sticky;bottom:0;z-index:2;">${c||'–'}</td>`).join('');
   const bedarfNote=bedarf.length?`<div class="ep-foot" style="margin-top:10px;"><b>${bedarf.length} Bedarfstour${bedarf.length>1?'en':''}</b> ohne festen Rhythmus (${dlEsc(bedarf.map(t=>t.name||'Tour').join(', '))}) — erscheinen hier nicht, da sie nur bei Bedarf eingeplant werden.</div>`:'';
   return `
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
@@ -8171,12 +8171,12 @@ function epWeekHtml(){
       ${(emptyCount>0||!_epWeekHideEmpty)?`<button class="btn btn-secondary" style="font-size:12px;padding:5px 12px;" onclick="epWeekToggleEmpty()" title="Touren, die diese Woche nicht laufen">${_epWeekHideEmpty?`Ohne Termin einblenden${emptyCount?` (${emptyCount})`:''}`:'Ohne Termin ausblenden'}</button>`:''}
       <span id="ep-week-count" style="margin-left:auto;font-size:11px;color:var(--text3);">${countTxt}</span>
     </div>
-    <div style="overflow-x:auto;border:1px solid var(--border);border-radius:10px;background:var(--surface);">
+    <div style="overflow:auto;max-height:calc(100vh - 250px);border:1px solid var(--border);border-radius:10px;background:var(--surface);">
       <table style="width:100%;border-collapse:collapse;table-layout:fixed;min-width:560px;">
         <colgroup><col style="width:190px;">${days.map(()=>'<col>').join('')}</colgroup>
-        <thead><tr><th style="text-align:left;padding:6px 10px;font-size:10px;color:var(--text3);">Tour</th>${head}</tr></thead>
+        <thead><tr><th style="text-align:left;padding:6px 10px;font-size:10px;color:var(--text3);position:sticky;top:0;left:0;z-index:3;background:var(--surface);">Tour</th>${head}</tr></thead>
         <tbody id="ep-week-tbody">${rows}</tbody>
-        <tfoot><tr style="border-top:2px solid var(--border);"><td style="padding:7px 10px;font-size:10px;color:var(--text3);">fällige Touren</td>${footCells}</tr></tfoot>
+        <tfoot><tr><td style="padding:7px 10px;font-size:10px;color:var(--text3);border-top:2px solid var(--border);position:sticky;bottom:0;left:0;z-index:3;background:var(--surface);">fällige Touren</td>${footCells}</tr></tfoot>
       </table>
     </div>
     <div class="ep-foot">Gefüllte Zelle = die Tour ist an dem Tag fällig (aus Intervall, Startdatum und Gültigkeitszeiträumen der Tour). Wochenende grau hinterlegt, heute grün markiert.${cw?' · Rechtsklick auf eine Tour öffnet „Tour bearbeiten".':''}</div>
