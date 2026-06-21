@@ -74,7 +74,10 @@ service cloud.firestore {
     match /drivers/{did} {
       allow read:   if canPlan(resource.data.orgId);   // Planer dürfen Namen lesen (Einsatzplaner/Tour-Besetzung); Hash ist scrypt
       allow create: if canManage(request.resource.data.orgId);
-      allow update, delete: if canManage(resource.data.orgId);
+      // Admin: alles. Planer: nur Abwesenheiten (Urlaub/Krank-Zeiträume) im Einsatzplaner.
+      allow update: if canManage(resource.data.orgId)
+                    || (canPlan(resource.data.orgId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['absences']));
+      allow delete: if canManage(resource.data.orgId);
     }
 
     // ----- Verfügbarkeit Personal & Fahrzeuge je Mandant/Tag (Einsatzplaner) -----

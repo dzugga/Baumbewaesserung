@@ -7813,7 +7813,13 @@ let _epAvail={persons:{}, vehicles:{}}, _epSaveTimer=null;
 const EP_PSTATES=[['anwesend','Anwesend','#15803d','#e7f3ea'],['krank','Krank','#c0392b','#fbeaea'],['urlaub','Urlaub','#b45309','#fbf0df'],['abwesend','Abwesend','#5f5e5a','#eeece6']];
 const EP_VSTATES=[['verfuegbar','Verfügbar','#15803d','#e7f3ea'],['werkstatt','Werkstatt','#b45309','#fbf0df'],['ausgefallen','Ausgefallen','#c0392b','#fbeaea']];
 function _epToday(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
-function _epPStatus(id){ return _epAvail.persons[id]||'anwesend'; }
+let _epAbsMonth=''; // YYYY-MM für die Abwesenheits-Timeline
+const EP_ABS={urlaub:['Urlaub','#FAC775','#633806'], krank:['Krank','#F09595','#501313'], abwesend:['Abwesend','#B4B2A9','#2C2C2A']};
+// Abwesenheit (Zeitraum an der Person) für ein Datum → Status oder null
+function _epAbsenceFor(p,date){ if(!p||!Array.isArray(p.absences)) return null; return p.absences.find(a=>a&&a.from<=date&&a.to>=date)||null; }
+function _epAbsenceStatus(p){ const a=_epAbsenceFor(p,_epDate); return a?a.type:null; }
+// Tagesstatus = kurzfristiger Tages-Override (gewinnt) > abgeleitete Abwesenheit > anwesend
+function _epPStatus(id){ if(_epAvail.persons[id]) return _epAvail.persons[id]; const p=_epPersons.find(x=>x.id===id); return _epAbsenceStatus(p)||'anwesend'; }
 function _epVStatus(id){ return _epAvail.vehicles[id]||'verfuegbar'; }
 function _epPersonAvail(p){ return _epPStatus(p.id)==='anwesend'; }
 function _epVehAvail(v){ return _epVStatus(v.id)==='verfuegbar'; }
@@ -7867,7 +7873,7 @@ function epPersist(){
       .catch(e=>notify('Verfügbarkeit speichern fehlgeschlagen: '+(e.message||e)));
   },400);
 }
-function epSetPersonStatus(id,st){ if(!_epCanWrite())return; if(st==='anwesend') delete _epAvail.persons[id]; else _epAvail.persons[id]=st; epPersist(); renderEp(); }
+function epSetPersonStatus(id,st){ if(!_epCanWrite())return; const p=_epPersons.find(x=>x.id===id); const derived=_epAbsenceStatus(p)||'anwesend'; if(st===derived) delete _epAvail.persons[id]; else _epAvail.persons[id]=st; epPersist(); renderEp(); }
 function epSetVehicleStatus(id,st){ if(!_epCanWrite())return; if(st==='verfuegbar') delete _epAvail.vehicles[id]; else _epAvail.vehicles[id]=st; epPersist(); renderEp(); }
 function epAllPersons(st){ if(!_epCanWrite())return; if(st==='anwesend') _epAvail.persons={}; else _epPersons.forEach(p=>{ _epAvail.persons[p.id]=st; }); epPersist(); renderEp(); }
 
@@ -8045,6 +8051,93 @@ function epOpenPicker(type, tid, btn){
   input.onkeydown=e=>{ if(e.key==='Enter'){ const first=listEl.querySelector('.ep-picker-item:not(.dis)'); if(first) pick(first.dataset.v); } };
   setTimeout(()=>{ input.focus(); document.addEventListener('mousedown',_epPickerOutside,true); document.addEventListener('keydown',_epPickerKey,true); },0);
 }
+// ── Abwesenheiten (Zeiträume je Person) — eigener Reiter ──
+function _epMonthDays(ym){ const [y,m]=ym.split('-').map(Number); const n=new Date(y,m,0).getDate(); const out=[]; for(let d=1;d<=n;d++) out.push(ym+'-'+String(d).padStart(2,'0')); return out; }
+function _epWeekend(date){ const [Y,M,D]=date.split('-').map(Number); const wd=new Date(Y,M-1,D).getDay(); return wd===0||wd===6; }
+function _epWdLetter(date){ const [Y,M,D]=date.split('-').map(Number); return ['So','Mo','Di','Mi','Do','Fr','Sa'][new Date(Y,M-1,D).getDay()]; }
+function _epMonthLabel(ym){ const [y,m]=ym.split('-').map(Number); return ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'][m-1]+' '+y; }
+function epAbsShiftMonth(delta){ if(!_epAbsMonth) _epAbsMonth=_epDate.slice(0,7); let [y,m]=_epAbsMonth.split('-').map(Number); m+=delta; while(m<1){m+=12;y--;} while(m>12){m-=12;y++;} _epAbsMonth=y+'-'+String(m).padStart(2,'0'); renderEp(); }
+function epAbsenceHtml(){
+  if(!_epAbsMonth) _epAbsMonth=_epDate.slice(0,7);
+  const ro=!_epCanWrite();
+  const days=_epMonthDays(_epAbsMonth);
+  const colW=Math.max(22, Math.floor(760/days.length));
+  const headCells=days.map(d=>`<th style="padding:4px 0;font-weight:400;font-size:9px;color:var(--text3);${_epWeekend(d)?'background:var(--surface2);':''}">${+d.slice(8)}<br>${_epWdLetter(d)}</th>`).join('');
+  const rows=_epPersons.map(p=>{
+    const cells=days.map(d=>{
+      const a=_epAbsenceFor(p,d), we=_epWeekend(d);
+      if(a){ const c=EP_ABS[a.type]||EP_ABS.abwesend; return `<td style="padding:1px;${we?'background:var(--surface2);':''}"><div title="${c[0]} ${a.from}–${a.to}" ${ro?'':`onclick="epAbsOpenForm('${p.id}','${a.id||''}','')"`} style="height:18px;background:${c[1]};border-radius:3px;cursor:${ro?'default':'pointer'};"></div></td>`; }
+      return `<td style="padding:1px;${we?'background:var(--surface2);':''}" ${ro?'':`onclick="epAbsOpenForm('${p.id}','','${d}')"`}><div style="height:18px;cursor:${ro?'default':'pointer'};"></div></td>`;
+    }).join('');
+    return `<tr style="border-top:1px solid var(--border);"><td style="padding:4px 10px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${dlEsc(p.name)}${p.funktion?` <span style="font-size:10px;color:var(--text3);">${dlEsc(p.funktion)}</span>`:''}</td>${cells}</tr>`;
+  }).join('')||`<tr><td colspan="${days.length+1}" style="padding:18px;color:var(--text3);text-align:center;">Kein operatives Personal in diesem Mandanten.</td></tr>`;
+  const legend=Object.values(EP_ABS).map(c=>`<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);"><span style="width:11px;height:11px;border-radius:3px;background:${c[1]};"></span>${c[0]}</span>`).join('');
+  return `
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+      <button class="btn btn-secondary" style="padding:4px 11px;font-size:14px;" onclick="epAbsShiftMonth(-1)">‹</button>
+      <span style="font-size:14px;font-weight:700;min-width:130px;text-align:center;">${_epMonthLabel(_epAbsMonth)}</span>
+      <button class="btn btn-secondary" style="padding:4px 11px;font-size:14px;" onclick="epAbsShiftMonth(1)">›</button>
+      ${ro?'':`<button class="btn btn-primary" style="font-size:12px;padding:5px 12px;" onclick="epAbsOpenForm('','','')">+ Abwesenheit</button>`}
+      <span style="margin-left:auto;display:flex;gap:12px;align-items:center;">${legend}</span>
+    </div>
+    <div style="overflow-x:auto;border:1px solid var(--border);border-radius:10px;background:var(--surface);">
+      <table style="width:100%;border-collapse:collapse;table-layout:fixed;min-width:${124+days.length*colW}px;">
+        <colgroup><col style="width:124px;">${days.map(()=>`<col style="width:${colW}px;">`).join('')}</colgroup>
+        <thead><tr><th style="text-align:left;padding:6px 10px;font-size:10px;color:var(--text3);">Person</th>${headCells}</tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    <div class="ep-foot">Klick auf einen freien Tag legt eine Abwesenheit an, Klick auf einen Balken bearbeitet/löscht ihn. Wirkt automatisch auf „Verfügbarkeit" und den Einsatzplan.</div>`;
+}
+function epAbsOpenForm(personId, absId, prefillDate){
+  if(!_epCanWrite()) return;
+  let pers=personId?_epPersons.find(p=>p.id===personId):null;
+  let abs=(absId&&pers)?(pers.absences||[]).find(a=>a.id===absId):null;
+  const today=_epToday();
+  const from=abs?abs.from:(prefillDate||today), to=abs?abs.to:(prefillDate||today), type=abs?abs.type:'urlaub';
+  const m=document.createElement('div');
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100001;display:flex;align-items:center;justify-content:center;padding:20px;';
+  m.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:380px;max-width:94vw;overflow:hidden;">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;">${abs?'Abwesenheit bearbeiten':'Abwesenheit eintragen'}</div>
+    <div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px;">
+      <label style="font-size:12px;color:var(--text3);">Person<select id="abf-person" class="form-control" style="width:100%;margin-top:3px;" ${personId?'disabled':''}>${_epPersons.map(p=>`<option value="${dlEsc(p.id)}"${p.id===personId?' selected':''}>${dlEsc(p.name)}</option>`).join('')}</select></label>
+      <label style="font-size:12px;color:var(--text3);">Typ<select id="abf-type" class="form-control" style="width:100%;margin-top:3px;">${Object.entries(EP_ABS).map(([k,c])=>`<option value="${k}"${k===type?' selected':''}>${c[0]}</option>`).join('')}</select></label>
+      <div style="display:flex;gap:10px;">
+        <label style="font-size:12px;color:var(--text3);flex:1;">von<input id="abf-from" type="date" class="form-control" value="${from}" style="width:100%;margin-top:3px;"></label>
+        <label style="font-size:12px;color:var(--text3);flex:1;">bis<input id="abf-to" type="date" class="form-control" value="${to}" style="width:100%;margin-top:3px;"></label>
+      </div>
+    </div>
+    <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:space-between;align-items:center;">
+      <div>${abs?`<button id="abf-del" class="btn btn-danger" style="padding:7px 12px;">Löschen</button>`:''}</div>
+      <div style="display:flex;gap:8px;"><button id="abf-cancel" class="btn btn-secondary" style="padding:7px 12px;">Abbrechen</button><button id="abf-save" class="btn btn-primary" style="padding:7px 14px;">Speichern</button></div>
+    </div>
+  </div>`;
+  document.body.appendChild(m);
+  const close=()=>m.remove();
+  m.addEventListener('click',e=>{ if(e.target===m) close(); });
+  m.querySelector('#abf-cancel').onclick=close;
+  if(abs) m.querySelector('#abf-del').onclick=()=>{ close(); epAbsDelete(personId, absId); };
+  m.querySelector('#abf-save').onclick=async()=>{
+    const pid=personId||m.querySelector('#abf-person').value;
+    const t=m.querySelector('#abf-type').value, f=m.querySelector('#abf-from').value, tt=m.querySelector('#abf-to').value;
+    if(!pid||!f||!tt){ notify('Bitte Person und Zeitraum angeben'); return; }
+    if(tt<f){ notify('„bis" liegt vor „von"'); return; }
+    close();
+    await epAbsSave(pid, {id:absId||('a'+Math.random().toString(36).slice(2,8)), type:t, from:f, to:tt});
+  };
+}
+async function epAbsSave(personId, entry){
+  const p=_epPersons.find(x=>x.id===personId); if(!p) return;
+  const list=(Array.isArray(p.absences)?p.absences.filter(a=>a.id!==entry.id):[]).concat([entry]);
+  try{ await db.collection('drivers').doc(personId).update({absences:list}); p.absences=list; notify('✓ Abwesenheit gespeichert'); renderEp(); }
+  catch(e){ notify('Fehler: '+(e.message||e)); }
+}
+async function epAbsDelete(personId, absId){
+  const p=_epPersons.find(x=>x.id===personId); if(!p) return;
+  const list=(p.absences||[]).filter(a=>a.id!==absId);
+  try{ await db.collection('drivers').doc(personId).update({absences:list}); p.absences=list; notify('Abwesenheit gelöscht'); renderEp(); }
+  catch(e){ notify('Fehler: '+(e.message||e)); }
+}
 // Drag & Drop: Pool-Chip auf eine Tourzeile ziehen
 let _epDrag=null;
 function epDragStart(e,type,val){ _epDrag={type,val}; try{ e.dataTransfer.setData('text/plain',type+':'+val); e.dataTransfer.effectAllowed='copy'; }catch(_){ } }
@@ -8100,9 +8193,9 @@ function renderEp(){
   root.innerHTML=`
     <div class="ep-top">
       <div class="ep-top-l"><div class="ep-title">Einsatzplaner</div>${orgSel}${projSel}${dateSel}</div>
-      <div class="ep-tabs">${tab('verfuegbar','Verfügbarkeit')}${tab('plan','Einsatzplan')}${tab('fuhrpark','Fuhrpark')}</div>
+      <div class="ep-tabs">${tab('verfuegbar','Verfügbarkeit')}${tab('plan','Einsatzplan')}${tab('abwesenheiten','Abwesenheiten')}${tab('fuhrpark','Fuhrpark')}</div>
     </div>
-    <div class="ep-body">${_epTab==='verfuegbar'?epVerfuegbarHtml():_epTab==='plan'?epPlanHtml():epFuhrparkHtml()}</div>`;
+    <div class="ep-body">${_epTab==='verfuegbar'?epVerfuegbarHtml():_epTab==='plan'?epPlanHtml():_epTab==='abwesenheiten'?epAbsenceHtml():epFuhrparkHtml()}</div>`;
 }
 function dispoGetResources(){
   return (Array.isArray(currentDispoResources)&&currentDispoResources.length)
@@ -9262,7 +9355,7 @@ Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,
   renderHandbuch,setHbTab,hbSearchDebounced,openHbImg,closeHbImg,
   dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
-  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetPersonStatus,epSetVehicleStatus,epAllPersons,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epOpenPicker,epDragStart,epDragOver,epDrop,epVehField,epVehAdd,epVehRemove,epVehSave,
+  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetPersonStatus,epSetVehicleStatus,epAllPersons,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
   renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,_fillMerge,
