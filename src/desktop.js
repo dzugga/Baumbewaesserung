@@ -7920,11 +7920,14 @@ async function epApplyStandards(){
   const availNames=new Set(_epPersons.filter(_epPersonAvail).map(p=>p.name));
   let skipped=0;
   try{
+    const usedNames=new Set(), usedVeh=new Set();
     const batch=db.batch();
     withStd.forEach(t=>{
-      const veh=(t.stdVehicleId&&availVehIds.has(t.stdVehicleId))?t.stdVehicleId:'';
+      const veh=(t.stdVehicleId&&availVehIds.has(t.stdVehicleId)&&!usedVeh.has(t.stdVehicleId))?t.stdVehicleId:'';
+      if(veh) usedVeh.add(veh);
       const vehName=veh?((_epVehicles.find(v=>v.id===veh)||{}).name||''):'';
-      const drivers=(t.stdDrivers||[]).filter(n=>availNames.has(n));
+      const drivers=(t.stdDrivers||[]).filter(n=>availNames.has(n)&&!usedNames.has(n));
+      drivers.forEach(n=>usedNames.add(n));
       if((t.stdVehicleId&&!veh)||((t.stdDrivers||[]).length>drivers.length)) skipped++;
       batch.update(db.collection('projects').doc(_epProject).collection('tours').doc(t.id), {vehicleId:veh, vehicleName:vehName, drivers, assignedDriver:drivers[0]||''});
       t.vehicleId=veh; t.vehicleName=vehName; t.drivers=drivers; t.assignedDriver=drivers[0]||'';
@@ -7976,8 +7979,14 @@ function epPlanHtml(){
     const vehOk=!t.vehicleId || availVeh.find(v=>v.id===t.vehicleId);
     const badVeh=t.vehicleId && !vehOk;
     const driverChips=drivers.length?drivers.map((n,i)=>{
-      const sick=!availPers.find(p=>p.name===n) && _epPersons.find(p=>p.name===n); // Person existiert, aber heute nicht anwesend
-      return `<span class="ep-chip${sick?' warn':''}">${dlEsc(n)}${ro?'':`<i onclick="epRemoveDriver('${t.id}',${i})">×</i>`}</span>`;
+      const pp=_epPersons.find(x=>x.name===n);
+      const stat=pp?_epPStatus(pp.id):'anwesend';
+      const unavail=!!pp && stat!=='anwesend';
+      const dup=(load[n]||0)>1;
+      const reason=unavail?((EP_PSTATES.find(s=>s[0]===stat)||[])[1]||'nicht verfügbar'):(dup?'doppelt':'');
+      const bad=unavail||dup;
+      const tip=n+(unavail?' — heute '+reason:(dup?' — an diesem Tag in mehreren Touren verplant':''));
+      return `<span class="ep-chip${bad?' warn':''}" title="${dlEsc(tip)}">${dlEsc(n)}${bad?` <span class="ep-chip-r">${dlEsc(reason)}</span>`:''}${ro?'':`<i onclick="epRemoveDriver('${t.id}',${i})">×</i>`}</span>`;
     }).join(''):'';
     const vehSel=ro
       ? (t.vehicleName?`<span class="ep-chip${badVeh?' warn':''}">${dlEsc(t.vehicleName)}</span>`:'<span class="ep-dash">–</span>')
