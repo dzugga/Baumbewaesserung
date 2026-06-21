@@ -181,6 +181,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .modal-header{padding:16px 20px 12px;border-bottom:1px solid var(--border);font-size:15px;font-weight:600;display:flex;align-items:center;gap:10px}
 .modal-body{padding:16px 20px;overflow-y:auto;flex:1}
 .modal-footer{padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end}
+#tour-modal .modal-body{display:grid;grid-template-columns:1fr 1fr;gap:0 22px;align-content:start}
+#tour-modal .form-group.tm-full{grid-column:1 / -1}
+@media (max-width:620px){#tour-modal .modal-body{grid-template-columns:1fr}}
 
 /* ── MISC ───────────────────────────────────── */
 .view{display:none;flex:1;overflow:hidden;flex-direction:column;}
@@ -775,7 +778,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 
 <!-- TOUR MODAL -->
 <div class="modal-backdrop" id="tour-modal">
-  <div class="modal" style="width:400px;">
+  <div class="modal" style="width:740px;max-width:95vw;max-height:92vh;">
     <div class="modal-header">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
       <span id="tour-modal-title">Neue Tour</span>
@@ -784,8 +787,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <div class="modal-body">
       <div class="form-group"><label class="form-label">Tourname *</label><input class="form-control" id="t-name" placeholder="z.B. Nordpark"></div>
       <div class="form-group"><label class="form-label">Beschreibung</label><input class="form-control" id="t-desc" placeholder="Kurze Beschreibung"></div>
-      <div class="form-group"><label class="form-label">Farbe</label><div class="color-swatches" id="color-swatches"></div></div>
-      <div class="form-group">
+      <div class="form-group tm-full"><label class="form-label">Farbe</label><div class="color-swatches" id="color-swatches"></div></div>
+      <div class="form-group tm-full">
         <label class="form-label">Rhythmus &amp; Gültigkeit</label>
         <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;">
           <div>
@@ -822,12 +825,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         </div>
         <div style="font-size:11px;color:var(--text3);margin-top:3px;">Geplante Schicht-/Arbeitszeit dieser Tour — Basis der Restzeitberechnung. Leer = keine Restzeit.</div>
       </div>
-      <div class="form-group">
+      <div class="form-group tm-full">
         <label class="form-label">Zusatztätigkeiten <span style="font-weight:400;color:var(--text3);">(Pause, Rüstzeit …)</span></label>
         <div id="t-zusatz-list" style="display:flex;flex-direction:column;gap:5px;"></div>
         <button type="button" class="btn btn-secondary" style="margin-top:6px;padding:4px 10px;font-size:12px;" onclick="tourZusatzAdd()">+ Tätigkeit</button>
       </div>
-      <div class="form-group">
+      <div class="form-group tm-full">
         <details id="t-regeln-details">
           <summary style="cursor:pointer;font-size:13px;font-weight:600;color:var(--text);outline:none;">Zuordnungsregeln <span id="t-regeln-count" style="font-weight:400;color:var(--text3);"></span></summary>
           <div style="font-size:11px;color:var(--text3);margin:6px 0 8px;line-height:1.5;">Lege fest, welche Objekte in diese Tour dürfen. Pro Feld die erlaubten Werte anklicken — nichts ausgewählt = alle erlaubt. Beim Zuweisen unpassender Objekte erscheint eine Warnung mit „Trotzdem zuweisen". Bestehende Zuordnungen bleiben bei Regeländerung erhalten (werden nur markiert).</div>
