@@ -597,8 +597,10 @@ async function openProject(projectId){
   loadListValues();
   applyModulePermissions(); // Reiter-Sichtbarkeit projektscharf neu setzen (projects.modules)
   // Ist die offene Ansicht im neuen Projekt abgeschaltet → zurück zur Karte
-  { const vm={disposition:'disposition',controlling:'controlling',ki:'ki',dashboard:'dashboard',baeume:'objekte',touren:'touren',wmskarten:'wms',verwaltung:'verwaltung'}[currentView];
+  { const vm={disposition:'disposition',controlling:'controlling',ki:'ki',dashboard:'dashboard',baeume:'objekte',touren:'touren',wmskarten:'wms',verwaltung:'verwaltung',einsatzplaner:'einsatzplaner'}[currentView];
     if(vm && !canUseModule(vm)) switchView('karte'); }
+  // Einsatzplaner folgt dem global geöffneten Projekt: eigene Mandant/Projekt-Auswahl neu auf das offene Projekt setzen
+  if(currentView==='einsatzplaner'){ _epOrg=''; _epProject=''; initEinsatzplaner(); }
   applyClusterMode(_effectiveCluster(), false); // Marker-Zielebene fürs Projekt (vor erstem Marker-Render) — Cluster nur ohne Tour-Auswahl
   await loadOrgSettings(); // KI-Modus + ORS-Key + WMS + Dispo dieser Stadt (1 Org-Read) — vor dem Kartenaufbau
   rebuildLayerControl(); // WMS-Kartenebenen der Stadt laden
