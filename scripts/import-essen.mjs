@@ -114,26 +114,37 @@ const shp = readShp(`${SHP_DIR}/reinigungsflaechen.shp`);
 const plan = readXlsx(XLSX_DIR);
 if (dbf.length !== shp.length) console.warn('⚠ DBF/SHP Anzahl ungleich:', dbf.length, shp.length);
 
-const features = [], docs = [];
-let withPlan = 0, sumM2 = 0;
+// Aggregation je Objektnummer (Anlage): mehrere Polygone → EIN MultiPolygon + EIN Datensatz
+const groups = {};
 for (let i = 0; i < dbf.length; i++) {
   const d = dbf[i], g = shp[i]; if (!g) continue;
-  const pl = plan[d.objektnummer] || null; if (pl) withPlan++;
-  sumM2 += g.m2;
+  const on = (d.objektnummer && d.objektnummer.trim()) || ('X-' + d.extId); // ohne Objektnr. → Einzel-Anlage
+  let gr = groups[on];
+  if (!gr) gr = groups[on] = { d, polys: [], m2: 0, belag: new Set(), n: 0 };
+  gr.polys.push(g.rings); gr.m2 += g.m2; gr.n++;
+  if (d.belag) gr.belag.add(d.belag);
+  if (!gr.d.name && d.name) gr.d = d; // Datensatz mit Namen bevorzugen
+}
+
+const features = [], docs = [];
+let withPlan = 0, sumM2 = 0;
+for (const on of Object.keys(groups)) {
+  const gr = groups[on], d = gr.d;
+  const onClean = (d.objektnummer && d.objektnummer.trim()) || '';
+  const pl = (onClean && plan[onClean]) || null; if (pl) withPlan++;
+  sumM2 += gr.m2;
   const props = {
-    extId: d.extId, geomType: 'flaeche', einheit: 'm2', menge: g.m2,
-    name: d.name || pl?.objektbemerkung || ('Fläche ' + d.objektnummer),
-    belag: d.belag, objektart: d.objektart, stadtteil: d.stadtteil,
-    objektnummer: d.objektnummer, pflegeeinheit: d.pflegeeinheit,
+    extId: on, geomType: 'flaeche', einheit: 'm2', menge: Math.round(gr.m2), teilflaechen: gr.n,
+    name: d.name || pl?.objektbemerkung || ('Anlage ' + onClean),
+    belag: [...gr.belag].join(', '), objektart: d.objektart, stadtteil: d.stadtteil,
+    objektnummer: onClean, pflegeeinheit: d.pflegeeinheit,
     reinigungsflaecheListe: pl?.reinigungsflaecheListe ?? null,
     betriebshof: pl?.betriebshof || '', fahrzeug: pl?.fahrzeug || '',
     sommerTage: pl?.sommerTage || '', winterTage: pl?.winterTage || '',
     haeufigkeitS: pl?.haeufigkeitS || '', haeufigkeitW: pl?.haeufigkeitW || '',
     hatPlan: !!pl,
   };
-  // Bundle-Feature: Geometrie + props (statisch)
-  features.push({ type: 'Feature', geometry: { type: 'Polygon', coordinates: g.rings }, properties: { extId: d.extId } });
-  // Firestore-Doc: leicht, ohne Geometrie
+  features.push({ type: 'Feature', geometry: { type: 'MultiPolygon', coordinates: gr.polys }, properties: { extId: on } });
   docs.push(props);
 }
 
@@ -143,7 +154,8 @@ writeFileSync(`${OUT_DIR}/essen-flaechen-docs.json`, JSON.stringify(docs));
 
 const fmt = n => n.toLocaleString('de-DE');
 console.log('\n================ ERGEBNIS ================');
-console.log('Flächen gesamt:        ', fmt(docs.length));
+console.log('Polygone eingelesen:   ', fmt(dbf.length));
+console.log('Anlagen (aggregiert):  ', fmt(docs.length));
 console.log('mit Reinigungsplan:    ', fmt(withPlan), '(' + Math.round(withPlan / docs.length * 100) + '%)');
 console.log('ohne Plan:             ', fmt(docs.length - withPlan));
 console.log('Gesamtfläche (m²):     ', fmt(sumM2));

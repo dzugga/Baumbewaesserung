@@ -2367,6 +2367,7 @@ function openDetail(id){
     ${geomTypeOf(tree)==='flaeche'?`
     <div class="form-section">Reinigungsplan</div>
     ${drow('Belag',tree.belag)}
+    ${tree.teilflaechen>1?drow('Teilflächen',tree.teilflaechen):''}
     ${drow('Objektart',tree.objektart)}
     ${drow('Objektnummer',tree.objektnummer)}
     ${drow('Betriebshof',tree.betriebshof)}
