@@ -1,4 +1,5 @@
 import { initAppCheck } from './appcheck.js';
+import { installErrorHandler } from './errlog.js'; installErrorHandler('einsatzleiter');
 import { BASEMAP_FARBE, BASEMAP_ATTR } from './basemaps.js';
 import { firebaseConfig } from './firebase-config.js';
 import { esc } from './esc.js';

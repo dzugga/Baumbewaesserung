@@ -62,6 +62,14 @@ service cloud.firestore {
       allow delete:        if isSuper();
     }
 
+    // ----- Fehler-Protokoll (globaler Fehler-Handler) — best-effort, nur Admin liest -----
+    match /errors/{eid} {
+      allow create: if signedIn();                       // jeder Eingeloggte darf seinen Laufzeitfehler melden
+      allow read:   if isSuper() || cap() == 'admin';
+      allow update: if false;                            // unveränderlich
+      allow delete: if isSuper();
+    }
+
     // ----- Nutzerprofile (Admin-UI; massgeblich sind die Claims) -----
     match /users/{uid} {
       allow read:   if signedIn() && (request.auth.uid == uid || inOrg(resource.data.orgId));

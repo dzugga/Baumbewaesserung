@@ -2,6 +2,7 @@
 const APP_VERSION = '1.0';
 
 import { HANDBUCH } from './handbuch-daten.js';
+import { installErrorHandler } from './errlog.js'; installErrorHandler('desktop');
 import { SI_DSGVO, SI_STACK, SI_REGIONEN, SI_APPS, SI_SICHERHEIT, SI_DIENSTE } from './systeminfo-daten.js';
 import { initAppCheck } from './appcheck.js';
 import { basemapLayer, BASEMAP_FARBE, BASEMAP_GRAU, BASEMAP_ATTR } from './basemaps.js';
