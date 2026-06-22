@@ -1551,19 +1551,25 @@ function refreshMarkers(){
 
 // ── Flächen-Geometrie (Phase 1): Bundle aus Storage laden + als Canvas-Polygone rendern ──
 let _flaechenLayer=null, _flaechenLayerKey='', _flaechenBundle=null, _flaechenBundleKey='', _flaechenBusy=false, _flaechenByExt={}, _flaechenSelExt='';
-function _flStyleFor(extId){ const t=trees.find(x=>x.extId===extId); const col=(t&&primaryTour(t)?.color)||'#3B6D11'; return { color:col, weight:1, fillColor:col, fillOpacity:0.35 }; }
-// Flächen folgen der Tour-Auswahl: ausgewählte Touren-Flächen voll, andere ausgegraut. Ohne Auswahl: normal.
+const FL_NEUTRAL='#000'; // Standardfarbe ohne Tour-Auswahl (wie Punktobjekte: erst bei Auswahl eingefärbt)
+// Tourfarbe einer Fläche – analog zu makeMarker: NUR bei aktiver Tour-Auswahl, sonst null.
+function _flTourColorFor(t){
+  if(!t || !activeTours.size) return null;
+  if(activeTourOnMap && treeInTour(t,activeTourOnMap)) return (tours.find(x=>x.id===activeTourOnMap)||{}).color||null;
+  const id=getTreeTourIds(t).find(id=>activeTours.has(id));
+  return id ? ((tours.find(x=>x.id===id)||{}).color||null) : null;
+}
+function _flStyleFor(extId){
+  const t=trees.find(x=>x.extId===extId);
+  const col=_flTourColorFor(t);
+  if(activeTours.size && !col) return { color:'#b9b6b0', weight:1, fillColor:'#b9b6b0', fillOpacity:0.06 }; // Tour gewählt, Fläche nicht dabei → ausgegraut
+  if(col) return { color:col, weight:1.5, fillColor:col, fillOpacity:0.5 };                                 // Fläche der gewählten Tour → Tourfarbe
+  return { color:FL_NEUTRAL, weight:1, fillColor:FL_NEUTRAL, fillOpacity:0.2 };                              // keine Auswahl → neutral (schwarz)
+}
+// Flächen folgen der Tour-Auswahl (gleiche Logik wie Punktobjekte) – Stil je Polygon neu setzen.
 function _applyFlaechenSelection(){
   if(!_flaechenLayer) return;
-  const sel=activeTours.size>0;
-  const selColor=activeTours.size===1?(tours.find(t=>t.id===[...activeTours][0])||{}).color:null;
-  _flaechenLayer.eachLayer(l=>{
-    const ext=l.feature&&l.feature.properties&&l.feature.properties.extId;
-    const t=ext?trees.find(x=>x.extId===ext):null; if(!t||!l.setStyle) return;
-    if(sel && !treeInAnyActiveTour(t)){ l.setStyle({color:'#b9b6b0',weight:1,fillColor:'#b9b6b0',fillOpacity:0.06}); return; }
-    const col=(sel&&selColor)||(primaryTour(t)||{}).color||'#3B6D11';
-    l.setStyle({color:col,weight:sel?1.5:1,fillColor:col,fillOpacity:sel?0.5:0.35});
-  });
+  _flaechenLayer.eachLayer(l=>{ const ext=l.feature&&l.feature.properties&&l.feature.properties.extId; if(ext&&l.setStyle) l.setStyle(_flStyleFor(ext)); });
 }
 // Bounds aller Flächen der aktuell ausgewählten Touren (für „einpassen")
 function _flaechenSelBounds(){
@@ -1593,7 +1599,7 @@ async function renderFlaechen(){
     _flaechenByExt={}; _flaechenSelExt='';
     _flaechenLayer=L.geoJSON(bundle, {
       renderer: L.canvas({ padding:0.5 }),
-      style: f=>{ const t=byExt[f.properties&&f.properties.extId]; const col=(t&&primaryTour(t)?.color)||'#3B6D11'; return { color:col, weight:1, fillColor:col, fillOpacity:0.35 }; },
+      style: f=>_flStyleFor(f.properties&&f.properties.extId),
       onEachFeature:(f,layer)=>{ const ext=f.properties&&f.properties.extId; if(ext) _flaechenByExt[ext]=layer; const t=byExt[ext]; if(t){ layer.on('click',()=>selectTree(t.id,false)); layer.bindTooltip((t.name||'Fläche')+(t.menge?' · '+t.menge+' m²':''),{sticky:true}); } }
     }).addTo(map);
     _flaechenLayerKey=key;
