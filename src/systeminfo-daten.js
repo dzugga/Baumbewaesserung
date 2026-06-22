@@ -80,6 +80,8 @@ export const SI_SICHERHEIT = [
   { label: 'App Check (Echtheitsprüfung)', note: 'Anfragen werden über reCAPTCHA v3 als „von der echten App stammend" bestätigt. Aktiv im Monitoring-Modus; Erzwingung je Dienst nach Beobachtungsphase.' },
   { label: 'API-Schlüssel-Beschränkung', note: 'Der öffentliche Web-Schlüssel akzeptiert nur Anfragen von den freigegebenen Domains (baumbewaesserung.web.app u. a.).' },
   { label: 'Transportverschlüsselung', note: 'Sämtliche Verbindungen ausschließlich über HTTPS.' },
+  { label: 'Datensicherung', note: 'Firestore: kontinuierliche Wiederherstellung der letzten 7 Tage (Point-in-Time) plus tägliche (7 Tage) und wöchentliche (14 Wochen) Backups. Datei-Speicher (Fotos/Dokumente) mit Objekt-Versionierung. Lösch-Schutz der Datenbank aktiv.' },
+  { label: 'Fehler-Protokollierung', note: 'Unerwartete Laufzeitfehler werden zentral protokolliert (Collection „errors", nur für Administratoren einsehbar) — zur frühzeitigen Erkennung von Problemen im Betrieb.' },
 ];
 
 // ── Lizenzen & Dienste (Komponenten-Compliance) ──────────────
