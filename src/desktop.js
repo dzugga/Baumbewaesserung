@@ -5048,14 +5048,25 @@ function renderTourenGrid(){
 }
 
 // ─── TOUR-BERICHTE (Baukasten: Spalten/Sortierung/Druck/PDF/Excel/Vorlagen) ──
-function reportFields(){
-  const f=[{key:'name',label:FL.name},{key:'baumnr',label:FL.baumnr},{key:'art',label:FL.art},
-    {key:'stadtteil',label:FL.stadtteil},{key:'pflanzjahr',label:FL.pflanzjahr},{key:'pflanzzeitpunkt',label:FL.pflanzzeitpunkt},
-    {key:'zustand',label:FL.zustand},{key:'wasser',label:FL.wasser}];
-  (customFields||[]).filter(c=>c&&c.aktiv!==false&&c.key).forEach(c=>f.push({key:c.key,label:c.label||c.key}));
-  return f;
+function reportFields(tourId){
+  const members = (tourId!=null) ? trees.filter(t=>treeInTour(t,tourId)) : trees;
+  const hasFl = members.some(t=>geomTypeOf(t)==='flaeche');
+  const hasPt = members.some(t=>geomTypeOf(t)!=='flaeche');
+  const f=[{key:'name',label:FL.name}];
+  if(hasFl) f.push({key:'objektnummer',label:'Objektnummer'},{key:'objektart',label:'Objektart'},
+    {key:'stadtteil',label:FL.stadtteil},{key:'belag',label:'Belag'},{key:'menge',label:'Fläche (m²)'},
+    {key:'teilflaechen',label:'Teilflächen'},{key:'betriebshof',label:'Betriebshof'},{key:'fahrzeug',label:'Fahrzeug'},
+    {key:'haeufigkeitS',label:'Häufigkeit Sommer'},{key:'haeufigkeitW',label:'Häufigkeit Winter'},
+    {key:'sommerTage',label:'Reinigungstage Sommer'},{key:'winterTage',label:'Reinigungstage Winter'});
+  if(hasPt) f.push({key:'baumnr',label:FL.baumnr},{key:'art',label:FL.art},{key:'stadtteil',label:FL.stadtteil},
+    {key:'pflanzjahr',label:FL.pflanzjahr},{key:'pflanzzeitpunkt',label:FL.pflanzzeitpunkt},
+    {key:'zustand',label:FL.zustand},{key:'wasser',label:FL.wasser});
+  (customFields||[]).filter(c=>c&&c.aktiv!==false&&c.key).forEach(c=>{
+    if((hasFl&&fieldAppliesTo(c,'flaeche'))||(hasPt&&fieldAppliesTo(c,'punkt'))) f.push({key:c.key,label:c.label||c.key});
+  });
+  const seen=new Set(); return f.filter(x=>!seen.has(x.key)&&seen.add(x.key)); // stadtteil ggf. doppelt → entfernen
 }
-function _repFieldLabel(k){ return (reportFields().find(f=>f.key===k)||{}).label||k; }
+function _repFieldLabel(k){ return (reportFields(_rep&&_rep.tourId).find(f=>f.key===k)||{}).label||k; }
 function _repCell(t,k){
   if(k==='zustand') return t.zustand?rankLabel('zustand',t.zustand):'';
   if(k==='wasser') return t.wasser?rankLabel('wasser',t.wasser):'';
@@ -5091,11 +5102,12 @@ function reportRows(tourId,cfg){
 let _rep=null; // {tourId,cfg,order}
 function openTourReport(tourId){
   const tour=tours.find(t=>t.id===tourId); if(!tour) return;
-  const fields=reportFields();
+  const fields=reportFields(tourId);
+  const isFl=trees.some(t=>treeInTour(t,tourId)&&geomTypeOf(t)==='flaeche');
   const tpls=currentProjectData?.reportTemplates||[];
   let cfg;
   if(tpls.length){ const t=tpls[0]; cfg={columns:[...(t.columns||[])],showNotiz:!!t.showNotiz,abhak:t.abhak||'leer',sort:t.sort||'route',title:t.title||'',sub:t.sub||''}; }
-  else cfg={columns:['name','baumnr','art'].filter(k=>fields.some(f=>f.key===k)),showNotiz:true,abhak:'leer',sort:(tour.manualOrder?'manual':'route'),title:'Bemerkungen',sub:''};
+  else cfg={columns:(isFl?['name','objektart','menge']:['name','baumnr','art']).filter(k=>fields.some(f=>f.key===k)),showNotiz:true,abhak:'leer',sort:(tour.manualOrder?'manual':'route'),title:'Bemerkungen',sub:''};
   _rep={tourId,cfg}; window._rep=_rep;
   document.getElementById('report-modal').classList.add('open');
   renderReportDialog();
@@ -5104,7 +5116,7 @@ function closeReportModal(){ document.getElementById('report-modal')?.classList.
 function _repH(t){ return `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin-bottom:8px;">${t}</div>`; }
 function renderReportDialog(){
   if(!_rep) return; const {tourId,cfg}=_rep; const tour=tours.find(t=>t.id===tourId); if(!tour) return;
-  const fields=reportFields();
+  const fields=reportFields(tourId);
   const avail=fields.filter(f=>!cfg.columns.includes(f.key));
   const colRows=cfg.columns.map((k,i)=>`<div style="display:flex;align-items:center;gap:5px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px;font-size:13px;">
      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(_repFieldLabel(k))}</span>
@@ -5236,10 +5248,27 @@ function _repSections(stops, mode){
 }
 // Kartenausdruck einer Tour: eigenes Druckfenster mit frisch gerenderter Leaflet-Karte
 // (Route + nummerierte Stopps + Betriebshof), Auto-Ausrichtung, wartet auf Kacheln, dann Druck.
+// Polygon-Geometrie der Flächen einer Tour (für Kartendruck) — bevorzugt geladene Layer-Geometrie, sonst Bundle.
+async function _repFlaechenFeatures(tourId){
+  const extIds=new Set(trees.filter(t=>treeInTour(t,tourId)&&geomTypeOf(t)==='flaeche'&&t.extId).map(t=>t.extId));
+  if(!extIds.size) return [];
+  let feats=[];
+  if(_flaechenLayer){ try{ const gj=_flaechenLayer.toGeoJSON(); feats=(gj.features||[]).filter(f=>extIds.has(f.properties&&f.properties.extId)); }catch(_){} }
+  if(!feats.length){
+    try{ let url=await storage.ref(`objektgeom/${currentProjectData.orgId}/${currentProjectId}/flaechen.json`).getDownloadURL();
+      url+=(url.includes('?')?'&':'?')+'v='+(currentProjectData.geomVersion||''); const r=await fetch(url); const b=await r.json();
+      feats=(b.features||[]).filter(f=>extIds.has(f.properties&&f.properties.extId)); }catch(e){ console.warn('rep flaechen laden',e); }
+  }
+  return feats;
+}
 async function printTourMap(){
   if(!_rep) return; const {tourId}=_rep; const tour=tours.find(t=>t.id===tourId); if(!tour){ notify('Keine Tour'); return; }
   const stopsTrees0=trees.filter(t=>treeInTour(t,tourId)&&t.lat&&t.lng);
-  if(!stopsTrees0.length){ notify('Keine Objekte mit Koordinaten in dieser Tour'); return; }
+  const flTrees0=trees.filter(t=>treeInTour(t,tourId)&&geomTypeOf(t)==='flaeche'&&t.extId);
+  if(!stopsTrees0.length && !flTrees0.length){ notify('Keine Objekte mit Koordinaten oder Flächen in dieser Tour'); return; }
+  const flFeatures = flTrees0.length ? await _repFlaechenFeatures(tourId) : [];
+  // Flächen-Koordinaten flach sammeln (für Ausrichtung/Bounds)
+  const flLatLngs=[]; flFeatures.forEach(f=>{ const walk=cs=>{ if(!Array.isArray(cs))return; if(typeof cs[0]==='number'){ flLatLngs.push([cs[1],cs[0]]); return; } cs.forEach(walk); }; if(f.geometry) walk(f.geometry.coordinates); });
   let routeData=null;
   try{ const s=await getDoc(doc(db,'projects',currentProjectId,'routes',tourId)); if(s&&s.exists) routeData=s.data(); }catch(e){ console.warn('printTourMap route',e); }
   // Reihenfolge: manuell > gespeicherte Route > vorhandene Tour-Reihenfolge > Listenreihenfolge
@@ -5258,10 +5287,10 @@ async function printTourMap(){
       const walk=g=>{ if(!g)return; if(g.type==='FeatureCollection')g.features.forEach(f=>walk(f.geometry)); else if(g.type==='Feature')walk(g.geometry); else if(g.type==='LineString')push(g.coordinates); else if(g.type==='MultiLineString')g.coordinates.forEach(push); };
       walk(gj); if(coords.length) routeLatLngs=coords; }
   }
-  if(!routeLatLngs){ const pts=stopsTrees.map(t=>[t.lat,t.lng]); routeLatLngs=useDepot?(getDepotMode()==='round'?[[depot.lat,depot.lng],...pts,[depot.lat,depot.lng]]:[[depot.lat,depot.lng],...pts]):pts; }
-  // Auto-Ausrichtung aus Bounding-Box (Betriebshof nur, wenn einbezogen)
-  const lats=stops.map(s=>s.lat).concat(useDepot?[depot.lat]:[]);
-  const lngs=stops.map(s=>s.lng).concat(useDepot?[depot.lng]:[]);
+  if(!routeLatLngs && stopsTrees.length){ const pts=stopsTrees.map(t=>[t.lat,t.lng]); routeLatLngs=useDepot?(getDepotMode()==='round'?[[depot.lat,depot.lng],...pts,[depot.lat,depot.lng]]:[[depot.lat,depot.lng],...pts]):pts; }
+  // Auto-Ausrichtung aus Bounding-Box (Stopps + Flächen; Betriebshof nur, wenn einbezogen)
+  const lats=stops.map(s=>s.lat).concat(flLatLngs.map(p=>p[0])).concat(useDepot?[depot.lat]:[]);
+  const lngs=stops.map(s=>s.lng).concat(flLatLngs.map(p=>p[1])).concat(useDepot?[depot.lng]:[]);
   const latSpan=(Math.max(...lats)-Math.min(...lats))||0.001, lngSpan=(Math.max(...lngs)-Math.min(...lngs))||0.001;
   const midLat=(Math.max(...lats)+Math.min(...lats))/2;
   const fmt=document.getElementById('repmap-format')?.value||'auto';
@@ -5276,7 +5305,8 @@ async function printTourMap(){
   const driveSec=routeData?routeData.durationSec:(tourRoutes[tourId]&&tourRoutes[tourId].durationSec)||0;
   const km=(routeData&&typeof routeData.km==='number')?routeData.km:(tourRoutes[tourId]&&tourRoutes[tourId].km);
   const zus=tourZusatzMin(tour);
-  const kennz=`${stops.length} Objekte${km!=null?` · ${km.toFixed(1)} km`:''}${driveSec?` · ${fmtDuration(driveSec)} Fahrt`:''} · gesamt ${fmtTotalTime(driveSec,stopsTrees,zus)}`;
+  const _flM2=flTrees0.reduce((s,t)=>s+(parseFloat(t.menge)||0),0);
+  const kennz=`${stops.length+flTrees0.length} Objekte${_flM2?` · ${_repNum(Math.round(_flM2))} m²`:''}${km!=null?` · ${km.toFixed(1)} km`:''}${driveSec?` · ${fmtDuration(driveSec)} Fahrt`:''}${stopsTrees.length?` · gesamt ${fmtTotalTime(driveSec,stopsTrees,zus)}`:''}`;
   baseAttr=baseAttr+' · Route: OpenRouteService';
   const titleSub='Kartenausdruck · '+dlEsc(currentProjectData?.name||'')+' · '+dlEsc(dashFmtDE(new Date()));
   const color=tour.color;
@@ -5317,7 +5347,7 @@ async function printTourMap(){
     +'<div class="mp-page" style="position:absolute;top:0;left:0;transform-origin:top left;background:#fff;box-shadow:0 6px 30px rgba(0,0,0,.45);overflow:hidden;">'
     +'<div id="mapprint-map" style="position:absolute;inset:0;"></div>'
     +'<div class="mp-ovl mp-top"><b>'+dlEsc(tour.name||'Tour')+'</b><span class="s">'+titleSub+'</span><span class="pl" style="margin-left:6px;font-weight:600;font-style:normal;"></span></div>'
-    +'<div class="mp-ovl mp-bot"><span>● Stopp (Reihenfolge) &nbsp; ▪ Betriebshof &nbsp; — Route</span><span>'+dlEsc(kennz)+'</span></div></div></div>';
+    +'<div class="mp-ovl mp-bot"><span>'+(flFeatures.length?'▰ Fläche (Reihenfolge)':'● Stopp (Reihenfolge)')+(stops.length?'':'')+(useDepot?' &nbsp; ▪ Betriebshof':'')+(routeLatLngs&&routeLatLngs.length?' &nbsp; — Route':'')+'</span><span>'+dlEsc(kennz)+'</span></div></div></div>';
   document.body.appendChild(modal);
   const page=modal.querySelector('.mp-page'), frame=modal.querySelector('.mp-frame');
   let curOrient=orient;
@@ -5335,6 +5365,14 @@ async function printTourMap(){
   const pbase = base.kind==='wms' ? L.tileLayer.wms(base.url,{layers:base.layers,format:'image/png',version:base.version,transparent:false,maxZoom:20,attribution:baseAttr,crossOrigin:true}) : L.tileLayer(base.url,{maxZoom:20,maxNativeZoom:18,attribution:baseAttr,crossOrigin:true});
   pbase.addTo(pmap);
   const pb=L.latLngBounds([]);
+  // Flächen-Polygone (nummeriert nach Berichtsreihenfolge)
+  if(flFeatures.length){
+    const flLayer=L.geoJSON({type:'FeatureCollection',features:flFeatures},{renderer:L.canvas({padding:0.5}),style:{color,weight:1.5,fillColor:color,fillOpacity:0.45}}).addTo(pmap);
+    try{ pb.extend(flLayer.getBounds()); }catch(_){}
+    const ord=_repSort(tourId, flTrees0, _rep.cfg&&_rep.cfg.sort).map(t=>t.extId);
+    flLayer.eachLayer(l=>{ const ext=l.feature&&l.feature.properties&&l.feature.properties.extId; const n=ord.indexOf(ext)+1;
+      if(n>0&&l.getBounds){ const c=l.getBounds().getCenter(); L.marker(c,{interactive:false,icon:L.divIcon({className:'',html:'<div style="width:23px;height:23px;border-radius:50%;border:2px solid #fff;color:#fff;font:600 11px/19px monospace;text-align:center;box-shadow:0 0 2px rgba(0,0,0,.6);background:'+color+'">'+n+'</div>',iconSize:[23,23],iconAnchor:[11,11]})}).addTo(pmap); } });
+  }
   if(routeLatLngs&&routeLatLngs.length){ L.polyline(routeLatLngs,{color,weight:4,opacity:.9}).addTo(pmap); if(useDepot) routeLatLngs.forEach(p=>pb.extend(p)); }
   stops.forEach(s=>{ L.marker([s.lat,s.lng],{icon:L.divIcon({className:'',html:'<div style="width:23px;height:23px;border-radius:50%;border:2px solid #fff;color:#fff;font:600 11px/19px monospace;text-align:center;box-shadow:0 0 2px rgba(0,0,0,.6);background:'+color+'">'+s.n+'</div>',iconSize:[23,23],iconAnchor:[11,11]})}).addTo(pmap); pb.extend([s.lat,s.lng]); });
   if(useDepot){ L.marker([depot.lat,depot.lng],{icon:L.divIcon({className:'',html:'<div style="width:20px;height:20px;border-radius:4px;background:#EF9F27;border:2px solid #fff;box-shadow:0 0 2px rgba(0,0,0,.5)"></div>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(pmap); pb.extend([depot.lat,depot.lng]); }
