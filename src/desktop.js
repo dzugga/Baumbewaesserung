@@ -1559,7 +1559,8 @@ async function renderFlaechen(){
   _flaechenBusy=true;
   let bundle;
   try{
-    const url=await storage.ref(`objektgeom/${currentProjectData.orgId}/${currentProjectId}/flaechen.json`).getDownloadURL();
+    let url=await storage.ref(`objektgeom/${currentProjectData.orgId}/${currentProjectId}/flaechen.json`).getDownloadURL();
+    url+=(url.includes('?')?'&':'?')+'v='+(currentProjectData.geomVersion||''); // Cache-Buster nach Neu-Import
     const r=await fetch(url); if(!r.ok) throw new Error('HTTP '+r.status);
     bundle=await r.json();
   }catch(e){ _flaechenBusy=false; console.warn('Flächen-Bundle laden:', e); notify('⚠ Flächen-Geometrie nicht ladbar: '+(e.code||e.message||e)); return; }
