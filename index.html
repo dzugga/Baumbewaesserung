@@ -664,6 +664,16 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
               Bei vielen Objekten nahe Marker zu Clustern zusammenfassen (flüssiger; beim Reinzoomen wieder einzeln). Gilt nur ohne Tour-Auswahl — sobald eine Tour eingeblendet ist, immer Einzelmarker.
             </label>
           </div>
+          <div class="form-group" id="s-saison-group" style="display:none;">
+            <label class="form-label">Saison (Sommer-Zeitraum)</label>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <span style="font-size:13px;color:var(--text2);">Sommer von</span>
+              <input id="s-saison-von" class="form-control" placeholder="TT.MM." maxlength="6" style="width:90px;">
+              <span style="font-size:13px;color:var(--text2);">bis</span>
+              <input id="s-saison-bis" class="form-control" placeholder="TT.MM." maxlength="6" style="width:90px;">
+            </div>
+            <div style="font-size:12px;color:var(--text3);margin-top:4px;">Außerhalb dieses Zeitraums gilt automatisch „Winter". Steuert die Sommer-/Winter-Reinigungstouren.</div>
+          </div>
           <div id="s-routing-sub">
           <div class="form-group">
             <label class="form-label">Standard-Symbol der Objekte</label>

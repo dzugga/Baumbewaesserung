@@ -3676,6 +3676,13 @@ function pickProjIcon(){
   pickIcon(btn.textContent.trim(),ic=>{ if(ic) btn.textContent=ic; },false);
 }
 
+// ── Saison (Phase 2-Grundlage): Sommer-Zeitraum je Projekt; Winter = außerhalb ──
+const SAISON_DEFAULT={ von:'04-01', bis:'10-31' }; // 1.4.–31.10.
+function getSaison(){ return { von: currentProjectData?.sommerVon||SAISON_DEFAULT.von, bis: currentProjectData?.sommerBis||SAISON_DEFAULT.bis }; }
+function _ttmmToMmdd(s){ const m=String(s||'').match(/(\d{1,2})\.\s*(\d{1,2})/); if(!m) return ''; const d=+m[1], mo=+m[2]; if(d<1||d>31||mo<1||mo>12) return ''; return String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0'); }
+function _mmddToTtmm(s){ const m=String(s||'').match(/(\d{2})-(\d{2})/); return m?(+m[2])+'.'+(+m[1])+'.':''; }
+// Saison eines Datums (YYYY-MM-DD oder Date): 'sommer' im gepflegten Zeitraum (auch über Jahreswechsel), sonst 'winter'
+function saisonFor(date){ const s=getSaison(); let md; if(date instanceof Date) md=String(date.getMonth()+1).padStart(2,'0')+'-'+String(date.getDate()).padStart(2,'0'); else md=String(date||'').slice(5,10); if(!md) return 'sommer'; const inRange=(s.von<=s.bis)?(md>=s.von&&md<=s.bis):(md>=s.von||md<=s.bis); return inRange?'sommer':'winter'; }
 function openSettings(){
   // Hide bottom route bar to avoid overlap
   document.getElementById('route-info-bar')?.classList.remove('visible');
@@ -3697,6 +3704,9 @@ function openSettings(){
   // Zeitaufwand-Standard wird jetzt im Reiter Objekte → Typ/Art gepflegt
   const _fg=document.getElementById('s-fuellgrad'); if(_fg) _fg.checked=!!currentProjectData?.fuellgradAktiv;
   const _cl=document.getElementById('s-cluster'); if(_cl) _cl.checked=!!currentProjectData?.clusterAktiv;
+  const _sg=document.getElementById('s-saison-group'); if(_sg) _sg.style.display=currentProjectData?.hatFlaechen?'':'none';
+  const _sv=document.getElementById('s-saison-von'); if(_sv) _sv.value=_mmddToTtmm(getSaison().von);
+  const _sb=document.getElementById('s-saison-bis'); if(_sb) _sb.value=_mmddToTtmm(getSaison().bis);
   loadReasons();
   renderDriverAssignment();
   const el=document.getElementById('depot-status');
@@ -3881,6 +3891,8 @@ async function applySettings(){
     clusterAktiv:document.getElementById('s-cluster')?.checked||false,
     routePlanning:getRoutePlanningEnabled(),
     name:currentProjectData?.name||'', // Projektname wird unter Verwaltung → Projekte verwaltet
+    sommerVon:_ttmmToMmdd(document.getElementById('s-saison-von')?.value)||SAISON_DEFAULT.von,
+    sommerBis:_ttmmToMmdd(document.getElementById('s-saison-bis')?.value)||SAISON_DEFAULT.bis,
   };
   if(lat&&lng) updates.depot={lat,lng,address:addr||`${lat.toFixed(5)}, ${lng.toFixed(5)}`};
   await saveProjectSettings(updates);
