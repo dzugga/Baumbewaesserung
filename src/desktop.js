@@ -2273,6 +2273,20 @@ function _mountDetailPanel(){
   const target=(currentView==='disposition')?document.getElementById('view-disposition'):_detailHome;
   if(target && p.parentNode!==target) target.appendChild(p);
 }
+// ── Geometrietyp-Fundament (Phase 0): Punkt = Default; fehlend ⇒ punkt (keine Migration nötig) ──
+function geomTypeOf(tree){ return (tree && tree.geomType) || 'punkt'; }
+// Feld gilt für diesen Geometrietyp? Leere/fehlende geomTypes = gilt für alle.
+function fieldAppliesTo(c, gt){ return !(c && c.geomTypes && c.geomTypes.length) || c.geomTypes.includes(gt); }
+// Hat das Projekt überhaupt Nicht-Punkt-Geometrien? Steuert die Sichtbarkeit der Geometrie-UI
+// (für reine Punkt-Projekte bleibt alles unverändert/unsichtbar).
+function _geomActive(){ return Array.isArray(trees) && trees.some(t=>geomTypeOf(t)!=='punkt'); }
+function _geomLabel(tree){
+  const name={punkt:'Punkt',linie:'Linie',flaeche:'Fläche'}[geomTypeOf(tree)]||geomTypeOf(tree);
+  if(tree.menge==null||tree.menge==='') return name;
+  const eh={m2:'m²',m:'m',Stk:'Stk'}[tree.einheit]||tree.einheit||'';
+  const m=typeof tree.menge==='number'?tree.menge.toLocaleString('de-DE'):tree.menge;
+  return name+' · '+m+(eh?' '+eh:'');
+}
 function openDetail(id){
   const tree=trees.find(t=>t.id===id);if(!tree)return;
   _mountDetailPanel();
@@ -2297,12 +2311,13 @@ function openDetail(id){
 
     <div class="form-section">Identifikation</div>
     <div class="detail-field" style="padding:5px 0;"><span class="detail-key">Objekt-ID</span><span class="detail-val" style="font-family:monospace;font-weight:700;color:var(--green);">${tree.baumId||'–'}</span></div>
+    ${geomTypeOf(tree)!=='punkt'?drow('Geometrie',_geomLabel(tree)):''}
     ${drow(FL.baumnr||'Baumnummer',tree.baumnr)}
     ${drow(FL.stadtteil,tree.stadtteil)}
     ${drow(FL.art,tree.art,'font-style:italic;')}
     ${drow(FL.pflanzjahr,tree.pflanzjahr)}
     ${drow(FL.pflanzzeitpunkt||'Pflanzzeitpunkt',tree.pflanzzeitpunkt)}
-    ${customFields.map(c=>drow(c.label,tree[c.key])).join('')}
+    ${customFields.filter(c=>fieldAppliesTo(c,geomTypeOf(tree))).map(c=>drow(c.label,tree[c.key])).join('')}
 
     <div class="form-section">Pflege</div>
     <div class="detail-field" style="padding:4px 0;">
@@ -2739,7 +2754,8 @@ function fillListSelect(fieldKey,current){
 // Kundenfelder dynamisch ins Formular rendern (je Feld ein Dropdown)
 function renderCustomFieldInputs(tree){
   const wrap=document.getElementById('f-custom-fields'); if(!wrap) return;
-  wrap.innerHTML=customFields.map(c=>{
+  const gt=geomTypeOf(tree);
+  wrap.innerHTML=customFields.filter(c=>fieldAppliesTo(c,gt)).map(c=>{
     const cur=((tree?tree[c.key]:'')||'');
     return `<div class="form-group"><label class="form-label">${dlEsc(c.label)}</label><select class="form-control" id="f-${c.key}">${_listOptions(c.key,cur)}</select></div>`;
   }).join('');
@@ -2805,7 +2821,8 @@ async function saveTree(){
     tourIds:document.getElementById('f-tour').value?[document.getElementById('f-tour').value]:[],
     notiz:document.getElementById('f-notiz').value,
   };
-  customFields.forEach(c=>{ const el=document.getElementById('f-'+c.key); data[c.key]=el?el.value:''; });
+  // Nur tatsächlich angezeigte Kundenfelder schreiben — sonst würden für den Typ ausgeblendete Felder überschrieben
+  customFields.forEach(c=>{ const el=document.getElementById('f-'+c.key); if(el) data[c.key]=el.value; });
   try{
     if(editingTreeId){
       await updateDoc(doc(db,'projects',currentProjectId,'trees',editingTreeId),data);
@@ -4464,6 +4481,17 @@ async function addCustomField(){
   customFields.push({key,label,aktiv:true});
   await saveListValues(); renderFieldCatalog(); notify('✓ Kundenfeld angelegt');
 }
+// Geometrietyp-Scope eines Kundenfeldes umschalten (leere Liste = gilt für alle)
+async function cfGeomToggle(fieldKey, gt, checked){
+  if(isReadonly()) return;
+  const c=customFields.find(x=>x.key===fieldKey); if(!c) return;
+  const ALL=['punkt','linie','flaeche'];
+  const set=new Set((c.geomTypes&&c.geomTypes.length)?c.geomTypes:ALL);
+  if(checked) set.add(gt); else set.delete(gt);
+  if(set.size===0){ notify('Mindestens ein Typ muss aktiv bleiben'); renderFieldCatalog(); return; }
+  c.geomTypes=(set.size===ALL.length)?[]:ALL.filter(t=>set.has(t)); // alle aktiv → leer (= gilt für alle)
+  await saveListValues(); renderFieldCatalog();
+}
 async function renameCustomField(key){
   if(isReadonly()) return;
   const c=customFields.find(x=>x.key===key); if(!c) return;
@@ -4594,6 +4622,13 @@ function fillRankSelect(fieldKey,current){
 function _fieldCatalogCard(fieldKey, title, opts={}){
   const vals=[...(listValues[fieldKey]||[])].sort((a,b)=>(a.label||'').localeCompare(b.label||''));
   const ro=isReadonly();
+  // „Gilt für" (Geometrietyp-Scope) nur bei Kundenfeldern UND wenn das Projekt Nicht-Punkt-Geometrien hat
+  const cf=opts.custom?customFields.find(c=>c.key===fieldKey):null;
+  const geomScopeUI=(opts.custom && !ro && _geomActive())?`<div style="display:flex;align-items:center;gap:12px;margin:0 0 10px;font-size:12px;color:var(--text2);flex-wrap:wrap;">
+      <span style="color:var(--text3);">Gilt für:</span>
+      ${['punkt','linie','flaeche'].map(gt=>`<label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" ${fieldAppliesTo(cf,gt)?'checked':''} onchange="cfGeomToggle('${fieldKey}','${gt}',this.checked)" style="margin:0;cursor:pointer;">${{punkt:'Punkt',linie:'Linie',flaeche:'Fläche'}[gt]}</label>`).join('')}
+      <span style="color:var(--text3);font-size:11px;">(alle aktiv = überall sichtbar)</span>
+    </div>`:'';
   const counts=Object.create(null);  // Häufigkeiten in 1 Durchlauf statt O(Werte×Objekte)
   for(const t of trees){ const v=(t[fieldKey]||'').toString().trim(); if(v) counts[v]=(counts[v]||0)+1; }
   const rows=vals.map(e=>{
@@ -4616,6 +4651,7 @@ function _fieldCatalogCard(fieldKey, title, opts={}){
       ${opts.custom&&!ro?`<button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" onclick="renameCustomField('${fieldKey}')">Feld umbenennen</button><button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;color:#c0392b;" onclick="removeCustomField('${fieldKey}')">Feld entfernen</button>`:''}
       ${ro?'':`<button class="btn btn-secondary" style="margin-left:auto;padding:4px 10px;font-size:11px;" onclick="buildListFromObjects('${fieldKey}')">Aus Objekten aufbauen</button>`}
     </div>
+    ${geomScopeUI}
     ${vals.length?`<table style="width:100%;border-collapse:collapse;font-size:13px;">
       <thead><tr style="background:var(--surface2);"><th style="padding:6px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Wert</th><th style="padding:6px 12px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Häufigkeit</th><th></th></tr></thead>
       <tbody>${rows}</tbody></table>`:`<div style="color:var(--text3);font-size:12px;padding:4px 0;">Noch keine Werte. „Aus Objekten aufbauen" oder unten hinzufügen.</div>`}
@@ -9754,7 +9790,7 @@ Object.assign(window,{
   epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,epWeekShift,epWeekThis,epWeekToggleEmpty,epWeekFilter,epDayFilter,epTourCtx,epEditTour,_epCloseCtx,epPersonOpenCard,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
-  renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,_fillMerge,
+  renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,_fillMerge,cfGeomToggle,
   rankAdd,rankRename,rankSetColor,rankMove,rankMerge,rankDelete,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,clearLassoSelection,
