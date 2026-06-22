@@ -9652,7 +9652,7 @@ function renderSystemInfo(){
 // ─── HANDBUCH (durchsuchbar; „Aktualisierungen" automatisch aus Git-Historie) ──
 let _hbTab='handbuch', _hbChangelog=null;
 const hbSearchDebounced=_debounce(()=>renderHandbuch(),140);
-function setHbTab(t){ _hbTab=t; renderHandbuch(); }
+function setHbTab(t){ if(t==='updates' && currentRole!=='superadmin') return; _hbTab=t; renderHandbuch(); }
 function hbMark(s,q){
   const e=dlEsc(s);
   if(!q) return e;
@@ -9662,8 +9662,12 @@ function hbMark(s,q){
 function renderHandbuch(){
   const cont=document.getElementById('hb-content'); if(!cont) return;
   const q=(document.getElementById('hb-search')?.value||'').trim();
+  // „Aktualisierungen" (Changelog aus Commits) nur für Superadmin
+  const isSuper=currentRole==='superadmin';
+  if(!isSuper && _hbTab==='updates') _hbTab='handbuch';
   // Tab-Optik
   const tb=document.getElementById('hb-tab-handbuch'), tu=document.getElementById('hb-tab-updates');
+  if(tu) tu.style.display=isSuper?'':'none';
   if(tb&&tu){
     const apply=(el,on)=>{ el.style.background=on?'var(--surface)':'transparent'; el.style.color=on?'var(--text)':'var(--text3)'; el.style.boxShadow=on?'0 1px 2px rgba(0,0,0,.08)':'none'; };
     apply(tb,_hbTab==='handbuch'); apply(tu,_hbTab==='updates');
