@@ -5242,7 +5242,8 @@ function _repSections(stops, mode){
   const per=Math.ceil(stops.length/K), secs=[];
   for(let i=0;i<stops.length;i+=per){
     const grp=stops.slice(i,i+per); if(!grp.length) continue;
-    secs.push({ bounds:L.latLngBounds(grp.map(s=>[s.lat,s.lng])).pad(0.15), from:grp[0].n, to:grp[grp.length-1].n });
+    const b=L.latLngBounds(grp.map(s=>[s.lat,s.lng])); grp.forEach(s=>{ if(s.bbox) b.extend(s.bbox); }); // Flächen ganz einfassen
+    secs.push({ bounds:b.pad(0.15), from:grp[0].n, to:grp[grp.length-1].n });
   }
   return secs;
 }
@@ -5261,6 +5262,7 @@ async function _repFlaechenFeatures(tourId){
   }
   return feats;
 }
+function _featBounds(f){ let b=null; const walk=cs=>{ if(!Array.isArray(cs))return; if(typeof cs[0]==='number'){ const ll=[cs[1],cs[0]]; b=b?(b.extend(ll),b):L.latLngBounds(ll,ll); return; } cs.forEach(walk); }; if(f&&f.geometry) walk(f.geometry.coordinates); return b; }
 async function printTourMap(){
   if(!_rep) return; const {tourId}=_rep; const tour=tours.find(t=>t.id===tourId); if(!tour){ notify('Keine Tour'); return; }
   const stopsTrees0=trees.filter(t=>treeInTour(t,tourId)&&t.lat&&t.lng);
@@ -5276,6 +5278,11 @@ async function printTourMap(){
   let stopsTrees = order.length ? order.map(id=>stopsTrees0.find(t=>t.id===id)).filter(Boolean) : stopsTrees0;
   if(!stopsTrees.length) stopsTrees=stopsTrees0;
   const stops=stopsTrees.map((t,i)=>({lat:t.lat,lng:t.lng,n:i+1,name:t.name||''}));
+  // Flächen als nummerierte Zentroid-Stopps anhängen → Nummerierung + Ausschnitte (_repSections) gelten auch für Flächen
+  const _flByExt={}; flFeatures.forEach(f=>{ const e=f.properties&&f.properties.extId; if(e) _flByExt[e]=f; });
+  const _flOrdered=_repSort(tourId, flTrees0, _rep.cfg&&_rep.cfg.sort);
+  const _nPts=stops.length;
+  _flOrdered.forEach((t,i)=>{ const bb=_featBounds(_flByExt[t.extId]); if(!bb)return; const c=bb.getCenter(); stops.push({lat:c.lat,lng:c.lng,n:_nPts+i+1,name:t.name||'',bbox:bb,fl:true}); });
   const depot=getDepot();
   const useDepot = (document.getElementById('repmap-depot')?document.getElementById('repmap-depot').checked:true) && !!(depot&&depot.lat&&depot.lng);
   const detailMode = document.getElementById('repmap-detail')?document.getElementById('repmap-detail').value:'auto';
@@ -5306,7 +5313,7 @@ async function printTourMap(){
   const km=(routeData&&typeof routeData.km==='number')?routeData.km:(tourRoutes[tourId]&&tourRoutes[tourId].km);
   const zus=tourZusatzMin(tour);
   const _flM2=flTrees0.reduce((s,t)=>s+(parseFloat(t.menge)||0),0);
-  const kennz=`${stops.length+flTrees0.length} Objekte${_flM2?` · ${_repNum(Math.round(_flM2))} m²`:''}${km!=null?` · ${km.toFixed(1)} km`:''}${driveSec?` · ${fmtDuration(driveSec)} Fahrt`:''}${stopsTrees.length?` · gesamt ${fmtTotalTime(driveSec,stopsTrees,zus)}`:''}`;
+  const kennz=`${stops.length} Objekte${_flM2?` · ${_repNum(Math.round(_flM2))} m²`:''}${km!=null?` · ${km.toFixed(1)} km`:''}${driveSec?` · ${fmtDuration(driveSec)} Fahrt`:''}${stopsTrees.length?` · gesamt ${fmtTotalTime(driveSec,stopsTrees,zus)}`:''}`;
   baseAttr=baseAttr+' · Route: OpenRouteService';
   const titleSub='Kartenausdruck · '+dlEsc(currentProjectData?.name||'')+' · '+dlEsc(dashFmtDE(new Date()));
   const color=tour.color;
@@ -5347,7 +5354,7 @@ async function printTourMap(){
     +'<div class="mp-page" style="position:absolute;top:0;left:0;transform-origin:top left;background:#fff;box-shadow:0 6px 30px rgba(0,0,0,.45);overflow:hidden;">'
     +'<div id="mapprint-map" style="position:absolute;inset:0;"></div>'
     +'<div class="mp-ovl mp-top"><b>'+dlEsc(tour.name||'Tour')+'</b><span class="s">'+titleSub+'</span><span class="pl" style="margin-left:6px;font-weight:600;font-style:normal;"></span></div>'
-    +'<div class="mp-ovl mp-bot"><span>'+(flFeatures.length?'▰ Fläche (Reihenfolge)':'● Stopp (Reihenfolge)')+(stops.length?'':'')+(useDepot?' &nbsp; ▪ Betriebshof':'')+(routeLatLngs&&routeLatLngs.length?' &nbsp; — Route':'')+'</span><span>'+dlEsc(kennz)+'</span></div></div></div>';
+    +'<div class="mp-ovl mp-bot"><span>● Nr. (Reihenfolge)'+(flFeatures.length?' &nbsp; ▰ Fläche':'')+(useDepot?' &nbsp; ▪ Betriebshof':'')+(routeLatLngs&&routeLatLngs.length?' &nbsp; — Route':'')+'</span><span>'+dlEsc(kennz)+'</span></div></div></div>';
   document.body.appendChild(modal);
   const page=modal.querySelector('.mp-page'), frame=modal.querySelector('.mp-frame');
   let curOrient=orient;
@@ -5365,13 +5372,10 @@ async function printTourMap(){
   const pbase = base.kind==='wms' ? L.tileLayer.wms(base.url,{layers:base.layers,format:'image/png',version:base.version,transparent:false,maxZoom:20,attribution:baseAttr,crossOrigin:true}) : L.tileLayer(base.url,{maxZoom:20,maxNativeZoom:18,attribution:baseAttr,crossOrigin:true});
   pbase.addTo(pmap);
   const pb=L.latLngBounds([]);
-  // Flächen-Polygone (nummeriert nach Berichtsreihenfolge)
+  // Flächen-Umrisse (Nummerierung übernimmt die Stopp-Schleife unten, da Flächen als Zentroid-Stopps in `stops` stecken)
   if(flFeatures.length){
     const flLayer=L.geoJSON({type:'FeatureCollection',features:flFeatures},{renderer:L.canvas({padding:0.5}),style:{color,weight:1.5,fillColor:color,fillOpacity:0.45}}).addTo(pmap);
     try{ pb.extend(flLayer.getBounds()); }catch(_){}
-    const ord=_repSort(tourId, flTrees0, _rep.cfg&&_rep.cfg.sort).map(t=>t.extId);
-    flLayer.eachLayer(l=>{ const ext=l.feature&&l.feature.properties&&l.feature.properties.extId; const n=ord.indexOf(ext)+1;
-      if(n>0&&l.getBounds){ const c=l.getBounds().getCenter(); L.marker(c,{interactive:false,icon:L.divIcon({className:'',html:'<div style="width:23px;height:23px;border-radius:50%;border:2px solid #fff;color:#fff;font:600 11px/19px monospace;text-align:center;box-shadow:0 0 2px rgba(0,0,0,.6);background:'+color+'">'+n+'</div>',iconSize:[23,23],iconAnchor:[11,11]})}).addTo(pmap); } });
   }
   if(routeLatLngs&&routeLatLngs.length){ L.polyline(routeLatLngs,{color,weight:4,opacity:.9}).addTo(pmap); if(useDepot) routeLatLngs.forEach(p=>pb.extend(p)); }
   stops.forEach(s=>{ L.marker([s.lat,s.lng],{icon:L.divIcon({className:'',html:'<div style="width:23px;height:23px;border-radius:50%;border:2px solid #fff;color:#fff;font:600 11px/19px monospace;text-align:center;box-shadow:0 0 2px rgba(0,0,0,.6);background:'+color+'">'+s.n+'</div>',iconSize:[23,23],iconAnchor:[11,11]})}).addTo(pmap); pb.extend([s.lat,s.lng]); });
