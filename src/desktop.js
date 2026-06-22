@@ -1549,31 +1549,34 @@ function refreshMarkers(){
 }
 
 // ── Flächen-Geometrie (Phase 1): Bundle aus Storage laden + als Canvas-Polygone rendern ──
-let _flaechenLayer=null, _flaechenLayerKey='', _flaechenBundle=null, _flaechenBundleKey='';
-async function loadFlaechenBundle(){
-  if(!currentProjectData?.hatFlaechen||!currentProjectData?.orgId) return null;
-  const key=currentProjectId+'_'+(currentProjectData.geomVersion||'');
-  if(_flaechenBundle && _flaechenBundleKey===key) return _flaechenBundle;
+let _flaechenLayer=null, _flaechenLayerKey='', _flaechenBundle=null, _flaechenBundleKey='', _flaechenBusy=false, _flaechenByExt={}, _flaechenSelExt='';
+function _flStyleFor(extId){ const t=trees.find(x=>x.extId===extId); const col=(t&&primaryTour(t)?.color)||'#3B6D11'; return { color:col, weight:1, fillColor:col, fillOpacity:0.35 }; }
+async function renderFlaechen(){
+  const hasFl = currentProjectData?.hatFlaechen || (Array.isArray(trees) && trees.some(t=>t.geomType==='flaeche'));
+  if(!hasFl){ if(_flaechenLayer){ map.removeLayer(_flaechenLayer); _flaechenLayer=null; _flaechenLayerKey=''; } return; }
+  const key=currentProjectId+'_'+(currentProjectData?.geomVersion||'');
+  if((_flaechenLayer && _flaechenLayerKey===key) || _flaechenBusy) return;
+  _flaechenBusy=true;
+  let bundle;
   try{
     const url=await storage.ref(`objektgeom/${currentProjectData.orgId}/${currentProjectId}/flaechen.json`).getDownloadURL();
     const r=await fetch(url); if(!r.ok) throw new Error('HTTP '+r.status);
-    _flaechenBundle=await r.json(); _flaechenBundleKey=key; return _flaechenBundle;
-  }catch(e){ console.warn('Flächen-Bundle laden', e); return null; }
-}
-async function renderFlaechen(){
-  const key=currentProjectId+'_'+(currentProjectData?.geomVersion||'');
-  if(!currentProjectData?.hatFlaechen){ if(_flaechenLayer){ map.removeLayer(_flaechenLayer); _flaechenLayer=null; _flaechenLayerKey=''; } return; }
-  if(_flaechenLayer && _flaechenLayerKey===key) return; // schon für diesen Stand gebaut
-  const bundle=await loadFlaechenBundle(); if(!bundle?.features) return;
-  if(_flaechenLayer){ map.removeLayer(_flaechenLayer); _flaechenLayer=null; }
-  const byExt={}; trees.forEach(t=>{ if(t.extId) byExt[t.extId]=t; });
-  _flaechenLayer=L.geoJSON(bundle, {
-    renderer: L.canvas({ padding:0.5 }),
-    style: f=>{ const t=byExt[f.properties.extId]; const col=(t&&primaryTour(t)?.color)||'#3B6D11'; return { color:col, weight:1, fillColor:col, fillOpacity:0.35 }; },
-    onEachFeature:(f,layer)=>{ const t=byExt[f.properties.extId]; if(t){ layer.on('click',()=>openDetail(t.id)); layer.bindTooltip((t.name||'Fläche')+(t.menge?' · '+t.menge+' m²':''),{sticky:true}); } }
-  }).addTo(map);
-  _flaechenLayerKey=key;
-  if(!_cityFitDone && currentView==='karte'){ try{ map.fitBounds(_flaechenLayer.getBounds(),{padding:[40,40],maxZoom:16}); _cityFitDone=true; }catch(e){} }
+    bundle=await r.json();
+  }catch(e){ _flaechenBusy=false; console.warn('Flächen-Bundle laden:', e); notify('⚠ Flächen-Geometrie nicht ladbar: '+(e.code||e.message||e)); return; }
+  if(!bundle?.features?.length){ _flaechenBusy=false; notify('⚠ Flächen-Bundle ist leer'); return; }
+  try{
+    if(_flaechenLayer){ map.removeLayer(_flaechenLayer); _flaechenLayer=null; }
+    const byExt={}; trees.forEach(t=>{ if(t.extId) byExt[t.extId]=t; });
+    _flaechenByExt={}; _flaechenSelExt='';
+    _flaechenLayer=L.geoJSON(bundle, {
+      renderer: L.canvas({ padding:0.5 }),
+      style: f=>{ const t=byExt[f.properties&&f.properties.extId]; const col=(t&&primaryTour(t)?.color)||'#3B6D11'; return { color:col, weight:1, fillColor:col, fillOpacity:0.35 }; },
+      onEachFeature:(f,layer)=>{ const ext=f.properties&&f.properties.extId; if(ext) _flaechenByExt[ext]=layer; const t=byExt[ext]; if(t){ layer.on('click',()=>selectTree(t.id,false)); layer.bindTooltip((t.name||'Fläche')+(t.menge?' · '+t.menge+' m²':''),{sticky:true}); } }
+    }).addTo(map);
+    _flaechenLayerKey=key;
+    try{ const b=_flaechenLayer.getBounds(); if(b.isValid() && currentView==='karte'){ map.fitBounds(b,{padding:[40,40],maxZoom:16}); _cityFitDone=true; } }catch(_){}
+  }catch(e){ console.warn('Flächen zeichnen:', e); notify('⚠ Flächen-Polygone-Fehler: '+(e.message||e)); }
+  _flaechenBusy=false;
 }
 
 // Render-Pause bei Massen-Schreibvorgängen (z.B. Lasso-Zuweisung): Snapshots kommen je
@@ -2286,6 +2289,18 @@ function selectTree(id, pan=true){
         map.setView([tree.lat,tree.lng], tz, {animate:true});
       }
     }, wasOnMap ? 0 : 200);
+  }
+  else if(geomTypeOf(tree)==='flaeche'){
+    // Vorherige Hervorhebung zurücksetzen, dann diese Fläche markieren + (bei Listen-Klick) heranzoomen
+    if(_flaechenSelExt && _flaechenSelExt!==tree.extId && _flaechenByExt[_flaechenSelExt]){ try{ _flaechenByExt[_flaechenSelExt].setStyle(_flStyleFor(_flaechenSelExt)); }catch(_){} }
+    setTimeout(()=>{ try{
+      map.invalidateSize();
+      const lyr=_flaechenByExt[tree.extId];
+      if(!lyr){ notify('Geometrie dieser Fläche noch nicht geladen — kurz warten und erneut.'); return; }
+      try{ lyr.setStyle({ color:'#1d9e75', weight:3, fillColor:'#1d9e75', fillOpacity:0.55 }); lyr.bringToFront&&lyr.bringToFront(); }catch(_){}
+      _flaechenSelExt=tree.extId;
+      if(pan){ const b=lyr.getBounds(); if(b.isValid()) map.fitBounds(b,{padding:[60,60],maxZoom:18,animate:true}); }
+    }catch(_){} }, wasOnMap ? 0 : 250);
   }
 
   // Open detail panel after potential view switch
