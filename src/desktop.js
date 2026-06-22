@@ -1705,9 +1705,11 @@ function fitToCity(){
   if(!map) return;
   const pts=trees.filter(t=>isActive(t)&&t.lat&&t.lng).map(t=>[t.lat,t.lng]);
   const depot=getDepot(); if(depot?.lat&&depot?.lng) pts.push([depot.lat,depot.lng]);
-  if(!pts.length) return;
+  let b=pts.length?L.latLngBounds(pts):null;
+  if(_flaechenLayer){ try{ const fb=_flaechenLayer.getBounds(); if(fb&&fb.isValid()) b=b?b.extend(fb):L.latLngBounds(fb.getSouthWest(),fb.getNorthEast()); }catch(_){} } // Flächen mit einbeziehen
+  if(!b||!b.isValid()) return;
   map.invalidateSize();
-  map.fitBounds(L.latLngBounds(pts),{padding:[50,50],maxZoom:16});
+  map.fitBounds(b,{padding:[50,50],maxZoom:16});
 }
 // Einmaliges Auto-Fit beim Öffnen eines Projekts (Standardansicht ohne Tour-Auswahl)
 function maybeFitCity(){
