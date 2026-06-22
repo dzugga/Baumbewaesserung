@@ -348,6 +348,7 @@ const WMS_DEFAULTS=[
    layers:'CP.CadastralParcel', type:'overlay', format:'image/png', version:'1.1.1', transparent:true, maxZoom:20,
    attribution:'Geobasisdaten © HVBG Hessen'},
 ];
+let currentOrgWms = []; // mandantenweite WMS-Standardliste (orgs/{id}.wmsDefaults) — vor getWmsLayers deklariert (sonst TDZ beim frühen Karten-Aufbau)
 // WMS projektscharf: liegt am Projekt (projects/{id}.wmsLayers) — bewusst NICHT am Mandanten,
 // damit Projekte derselben Stadt (z. B. Grünpflege vs. Behälterleerung) eigene Karten haben.
 // Effektive WMS-Ebenen = Stadt-Standard (orgs/{id}.wmsDefaults) + projekteigene; dedup nach id (Projekt gewinnt).
@@ -699,7 +700,6 @@ function maybeHealCount(field,n){
 function getDepot(){ return currentProjectData?.depot||null; }
 // ORS-Key stadtscharf: liegt am Mandanten (orgs/{orgId}.orsKey). Legacy-Fallback: alter projektweiter Key.
 let currentOrgOrsKey = '';
-let currentOrgWms = []; // mandantenweite WMS-Standardliste (orgs/{id}.wmsDefaults)
 function getOrsKey(){ return currentOrgOrsKey || currentProjectData?.orsKey || ''; }
 function getBewDuration(){
   const v=currentProjectData?.bewDuration;               // projektspezifisch
