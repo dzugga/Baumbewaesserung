@@ -9518,6 +9518,64 @@ function renderKiConfig(){
 }
 
 // ─── MANDANTEN-VERWALTUNG (nur Superadmin) ───────────────────────────────────
+// ── Flächen-Bundle einspielen (Superadmin): Geometrie → Storage, Datensätze → Firestore ──
+async function flaechenImportOpen(){
+  if(currentRole!=='superadmin'){ notify('Nur Superadmin'); return; }
+  let projs=[];
+  try{ const [pq,oq]=await Promise.all([db.collection('projects').get(),db.collection('orgs').get()]);
+    const on={}; oq.forEach(d=>on[d.id]=d.data().name||d.id);
+    projs=pq.docs.map(d=>({id:d.id,name:d.data().name||d.id,orgId:d.data().orgId,org:on[d.data().orgId]||d.data().orgId})).sort((a,b)=>((a.org||'')+a.name).localeCompare((b.org||'')+b.name));
+  }catch(e){ notify('Projekte laden fehlgeschlagen'); return; }
+  const m=document.createElement('div');
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100001;display:flex;align-items:center;justify-content:center;padding:20px;';
+  m.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:460px;max-width:94vw;overflow:hidden;">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;">⬗ Flächen-Bundle einspielen</div>
+    <div style="padding:16px 18px;display:flex;flex-direction:column;gap:12px;font-size:13px;">
+      <label style="font-size:12px;color:var(--text3);">Zielprojekt<select id="fi-proj" class="form-control" style="width:100%;margin-top:3px;">${projs.map(p=>`<option value="${dlEsc(p.id)}|${dlEsc(p.orgId)}"${p.id===currentProjectId?' selected':''}>${dlEsc(p.org)} · ${dlEsc(p.name)}</option>`).join('')}</select></label>
+      <label style="font-size:12px;color:var(--text3);">Geometrie-Bundle (essen-flaechen.geojson)<input id="fi-bundle" type="file" accept=".geojson,.json" class="form-control" style="width:100%;margin-top:3px;"></label>
+      <label style="font-size:12px;color:var(--text3);">Datensätze (essen-flaechen-docs.json)<input id="fi-docs" type="file" accept=".json" class="form-control" style="width:100%;margin-top:3px;"></label>
+      <div id="fi-status" style="font-size:12px;color:var(--text2);min-height:18px;"></div>
+      <div style="font-size:11px;color:var(--text3);">Lädt das Bundle nach Storage und schreibt die Flächen ins gewählte Projekt. Es wird NICHTS überschrieben — bitte nur ein leeres Zielprojekt verwenden.</div>
+    </div>
+    <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
+      <button id="fi-cancel" class="btn btn-secondary" style="padding:7px 12px;">Abbrechen</button>
+      <button id="fi-run" class="btn btn-primary" style="padding:7px 14px;">Einspielen</button>
+    </div>
+  </div>`;
+  document.body.appendChild(m);
+  const close=()=>m.remove();
+  m.querySelector('#fi-cancel').onclick=close;
+  m.addEventListener('click',e=>{ if(e.target===m) close(); });
+  m.querySelector('#fi-run').onclick=()=>flaechenImportRun(close);
+}
+async function flaechenImportRun(close){
+  if(currentRole!=='superadmin') return;
+  const sel=document.getElementById('fi-proj')?.value||''; const [pid,org]=sel.split('|');
+  const bundleFile=document.getElementById('fi-bundle')?.files?.[0];
+  const docsFile=document.getElementById('fi-docs')?.files?.[0];
+  const setMsg=t=>{ const e=document.getElementById('fi-status'); if(e) e.textContent=t; };
+  if(!pid||!org){ setMsg('Kein Zielprojekt.'); return; }
+  if(!bundleFile||!docsFile){ setMsg('Bitte beide Dateien wählen.'); return; }
+  const run=document.getElementById('fi-run'); if(run){ run.disabled=true; run.style.opacity=.5; }
+  try{
+    setMsg('Bundle wird hochgeladen…');
+    await storage.ref(`objektgeom/${org}/${pid}/flaechen.json`).put(bundleFile,{contentType:'application/json',cacheControl:'public,max-age=3600'});
+    setMsg('Datensätze werden gelesen…');
+    const docs=JSON.parse(await docsFile.text());
+    if(!Array.isArray(docs)||!docs.length){ setMsg('Datei enthält keine Datensätze.'); if(run){ run.disabled=false; run.style.opacity=1; } return; }
+    for(let i=0;i<docs.length;i+=400){
+      const batch=db.batch();
+      docs.slice(i,i+400).forEach(d=>{ const ref=db.collection('projects').doc(pid).collection('trees').doc();
+        batch.set(ref,{...d, orgId:org, aktiv:true, tourIds:[], baumId:d.extId||'', createdAt:firebase.firestore.FieldValue.serverTimestamp()}); });
+      await batch.commit();
+      setMsg(`${Math.min(i+400,docs.length)} / ${docs.length} Flächen geschrieben…`);
+    }
+    await db.collection('projects').doc(pid).update({hatFlaechen:true, geomVersion:Date.now()});
+    setMsg('✓ Fertig: '+docs.length+' Flächen eingespielt.');
+    notify('✓ '+docs.length+' Flächen eingespielt');
+    setTimeout(()=>{ if(close) close(); },1500);
+  }catch(e){ setMsg('Fehler: '+(e.message||e)); notify('Fehler: '+(e.message||e)); if(run){ run.disabled=false; run.style.opacity=1; } }
+}
 async function renderMandanten(){
   const el=document.getElementById('mandanten-body'); if(!el) return;
   if(currentRole!=='superadmin'){ el.innerHTML='<div style="padding:24px;color:var(--text3);font-size:13px;">Nur der Superadmin kann Mandanten verwalten.</div>'; return; }
@@ -9550,6 +9608,7 @@ async function renderMandanten(){
       </div>
       <div style="font-size:11px;color:var(--text3);margin-top:6px;">Danach unter Admin → Benutzer Personen für den neuen Mandanten anlegen.</div>
     </div>
+    <div style="margin-bottom:16px;"><button class="btn btn-secondary" style="font-size:12px;padding:7px 12px;" onclick="flaechenImportOpen()">⬗ Flächen-Bundle einspielen</button> <span style="font-size:11px;color:var(--text3);">Geometrie + Datensätze aus der Aufbereitung in ein (leeres) Projekt laden.</span></div>
     ${orgs.map(o=>`<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 16px;margin-bottom:12px;">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
         <span style="font-size:14px;font-weight:700;">${dlEsc(o.name||o.id)}</span>
@@ -9810,7 +9869,7 @@ Object.assign(window,{
   startAssignMode,setAssignTour,cancelAssign,assignTreeToTour,
   openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,
   pickProjIcon,artSetIcon,artSetTime,setArtDefaultTime,artApplyTimeToAll,
-  renderMandanten,createOrgUi,moveProjectUi,
+  renderMandanten,createOrgUi,moveProjectUi,flaechenImportOpen,flaechenImportRun,
   addWmsLayer,deleteWmsLayer,editWmsLayer,cancelWmsEdit,renderWmsList,
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,toggleTourCounts,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
