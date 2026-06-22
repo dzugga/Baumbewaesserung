@@ -78,7 +78,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .nav-parent{display:inline-flex;align-items:center}
 .nav-group{position:relative;display:inline-block}
 .nav-dropdown{position:absolute;top:100%;left:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);box-shadow:var(--shadow-md);display:none;flex-direction:column;min-width:200px;z-index:5000;padding:4px}
-.nav-group.open .nav-dropdown{display:flex}
+.nav-group.open .nav-dropdown,.nav-group:hover .nav-dropdown{display:flex}
 .nav-dropdown button{text-align:left;padding:8px 12px;border:none;background:none;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;color:var(--text);cursor:pointer;border-radius:6px;white-space:nowrap}
 .nav-dropdown button:hover{background:var(--surface2)}
 .nav-dropdown button.active{background:var(--green-light);color:var(--green)}
