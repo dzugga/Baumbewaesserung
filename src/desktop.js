@@ -1583,6 +1583,7 @@ async function renderFlaechen(){
   const hasFl = currentProjectData?.hatFlaechen || (Array.isArray(trees) && trees.some(t=>t.geomType==='flaeche'));
   if(!hasFl){ if(_flaechenLayer){ map.removeLayer(_flaechenLayer); _flaechenLayer=null; _flaechenLayerKey=''; } return; }
   const key=currentProjectId+'_'+(currentProjectData?.geomVersion||'');
+  const startedFor=currentProjectId; // Projektwechsel während des Ladens erkennen
   if((_flaechenLayer && _flaechenLayerKey===key) || _flaechenBusy) return;
   _flaechenBusy=true;
   let bundle;
@@ -1592,6 +1593,7 @@ async function renderFlaechen(){
     const r=await fetch(url); if(!r.ok) throw new Error('HTTP '+r.status);
     bundle=await r.json();
   }catch(e){ _flaechenBusy=false; console.warn('Flächen-Bundle laden:', e); notify('⚠ Flächen-Geometrie nicht ladbar: '+(e.code||e.message||e)); return; }
+  if(currentProjectId!==startedFor){ _flaechenBusy=false; return; } // inzwischen Projekt gewechselt → alten Layer nicht aufspielen
   if(!bundle?.features?.length){ _flaechenBusy=false; notify('⚠ Flächen-Bundle ist leer'); return; }
   try{
     if(_flaechenLayer){ map.removeLayer(_flaechenLayer); _flaechenLayer=null; }
@@ -1706,7 +1708,8 @@ function fitToCity(){
   const pts=trees.filter(t=>isActive(t)&&t.lat&&t.lng).map(t=>[t.lat,t.lng]);
   const depot=getDepot(); if(depot?.lat&&depot?.lng) pts.push([depot.lat,depot.lng]);
   let b=pts.length?L.latLngBounds(pts):null;
-  if(_flaechenLayer){ try{ const fb=_flaechenLayer.getBounds(); if(fb&&fb.isValid()) b=b?b.extend(fb):L.latLngBounds(fb.getSouthWest(),fb.getNorthEast()); }catch(_){} } // Flächen mit einbeziehen
+  const hasFl=currentProjectData?.hatFlaechen || trees.some(t=>geomTypeOf(t)==='flaeche');
+  if(hasFl && _flaechenLayer){ try{ const fb=_flaechenLayer.getBounds(); if(fb&&fb.isValid()) b=b?b.extend(fb):L.latLngBounds(fb.getSouthWest(),fb.getNorthEast()); }catch(_){} } // Flächen nur, wenn das aktuelle Projekt welche hat (sonst Rest-Layer aus vorigem Projekt)
   if(!b||!b.isValid()) return;
   map.invalidateSize();
   map.fitBounds(b,{padding:[50,50],maxZoom:16});
