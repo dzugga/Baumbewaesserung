@@ -138,6 +138,7 @@ function _daysBetween(a,b){ const [ay,am,ad]=a.split('-').map(Number),[by,bm,bd]
 function _tourInValidity(t,date){ const g=t&&t.gueltig; if(!Array.isArray(g)||!g.length) return true; return g.some(p=>p&&p.from<=date&&p.to>=date); }
 function tourDueOn(t,date){
   if(!t || !_tourInValidity(t,date)) return false;
+  if(t.saison && saisonFor(date)!==t.saison) return false; // Sommer-/Winter-Tour: nur in der passenden Saison fällig
   const iv=t.interval||'';
   if(iv==='bedarf') return false;            // Bedarfstour: nie automatisch fällig
   if(!iv||!t.startDate) return true;          // ohne Intervall/Startdatum: immer fällig (Bestand)
@@ -4924,6 +4925,8 @@ function renderTourenGrid(){
   const grid=document.getElementById('touren-grid');
   const countEl=document.getElementById('touren-count');
   if(!grid)return;
+  const genBtn=document.getElementById('btn-flaechen-tourgen');
+  if(genBtn) genBtn.style.display=((currentRole==='superadmin'||currentCap==='admin') && _geomActive() && trees.some(t=>geomTypeOf(t)==='flaeche'&&(t.fahrzeug||'').trim()))?'':'none';
 
   if(tours.length===0){
     grid.innerHTML=`<tr><td colspan="8" style="padding:60px;text-align:center;color:var(--text3);">
@@ -9649,6 +9652,86 @@ async function flaechenImportRun(close){
     setTimeout(()=>{ if(close) close(); },1500);
   }catch(e){ setMsg('Fehler: '+(e.message||e)); notify('Fehler: '+(e.message||e)); if(run){ run.disabled=false; run.style.opacity=1; } }
 }
+// ─── FLÄCHEN: Sommer-/Winter-Touren aus Reinigungsplan erzeugen ───────────────
+// Je (Saison × Fahrzeug × Wochentag) eine Tour. Wochentag = wöchentlicher Rhythmus
+// über ein Anker-Startdatum; Saison = Feld auf der Tour (tourDueOn filtert per Datum).
+// Idempotent: erzeugte Touren tragen autoFlaeche+genKey, werden wiederverwendet/ersetzt.
+const _FL_WD=['Mo','Di','Mi','Do','Fr','Sa','So'];
+const _FL_ANCHOR={Mo:'2024-01-01',Di:'2024-01-02',Mi:'2024-01-03',Do:'2024-01-04',Fr:'2024-01-05',Sa:'2024-01-06',So:'2024-01-07'}; // 2024-01-01 = Montag
+function _flTourColor(fz){ let h=0; const s=String(fz||''); for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return TOUR_COLORS[h%TOUR_COLORS.length]; }
+function _flTourPlan(){
+  const parse=s=>String(s||'').split(',').map(x=>x.trim()).filter(x=>_FL_WD.includes(x));
+  const flTrees=trees.filter(t=>geomTypeOf(t)==='flaeche' && String(t.fahrzeug||'').trim());
+  const byKey=new Map(), treeMap=new Map();
+  for(const t of flTrees){
+    const fz=String(t.fahrzeug).trim(), keys=[];
+    for(const [saison,field] of [['sommer',t.sommerTage],['winter',t.winterTage]]){
+      for(const wd of parse(field)){
+        const genKey=saison+'|'+fz+'|'+wd;
+        if(!byKey.has(genKey)) byKey.set(genKey,{ genKey, saison, fahrzeug:fz, wd, startDate:_FL_ANCHOR[wd], color:_flTourColor(fz),
+          name:wd+' · Fzg '+fz+' · '+(saison==='sommer'?'Sommer':'Winter') });
+        keys.push(genKey);
+      }
+    }
+    treeMap.set(t.id, keys);
+  }
+  return { tourList:[...byKey.values()], treeMap, flCount:flTrees.length };
+}
+function flaechenTourGenOpen(){
+  if(!(currentRole==='superadmin'||currentCap==='admin')){ notify('Nur Admin/Superadmin'); return; }
+  const p=_flTourPlan();
+  if(!p.tourList.length){ notify('Keine Flächen mit Fahrzeug und Reinigungstagen gefunden.'); return; }
+  const som=p.tourList.filter(t=>t.saison==='sommer').length, win=p.tourList.length-som;
+  const existing=tours.filter(t=>t.autoFlaeche).length;
+  const ok=confirm(`Touren aus Reinigungsplan erzeugen?\n\n`
+    +`• ${p.tourList.length} Touren (${som} Sommer, ${win} Winter)\n`
+    +`• ${p.flCount} Flächen werden den passenden Touren zugeordnet\n`
+    +`• Wochentag = wöchentlicher Rhythmus, Saison automatisch über die Zeiträume\n\n`
+    +(existing?`${existing} bereits erzeugte Touren werden aktualisiert/ersetzt.\n\n`:'')
+    +`Manuell angelegte Touren und Zuordnungen bleiben erhalten.`);
+  if(ok) flaechenTourGenRun();
+}
+async function flaechenTourGenRun(){
+  if(!(currentRole==='superadmin'||currentCap==='admin')) return;
+  const org=currentProjectData&&currentProjectData.orgId; if(!org){ notify('Kein Projekt geladen.'); return; }
+  const p=_flTourPlan(); if(!p.tourList.length) return;
+  notify('Touren werden erzeugt…');
+  try{
+    const tcol=db.collection('projects').doc(currentProjectId).collection('tours');
+    const existing=tours.filter(t=>t.autoFlaeche);
+    const byKey=new Map(existing.map(t=>[t.genKey,t]));
+    const keyToId=new Map(), wanted=new Set();
+    let batch=db.batch(), ops=0;
+    const flush=async()=>{ if(ops){ await batch.commit(); batch=db.batch(); ops=0; } };
+    for(const tt of p.tourList){
+      wanted.add(tt.genKey);
+      const ex=byKey.get(tt.genKey);
+      const ref=ex?tcol.doc(ex.id):tcol.doc();
+      keyToId.set(tt.genKey, ref.id);
+      batch.set(ref,{ orgId:org, name:tt.name, color:tt.color, interval:'woechentlich', startDate:tt.startDate,
+        saison:tt.saison, wochentag:tt.wd, fahrzeugNr:tt.fahrzeug, vehicleName:'Fzg '+tt.fahrzeug,
+        autoFlaeche:true, genKey:tt.genKey, gueltig:[], createdAt:firebase.firestore.FieldValue.serverTimestamp() },{merge:true});
+      if(++ops>=400) await flush();
+    }
+    for(const ex of existing){ if(!wanted.has(ex.genKey)){ batch.delete(tcol.doc(ex.id)); if(++ops>=400) await flush(); } }
+    await flush();
+    // Flächen zuordnen: manuelle (Nicht-auto) Tour-IDs behalten, auto-IDs durch neu berechnete ersetzen
+    const autoIds=new Set([...keyToId.values(), ...existing.map(e=>e.id)]);
+    const trcol=db.collection('projects').doc(currentProjectId).collection('trees');
+    let nTrees=0;
+    for(const t of trees.filter(x=>geomTypeOf(x)==='flaeche')){
+      const computed=(p.treeMap.get(t.id)||[]).map(k=>keyToId.get(k)).filter(Boolean);
+      const manual=getTreeTourIds(t).filter(id=>!autoIds.has(id));
+      const newIds=[...manual,...computed], cur=getTreeTourIds(t);
+      if(newIds.length!==cur.length || newIds.some((x,i)=>x!==cur[i])){
+        batch.update(trcol.doc(t.id),{tourIds:newIds,tourId:newIds[0]||''});
+        nTrees++; if(++ops>=400) await flush();
+      }
+    }
+    await flush();
+    notify(`✓ ${p.tourList.length} Touren erzeugt · ${nTrees} Flächen zugeordnet`);
+  }catch(e){ console.warn('flaechenTourGen', e); notify('Fehler: '+(e.message||e)); }
+}
 async function renderMandanten(){
   const el=document.getElementById('mandanten-body'); if(!el) return;
   if(currentRole!=='superadmin'){ el.innerHTML='<div style="padding:24px;color:var(--text3);font-size:13px;">Nur der Superadmin kann Mandanten verwalten.</div>'; return; }
@@ -9942,7 +10025,7 @@ Object.assign(window,{
   startAssignMode,setAssignTour,cancelAssign,assignTreeToTour,
   openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,
   pickProjIcon,artSetIcon,artSetTime,setArtDefaultTime,artApplyTimeToAll,
-  renderMandanten,createOrgUi,moveProjectUi,flaechenImportOpen,flaechenImportRun,
+  renderMandanten,createOrgUi,moveProjectUi,flaechenImportOpen,flaechenImportRun,flaechenTourGenOpen,flaechenTourGenRun,
   addWmsLayer,deleteWmsLayer,editWmsLayer,cancelWmsEdit,renderWmsList,
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,toggleTourCounts,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,

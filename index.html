@@ -1575,6 +1575,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <button class="btn btn-primary" onclick="openTourModal()">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>Neue Tour
     </button>
+    <button id="btn-flaechen-tourgen" class="btn btn-secondary" onclick="flaechenTourGenOpen()" style="display:none;" title="Sommer-/Winter-Touren je Wochentag und Fahrzeug aus dem Reinigungsplan erzeugen">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 3h18v18H3zM3 9h18M9 21V9"/></svg>Touren aus Plan
+    </button>
     <div data-sx style="position:relative;flex:1;max-width:320px;">
       <svg style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text3);" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
       <input id="touren-search" type="text" placeholder="Tour suchen…" oninput="filterTourenGrid(this.value);_sx(this)"
