@@ -580,6 +580,7 @@ async function openProject(projectId){
   if(unsubProjects){ unsubProjects(); unsubProjects=null; } // Projekt-Listener stoppen (spart Hintergrund-Reads)
   _routesCache={};_routesLoadedFor=null; // Routen-Cache für neues Projekt verwerfen
   _cityFitDone=false; // Karte beim Öffnen einmal auf die Stadt zoomen
+  if(_flaechenLayer){ map.removeLayer(_flaechenLayer); _flaechenLayer=null; } _flaechenLayerKey=''; _flaechenBundle=null; _flaechenBundleKey=''; // Flächen des alten Projekts verwerfen
   currentProjectId=projectId;
   window._tourHistoryCache=null;   // Historie des alten Projekts verwerfen
   _dataViewProject=null;           // Controlling/Dashboard für neues Projekt neu aufbauen
@@ -1544,6 +1545,35 @@ function refreshMarkers(){
   loadSavedRoutes();  // load from Firestore, never auto-recalculate
   renderDepotMarker();
   renderLegend();
+  renderFlaechen();   // Polygon-Layer (Flächen) aus dem Geometrie-Bundle
+}
+
+// ── Flächen-Geometrie (Phase 1): Bundle aus Storage laden + als Canvas-Polygone rendern ──
+let _flaechenLayer=null, _flaechenLayerKey='', _flaechenBundle=null, _flaechenBundleKey='';
+async function loadFlaechenBundle(){
+  if(!currentProjectData?.hatFlaechen||!currentProjectData?.orgId) return null;
+  const key=currentProjectId+'_'+(currentProjectData.geomVersion||'');
+  if(_flaechenBundle && _flaechenBundleKey===key) return _flaechenBundle;
+  try{
+    const url=await storage.ref(`objektgeom/${currentProjectData.orgId}/${currentProjectId}/flaechen.json`).getDownloadURL();
+    const r=await fetch(url); if(!r.ok) throw new Error('HTTP '+r.status);
+    _flaechenBundle=await r.json(); _flaechenBundleKey=key; return _flaechenBundle;
+  }catch(e){ console.warn('Flächen-Bundle laden', e); return null; }
+}
+async function renderFlaechen(){
+  const key=currentProjectId+'_'+(currentProjectData?.geomVersion||'');
+  if(!currentProjectData?.hatFlaechen){ if(_flaechenLayer){ map.removeLayer(_flaechenLayer); _flaechenLayer=null; _flaechenLayerKey=''; } return; }
+  if(_flaechenLayer && _flaechenLayerKey===key) return; // schon für diesen Stand gebaut
+  const bundle=await loadFlaechenBundle(); if(!bundle?.features) return;
+  if(_flaechenLayer){ map.removeLayer(_flaechenLayer); _flaechenLayer=null; }
+  const byExt={}; trees.forEach(t=>{ if(t.extId) byExt[t.extId]=t; });
+  _flaechenLayer=L.geoJSON(bundle, {
+    renderer: L.canvas({ padding:0.5 }),
+    style: f=>{ const t=byExt[f.properties.extId]; const col=(t&&primaryTour(t)?.color)||'#3B6D11'; return { color:col, weight:1, fillColor:col, fillOpacity:0.35 }; },
+    onEachFeature:(f,layer)=>{ const t=byExt[f.properties.extId]; if(t){ layer.on('click',()=>openDetail(t.id)); layer.bindTooltip((t.name||'Fläche')+(t.menge?' · '+t.menge+' m²':''),{sticky:true}); } }
+  }).addTo(map);
+  _flaechenLayerKey=key;
+  if(!_cityFitDone && currentView==='karte'){ try{ map.fitBounds(_flaechenLayer.getBounds(),{padding:[40,40],maxZoom:16}); _cityFitDone=true; }catch(e){} }
 }
 
 // Render-Pause bei Massen-Schreibvorgängen (z.B. Lasso-Zuweisung): Snapshots kommen je
@@ -2318,6 +2348,20 @@ function openDetail(id){
     ${drow(FL.pflanzjahr,tree.pflanzjahr)}
     ${drow(FL.pflanzzeitpunkt||'Pflanzzeitpunkt',tree.pflanzzeitpunkt)}
     ${customFields.filter(c=>fieldAppliesTo(c,geomTypeOf(tree))).map(c=>drow(c.label,tree[c.key])).join('')}
+
+    ${geomTypeOf(tree)==='flaeche'?`
+    <div class="form-section">Reinigungsplan</div>
+    ${drow('Belag',tree.belag)}
+    ${drow('Objektart',tree.objektart)}
+    ${drow('Objektnummer',tree.objektnummer)}
+    ${drow('Betriebshof',tree.betriebshof)}
+    ${drow('Fahrzeug',tree.fahrzeug)}
+    ${(tree.haeufigkeitS||tree.haeufigkeitW)?drow('Häufigkeit / Woche','Sommer '+(tree.haeufigkeitS||'–')+'× · Winter '+(tree.haeufigkeitW||'–')+'×'):''}
+    ${drow('Reinigungstage Sommer',tree.sommerTage)}
+    ${drow('Reinigungstage Winter',tree.winterTage)}
+    ${tree.reinigungsflaecheListe?drow('Reinigungsfläche (Liste)',tree.reinigungsflaecheListe+' m²'):''}
+    ${tree.hatPlan===false?'<div style="font-size:12px;color:var(--amber);padding:4px 0;">⚠ Kein Reinigungsplan in der Liste hinterlegt</div>':''}
+    `:''}
 
     <div class="form-section">Pflege</div>
     <div class="detail-field" style="padding:4px 0;">
