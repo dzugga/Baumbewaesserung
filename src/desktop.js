@@ -9729,6 +9729,11 @@ async function flaechenTourGenRun(){
       }
     }
     await flush();
+    // Ansicht aktualisieren: Touren-Tabelle zählt treeInTour, Flächen werden nach Tour eingefärbt.
+    // Der Trees-Listener rendert das Touren-Grid nicht selbst → hier explizit nachziehen.
+    try{ if(currentView==='touren') renderTourenGrid(); }catch(_){}
+    try{ _flaechenLayerKey=''; await renderFlaechen(); }catch(_){}
+    try{ refreshMarkers(); }catch(_){}
     notify(`✓ ${p.tourList.length} Touren erzeugt · ${nTrees} Flächen zugeordnet`);
   }catch(e){ console.warn('flaechenTourGen', e); notify('Fehler: '+(e.message||e)); }
 }
