@@ -1350,16 +1350,16 @@ function updateRouteInfoBar(){
   // Mehrere Touren ausgewählt → kompakte Summe
   if(activeTours.size>1){
     let km=0,dur=0,zusAll=0,azAll=0; activeTours.forEach(tid=>{ const m=tourMetrics(tid); if(m){ km+=m.km; dur+=m.durationSec; } const tt=tours.find(x=>x.id===tid); if(tt){ zusAll+=tourZusatzMin(tt); if(tt.arbeitszeitMin>0) azAll+=tt.arbeitszeitMin; } });
-    const tl=trees.filter(t=>treeInAnyActiveTour(t)&&t.lat&&t.lng); const cnt=tl.length;
+    const members=trees.filter(t=>treeInAnyActiveTour(t)&&isActive(t)); const tl=members.filter(t=>t.lat&&t.lng); const cnt=members.length;
     _fillRoutePanel(`${activeTours.size} Touren`, cnt, km||null, dur/60, bewMinutes(tl), zusAll, azAll);
     return;
   }
   const _activeM=activeTourOnMap?tourMetrics(activeTourOnMap):null;
-  if(_activeM){
-    const {km,durationSec}=_activeM;
-    const tour=tours.find(t=>t.id===activeTourOnMap);
-    const tl=trees.filter(t=>treeInTour(t,activeTourOnMap)&&t.lat&&t.lng); const cnt=tl.length;
-    _fillRoutePanel(tour?.name||'', cnt, km, durationSec/60, bewMinutes(tl), tourZusatzMin(tour), (tour&&tour.arbeitszeitMin>0)?tour.arbeitszeitMin:0);
+  const tour=activeTourOnMap?tours.find(t=>t.id===activeTourOnMap):null;
+  const members=tour?trees.filter(t=>treeInTour(t,activeTourOnMap)&&isActive(t)):[];
+  if(_activeM || members.length){ // Flächen-Touren haben keine Route, aber Objekte → Panel trotzdem zeigen
+    const tl=members.filter(t=>t.lat&&t.lng); const cnt=members.length;
+    _fillRoutePanel(tour?.name||'', cnt, _activeM?_activeM.km:null, _activeM?_activeM.durationSec/60:0, bewMinutes(tl), tourZusatzMin(tour), (tour&&tour.arbeitszeitMin>0)?tour.arbeitszeitMin:0);
   } else {
     if(bar) bar.classList.remove('visible');
     const sp=document.getElementById('sidebar-route-info'); if(sp) sp.style.display='none';
@@ -1552,6 +1552,27 @@ function refreshMarkers(){
 // ── Flächen-Geometrie (Phase 1): Bundle aus Storage laden + als Canvas-Polygone rendern ──
 let _flaechenLayer=null, _flaechenLayerKey='', _flaechenBundle=null, _flaechenBundleKey='', _flaechenBusy=false, _flaechenByExt={}, _flaechenSelExt='';
 function _flStyleFor(extId){ const t=trees.find(x=>x.extId===extId); const col=(t&&primaryTour(t)?.color)||'#3B6D11'; return { color:col, weight:1, fillColor:col, fillOpacity:0.35 }; }
+// Flächen folgen der Tour-Auswahl: ausgewählte Touren-Flächen voll, andere ausgegraut. Ohne Auswahl: normal.
+function _applyFlaechenSelection(){
+  if(!_flaechenLayer) return;
+  const sel=activeTours.size>0;
+  const selColor=activeTours.size===1?(tours.find(t=>t.id===[...activeTours][0])||{}).color:null;
+  _flaechenLayer.eachLayer(l=>{
+    const ext=l.feature&&l.feature.properties&&l.feature.properties.extId;
+    const t=ext?trees.find(x=>x.extId===ext):null; if(!t||!l.setStyle) return;
+    if(sel && !treeInAnyActiveTour(t)){ l.setStyle({color:'#b9b6b0',weight:1,fillColor:'#b9b6b0',fillOpacity:0.06}); return; }
+    const col=(sel&&selColor)||(primaryTour(t)||{}).color||'#3B6D11';
+    l.setStyle({color:col,weight:sel?1.5:1,fillColor:col,fillOpacity:sel?0.5:0.35});
+  });
+}
+// Bounds aller Flächen der aktuell ausgewählten Touren (für „einpassen")
+function _flaechenSelBounds(){
+  if(!_flaechenLayer) return null; let b=null;
+  _flaechenLayer.eachLayer(l=>{ const ext=l.feature&&l.feature.properties&&l.feature.properties.extId;
+    const t=ext?trees.find(x=>x.extId===ext):null;
+    if(t&&treeInAnyActiveTour(t)&&l.getBounds){ const lb=l.getBounds(); if(lb&&lb.isValid()) b=b?b.extend(lb):L.latLngBounds(lb.getSouthWest(),lb.getNorthEast()); } });
+  return b;
+}
 async function renderFlaechen(){
   const hasFl = currentProjectData?.hatFlaechen || (Array.isArray(trees) && trees.some(t=>t.geomType==='flaeche'));
   if(!hasFl){ if(_flaechenLayer){ map.removeLayer(_flaechenLayer); _flaechenLayer=null; _flaechenLayerKey=''; } return; }
@@ -1576,7 +1597,8 @@ async function renderFlaechen(){
       onEachFeature:(f,layer)=>{ const ext=f.properties&&f.properties.extId; if(ext) _flaechenByExt[ext]=layer; const t=byExt[ext]; if(t){ layer.on('click',()=>selectTree(t.id,false)); layer.bindTooltip((t.name||'Fläche')+(t.menge?' · '+t.menge+' m²':''),{sticky:true}); } }
     }).addTo(map);
     _flaechenLayerKey=key;
-    try{ const b=_flaechenLayer.getBounds(); if(b.isValid() && currentView==='karte'){ map.fitBounds(b,{padding:[40,40],maxZoom:16}); _cityFitDone=true; } }catch(_){}
+    _applyFlaechenSelection(); // bestehende Tour-Auswahl auf neue Polygone übernehmen
+    try{ const b=_flaechenLayer.getBounds(); if(b.isValid() && currentView==='karte' && !activeTours.size){ map.fitBounds(b,{padding:[40,40],maxZoom:16}); _cityFitDone=true; } }catch(_){}
   }catch(e){ console.warn('Flächen zeichnen:', e); notify('⚠ Flächen-Polygone-Fehler: '+(e.message||e)); }
   _flaechenBusy=false;
 }
@@ -1714,15 +1736,13 @@ async function applyTourSelection(fit){
       }
       if(missing&&activeTours.size===1) notify('Noch keine Route berechnet — Rechtsklick auf Karte zum Berechnen');
     }
-    // Karte auf alle ausgewählten Touren einpassen
+    // Karte auf alle ausgewählten Touren einpassen (Marker UND Flächen)
     if(fit){
-      const trs=trees.filter(t=>treeInAnyActiveTour(t)&&t.lat&&t.lng);
-      if(trs.length>0){
-        const pts=trs.map(t=>[t.lat,t.lng]);
-        const depot=getDepot();
-        if(depot?.lat&&depot?.lng) pts.push([depot.lat,depot.lng]);
-        map.fitBounds(L.latLngBounds(pts),{padding:[60,60],maxZoom:16});
-      }
+      const pts=trees.filter(t=>treeInAnyActiveTour(t)&&t.lat&&t.lng).map(t=>[t.lat,t.lng]);
+      const depot=getDepot(); if(depot?.lat&&depot?.lng) pts.push([depot.lat,depot.lng]);
+      let b=pts.length?L.latLngBounds(pts):null;
+      const fb=_flaechenSelBounds(); if(fb) b=b?b.extend(fb):fb;
+      if(b&&b.isValid()) map.fitBounds(b,{padding:[60,60],maxZoom:16});
     }
   } else if(showUnplanned){
     // nur Unverplant: keine Tour-Routenlinien zeichnen
@@ -1733,6 +1753,7 @@ async function applyTourSelection(fit){
   applyClusterMode(_effectiveCluster(), false); // Cluster nur ohne Tour-Auswahl → in Touransicht Einzelmarker
   setMarkerVisibility();
   rebuildMarkersWithNumbers();
+  _applyFlaechenSelection();
   updateRouteInfoBar();
   renderLegend();
   renderFilters();
@@ -1830,7 +1851,8 @@ function renderLegend(){
   // Tour rows — kompakt: Name + Gesamtzeit; Details je Tour aufklappbar (Pfeil)
   function tourRow(t){
     const _tm=tourMetrics(t.id);
-    const tl=trees.filter(x=>treeInTour(x,t.id)&&x.lat&&x.lng&&isActive(x)); const cnt=tl.length;
+    const members=trees.filter(x=>treeInTour(x,t.id)&&isActive(x)); // inkl. Flächen (ohne lat/lng)
+    const tl=members.filter(x=>x.lat&&x.lng); const cnt=members.length;
     const total=_tm?fmtTotalTime(_tm.durationSec,tl,tourZusatzMin(t)):'';
     const isSel=activeTours.has(t.id);
     const isExp=legendExpanded.has(t.id);
@@ -1840,7 +1862,7 @@ function renderLegend(){
       <input type="checkbox" class="tour-check"${isSel?' checked':''} style="margin:0 4px 0 0;cursor:pointer;flex-shrink:0;accent-color:${t.color};">
       <div class="legend-line" style="background:${t.color};width:16px;height:3px;"></div>
       <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">${dlEsc(t.name)}</span>
-      <span class="legend-km" style="font-size:10px;">${ov?cnt:total}</span>
+      <span class="legend-km" style="font-size:10px;">${ov?cnt:(_tm?total:cnt+' Obj.')}</span>
       ${ov?'':`<svg data-expand="${t.id}" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2.5" style="flex-shrink:0;cursor:pointer;padding:1px;transition:transform .15s;transform:rotate(${isExp?180:0}deg);"><path d="M6 9l6 6 6-6"/></svg>`}
     </div>`;
     if(isExp && !ov){
