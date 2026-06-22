@@ -5435,6 +5435,13 @@ async function initUsage(){
   }
   renderUsage();
 }
+// Geschätzte Firestore-Operationskosten je Stadt. Stückpreise in € je 100.000 Operationen
+// (Firestore regional, Näherung — bei Preisänderung hier anpassen). Bewusst BRUTTO: ohne
+// projektweites Gratis-Kontingent und ohne Speicher/Functions/KI/Traffic → die echte Rechnung
+// ist meist niedriger; gut für den Vergleich „welche Stadt verursacht wie viel".
+const FS_PREIS_PRO_100K = { reads: 0.031, writes: 0.094, deletes: 0.010 };
+function _usageKosten(r){ return (r.reads/1e5)*FS_PREIS_PRO_100K.reads + (r.writes/1e5)*FS_PREIS_PRO_100K.writes + (r.deletes/1e5)*FS_PREIS_PRO_100K.deletes; }
+function _eur(n){ if(n>0 && n<0.01) return '<0,01 €'; return n.toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2})+' €'; }
 async function renderUsage(){
   const el=document.getElementById('usage-body'); if(!el) return;
   if(!(currentRole==='superadmin'||currentCap==='admin')){ el.innerHTML='<div style="color:var(--text3);font-size:13px;">Nur Administratoren.</div>'; return; }
@@ -5448,31 +5455,34 @@ async function renderUsage(){
     else { const s=await db.collection('usage').doc(currentOrg+'_'+ym).get(); if(s.exists) docs=[s.data()]; }
   }catch(e){ el.innerHTML='<div style="color:var(--red);font-size:13px;">Fehler beim Laden: '+(e.message||e.code)+'</div>'; return; }
   docs.sort((a,b)=>(orgNames[a.orgId]||a.orgId).localeCompare(orgNames[b.orgId]||b.orgId));
-  _usageRows=docs.map(d=>({stadt:orgNames[d.orgId]||d.orgId, orgId:d.orgId, reads:d.reads||0, writes:d.writes||0, deletes:d.deletes||0}));
+  _usageRows=docs.map(d=>{ const r={stadt:orgNames[d.orgId]||d.orgId, orgId:d.orgId, reads:d.reads||0, writes:d.writes||0, deletes:d.deletes||0}; r.kosten=_usageKosten(r); return r; });
   const fmt=n=>(n||0).toLocaleString('de-DE');
   if(_usageRows.length===0){ el.innerHTML=`<div style="color:var(--text3);font-size:13px;padding:10px 0;">Noch keine Nutzungsdaten für ${ym}. (Werden gesammelt, sobald die App genutzt wird.)</div>`; return; }
-  const sum=_usageRows.reduce((a,r)=>({reads:a.reads+r.reads,writes:a.writes+r.writes,deletes:a.deletes+r.deletes}),{reads:0,writes:0,deletes:0});
+  const sum=_usageRows.reduce((a,r)=>({reads:a.reads+r.reads,writes:a.writes+r.writes,deletes:a.deletes+r.deletes,kosten:a.kosten+r.kosten}),{reads:0,writes:0,deletes:0,kosten:0});
   const th='padding:9px 12px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);';
   el.innerHTML=`<table style="width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:13px;">
     <thead><tr style="background:var(--surface2);">
-      <th style="${th}text-align:left;">Stadt</th><th style="${th}">Reads</th><th style="${th}">Writes</th><th style="${th}">Deletes</th>
+      <th style="${th}text-align:left;">Stadt</th><th style="${th}">Reads</th><th style="${th}">Writes</th><th style="${th}">Deletes</th><th style="${th}" title="Geschätzte Firestore-Operationskosten — Brutto, ohne Gratis-Kontingent/Speicher/Functions/KI">≈ Kosten</th>
     </tr></thead>
     <tbody>${_usageRows.map(r=>`<tr style="border-top:1px solid var(--border);">
       <td style="padding:7px 12px;font-weight:500;">${dlEsc(r.stadt)}</td>
       <td style="padding:7px 12px;text-align:right;font-variant-numeric:tabular-nums;">${fmt(r.reads)}</td>
       <td style="padding:7px 12px;text-align:right;font-variant-numeric:tabular-nums;">${fmt(r.writes)}</td>
       <td style="padding:7px 12px;text-align:right;font-variant-numeric:tabular-nums;">${fmt(r.deletes)}</td>
+      <td style="padding:7px 12px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text2);">${_eur(r.kosten)}</td>
     </tr>`).join('')}
     <tr style="border-top:2px solid var(--border);font-weight:700;background:var(--surface2);">
       <td style="padding:8px 12px;">Summe</td>
       <td style="padding:8px 12px;text-align:right;">${fmt(sum.reads)}</td>
       <td style="padding:8px 12px;text-align:right;">${fmt(sum.writes)}</td>
       <td style="padding:8px 12px;text-align:right;">${fmt(sum.deletes)}</td>
-    </tr></tbody></table>`;
+      <td style="padding:8px 12px;text-align:right;">${_eur(sum.kosten)}</td>
+    </tr></tbody></table>
+    <div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.5;">„≈ Kosten" ist eine <b>Schätzung</b> der Firestore-Operationskosten (Reads/Writes/Deletes × Stückpreis) — <b>brutto</b>, also <u>ohne</u> das projektweite kostenlose Kontingent und <u>ohne</u> Speicher, Cloud Functions, KI und Datenverkehr. Die tatsächliche Google-Rechnung ist meist niedriger. Nützlich vor allem für den Vergleich zwischen den Städten.</div>`;
 }
 function exportUsageCSV(){
   const ym=document.getElementById('usage-month')?.value||_usageMonth();
-  const rows=[['Stadt','orgId','Reads','Writes','Deletes','Monat'],..._usageRows.map(r=>[r.stadt,r.orgId,r.reads,r.writes,r.deletes,ym])];
+  const rows=[['Stadt','orgId','Reads','Writes','Deletes','Kosten_Schaetzung_EUR','Monat'],..._usageRows.map(r=>[r.stadt,r.orgId,r.reads,r.writes,r.deletes,(r.kosten||0).toFixed(2).replace('.',','),ym])];
   const csv=rows.map(r=>r.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(';')).join('\n');
   const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='nutzung_'+ym+'.csv'; a.click();
