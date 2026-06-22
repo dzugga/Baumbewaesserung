@@ -9776,6 +9776,22 @@ Object.assign(window,{
   doLogin, doLogout, toggleLoginMode,
 });
 
+// Topbar-Menüs klick-basiert öffnen (zuverlässiger als Hover — kein „Lücke verloren") :
+// Klick auf den Hauptpunkt öffnet/schließt; Auswahl eines Unterpunkts, Klick außerhalb oder Esc schließt.
+function setupNavMenus(){
+  const groups=[...document.querySelectorAll('nav.topbar-nav .nav-group')];
+  if(!groups.length) return;
+  const closeAll=()=>groups.forEach(g=>g.classList.remove('open'));
+  groups.forEach(g=>{
+    const trigger=g.querySelector(':scope > button'); if(!trigger) return; // Hauptpunkt oder Avatar
+    trigger.addEventListener('click',e=>{ e.stopPropagation(); const open=g.classList.contains('open'); closeAll(); if(!open) g.classList.add('open'); });
+    g.querySelectorAll('.nav-dropdown button').forEach(b=>b.addEventListener('click',closeAll));
+  });
+  document.addEventListener('click',e=>{ if(!e.target.closest('.nav-group')) closeAll(); });
+  document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeAll(); });
+}
+if(document.readyState!=='loading') setupNavMenus(); else document.addEventListener('DOMContentLoaded',setupNavMenus);
+
 // ─── AUTH-GATE ────────────────────────────────────────────────
 function showLogin(msg){
   const ls=document.getElementById('login-screen'); if(ls) ls.style.display='flex';
