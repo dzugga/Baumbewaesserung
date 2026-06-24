@@ -654,8 +654,13 @@ function subscribeToProject(){
 
   const toursRef=collection(db,'projects',currentProjectId,'tours');
   unsubTours=onSnapshot(toursRef,snap=>{
+    const _prevColor=tours.reduce((m,t)=>{m[t.id]=t.color;return m;},{});
     tours=snap.docs.map(d=>({id:d.id,...d.data()}));
+    // Tourfarbe geändert → Marker + Geometrie-Objekte (Fläche/Strecke/Abschnitt) neu einfärben.
+    // Nur bei echtem Farbwechsel, damit reine Status-Updates (Fahrer-App) keine teure Neuzeichnung auslösen.
+    const _colorChanged=tours.some(t=>_prevColor[t.id]!==undefined && _prevColor[t.id]!==t.color);
     renderFilters();renderList();renderLegend();
+    if(_colorChanged){ try{ refreshMarkers(); }catch(_){} try{ _applyFlaechenSelection(); }catch(_){} try{ loadSavedRoutes(); }catch(_){} }
     if(currentView==='touren') renderTourenGrid();
     if(currentView==='benutzer') renderDriverMgmt();
     syncDataViewToProject();
