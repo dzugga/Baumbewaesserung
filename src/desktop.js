@@ -821,22 +821,24 @@ function tourViolatingTrees(tour){
   return trees.filter(t=>treeInTour(t,tour.id) && !treeMatchesTour(t,tour));
 }
 // Warnung mit Override — Promise<true=trotzdem, false=abbrechen>.
-function ruleWarnDialog(bodyHtml, okLabel){
+// Liefert 'cancel' | 'all' | 'matching'. matchLabel optional → dritter Knopf „nur passende zuweisen".
+function ruleWarnDialog(bodyHtml, okLabel, matchLabel){
   return new Promise(resolve=>{
     const m=document.createElement('div');
     m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10000;display:flex;align-items:center;justify-content:center;';
-    m.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:420px;max-width:92vw;overflow:hidden;">
+    m.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:440px;max-width:92vw;overflow:hidden;">
       <div style="padding:16px 20px 10px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;color:#b45309;">⚠ Passt nicht zu den Tour-Regeln</div>
       <div style="padding:14px 20px;font-size:13px;color:var(--text2);line-height:1.6;">${bodyHtml}</div>
-      <div style="padding:10px 16px 16px;display:flex;gap:8px;justify-content:flex-end;">
-        <button class="btn btn-secondary" data-x="0">Abbrechen</button>
-        <button class="btn btn-primary" data-x="1">${okLabel||'Trotzdem zuweisen'}</button>
+      <div style="padding:10px 16px 16px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
+        <button class="btn btn-secondary" data-x="cancel">Abbrechen</button>
+        ${matchLabel?`<button class="btn btn-secondary" data-x="matching" style="border-color:var(--green);color:var(--green);">${matchLabel}</button>`:''}
+        <button class="btn btn-primary" data-x="all">${okLabel||'Trotzdem zuweisen'}</button>
       </div>
     </div>`;
     m.addEventListener('click',e=>{
-      if(e.target===m){ document.body.removeChild(m); resolve(false); return; }
+      if(e.target===m){ document.body.removeChild(m); resolve('cancel'); return; }
       const b=e.target.closest('[data-x]'); if(!b) return;
-      document.body.removeChild(m); resolve(b.dataset.x==='1');
+      document.body.removeChild(m); resolve(b.dataset.x);
     });
     document.body.appendChild(m);
   });
@@ -3867,8 +3869,8 @@ async function assignTreeToTour(treeId,tourId,skipConflictCheck=false){
   if(!skipConflictCheck){
     const viol=treeRuleViolations(tree, tour);
     if(viol.length){
-      const ok=await ruleWarnDialog(`<b>${dlEsc(tree.name||'Objekt')}</b> passt nicht zu den Regeln von <b>${dlEsc(tour?.name||'Tour')}</b>.<br><span style="color:var(--text3);">Abweichung bei: ${viol.map(dlEsc).join(', ')}</span>`);
-      if(!ok) return;
+      const r=await ruleWarnDialog(`<b>${dlEsc(tree.name||'Objekt')}</b> passt nicht zu den Regeln von <b>${dlEsc(tour?.name||'Tour')}</b>.<br><span style="color:var(--text3);">Abweichung bei: ${viol.map(dlEsc).join(', ')}</span>`);
+      if(r!=='all') return; // Einzelobjekt: nur „Trotzdem zuweisen" fährt fort
     }
   }
   // Bereits anderen Tour(en) zugeordnet → Hinweisdialog
@@ -8146,17 +8148,22 @@ function renderLassoActions(){
 
 // Aktion auf die Vorauswahl anwenden: 'add' | 'move' | 'unplan'
 async function lassoAction(mode){
-  const targets=[...lassoSelection].map(id=>trees.find(t=>t.id===id)).filter(Boolean);
+  let targets=[...lassoSelection].map(id=>trees.find(t=>t.id===id)).filter(Boolean);
   if(!targets.length){ renderLassoActions(); return; }
   const tourId=assignTourId||lassoTourId;
   const tour=tours.find(t=>t.id===tourId);
   if((mode==='add'||mode==='move')&&!tourId){ notify('Bitte zuerst eine Ziel-Tour wählen'); return; }
-  // Tour-Restriktion (Bulk): Warnung mit Override, wenn Objekte nicht zu den Regeln passen
+  // Tour-Restriktion (Bulk): passende direkt zuweisen, unpassende per Override oder weglassen
   if((mode==='add'||mode==='move')&&tourHasRules(tour)){
     const bad=targets.filter(t=>!treeMatchesTour(t,tour));
+    const good=targets.length-bad.length;
     if(bad.length){
-      const ok=await ruleWarnDialog(`<b>${bad.length}</b> von <b>${targets.length}</b> ausgewählten Objekten passen nicht zu den Regeln von <b>${dlEsc(tour?.name||'Tour')}</b>.`,'Trotzdem zuweisen');
-      if(!ok){ renderLassoActions(); return; }
+      const r=await ruleWarnDialog(`<b>${bad.length}</b> von <b>${targets.length}</b> ausgewählten Objekten passen nicht zu den Regeln von <b>${dlEsc(tour?.name||'Tour')}</b>.`,'Trotzdem alle zuweisen', good>0?`Nur passende (${good})`:'');
+      if(r==='cancel'){ renderLassoActions(); return; }
+      if(r==='matching'){
+        targets=targets.filter(t=>treeMatchesTour(t,tour));
+        if(!targets.length){ notify('Keine passenden Objekte'); renderLassoActions(); return; }
+      }
     }
   }
   const verbing=mode==='add'?'hinzufügen':mode==='move'?'verschieben':'aus Tour(en) entfernen';
