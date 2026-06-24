@@ -242,7 +242,18 @@ async function pickTour(orgId, name){
 }
 
 async function doLogout() {
-  if (!confirm('Abmelden?')) return;
+  // Es gibt erfasste Meldungen, aber die Tour ist noch nicht abgeschlossen → erst abschließen
+  const hatMeldungen = Array.isArray(trees) && trees.some(t=>t.lastStatus);
+  const tourOffen = currentTour && currentTour.status!=='abgeschlossen';
+  if(hatMeldungen && tourOffen){
+    if(confirm('Die Tour ist noch nicht abgeschlossen.\n\nOK = Tour jetzt abschließen\nAbbrechen = ohne Abschluss abmelden')){
+      showFinishConfirm();
+      return; // nicht abmelden — Fahrer schließt erst ab
+    }
+    if(!confirm('Wirklich OHNE Tour-Abschluss abmelden? Die Tour erscheint dann nicht in der Auswertung.')) return;
+  } else {
+    if (!confirm('Abmelden?')) return;
+  }
   try{ await endSession(); }catch(_){}
   try{ localStorage.removeItem('bwt_mobile_session'); }catch(_){}
   try{ await firebase.auth().signOut(); }catch(_){}
@@ -372,6 +383,7 @@ async function loadReasons() {
 }
 
 // ─── PROGRESS ─────────────────────────────────────────────────
+let _allDonePrompted=false; // verhindert wiederholtes Auto-Öffnen des Abschluss-Sheets
 function updateProgress() {
   const done = trees.filter(t=>t.lastStatus).length;
   const total = trees.length;
@@ -379,6 +391,17 @@ function updateProgress() {
   document.getElementById('progress-fill').style.width = pct+'%';
   document.getElementById('header-count').textContent = `${done}/${total}`;
   updateNextTreePreview();
+  // Alle Objekte gemeldet → einmalig zum Tour-Abschluss auffordern (nicht während aktiver Navigation)
+  const offen = total - done;
+  if(total>0 && offen===0 && currentTour?.status!=='abgeschlossen'){
+    if(!_allDonePrompted){
+      _allDonePrompted=true;
+      toast('🎉 Alle Objekte erledigt — bitte Tour abschließen');
+      if(!naviActive) setTimeout(()=>{ if(document.getElementById('finish-sheet')?.style.display!=='block') showFinishConfirm(); }, 700);
+    }
+  } else {
+    _allDonePrompted=false; // wieder offen (neues Objekt / Reopen) → Hinweis erneut zulassen
+  }
 }
 
 function updateNextTreePreview() {
