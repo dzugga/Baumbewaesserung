@@ -1591,17 +1591,21 @@ function _geoArea(ll){ if(ll.length<3) return 0; const R=6378137; let a=0; // sp
 function _fmtLen(m){ return m>=1000?(m/1000).toFixed(2).replace('.',',')+' km':Math.round(m)+' m'; }
 function _fmtArea(m2){ return m2>=10000?(m2/10000).toFixed(2).replace('.',',')+' ha':Math.round(m2)+' m²'; }
 // Geometrie am Doc rendern (Fläche=Polygon, Strecke=Linie) — getrennt vom Import-Bundle
+// Gezeichnete Geometrie liegt als JSON-String am Doc (geomStr) — Firestore kann keine verschachtelten Arrays
+function _treeGeom(t){ if(!t) return null; if(t.geom&&t.geom.coordinates) return t.geom; if(t.geomStr){ try{ return JSON.parse(t.geomStr); }catch(_){ return null; } } return null; }
+function _hasDrawnGeom(t){ return !!(t && (t.geomStr || (t.geom&&t.geom.coordinates))); }
 let _drawnLayer=null, _drawnById={}, _drawnSelId='';
 function renderDrawnGeoms(){
   if(!map) return;
   if(_drawnLayer){ map.removeLayer(_drawnLayer); _drawnLayer=null; } _drawnById={};
-  const list=(trees||[]).filter(t=>t&&t.geom&&t.geom.coordinates&&isActive(t));
+  const list=(trees||[]).filter(t=>_hasDrawnGeom(t)&&isActive(t));
   if(!list.length) return;
   _drawnLayer=L.featureGroup().addTo(map); // featureGroup → getBounds() für „einpassen"
   list.forEach(t=>{
+    const g=_treeGeom(t); if(!g) return;
     let layer;
-    if(t.geom.type==='Polygon'){ const ll=(t.geom.coordinates[0]||[]).map(c=>[c[1],c[0]]); if(ll.length<3) return; layer=L.polygon(ll,{renderer:L.canvas({padding:0.5}),..._flStyleForTree(t,false)}); }
-    else if(t.geom.type==='LineString'){ const ll=(t.geom.coordinates||[]).map(c=>[c[1],c[0]]); if(ll.length<2) return; layer=L.polyline(ll,{renderer:L.canvas({padding:0.5}),..._flStyleForTree(t,true)}); }
+    if(g.type==='Polygon'){ const ll=(g.coordinates[0]||[]).map(c=>[c[1],c[0]]); if(ll.length<3) return; layer=L.polygon(ll,{renderer:L.canvas({padding:0.5}),..._flStyleForTree(t,false)}); }
+    else if(g.type==='LineString'){ const ll=(g.coordinates||[]).map(c=>[c[1],c[0]]); if(ll.length<2) return; layer=L.polyline(ll,{renderer:L.canvas({padding:0.5}),..._flStyleForTree(t,true)}); }
     if(!layer) return;
     layer.on('click',()=>selectTree(t.id,false));
     layer.bindTooltip((t.name||(t.geomType==='linie'?'Strecke':'Fläche'))+(t.menge?' · '+(t.einheit==='m'?_fmtLen(t.menge):_fmtArea(t.menge)):''),{sticky:true});
@@ -1663,7 +1667,7 @@ async function finishDraw(){
   try{
     const baumId=await getNextBaumId();
     const ref=await addDoc(collection(db,'projects',currentProjectId,'trees'),{
-      name:type==='flaeche'?'Neue Fläche':'Neue Strecke', geomType:type, geom, menge, einheit,
+      name:type==='flaeche'?'Neue Fläche':'Neue Strecke', geomType:type, geomStr:JSON.stringify(geom), menge, einheit, // GeoJSON als String — Firestore kann keine verschachtelten Arrays
       zustand:'mittel', wasser:'mittel', tourId:'', tourIds:[], notiz:'', baumId, history:[], createdAt:serverTimestamp(),
     });
     notify(`✓ ${type==='flaeche'?'Fläche '+_fmtArea(menge):'Strecke '+_fmtLen(menge)} angelegt`);
@@ -1675,7 +1679,7 @@ async function renderFlaechen(){
   renderDrawnGeoms(); // gezeichnete Geometrie immer rendern (unabhängig vom Import-Bundle)
   // Bundle nur laden, wenn es IMPORTIERTE Flächen gibt (extId, Geometrie im Bundle). Rein gezeichnete
   // Flächen (geom am Doc, kein extId) brauchen kein Bundle → kein 404.
-  const hasFl = currentProjectData?.hatFlaechen || (Array.isArray(trees) && trees.some(t=>t.geomType==='flaeche' && t.extId && !t.geom));
+  const hasFl = currentProjectData?.hatFlaechen || (Array.isArray(trees) && trees.some(t=>t.geomType==='flaeche' && t.extId && !_hasDrawnGeom(t)));
   if(!hasFl){ if(_flaechenLayer){ map.removeLayer(_flaechenLayer); _flaechenLayer=null; _flaechenLayerKey=''; } return; }
   const key=currentProjectId+'_'+(currentProjectData?.geomVersion||'');
   const startedFor=currentProjectId; // Projektwechsel während des Ladens erkennen
@@ -2422,7 +2426,7 @@ function selectTree(id, pan=true){
       }
     }, wasOnMap ? 0 : 200);
   }
-  else if(geomTypeOf(tree)!=='punkt' && tree.geom && _drawnById[tree.id]){
+  else if(geomTypeOf(tree)!=='punkt' && _drawnById[tree.id]){
     // Gezeichnete Geometrie (am Doc): heranzoomen + kurz grün hervorheben
     const isLine=tree.geomType==='linie';
     if(_drawnSelId && _drawnSelId!==tree.id && _drawnById[_drawnSelId]){ const p0=trees.find(x=>x.id===_drawnSelId); try{ _drawnById[_drawnSelId].setStyle(_flStyleForTree(p0, p0&&p0.geomType==='linie')); }catch(_){} }
