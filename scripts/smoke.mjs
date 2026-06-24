@@ -17,7 +17,6 @@ const BASE = (process.env.SMOKE_URL || 'http://localhost:3001').replace(/\/$/, '
 const APPS = [
   { name: 'Desktop',       path: '/index.html',         sel: '#login-name' },
   { name: 'Fahrer-App',    path: '/mobil.html',         sel: 'input, button' },
-  { name: 'Navi',          path: '/navi.html',          sel: 'input, button' },
   { name: 'Erfassung',     path: '/erfassung.html',     sel: 'input, button' },
   { name: 'Einsatzleiter', path: '/einsatzleiter.html', sel: 'input, button' },
 ];

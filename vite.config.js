@@ -14,7 +14,6 @@ export default defineConfig({
       input: {
         main:         resolve(__dirname, 'index.html'),
         mobil:        resolve(__dirname, 'mobil.html'),
-        navi:         resolve(__dirname, 'navi.html'),
         erfassung:    resolve(__dirname, 'erfassung.html'),
         einsatzleiter: resolve(__dirname, 'einsatzleiter.html'),
       },

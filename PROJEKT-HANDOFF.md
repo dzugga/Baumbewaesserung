@@ -7,7 +7,7 @@
 - **Build:** Vite 8 → `npm.cmd run build` (→ `dist/`). Dev: `npm.cmd run dev` (Port **3001**, in vite.config.js fixiert).
 - **Hosting:** Firebase `baumbewaesserung`, live: https://baumbewaesserung.web.app. Deploy: `npx.cmd firebase deploy --only hosting` (Functions: `--only functions:NAME`, Rules: `--only firestore:rules`). **Nur auf ausdrückliche Aufforderung deployen.**
 - **Backend:** Firestore (compat SDK v10.12.0), **Firebase Auth** (E-Mail + Custom Token), Cloud Functions (Node 22, 2nd Gen, us-central1), Leaflet+OSM, OpenRouteService (Desktop-Routing), OSRM/Tiles (Navi), Chart.js, SheetJS, Gemini (`geminiAnalyse`).
-- **Apps (alle auf neuem Login):** `index.html`+`src/desktop.js` (Desktop-Planer) · `mobil.html`+`src/mobile.js` (Fahrer) · `erfassung.html`+`src/erfassung.js` (Erfassung) · `einsatzleiter.html`+`src/einsatzleiter.js` (Live) · `navi.html`+`src/navi.js` (Navi-Klon, Beta, läuft **parallel** zur Fahrer-App).
+- **Apps (alle auf neuem Login):** `index.html`+`src/desktop.js` (Desktop-Planer) · `mobil.html`+`src/mobile.js` (Fahrer-App, inkl. integriertem Navi-Modus, per Mandanten-Flag `naviEnabled` schaltbar) · `erfassung.html`+`src/erfassung.js` (Erfassung) · `einsatzleiter.html`+`src/einsatzleiter.js` (Live). Der frühere `navi.html`-Klon ist in die Fahrer-App zusammengeführt.
 
 ## Auth & Mehrmandantenfähigkeit (LIVE, Rules SCHARF)
 - **Login überall:** Stadt-Code + Name + PIN (`driverLogin` → Custom Token). Umschalter „Admin-Anmeldung (E-Mail)" für Planer/Admins. **Superadmin/Master = `dzugga@infa.de`** (E-Mail).

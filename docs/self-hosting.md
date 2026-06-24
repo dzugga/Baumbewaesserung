@@ -4,11 +4,11 @@ Anleitung, um Navigation (Routing) und Kartenkacheln **selbst zu betreiben** —
 unabhängig von den kostenlosen Community-/Demo-Servern, ohne Anfragelimit und
 DSGVO-freundlich (Daten in Deutschland).
 
-> **Warum?** Die Navi-Beta (`navi.html`) nutzt im Test den **OSRM-Demo-Server**
-> (`router.project-osrm.org`) und **OSM-Tiles** (`tile.openstreetmap.org`). Beide
-> sind gratis, aber **Fair-Use** und **nicht für den gewerblichen Dauerbetrieb**
-> freigegeben — bei Last wird gedrosselt/geblockt. Self-Hosting löst das für
-> ~15 €/Monat.
+> **Stand:** Der Navi-Modus ist in die **Fahrer-App** (`mobil.html` / `src/mobile.js`)
+> integriert; die frühere separate `navi.html` ist entfallen. Das Routing läuft
+> aktuell über **OpenRouteService** (ORS-API, Mandanten-Key) statt des OSRM-Demo-Servers.
+> ORS hat ein **Tageslimit** (~2.000 Anfragen/Tag/Key). Self-Hosting löst Limit + Kosten
+> dauerhaft (~15 €/Monat) — beachte dabei die **API-Unterschiede** (siehe Abschnitt 6).
 
 ---
 
@@ -101,14 +101,17 @@ curl "https://route.infra.example.de/route/v1/driving/8.19,52.118;8.175,52.111?o
 
 ---
 
-## 6) App umstellen (1-Zeilen-Switch)
-In **`src/navi.js`** ganz oben die zwei Konstanten anpassen:
-```js
-const NAVI_OSRM_BASE = 'https://route.infra.example.de';
-const NAVI_TILE_URL  = 'https://tiles.infra.example.de/{z}/{x}/{y}.png';
-```
-Dann `npm run build` + deploy. Mehr ist nicht nötig — die gesamte Navi nutzt
-ausschließlich diese beiden Konstanten.
+## 6) App umstellen — wichtig: API-Unterschied OSRM ↔ ORS
+Die App spricht inzwischen die **ORS-API** (`NAVI_ORS_BASE` in `src/mobile.js`, Helfer
+`orsDirections`). Ein selbst gehostetes **OSRM** spricht eine **andere** API
+(`/route/v1/...`) — daher gibt es zwei Wege:
+
+- **A) Eigenes ORS hosten** (Docker-Image `openrouteservice/openrouteservice`, nutzt OSM/OSRM-Daten):
+  dann nur `NAVI_ORS_BASE` auf die eigene ORS-URL setzen — sonst kein Code-Umbau.
+- **B) OSRM hosten** (Recipe oben): dann muss `orsDirections` wieder auf das OSRM-Format
+  umgestellt werden (eigener Helfer, `/route/v1/driving/...`, geometries=geojson, steps=true).
+
+Tile-URL in beiden Fällen über `NAVI_TILE_URL` setzen. Danach `npm run build` + deploy.
 
 > Die TileServer-GL-URL kann je nach Style abweichen
 > (z. B. `/styles/<style>/{z}/{x}/{y}.png` oder `/data/region/{z}/{x}/{y}.pbf`

@@ -62,10 +62,9 @@ export const SI_REGIONEN = [
 // Version wird zur Laufzeit aus dem Versions-Kommentar im Kopf der jeweiligen HTML-Datei gelesen.
 export const SI_APPS = [
   { file: 'index.html', name: 'Planungsmanager (Desktop)', zweck: 'Planung, Karte, Touren, Controlling, Verwaltung' },
-  { file: 'mobil.html', name: 'Auftragsbearbeitung (Fahrer-App)', zweck: 'Touren abarbeiten, Meldungen erfassen, Tour-Abschluss' },
+  { file: 'mobil.html', name: 'Auftragsbearbeitung (Fahrer-App)', zweck: 'Touren abarbeiten, Meldungen erfassen, Tour-Abschluss, optionale Navigation' },
   { file: 'erfassung.html', name: 'Erfassung', zweck: 'Vor-Ort-Erfassung neuer Objekte inkl. Fotos' },
   { file: 'einsatzleiter.html', name: 'Einsatzleiter', zweck: 'Live-Übersicht offener und laufender Touren' },
-  { file: 'navi.html', name: 'Navigation (Beta)', zweck: 'Navigations-Ansicht für Fahrer' },
 ];
 
 // ── Sicherheit ───────────────────────────────────────────────
