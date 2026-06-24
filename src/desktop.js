@@ -816,6 +816,33 @@ function treeRuleViolations(tree,tour){
 function treeMatchesTour(tree,tour){ return treeRuleViolations(tree,tour).length===0; }
 function tourHasRules(tour){ const r=tour&&tour.regeln; return !!r && Object.keys(r).some(k=>Array.isArray(r[k])&&r[k].length); }
 // Bereits zugewiesene Objekte, die die aktuellen Regeln der Tour verletzen.
+// Dialog: welche zugewiesenen Objekte verletzen die Tour-Regeln (+ Abweichungsfeld) — Klick springt zum Objekt.
+function showTourViolations(tourId){
+  const tour=tours.find(t=>t.id===tourId); if(!tour) return;
+  const bad=tourViolatingTrees(tour);
+  const rows=bad.map(t=>{
+    const viol=treeRuleViolations(t,tour);
+    const cont=_containerOf(t);
+    const nm=cont?(dlEsc(cont.name||'Abschnitt')+' · '+dlEsc(_elemLabel(t))):dlEsc(t.name||'Objekt');
+    const art=t.art?dlEsc(t.art):'<i>ohne Typ/Art</i>';
+    return `<div onclick="showTourViolationsClose&&showTourViolationsClose();selectTree('${t.id}')" style="cursor:pointer;border-bottom:1px solid var(--border);padding:7px 2px;">
+      <div style="font-size:13px;font-weight:600;">${nm}</div>
+      <div style="font-size:11px;color:var(--text2);">Abweichung bei: ${viol.map(dlEsc).join(', ')||'–'} · Typ/Art: ${art}</div>
+    </div>`;
+  }).join('')||'<div style="font-size:12px;color:var(--text3);padding:8px 0;">Keine Regelverstöße.</div>';
+  const m=document.createElement('div'); m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100002;display:flex;align-items:center;justify-content:center;padding:20px;';
+  m.innerHTML=`<div style="background:var(--surface);border-radius:10px;width:480px;max-width:94vw;max-height:80vh;overflow:hidden;display:flex;flex-direction:column;">
+    <div style="padding:13px 16px;border-bottom:1px solid var(--border);font-weight:700;font-size:14px;">⚠ Regelverstöße — ${dlEsc(tour.name||'Tour')} (${bad.length})</div>
+    <div style="padding:4px 16px;overflow:auto;">${rows}</div>
+    <div style="padding:11px 16px;border-top:1px solid var(--border);display:flex;justify-content:space-between;gap:8px;align-items:center;">
+      <span style="font-size:11px;color:var(--text3);">Klick auf einen Eintrag springt zum Objekt.</span>
+      <button id="tv-close" class="btn btn-secondary" style="padding:6px 14px;">Schließen</button></div>
+  </div>`;
+  document.body.appendChild(m);
+  window.showTourViolationsClose=()=>{ m.remove(); window.showTourViolationsClose=null; };
+  m.querySelector('#tv-close').onclick=window.showTourViolationsClose;
+  m.addEventListener('click',e=>{ if(e.target===m) window.showTourViolationsClose(); });
+}
 function tourViolatingTrees(tour){
   if(!tourHasRules(tour)) return [];
   return trees.filter(t=>treeInTour(t,tour.id) && !treeMatchesTour(t,tour));
@@ -5524,7 +5551,7 @@ function renderTourenGrid(){
       :'<span style="color:var(--text3);font-size:12px;">–</span>';
     return `<tr style="border-top:1px solid var(--border);" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''">
       <td style="padding:10px 16px;"><div style="width:14px;height:14px;border-radius:3px;background:${tour.color};flex-shrink:0;"></div></td>
-      <td style="padding:10px 16px;font-weight:600;white-space:nowrap;">${tour.name}${tour.uebersicht?' <span style="font-size:10px;font-weight:600;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Übersicht</span>':''}${_violCnt?` <span title="${_violCnt} zugewiesene Objekte verletzen die Zuordnungsregeln dieser Tour" style="font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⚠ ${_violCnt} Regelverstoß</span>`:(_rulesActive?' <span title="Zuordnungsregeln aktiv" style="font-size:10px;font-weight:600;color:var(--text3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Regeln</span>':'')}</td>
+      <td style="padding:10px 16px;font-weight:600;white-space:nowrap;">${tour.name}${tour.uebersicht?' <span style="font-size:10px;font-weight:600;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Übersicht</span>':''}${_violCnt?` <span onclick="showTourViolations('${tour.id}')" title="Anzeigen: welche Objekte die Zuordnungsregeln verletzen" style="cursor:pointer;font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⚠ ${_violCnt} Regelverstoß</span>`:(_rulesActive?' <span title="Zuordnungsregeln aktiv" style="font-size:10px;font-weight:600;color:var(--text3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Regeln</span>':'')}</td>
       <td style="padding:10px 16px;color:var(--text2);font-size:12px;">${tour.desc||'–'}</td>
       <td style="padding:10px 16px;text-align:center;"><input type="checkbox" ${tour.uebersicht?'checked':''} onchange="toggleTourUebersicht('${tour.id}',this.checked)" style="cursor:pointer;width:16px;height:16px;" title="Als Übersichtstour markieren (keine echte Tour)"></td>
       <td style="padding:10px 16px;text-align:right;font-weight:600;">${cnt}</td>
@@ -10812,7 +10839,7 @@ Object.assign(window,{
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
   openAddTree,openEditTree,closeTreeModal,saveTree,deleteTree,
   archiveTree,reactivateTree,archiveTreeFromModal,reactivateTreeFromModal,deleteTreeFromModal,toggleShowInactive,showTreeOnMapFromModal,bulkSetInactive,bulkDelete,
-  openTourModal,closeTourModal,saveTour,deleteTour,toggleTourUebersicht,toggleOverviewInGrid,filterTourenGrid,
+  openTourModal,closeTourModal,saveTour,deleteTour,toggleTourUebersicht,toggleOverviewInGrid,filterTourenGrid,showTourViolations,
   tourZusatzAdd,tourZusatzDel,tourRegelToggle,tourUpdWeekday,tourRhythmusUI,tourGueltigAdd,tourGueltigDel,tourGueltigSet,_sx,_sxClear,
   openTourReport,closeReportModal,repAddCol,repRemoveCol,repMoveCol,repApplyFromControls,
   printReport,exportReportExcel,saveReportTemplate,loadReportTemplate,printTourMap,
