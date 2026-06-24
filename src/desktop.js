@@ -2503,11 +2503,14 @@ function renderList(){
   // Abschnittsnamen je extId (für Seiten: Straßenname als Anzeige + durchsuchbar)
   const _contName={}; for(const t of trees){ if(t.containerTyp) _contName[t.extId]=t.name||''; }
   let filtered=trees.filter(t=>{
-    if(_listMode==='abschnitte'){ if(t.containerExtId) return false; } // Abschnitts-Modus: Seiten ausblenden
+    if(_listMode==='abschnitte'){ if(!_isContainer(t)) return false; } // Abschnitts-Modus: NUR Abschnitte (Container)
     else if(_isContainer(t)) return false; // Objekt-Modus: Abschnitt-Container sind keine Objekte → ausblenden
     const cn=t.containerExtId?(_contName[t.containerExtId]||''):'';
     const mq=matchTerms([t.name,t.art,t.stadtteil,t.baumnr,t.baumId,t.pflanzjahr,cn].join(' '), q);
-    const mf = treeVisibleSel(t);
+    // Container-Sichtbarkeit folgt seinen Seiten (Tour-Auswahl/Unverplant); sonst normale Objekt-Sichtbarkeit
+    const mf = _isContainer(t)
+      ? ((!activeTours.size && !showUnplanned) || _ausstattungOf(t.extId).some(s=>treeVisibleSel(s)))
+      : treeVisibleSel(t);
     return mq&&mf&&objMatchesPropFilter(t);
   });
   // Sort by route number when a tour is active
