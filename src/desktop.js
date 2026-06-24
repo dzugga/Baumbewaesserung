@@ -1027,6 +1027,27 @@ async function fetchOrsMatrix(coords){
   }catch(e){ console.warn('ORS matrix failed:',e); return null; }
 }
 
+// ORS-Optimierungs-Endpunkt (Vroom): optimierte Reihenfolge für VIELE Stopps (jenseits der 50×50-Matrix).
+// Liefert die Tree-Liste in optimierter Reihenfolge (ohne Depot) oder null.
+async function fetchOrsOptimization(trs, depot, roundTrip){
+  const key=getOrsKey(); if(!key||trs.length<2) return null;
+  const jobs=trs.map((p,i)=>({id:i+1, location:[p.lng,p.lat]}));
+  const vehicle={id:1, profile:'driving-car'};
+  if(depot){ vehicle.start=[depot.lng,depot.lat]; if(roundTrip) vehicle.end=[depot.lng,depot.lat]; }
+  try{
+    const res=await fetch('https://api.openrouteservice.org/optimization',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':key},
+      body:JSON.stringify({jobs, vehicles:[vehicle]})
+    });
+    if(!res.ok){ console.warn('ORS optimization error:',res.status, await res.text()); return null; }
+    const data=await res.json();
+    const steps=data?.routes?.[0]?.steps; if(!steps) return null;
+    const order=steps.filter(s=>s.type==='job').map(s=>trs[s.job-1]).filter(Boolean);
+    return order.length===trs.length ? order : (order.length?order:null);
+  }catch(e){ console.warn('ORS optimization failed:',e); return null; }
+}
+
 // Greedy Nearest-Neighbor anhand einer Kostenmatrix, Start bei startIdx
 function nnFromMatrix(pts, matrix, startIdx=0){
   const n=pts.length, visited=new Array(n).fill(false);
@@ -1069,16 +1090,23 @@ async function computeTreeOrder(trs, depot){
   const mode=getRouteOptMode();
   const roundTrip = !!depot && getDepotMode()==='round';
   if(mode==='matrix' && getOrsKey() && trs.length>=2){
-    const pts = depot ? [{id:'__depot__',lat:depot.lat,lng:depot.lng}, ...trs] : trs.slice();
-    const matrix = await fetchOrsMatrix(pts.map(p=>[p.lng,p.lat]));
-    if(matrix){
-      const idx=new Map(pts.map((p,i)=>[p,i]));
-      const cost=(a,b)=>matrix[idx.get(a)][idx.get(b)];
-      const seed=nnFromMatrix(pts, matrix, 0);
-      const opt=twoOpt(seed, cost, !!depot, roundTrip);
-      return opt.filter(p=>p.id!=='__depot__');
+    // >50 Stopps: ORS-Optimierungs-Endpunkt (Vroom) — die 50×50-Matrix reicht da nicht
+    if(trs.length>50){
+      const opt=await fetchOrsOptimization(trs, depot, roundTrip);
+      if(opt) return opt;
+      notify('Große Tour: optimierte Reihenfolge nicht verfügbar — Luftlinie genutzt');
+    } else {
+      const pts = depot ? [{id:'__depot__',lat:depot.lat,lng:depot.lng}, ...trs] : trs.slice();
+      const matrix = await fetchOrsMatrix(pts.map(p=>[p.lng,p.lat]));
+      if(matrix){
+        const idx=new Map(pts.map((p,i)=>[p,i]));
+        const cost=(a,b)=>matrix[idx.get(a)][idx.get(b)];
+        const seed=nnFromMatrix(pts, matrix, 0);
+        const opt=twoOpt(seed, cost, !!depot, roundTrip);
+        return opt.filter(p=>p.id!=='__depot__');
+      }
+      notify('ORS-Matrix nicht verfügbar — Luftlinie genutzt');
     }
-    notify('ORS-Matrix nicht verfügbar (>50 Stopps oder Limit) — Luftlinie genutzt');
   }
   // Fallback / bisherige Variante: Nearest-Neighbor (Luftlinie)
   let ordered=nearestNeighborTSP(trs, depot?.lat, depot?.lng);
