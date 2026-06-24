@@ -674,7 +674,7 @@ function subscribeToProject(){
       const changes=snap.docChanges();
       // Erstladung/Projektwechsel (alles neu) → Voll-Aufbau; sonst nur Geändertes anfassen
       if(Object.keys(mapMarkers).length===0 || changes.length>=snap.size) refreshMarkers();
-      else diffMarkers(changes);
+      else { diffMarkers(changes); try{ renderDrawnGeoms(); }catch(_){} } // gezeichnete Geometrie bei Teil-Updates mitziehen
       renderListDebounced();
     }
     maybeFitCity(); // beim ersten Laden auf die Stadt zoomen
@@ -1559,17 +1559,17 @@ function _flTourColorFor(t){
   const id=getTreeTourIds(t).find(id=>activeTours.has(id));
   return id ? ((tours.find(x=>x.id===id)||{}).color||null) : null;
 }
-function _flStyleFor(extId){
-  const t=trees.find(x=>x.extId===extId);
+function _flStyleForTree(t, isLine){
   const col=_flTourColorFor(t);
-  if(activeTours.size && !col) return { color:'#b9b6b0', weight:1, fillColor:'#b9b6b0', fillOpacity:0.06 }; // Tour gewählt, Fläche nicht dabei → ausgegraut
-  if(col) return { color:col, weight:1.5, fillColor:col, fillOpacity:0.5 };                                 // Fläche der gewählten Tour → Tourfarbe
-  return { color:FL_NEUTRAL, weight:1, fillColor:FL_NEUTRAL, fillOpacity:0.2 };                              // keine Auswahl → neutral (schwarz)
+  if(activeTours.size && !col) return isLine?{ color:'#b9b6b0', weight:2, opacity:0.5 }:{ color:'#b9b6b0', weight:1, fillColor:'#b9b6b0', fillOpacity:0.06 }; // andere Tour → ausgegraut
+  if(col) return isLine?{ color:col, weight:5, opacity:0.95 }:{ color:col, weight:1.5, fillColor:col, fillOpacity:0.5 };                                       // gewählte Tour → Tourfarbe
+  return isLine?{ color:FL_NEUTRAL, weight:4, opacity:0.85 }:{ color:FL_NEUTRAL, weight:1, fillColor:FL_NEUTRAL, fillOpacity:0.2 };                            // keine Auswahl → neutral (schwarz)
 }
+function _flStyleFor(extId){ return _flStyleForTree(trees.find(x=>x.extId===extId)); }
 // Flächen folgen der Tour-Auswahl (gleiche Logik wie Punktobjekte) – Stil je Polygon neu setzen.
 function _applyFlaechenSelection(){
-  if(!_flaechenLayer) return;
-  _flaechenLayer.eachLayer(l=>{ const ext=l.feature&&l.feature.properties&&l.feature.properties.extId; if(ext&&l.setStyle) l.setStyle(_flStyleFor(ext)); });
+  if(_flaechenLayer) _flaechenLayer.eachLayer(l=>{ const ext=l.feature&&l.feature.properties&&l.feature.properties.extId; if(ext&&l.setStyle) l.setStyle(_flStyleFor(ext)); });
+  for(const id in _drawnById){ const t=trees.find(x=>x.id===id), l=_drawnById[id]; if(t&&l&&l.setStyle) l.setStyle(_flStyleForTree(t, t.geomType==='linie')); }
 }
 // Bounds aller Flächen der aktuell ausgewählten Touren (für „einpassen")
 function _flaechenSelBounds(){
@@ -1579,8 +1579,103 @@ function _flaechenSelBounds(){
     if(t&&treeInAnyActiveTour(t)&&l.getBounds){ const lb=l.getBounds(); if(lb&&lb.isValid()) b=b?b.extend(lb):L.latLngBounds(lb.getSouthWest(),lb.getNorthEast()); } });
   return b;
 }
+// ─── GEZEICHNETE GEOMETRIE (Fläche/Strecke direkt am Objekt-Doc) ─────────────
+function _distM(a,b){ const R=6371000, dLat=(b[0]-a[0])*Math.PI/180, dLon=(b[1]-a[1])*Math.PI/180,
+  s=Math.sin(dLat/2)**2+Math.cos(a[0]*Math.PI/180)*Math.cos(b[0]*Math.PI/180)*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(s)); }
+function _geoLen(ll){ let d=0; for(let i=1;i<ll.length;i++) d+=_distM(ll[i-1],ll[i]); return d; }
+function _geoArea(ll){ if(ll.length<3) return 0; const R=6378137; let a=0; // sphärisches Exzess → m²
+  for(let i=0;i<ll.length;i++){ const p1=ll[i],p2=ll[(i+1)%ll.length];
+    a += (p2[1]-p1[1])*Math.PI/180*(2+Math.sin(p1[0]*Math.PI/180)+Math.sin(p2[0]*Math.PI/180)); }
+  return Math.abs(a*R*R/2); }
+function _fmtLen(m){ return m>=1000?(m/1000).toFixed(2).replace('.',',')+' km':Math.round(m)+' m'; }
+function _fmtArea(m2){ return m2>=10000?(m2/10000).toFixed(2).replace('.',',')+' ha':Math.round(m2)+' m²'; }
+// Geometrie am Doc rendern (Fläche=Polygon, Strecke=Linie) — getrennt vom Import-Bundle
+let _drawnLayer=null, _drawnById={}, _drawnSelId='';
+function renderDrawnGeoms(){
+  if(!map) return;
+  if(_drawnLayer){ map.removeLayer(_drawnLayer); _drawnLayer=null; } _drawnById={};
+  const list=(trees||[]).filter(t=>t&&t.geom&&t.geom.coordinates&&isActive(t));
+  if(!list.length) return;
+  _drawnLayer=L.featureGroup().addTo(map); // featureGroup → getBounds() für „einpassen"
+  list.forEach(t=>{
+    let layer;
+    if(t.geom.type==='Polygon'){ const ll=(t.geom.coordinates[0]||[]).map(c=>[c[1],c[0]]); if(ll.length<3) return; layer=L.polygon(ll,{renderer:L.canvas({padding:0.5}),..._flStyleForTree(t,false)}); }
+    else if(t.geom.type==='LineString'){ const ll=(t.geom.coordinates||[]).map(c=>[c[1],c[0]]); if(ll.length<2) return; layer=L.polyline(ll,{renderer:L.canvas({padding:0.5}),..._flStyleForTree(t,true)}); }
+    if(!layer) return;
+    layer.on('click',()=>selectTree(t.id,false));
+    layer.bindTooltip((t.name||(t.geomType==='linie'?'Strecke':'Fläche'))+(t.menge?' · '+(t.einheit==='m'?_fmtLen(t.menge):_fmtArea(t.menge)):''),{sticky:true});
+    layer.addTo(_drawnLayer); _drawnById[t.id]=layer;
+  });
+}
+function _drawnSelBounds(){ let b=null; for(const id in _drawnById){ const t=trees.find(x=>x.id===id); const l=_drawnById[id];
+  if(t&&treeInAnyActiveTour(t)&&l.getBounds){ const lb=l.getBounds(); if(lb&&lb.isValid()) b=b?b.extend(lb):L.latLngBounds(lb.getSouthWest(),lb.getNorthEast()); } } return b; }
+
+// ─── ZEICHNEN-MODUS (Fläche/Strecke auf der Karte) ───────────────────────────
+let _drawMode=null, _drawPts=[], _drawLayer=null;
+function startDraw(type){
+  if(currentView!=='karte'){ switchView('karte'); setTimeout(()=>startDraw(type),100); return; }
+  if(isReadonly()){ notify('Nur Lesezugriff'); return; }
+  cancelDraw(); _drawMode=type; _drawPts=[];
+  map.getContainer().style.cursor='crosshair';
+  _drawLayer=L.layerGroup().addTo(map);
+  const bar=document.createElement('div'); bar.id='draw-bar';
+  bar.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:9998;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow-md);padding:10px 14px;display:flex;align-items:center;gap:12px;font-size:13px;flex-wrap:wrap;justify-content:center;max-width:94vw;';
+  bar.innerHTML=`<span style="font-weight:600;">${type==='flaeche'?'▱ Fläche zeichnen':'／ Strecke zeichnen'}</span>
+    <span id="draw-bar-info" style="color:var(--text2);min-width:80px;">0 Punkt(e)</span>
+    <span style="font-size:11px;color:var(--text3);">Klick = Punkt · Doppelklick = fertig</span>
+    <button onclick="finishDraw()" class="btn btn-primary" style="padding:5px 12px;font-size:12px;">Fertig</button>
+    <button onclick="cancelDraw()" class="btn btn-secondary" style="padding:5px 12px;font-size:12px;">Abbrechen</button>`;
+  document.body.appendChild(bar);
+  map.on('click',_onDrawClick); map.on('dblclick',_onDrawDbl);
+  try{ map.doubleClickZoom.disable(); }catch(_){}
+}
+function _onDrawClick(e){ _drawPts.push([e.latlng.lat,e.latlng.lng]); _drawRender(); }
+function _onDrawDbl(e){ if(e.originalEvent) e.originalEvent.preventDefault(); finishDraw(); }
+function _drawRender(){
+  if(!_drawLayer) return; _drawLayer.clearLayers();
+  const ll=_drawPts;
+  if(_drawMode==='flaeche' && ll.length>=3) L.polygon(ll,{color:'#1d4ed8',weight:2,fillColor:'#1d4ed8',fillOpacity:0.2,dashArray:'4 4'}).addTo(_drawLayer);
+  else if(ll.length>=2) L.polyline(ll,{color:'#1d4ed8',weight:3,dashArray:'4 4'}).addTo(_drawLayer);
+  ll.forEach(p=>L.circleMarker(p,{radius:4,color:'#1d4ed8',fillColor:'#fff',fillOpacity:1,weight:2}).addTo(_drawLayer));
+  const info=document.getElementById('draw-bar-info');
+  if(info) info.textContent = _drawMode==='flaeche'
+    ? (ll.length>=3?_fmtArea(_geoArea(ll)):`${ll.length} Punkt(e)`)
+    : (ll.length>=2?_fmtLen(_geoLen(ll)):`${ll.length} Punkt(e)`);
+}
+function cancelDraw(){
+  map.off('click',_onDrawClick); map.off('dblclick',_onDrawDbl);
+  try{ map.doubleClickZoom.enable(); }catch(_){}
+  if(_drawLayer){ map.removeLayer(_drawLayer); _drawLayer=null; }
+  _drawMode=null; _drawPts=[];
+  if(map) map.getContainer().style.cursor='';
+  document.getElementById('draw-bar')?.remove();
+}
+async function finishDraw(){
+  const type=_drawMode, pts=_drawPts.slice();
+  cancelDraw();
+  if(type==='flaeche' && pts.length<3){ notify('Mindestens 3 Punkte für eine Fläche'); return; }
+  if(type==='linie' && pts.length<2){ notify('Mindestens 2 Punkte für eine Strecke'); return; }
+  let geom, menge, einheit;
+  if(type==='flaeche'){ const ring=pts.map(p=>[+p[1].toFixed(7),+p[0].toFixed(7)]); ring.push(ring[0].slice()); geom={type:'Polygon',coordinates:[ring]}; menge=Math.round(_geoArea(pts)); einheit='m2'; }
+  else { geom={type:'LineString',coordinates:pts.map(p=>[+p[1].toFixed(7),+p[0].toFixed(7)])}; menge=Math.round(_geoLen(pts)); einheit='m'; }
+  setSyncState('syncing','Speichert…');
+  try{
+    const baumId=await getNextBaumId();
+    const ref=await addDoc(collection(db,'projects',currentProjectId,'trees'),{
+      name:type==='flaeche'?'Neue Fläche':'Neue Strecke', geomType:type, geom, menge, einheit,
+      zustand:'mittel', wasser:'mittel', tourId:'', tourIds:[], notiz:'', baumId, history:[], createdAt:serverTimestamp(),
+    });
+    notify(`✓ ${type==='flaeche'?'Fläche '+_fmtArea(menge):'Strecke '+_fmtLen(menge)} angelegt`);
+    setTimeout(()=>{ try{ renderDrawnGeoms(); }catch(_){} selectTree(ref.id,false); }, 350);
+  }catch(e){ notify('Fehler: '+e.message); }
+}
+
 async function renderFlaechen(){
-  const hasFl = currentProjectData?.hatFlaechen || (Array.isArray(trees) && trees.some(t=>t.geomType==='flaeche'));
+  renderDrawnGeoms(); // gezeichnete Geometrie immer rendern (unabhängig vom Import-Bundle)
+  // Bundle nur laden, wenn es IMPORTIERTE Flächen gibt (extId, Geometrie im Bundle). Rein gezeichnete
+  // Flächen (geom am Doc, kein extId) brauchen kein Bundle → kein 404.
+  const hasFl = currentProjectData?.hatFlaechen || (Array.isArray(trees) && trees.some(t=>t.geomType==='flaeche' && t.extId && !t.geom));
   if(!hasFl){ if(_flaechenLayer){ map.removeLayer(_flaechenLayer); _flaechenLayer=null; _flaechenLayerKey=''; } return; }
   const key=currentProjectId+'_'+(currentProjectData?.geomVersion||'');
   const startedFor=currentProjectId; // Projektwechsel während des Ladens erkennen
@@ -1710,6 +1805,7 @@ function fitToCity(){
   let b=pts.length?L.latLngBounds(pts):null;
   const hasFl=currentProjectData?.hatFlaechen || trees.some(t=>geomTypeOf(t)==='flaeche');
   if(hasFl && _flaechenLayer){ try{ const fb=_flaechenLayer.getBounds(); if(fb&&fb.isValid()) b=b?b.extend(fb):L.latLngBounds(fb.getSouthWest(),fb.getNorthEast()); }catch(_){} } // Flächen nur, wenn das aktuelle Projekt welche hat (sonst Rest-Layer aus vorigem Projekt)
+  if(_drawnLayer){ try{ const db2=_drawnLayer.getBounds&&_drawnLayer.getBounds(); if(db2&&db2.isValid()) b=b?b.extend(db2):L.latLngBounds(db2.getSouthWest(),db2.getNorthEast()); }catch(_){} } // gezeichnete Geometrie
   if(!b||!b.isValid()) return;
   map.invalidateSize();
   map.fitBounds(b,{padding:[50,50],maxZoom:16});
@@ -1753,6 +1849,7 @@ async function applyTourSelection(fit){
       const depot=getDepot(); if(depot?.lat&&depot?.lng) pts.push([depot.lat,depot.lng]);
       let b=pts.length?L.latLngBounds(pts):null;
       const fb=_flaechenSelBounds(); if(fb) b=b?b.extend(fb):fb;
+      const db2=_drawnSelBounds(); if(db2) b=b?b.extend(db2):db2;
       if(b&&b.isValid()) map.fitBounds(b,{padding:[60,60],maxZoom:16});
     }
   } else if(showUnplanned){
@@ -2325,8 +2422,20 @@ function selectTree(id, pan=true){
       }
     }, wasOnMap ? 0 : 200);
   }
+  else if(geomTypeOf(tree)!=='punkt' && tree.geom && _drawnById[tree.id]){
+    // Gezeichnete Geometrie (am Doc): heranzoomen + kurz grün hervorheben
+    const isLine=tree.geomType==='linie';
+    if(_drawnSelId && _drawnSelId!==tree.id && _drawnById[_drawnSelId]){ const p0=trees.find(x=>x.id===_drawnSelId); try{ _drawnById[_drawnSelId].setStyle(_flStyleForTree(p0, p0&&p0.geomType==='linie')); }catch(_){} }
+    setTimeout(()=>{ try{
+      map.invalidateSize();
+      const lyr=_drawnById[tree.id]; if(!lyr) return;
+      try{ lyr.setStyle(isLine?{color:'#1d9e75',weight:6,opacity:1}:{color:'#1d9e75',weight:3,fillColor:'#1d9e75',fillOpacity:0.55}); lyr.bringToFront&&lyr.bringToFront(); }catch(_){}
+      _drawnSelId=tree.id;
+      if(pan && lyr.getBounds){ const b=lyr.getBounds(); if(b.isValid()) map.fitBounds(b,{padding:[60,60],maxZoom:18,animate:true}); }
+    }catch(_){} }, wasOnMap?0:250);
+  }
   else if(geomTypeOf(tree)==='flaeche'){
-    // Vorherige Hervorhebung zurücksetzen, dann diese Fläche markieren + (bei Listen-Klick) heranzoomen
+    // Importierte Fläche (Bundle, extId): vorherige Hervorhebung zurücksetzen, dann markieren + heranzoomen
     if(_flaechenSelExt && _flaechenSelExt!==tree.extId && _flaechenByExt[_flaechenSelExt]){ try{ _flaechenByExt[_flaechenSelExt].setStyle(_flStyleFor(_flaechenSelExt)); }catch(_){} }
     setTimeout(()=>{ try{
       map.invalidateSize();
@@ -10142,7 +10251,7 @@ Object.assign(window,{
   printReport,exportReportExcel,saveReportTemplate,loadReportTemplate,printTourMap,
   openOrderEditor,repOrderMove,closeOrderEditor,saveManualOrder,
   focusTour,focusTourAndSwitch,
-  startPlacement,cancelMode,setDepotOnMap,
+  startPlacement,cancelMode,setDepotOnMap,startDraw,finishDraw,cancelDraw,
   startAssignMode,setAssignTour,cancelAssign,assignTreeToTour,
   openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,
   pickProjIcon,artSetIcon,artSetTime,setArtDefaultTime,artApplyTimeToAll,
