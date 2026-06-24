@@ -17,7 +17,18 @@ const OUT_DIR = `${HOME}/Downloads/_ahlen_out`;
 const OVERPASS = 'https://overpass-api.de/api/interpreter';
 
 // Zuständigkeit aus dem Straßenverzeichnis (zuvor mit parse-ahlen-strv.mjs erzeugt), Match über normalisierten Namen.
-const normName = s => String(s||'').toLowerCase().replace(/ß/g,'ss').replace(/\([^)]*\)/g,'').replace(/[^a-zäöü0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+// Robuste Namens-Normalisierung: ß→ss, Klammern/Punkte/Bindestriche/Leerzeichen raus, straße→str,
+// gängige Abkürzungen vereinheitlichen → ein vergleichbarer Token. „Allensteiner Straße" == „Allensteiner Str.".
+const normName = s => String(s||'')
+  .toLowerCase()
+  .replace(/ß/g,'ss')
+  .replace(/\(.*$/s,'')                      // ab erster Klammer abschneiden (auch unvollständige/umbrochene Bedingungen)
+  .replace(/\bx\b/g,' ')                     // einzelne, in den Namen gerutschte X-Markierungen entfernen
+  .replace(/\bst\.\s/g,'sankt ')            // „St. “ → „Sankt “
+  .replace(/strasse|str\b|str\./g,'str')    // straße/strasse/str./str → str
+  .replace(/platz\b/g,'pl').replace(/\bdr\.?\b/g,'dr')
+  .replace(/[^a-z0-9äöü]/g,'')               // Leerzeichen, Bindestriche, Punkte, Slashes … entfernen
+  .trim();
 let zMap = new Map();
 try{
   const arr = JSON.parse(readFileSync(`${OUT_DIR}/ahlen-strv.json`,'utf8'));
