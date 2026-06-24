@@ -233,7 +233,6 @@ const MODULES = [
   {key:'erfassung',   label:'Erfassungs-App ↗'},
   {key:'mobil',       label:'Fahrer-App (Mobil) ↗'},
   {key:'einsatzleiter', label:'Einsatzleiter-App ↗'},
-  {key:'navi',        label:'Navigation (Beta) ↗'},
 ];
 const BASE_TYPES = [
   {key:'admin',    label:'Verwalten (Admin)'},
@@ -4113,12 +4112,6 @@ function openProjekte(){
         <label class="form-label">Projektname</label>
         <input class="form-control" id="prj-name" value="${currentProjectData?.name||''}">
       </div>
-      <div style="margin-top:12px;padding:10px;background:var(--green-light);border-radius:var(--radius-sm);font-size:12px;color:var(--green);">
-        📱 Mobile App URL:<br>
-        <a href="mobil.html" target="_blank" style="color:var(--green);font-weight:600;">mobil.html</a>
-        &nbsp;·&nbsp;
-        <span style="cursor:pointer;text-decoration:underline;color:var(--green);" id="prj-fahrer-link">Fahrer &amp; Gründe verwalten →</span>
-      </div>
       ${currentRole==='superadmin'?`
       <div class="form-section">Module je Projekt</div>
       <div style="font-size:11px;color:var(--text3);margin:-4px 0 8px;line-height:1.5;">Legt fest, welche Reiter ein <b>einzelnes Projekt</b> anbietet (z. B. „Disposition" nur in passenden Projekten) — unabhängig von den mandantenweiten Rollen-Rechten. Projekt wählen, Haken setzen — wird unten mit <b>„Speichern"</b> gesichert.</div>
@@ -4136,7 +4129,6 @@ function openProjekte(){
   m.querySelector('#prj-x').onclick=close;
   m.querySelector('#prj-cancel').onclick=close;
   m.addEventListener('click',e=>{ if(e.target===m) close(); });
-  m.querySelector('#prj-fahrer-link').onclick=()=>{ close(); switchView('verwaltung'); };
   m.querySelector('#prj-del').onclick=()=>{ close(); confirmDeleteProject(); };
   m.querySelector('#prj-save').onclick=async()=>{
     const name=m.querySelector('#prj-name').value.trim();
