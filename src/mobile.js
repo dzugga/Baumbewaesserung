@@ -326,10 +326,9 @@ async function startBewässerungLogin(name, pid, tid) {
     setTimeout(()=>{
       map.invalidateSize();
       const withCoords = trees.filter(t=>t.lat&&t.lng);
-      if(withCoords.length){
-        const bounds=L.latLngBounds(withCoords.map(t=>[t.lat,t.lng]));
-        if(bounds.isValid()) map.fitBounds(bounds,{padding:[40,40],maxZoom:17});
-      }
+      let bounds = withCoords.length ? L.latLngBounds(withCoords.map(t=>[t.lat,t.lng])) : null;
+      const gb=_mGeomBounds(); if(gb) bounds = bounds?bounds.extend(gb):gb; // Flächen/Strecken einbeziehen
+      if(bounds && bounds.isValid()) map.fitBounds(bounds,{padding:[40,40],maxZoom:17});
     },150);
 
     startGPS();
@@ -936,7 +935,27 @@ function renderMarkers() {
       .addTo(map).on('click',()=>openSheet(id));
     mapMarkers[id]=m;
   });
+  renderTourGeoms(); // Flächen/Strecken (geomStr) der Tour mitzeichnen
   // Route drawn separately via drawRoute() to load from Firestore
+}
+
+// Gezeichnete Geometrie (Flächen/Strecken am Doc, geomStr) der Tour auf der Karte zeigen
+let geomLayers={};
+function _mGeom(t){ if(!t||!t.geomStr) return null; try{ return JSON.parse(t.geomStr); }catch(_){ return null; } }
+function _mGeomBounds(){ let b=null; for(const id in geomLayers){ const lb=geomLayers[id].getBounds&&geomLayers[id].getBounds(); if(lb&&lb.isValid()) b=b?b.extend(lb):L.latLngBounds(lb.getSouthWest(),lb.getNorthEast()); } return b; }
+function renderTourGeoms(){
+  Object.values(geomLayers).forEach(l=>{ try{ map.removeLayer(l); }catch(_){} }); geomLayers={};
+  trees.forEach(t=>{
+    const g=_mGeom(t); if(!g) return;
+    const st=t.lastStatus;
+    const col = st==='bewaessert'?'#16a34a':st==='nicht'?'#991b1b':(currentTour?.color||'#2d6a4f');
+    let layer;
+    if(g.type==='Polygon'){ const ll=(g.coordinates[0]||[]).map(c=>[c[1],c[0]]); if(ll.length<3) return; layer=L.polygon(ll,{color:col,weight:2,fillColor:col,fillOpacity:st?0.45:0.25}); }
+    else if(g.type==='LineString'){ const ll=(g.coordinates||[]).map(c=>[c[1],c[0]]); if(ll.length<2) return; layer=L.polyline(ll,{color:col,weight:5,opacity:.9}); }
+    if(!layer) return;
+    layer.on('click',()=>openSheet(t.id));
+    layer.addTo(map); geomLayers[t.id]=layer;
+  });
 }
 
 async function drawRoute(){
