@@ -1161,11 +1161,13 @@ function drawSavedRoute(tourId, routeData){
   // Parse geojson from string (stored as string to avoid Firestore nested array limit)
   const geojson=routeData.geojsonStr?JSON.parse(routeData.geojsonStr):routeData.geojson||null;
 
+  // Eigene Ebene UNTER den Objekten: die Route ist gestrichelt; wo ein Straßenabschnitt der Tour
+  // liegt, überdeckt dessen durchgezogene Linie die Route → nur die reinen Fahrstrecken (ohne
+  // Abschnitt) bleiben gestrichelt sichtbar und sind so unterscheidbar.
+  if(map && !map.getPane('routeline')){ map.createPane('routeline'); const p=map.getPane('routeline'); p.style.zIndex=390; p.style.pointerEvents='none'; }
   let layer;
   if(geojson){
-    // Draw real street route from saved geojson — interactive:false, damit Klicks zu den
-    // darunterliegenden Objekten/Straßenabschnitten durchgehen (Detail bleibt erreichbar)
-    layer=L.geoJSON(geojson,{interactive:false,style:{color:tour.color,weight:4,opacity:.85}}).addTo(map);
+    layer=L.geoJSON(geojson,{pane:'routeline',interactive:false,style:{color:tour.color,weight:3,opacity:.9,dashArray:'3 8'}}).addTo(map);
   } else {
     // Draw straight-line fallback from saved order
     const orderedTrees=routeData.orderIds
@@ -1174,7 +1176,7 @@ function drawSavedRoute(tourId, routeData){
     const depot=getDepot();
     let pts=orderedTrees.map(t=>[t.lat,t.lng]);
     if(depot){const dp=[depot.lat,depot.lng];pts=getDepotMode()==='round'?[dp,...pts,dp]:[dp,...pts];}
-    layer=L.polyline(pts,{interactive:false,color:tour.color,weight:3,opacity:.7,dashArray:'8 5'}).addTo(map);
+    layer=L.polyline(pts,{pane:'routeline',interactive:false,color:tour.color,weight:3,opacity:.7,dashArray:'8 5'}).addTo(map);
   }
   tourRoutes[tourId]={layer,km:routeData.km||0,durationSec:routeData.durationSec||0};
   if(!routesVisible) map.removeLayer(layer);
