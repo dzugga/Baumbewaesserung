@@ -708,10 +708,13 @@ function getBewDuration(){
   return parseInt(localStorage.getItem('bew_duration_min'))||5;
 }
 
-// Zeitaufwand eines Objekts: bevorzugt je Objektart (arten[].zeitaufwand),
-// sonst der projektweite Standard (getBewDuration) als Fallback.
+// Zeitaufwand eines Objekts je Objektart: Punkt = min/Stück (arten[].zeitaufwand, sonst Projekt-Standard);
+// Linie = min/100 m (zeitaufwandM) × Länge; Fläche = min/100 m² (zeitaufwandM2) × Fläche. Ohne passenden Satz: 0.
 function artBewMin(tree){
   const a=(tree.artId&&artenList.find(x=>x.id===tree.artId))||artenList.find(x=>x.name===(tree.art||'').trim());
+  const gt=geomTypeOf(tree), menge=parseFloat(tree.menge)||0;
+  if(gt==='linie'){ const r=a&&a.zeitaufwandM; return (typeof r==='number'&&r>0&&menge>0)?r*menge/100:0; }
+  if(gt==='flaeche'){ const r=a&&a.zeitaufwandM2; return (typeof r==='number'&&r>0&&menge>0)?r*menge/100:0; }
   const v=a&&a.zeitaufwand;
   return (typeof v==='number'&&v>0)?v:getBewDuration();
 }
@@ -1349,16 +1352,16 @@ function updateRouteInfoBar(){
   // Mehrere Touren ausgewählt → kompakte Summe
   if(activeTours.size>1){
     let km=0,dur=0,zusAll=0,azAll=0; activeTours.forEach(tid=>{ const m=tourMetrics(tid); if(m){ km+=m.km; dur+=m.durationSec; } const tt=tours.find(x=>x.id===tid); if(tt){ zusAll+=tourZusatzMin(tt); if(tt.arbeitszeitMin>0) azAll+=tt.arbeitszeitMin; } });
-    const members=trees.filter(t=>treeInAnyActiveTour(t)&&isActive(t)); const tl=members.filter(t=>t.lat&&t.lng); const cnt=members.length;
-    _fillRoutePanel(`${activeTours.size} Touren`, cnt, km||null, dur/60, bewMinutes(tl), zusAll, azAll);
+    const members=trees.filter(t=>treeInAnyActiveTour(t)&&isActive(t)); const cnt=members.length;
+    _fillRoutePanel(`${activeTours.size} Touren`, cnt, km||null, dur/60, bewMinutes(members), zusAll, azAll);
     return;
   }
   const _activeM=activeTourOnMap?tourMetrics(activeTourOnMap):null;
   const tour=activeTourOnMap?tours.find(t=>t.id===activeTourOnMap):null;
   const members=tour?trees.filter(t=>treeInTour(t,activeTourOnMap)&&isActive(t)):[];
   if(_activeM || members.length){ // Flächen-Touren haben keine Route, aber Objekte → Panel trotzdem zeigen
-    const tl=members.filter(t=>t.lat&&t.lng); const cnt=members.length;
-    _fillRoutePanel(tour?.name||'', cnt, _activeM?_activeM.km:null, _activeM?_activeM.durationSec/60:0, bewMinutes(tl), tourZusatzMin(tour), (tour&&tour.arbeitszeitMin>0)?tour.arbeitszeitMin:0);
+    const cnt=members.length;
+    _fillRoutePanel(tour?.name||'', cnt, _activeM?_activeM.km:null, _activeM?_activeM.durationSec/60:0, bewMinutes(members), tourZusatzMin(tour), (tour&&tour.arbeitszeitMin>0)?tour.arbeitszeitMin:0);
   } else {
     if(bar) bar.classList.remove('visible');
     const sp=document.getElementById('sidebar-route-info'); if(sp) sp.style.display='none';
@@ -1985,9 +1988,9 @@ function renderLegend(){
   // Tour rows — kompakt: Name + Gesamtzeit; Details je Tour aufklappbar (Pfeil)
   function tourRow(t){
     const _tm=tourMetrics(t.id);
-    const members=trees.filter(x=>treeInTour(x,t.id)&&isActive(x)); // inkl. Flächen (ohne lat/lng)
-    const tl=members.filter(x=>x.lat&&x.lng); const cnt=members.length;
-    const total=_tm?fmtTotalTime(_tm.durationSec,tl,tourZusatzMin(t)):'';
+    const members=trees.filter(x=>treeInTour(x,t.id)&&isActive(x)); // inkl. Flächen/Strecken (ohne lat/lng)
+    const cnt=members.length;
+    const total=_tm?fmtTotalTime(_tm.durationSec,members,tourZusatzMin(t)):'';
     const isSel=activeTours.has(t.id);
     const isExp=legendExpanded.has(t.id);
     // Übersichtstouren: kein Aufklapp-Pfeil (keine Route/Zeiten), nur Objektzahl
@@ -2001,7 +2004,7 @@ function renderLegend(){
     </div>`;
     if(isExp && !ov){
       if(_tm){
-        const driveMin=Math.round(_tm.durationSec/60), bewMin=Math.round(bewMinutes(tl));
+        const driveMin=Math.round(_tm.durationSec/60), bewMin=Math.round(bewMinutes(members));
         const base=Math.max(driveMin+bewMin,1), dw=Math.round(driveMin/base*100);
         r+=`<div data-tourname="${(t.name||'').toLowerCase().replace(/"/g,'&quot;')}" style="margin:0 6px 4px 30px;padding:5px 8px;background:var(--surface2);border-radius:6px;">
           <div style="display:flex;height:4px;border-radius:2px;overflow:hidden;margin-bottom:4px;">
@@ -2009,11 +2012,11 @@ function renderLegend(){
             <div style="width:${100-dw}%;background:var(--green-mid);"></div>
           </div>
           <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);">
-            <span>Fahrt ${fmtDuration(_tm.durationSec)}</span><span>Tätigkeit ${fmtBewTime(tl)}</span>
+            <span>Fahrt ${fmtDuration(_tm.durationSec)}</span><span>Tätigkeit ${fmtBewTime(members)}</span>
           </div>
           <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:1px;">
             <span>${_tm.km.toFixed(1)} km</span><span>${cnt} Objekte</span>
-          </div>${(()=>{const z=tourZusatzMin(t);const rz=tourRestzeit(t,tl,_tm.durationSec);let out='';
+          </div>${(()=>{const z=tourZusatzMin(t);const rz=tourRestzeit(t,members,_tm.durationSec);let out='';
           if(z>0) out+=`<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:1px;"><span>Zusatztätigkeiten</span><span>${fmtMin(z)}</span></div>`;
           if(rz) out+=`<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:1px;border-top:1px solid var(--border);padding-top:2px;"><span>Arbeitszeit ${fmtMin(rz.azMin)}</span><span style="font-weight:700;color:${rz.restMin<0?'var(--red)':'var(--green-strong,#15803d)'};" title="Arbeitszeit − Fahrt − Tätigkeit − Zusatz">Restzeit ${fmtMin(rz.restMin)}</span></div>`;
           return out;})()}
@@ -4473,7 +4476,7 @@ function renderArtenList(){
       <td style="padding:7px 12px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text2);">${c}</td>
       <td style="padding:4px 12px;text-align:right;white-space:nowrap;">${ro
         ?(typeof a.zeitaufwand==='number'&&a.zeitaufwand>0?a.zeitaufwand+' min':'<span style="color:var(--text3);font-size:11px;">Standard</span>')
-        :`<input type="number" min="0" step="1" value="${typeof a.zeitaufwand==='number'&&a.zeitaufwand>0?a.zeitaufwand:''}" placeholder="${getBewDuration()}" onchange="artSetTime('${dlEsc(a.id)}',this.value)" style="width:58px;padding:3px 6px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;" title="Minuten je Objekt dieser Art; leer = Projekt-Standard (${getBewDuration()} min)"> <span style="font-size:11px;color:var(--text3);">min</span>`}</td>
+        :`<input type="number" min="0" step="1" value="${typeof a.zeitaufwand==='number'&&a.zeitaufwand>0?a.zeitaufwand:''}" placeholder="${getBewDuration()}" onchange="artSetTime('${dlEsc(a.id)}',this.value)" style="width:50px;padding:3px 6px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;" title="Minuten je Objekt (Stück); leer = Projekt-Standard (${getBewDuration()} min)"><span style="font-size:10px;color:var(--text3);"> min/Stk</span>${_geomActive()?`<br><input type="number" min="0" step="0.1" value="${typeof a.zeitaufwandM==='number'&&a.zeitaufwandM>0?a.zeitaufwandM:''}" placeholder="–" onchange="artSetRate('${dlEsc(a.id)}','zeitaufwandM',this.value)" style="width:50px;padding:3px 6px;margin-top:3px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;" title="Minuten je 100 m (Strecken)"><span style="font-size:10px;color:var(--text3);"> min/100m</span><br><input type="number" min="0" step="0.1" value="${typeof a.zeitaufwandM2==='number'&&a.zeitaufwandM2>0?a.zeitaufwandM2:''}" placeholder="–" onchange="artSetRate('${dlEsc(a.id)}','zeitaufwandM2',this.value)" style="width:50px;padding:3px 6px;margin-top:3px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;" title="Minuten je 100 m² (Flächen)"><span style="font-size:10px;color:var(--text3);"> min/100m²</span>`:''}`}</td>
       <td style="padding:7px 12px;white-space:nowrap;text-align:right;">${ro?'<span style="font-size:11px;color:var(--text3);">nur Lesezugriff</span>':`
         <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" onclick="renameArt('${a.id}')">Umbenennen</button>
         <select data-merge-field="__art__" data-merge-self="${dlEsc(a.id)}" onmousedown="_fillMerge(this)" onfocus="_fillMerge(this)" onchange="if(this.value)mergeArt('${a.id}',this.value);this.selectedIndex=0;" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
@@ -4538,6 +4541,22 @@ async function artSetTime(id,val){
     try{ renderLegend(); }catch(e){}
     try{ renderTourenGrid(); }catch(e){}
     notify(useDefault?'✓ Zeitaufwand: Projekt-Standard':'✓ Zeitaufwand '+n+' min/Objekt');
+  }catch(e){ notify(dlErr(e)); }
+}
+// Längen-/Flächen-Aufwandssatz je Art: zeitaufwandM (min/100 m) bzw. zeitaufwandM2 (min/100 m²)
+async function artSetRate(id, field, val){
+  if(isReadonly()) return;
+  if(field!=='zeitaufwandM' && field!=='zeitaufwandM2') return;
+  const s=(''+(val??'')).trim().replace(',','.');
+  const n=s===''?null:Math.max(0,parseFloat(s)||0);
+  try{
+    const del=(n==null||!(n>0));
+    await updateDoc(doc(db,'projects',currentProjectId,'arten',id), del?{[field]:firebase.firestore.FieldValue.delete()}:{[field]:n});
+    await loadArten(); renderArtenList();
+    try{ updateRouteInfoBar(); }catch(e){}
+    try{ renderLegend(); }catch(e){}
+    try{ renderTourenGrid(); }catch(e){}
+    notify(del?'✓ Aufwandssatz entfernt':'✓ Aufwandssatz gespeichert');
   }catch(e){ notify(dlErr(e)); }
 }
 // Standard-Zeitaufwand (Fallback für Arten ohne eigenen Wert) — am Projekt-Doc.
@@ -10279,7 +10298,7 @@ Object.assign(window,{
   startPlacement,cancelMode,setDepotOnMap,startDraw,finishDraw,cancelDraw,
   startAssignMode,setAssignTour,cancelAssign,assignTreeToTour,
   openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,
-  pickProjIcon,artSetIcon,artSetTime,setArtDefaultTime,artApplyTimeToAll,
+  pickProjIcon,artSetIcon,artSetTime,artSetRate,setArtDefaultTime,artApplyTimeToAll,
   renderMandanten,createOrgUi,moveProjectUi,setOrgNaviUi,checkBaumIdDuplicates,flaechenImportOpen,flaechenImportRun,flaechenTourGenOpen,flaechenTourGenRun,
   addWmsLayer,deleteWmsLayer,editWmsLayer,cancelWmsEdit,renderWmsList,
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,
