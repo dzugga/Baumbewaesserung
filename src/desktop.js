@@ -2501,8 +2501,8 @@ function _geomLabel(tree){
 // Kleiner Geometrie-Chip für Listen (Fläche/Strecke); Punkt = kein Chip
 function _geomChip(tree){
   const gt=geomTypeOf(tree);
-  if(gt==='flaeche') return '<span title="Fläche" style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:9px;background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;margin-right:5px;white-space:nowrap;">▱ Fläche</span>';
-  if(gt==='linie') return '<span title="Strecke" style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:9px;background:#ede9fe;color:#6d28d9;border:1px solid #ddd6fe;margin-right:5px;white-space:nowrap;">／ Strecke</span>';
+  if(gt==='flaeche') return '<span title="Fläche" style="color:#0369a1;font-weight:700;margin-right:5px;">▱</span>';
+  if(gt==='linie') return '<span title="Strecke" style="color:#6d28d9;font-weight:700;margin-right:5px;">／</span>';
   return '';
 }
 function openDetail(id){
