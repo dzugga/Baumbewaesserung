@@ -2393,7 +2393,7 @@ function renderList(){
       return `<div class="tree-item${sel}" data-treeid="${tree.id}">
         <div class="tree-icon" style="background:${bg};">${objIcon(tree)}${seqBadge}</div>
         <div class="tree-info">
-          <div class="tree-name">${dlEsc(tree.name||'–')}</div>
+          <div class="tree-name">${_geomChip(tree)}${dlEsc(tree.name||'–')}</div>
           <div class="tree-meta">${meta}</div>
           ${tourBadges?`<div class="tree-badges">${tourBadges}</div>`:''}
         </div>
@@ -2497,6 +2497,13 @@ function _geomLabel(tree){
   const eh={m2:'m²',m:'m',Stk:'Stk'}[tree.einheit]||tree.einheit||'';
   const m=typeof tree.menge==='number'?tree.menge.toLocaleString('de-DE'):tree.menge;
   return name+' · '+m+(eh?' '+eh:'');
+}
+// Kleiner Geometrie-Chip für Listen (Fläche/Strecke); Punkt = kein Chip
+function _geomChip(tree){
+  const gt=geomTypeOf(tree);
+  if(gt==='flaeche') return '<span title="Fläche" style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:9px;background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;margin-right:5px;white-space:nowrap;">▱ Fläche</span>';
+  if(gt==='linie') return '<span title="Strecke" style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:9px;background:#ede9fe;color:#6d28d9;border:1px solid #ddd6fe;margin-right:5px;white-space:nowrap;">／ Strecke</span>';
+  return '';
 }
 function openDetail(id){
   const tree=trees.find(t=>t.id===id);if(!tree)return;
@@ -5055,7 +5062,7 @@ function renderBaeumeTableWith(treeList){
     rows+=`<tr style="border-top:1px solid var(--border);transition:background .1s;cursor:pointer;${inact?'opacity:.55;':''}" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''" data-treeid="${tree.id}">
       <td style="padding:8px 12px;font-family:'DM Mono',monospace;color:var(--text3);font-size:11px;white-space:nowrap;">${rNum!=null?'<b style=color:var(--green)>#'+rNum+'</b>':'–'}</td>
       <td style="padding:8px 12px;font-family:'DM Mono',monospace;font-size:11px;font-weight:600;color:var(--green);white-space:nowrap;">${dlEsc(tree.baumId||'–')}</td>
-      <td style="padding:8px 12px;font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${dlEsc(tree.name||'')}">${inact?'<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:9px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);margin-right:5px;">INAKTIV</span>':''}${dlEsc(tree.name||'–')}</td>
+      <td style="padding:8px 12px;font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${dlEsc(tree.name||'')}">${inact?'<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:9px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);margin-right:5px;">INAKTIV</span>':''}${_geomChip(tree)}${dlEsc(tree.name||'–')}</td>
       <td style="padding:8px 12px;color:var(--text2);white-space:nowrap;">${dlEsc(tree.stadtteil||'–')}</td>
       <td style="padding:8px 12px;color:var(--text2);font-family:'DM Mono',monospace;font-size:11px;white-space:nowrap;">${dlEsc(tree.baumnr||'–')}</td>
       <td style="padding:8px 12px;color:var(--text2);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${dlEsc(tree.art||'')}">${dlEsc(tree.art||'–')}</td>
