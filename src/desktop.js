@@ -280,7 +280,7 @@ let activeTourOnMap = null;           // abgeleitet: nur gesetzt, wenn GENAU ein
 function syncActiveTour(){ activeTourOnMap = activeTours.size===1 ? [...activeTours][0] : null; }
 function treeInAnyActiveTour(t){ for(const tid of activeTours){ if(treeInTour(t,tid)) return true; } return false; }
 // „Nicht verplant" = in keiner ECHTEN Tour (Übersichtstouren zählen nicht als Verplanung)
-function treeIsUnplanned(t){ return isActive(t) && realTourIds(t).length===0; }
+function treeIsUnplanned(t){ return isActive(t) && !_isContainer(t) && realTourIds(t).length===0; } // Abschnitt-Container sind nicht tour-planbar → zählen nicht als „nicht verplant"
 // Sichtbarkeit nach aktueller Auswahl: nichts gewählt = alles; sonst Tour-Objekte ODER (optional) unverplante
 function treeVisibleSel(t){
   if(!activeTours.size && !showUnplanned) return true;
@@ -760,6 +760,15 @@ function tourRestzeit(tour,treeList,driveSec){
 
 // ─── TOUR-RESTRIKTION (Zuordnungsregeln je Tour) ─────────────────
 // Welche Listenfelder lassen sich als Tour-Regel nutzen (mit Beschriftung).
+// Element (Seite) eines Objekts auf eine Kategorie abbilden (Fahrbahn/Gehweg/… — ohne links/rechts),
+// damit eine Tour-Regel „nur Fahrbahn" beide Fahrbahn-Seiten trifft.
+function _elemCategory(el){ if(!el) return ''; const k=String(el).toLowerCase();
+  if(k.startsWith('fahrbahn')) return 'Fahrbahn';
+  if(k.startsWith('gehweg')) return 'Gehweg';
+  if(k.startsWith('radweg')) return 'Radweg';
+  if(k.startsWith('parkstreif')) return 'Parkstreifen';
+  if(k.startsWith('grün')||k.startsWith('gruen')) return 'Grünstreifen';
+  return el; }
 function tourRuleFieldDefs(){
   const defs=[
     {key:'stadtteil',label:FL.stadtteil},
@@ -769,6 +778,9 @@ function tourRuleFieldDefs(){
     {key:'zustand',label:FL.zustand},
     {key:'wasser',label:FL.wasser},
   ];
+  // Segment-Projekte: Seite/Element (Fahrbahn/Gehweg …) + Geometrietyp als Regelfelder (z. B. Kehrmaschine = nur Fahrbahn)
+  if((trees||[]).some(t=>t.element||t.containerExtId)) defs.push({key:'element',label:'Seite (Fahrbahn/Gehweg)'});
+  if(_geomActive()) defs.push({key:'geomType',label:'Geometrietyp'});
   (customFields||[]).filter(c=>c&&c.aktiv!==false&&c.key).forEach(c=>defs.push({key:c.key,label:c.label||c.key}));
   return defs;
 }
@@ -777,12 +789,18 @@ function tourRuleFieldDefs(){
 function ruleFieldOptions(key){
   if(isRankField(key)) return rankList(key).map(e=>({val:e.id,label:e.label,color:e.farbe}));
   if(key==='art') return [...artenList].sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(a=>({val:a.name,label:a.name}));
+  if(key==='element'){ const cats=[...new Set((trees||[]).map(t=>_elemCategory(t.element||t.elementLabel||'')).filter(Boolean))].sort(); return cats.map(v=>({val:v,label:v})); }
+  if(key==='geomType'){ const present=new Set((trees||[]).map(t=>geomTypeOf(t))); return [['punkt','Punkt'],['linie','Linie'],['flaeche','Fläche']].filter(([v])=>present.has(v)).map(([v,l])=>({val:v,label:l})); }
   const lv=listValues[key];
   if(Array.isArray(lv)&&lv.length) return lv.map(e=>({val:e.label,label:e.label}));
   return [...new Set(trees.map(t=>(t[key]??'').toString()).filter(Boolean))].sort().map(v=>({val:v,label:v}));
 }
 // Wert eines Objekts für ein Regelfeld (konsistent zur Filterlogik objMatchesPropFilter).
-function treeRuleValue(tree,key){ return (tree[key]??'').toString(); }
+function treeRuleValue(tree,key){
+  if(key==='element') return _elemCategory(tree.element||tree.elementLabel||'');
+  if(key==='geomType') return geomTypeOf(tree);
+  return (tree[key]??'').toString();
+}
 // Verletzte Regelfelder eines Objekts gegen eine Tour (leeres Array = passt).
 function treeRuleViolations(tree,tour){
   const reg=tour&&tour.regeln; if(!reg) return [];
@@ -3796,6 +3814,8 @@ function openTourModal(id){
     const free=TOUR_COLORS.find(c=>!tours.map(t=>t.color).includes(c))||TOUR_COLORS[0];
     buildColorSwatches(free);
   }
+  const sysSel=document.getElementById('t-system');
+  if(sysSel){ sysSel.innerHTML='<option value="">— keines —</option>'+getReinigungssysteme().map(s=>`<option value="${dlEsc(s.id)}">${dlEsc(s.name)} (${_rsTypLabel(s.typ)})</option>`).join(''); sysSel.value=t?.reinigungssystem||''; }
   const az=t&&typeof t.arbeitszeitMin==='number'&&t.arbeitszeitMin>0?t.arbeitszeitMin:0;
   document.getElementById('t-az-h').value=az?Math.floor(az/60):'';
   document.getElementById('t-az-m').value=az?az%60:'';
@@ -3824,7 +3844,7 @@ async function saveTour(){
   const startDate=document.getElementById('t-startdate').value||'';
   const interval=document.getElementById('t-interval').value||'';
   const gueltig=(window._tourGueltig||[]).filter(g=>g.from&&g.to).map(g=>({from:g.from,to:g.to}));
-  const data={name,desc:document.getElementById('t-desc').value,color:selectedTourColor,zusatzzeiten,regeln:collectTourRegeln(),startDate,interval,gueltig};
+  const data={name,desc:document.getElementById('t-desc').value,color:selectedTourColor,zusatzzeiten,regeln:collectTourRegeln(),startDate,interval,gueltig,reinigungssystem:document.getElementById('t-system')?.value||''};
   try{
     if(editingTourId){
       data.arbeitszeitMin=arbeitszeitMin>0?arbeitszeitMin:firebase.firestore.FieldValue.delete();
@@ -4348,6 +4368,7 @@ function switchView(v){
   if(disposition) disposition.style.display=v==='disposition'?'flex':'none';
   const einsatzplaner=document.getElementById('view-einsatzplaner'); if(einsatzplaner) einsatzplaner.style.display=v==='einsatzplaner'?'flex':'none';
   if(verwaltung) verwaltung.style.display=v==='verwaltung'?'block':'none';
+  const vReinig=document.getElementById('view-reinigungssysteme'); if(vReinig) vReinig.style.display=v==='reinigungssysteme'?'block':'none';
   // „Planen“-Button nur im manuellen Planungs-Modus (Karte) zeigen
   const planenBtn=document.getElementById('btn-planen');
   if(planenBtn) planenBtn.style.display=v==='karte'?'flex':'none';
@@ -4376,6 +4397,7 @@ function switchView(v){
   if(v==='disposition') initDispo();
   if(v==='einsatzplaner') initEinsatzplaner();
   if(v==='verwaltung') initVerwaltung();
+  if(v==='reinigungssysteme') renderReinigungssysteme();
   if(v==='feldbezeichnungen') initFeldbezeichnungen();
   if(v==='usage') initUsage();
   if(v==='benutzer') initBenutzer();
@@ -5921,6 +5943,51 @@ function initFeldbezeichnungen(){
   ).join('');
 }
 
+// ─── REINIGUNGSSYSTEME (Verwaltung) ──────────────────────────────────────────
+// Je Projekt: Liste {id,name,typ(maschinell|manuell|team),speed(km/h)}. Je Tour wählbar.
+// Geschwindigkeit wird gespeichert (für die spätere Routenzeit) — noch nicht in die Zeit verdrahtet.
+function getReinigungssysteme(){ return Array.isArray(currentProjectData?.reinigungssysteme)?currentProjectData.reinigungssysteme:[]; }
+function _rsTypLabel(t){ return {maschinell:'maschinell',manuell:'manuell',team:'Team'}[t]||t||''; }
+async function _rsSave(list){
+  if(!currentProjectId) return;
+  if(currentProjectData) currentProjectData.reinigungssysteme=list; // optimistisch
+  try{ await updateDoc(doc(db,'projects',currentProjectId),{reinigungssysteme:list}); }
+  catch(e){ console.warn('Reinigungssysteme speichern',e); notify('Speichern fehlgeschlagen'); }
+}
+function renderReinigungssysteme(){
+  const el=document.getElementById('rs-list'); if(!el) return;
+  const list=getReinigungssysteme();
+  if(!list.length){ el.innerHTML='<div style="font-size:12px;color:var(--text3);padding:6px 2px;">Noch keine Reinigungssysteme. Unten anlegen.</div>'; return; }
+  el.innerHTML=list.map(s=>`<div style="display:flex;gap:6px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;">
+    <input class="form-control" value="${dlEsc(s.name||'')}" onchange="rsUpdate('${dlEsc(s.id)}','name',this.value)" style="flex:1;min-width:150px;padding:4px 8px;font-size:12px;">
+    <select class="form-control" onchange="rsUpdate('${dlEsc(s.id)}','typ',this.value)" style="width:130px;padding:4px 8px;font-size:12px;">
+      ${['maschinell','manuell','team'].map(t=>`<option value="${t}"${s.typ===t?' selected':''}>${_rsTypLabel(t)}</option>`).join('')}
+    </select>
+    <input class="form-control" type="number" min="0" step="0.5" value="${s.speed??''}" onchange="rsUpdate('${dlEsc(s.id)}','speed',this.value)" style="width:78px;padding:4px 8px;font-size:12px;" title="km/h"><span style="font-size:11px;color:var(--text3);">km/h</span>
+    <button onclick="rsDelete('${dlEsc(s.id)}')" title="Entfernen" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:16px;line-height:1;">×</button>
+  </div>`).join('');
+}
+async function rsAdd(){
+  const name=(document.getElementById('rs-new-name')?.value||'').trim();
+  const typ=document.getElementById('rs-new-typ')?.value||'maschinell';
+  const speed=parseFloat(document.getElementById('rs-new-speed')?.value)||0;
+  if(!name){ notify('Bitte einen Namen eingeben'); return; }
+  const id='rs_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+  await _rsSave([...getReinigungssysteme(),{id,name,typ,speed}]);
+  const n=document.getElementById('rs-new-name'); if(n) n.value=''; const sp=document.getElementById('rs-new-speed'); if(sp) sp.value='';
+  renderReinigungssysteme();
+}
+async function rsUpdate(id,field,val){
+  const list=getReinigungssysteme().map(s=>{ if(s.id!==id) return s; const v=field==='speed'?(parseFloat(val)||0):val; return {...s,[field]:v}; });
+  await _rsSave(list);
+  if(field==='typ') renderReinigungssysteme();
+}
+async function rsDelete(id){
+  const s=getReinigungssysteme().find(x=>x.id===id);
+  if(!await confirmByName({title:'Reinigungssystem entfernen',label:'System',name:s?.name||'',confirmText:'Entfernen'})) return;
+  await _rsSave(getReinigungssysteme().filter(x=>x.id!==id));
+  renderReinigungssysteme();
+}
 // ─── NUTZUNG JE STADT (Admin) ────────────────────────────────────────────────
 let _usageRows=[];
 async function initUsage(){
@@ -10578,6 +10645,7 @@ Object.assign(window,{
   startAssignMode,setAssignTour,cancelAssign,assignTreeToTour,
   openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,
   pickProjIcon,artSetIcon,artSetTime,artSetRate,setArtDefaultTime,artApplyTimeToAll,
+  renderReinigungssysteme,rsAdd,rsUpdate,rsDelete,
   renderMandanten,createOrgUi,moveProjectUi,setOrgNaviUi,checkBaumIdDuplicates,flaechenImportOpen,flaechenImportRun,geomDocsImportOpen,geomDocsImportRun,strMigOpen,flaechenTourGenOpen,flaechenTourGenRun,
   addWmsLayer,deleteWmsLayer,editWmsLayer,cancelWmsEdit,renderWmsList,
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,

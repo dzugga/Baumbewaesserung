@@ -384,6 +384,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <button data-module="objekte" onclick="switchView('baeume')">Objekte</button>
         <button data-module="touren" onclick="switchView('touren')">Touren</button>
         <button data-module="verwaltung" onclick="switchView('verwaltung')">Gründe</button>
+        <button data-module="verwaltung" onclick="switchView('reinigungssysteme')">Reinigungssysteme</button>
         <button data-module="wms" onclick="switchView('wmskarten')">WMS-Karten</button>
         <button data-module="import" onclick="openImport()">Import</button>
         <button onclick="switchView('handbuch')">📖 Handbuch</button>
@@ -796,6 +797,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <div class="modal-body">
       <div class="form-group"><label class="form-label">Tourname *</label><input class="form-control" id="t-name" placeholder="z.B. Nordpark"></div>
       <div class="form-group"><label class="form-label">Beschreibung</label><input class="form-control" id="t-desc" placeholder="Kurze Beschreibung"></div>
+      <div class="form-group"><label class="form-label">Reinigungssystem</label><select class="form-control" id="t-system"><option value="">— keines —</option></select></div>
       <div class="form-group tm-full"><label class="form-label">Farbe</label><div class="color-swatches" id="color-swatches"></div></div>
       <div class="form-group tm-full">
         <label class="form-label">Rhythmus &amp; Gültigkeit</label>
@@ -883,6 +885,27 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <div style="display:flex;gap:6px;">
           <input class="form-control" id="new-reason-mgmt" placeholder="Neuen Grund eingeben…" style="flex:1;padding:5px 8px;font-size:12px;" onkeydown="if(event.key==='Enter')addReasonMgmt()">
           <button class="btn btn-primary" style="padding:5px 10px;font-size:12px;white-space:nowrap;" onclick="addReasonMgmt()">+ Hinzufügen</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- REINIGUNGSSYSTEME fullscreen overlay -->
+<div id="view-reinigungssysteme" style="display:none;position:fixed;top:54px;left:0;right:0;bottom:0;z-index:1500;background:var(--bg);overflow-y:auto;">
+  <div style="max-width:900px;margin:0 auto;padding:14px 20px;display:flex;flex-direction:column;gap:10px;">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+      <div style="padding:8px 14px;border-bottom:1px solid var(--border);">
+        <span style="font-size:12px;font-weight:700;">Reinigungssysteme</span>
+        <span style="font-size:11px;color:var(--text3);margin-left:6px;">Maschinell / manuell / Team mit Geschwindigkeit (km/h) — je Tour auswählbar; die Geschwindigkeit dient später der Routenzeit.</span>
+      </div>
+      <div style="padding:8px 12px;">
+        <div id="rs-list" style="margin-bottom:10px;"></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+          <input class="form-control" id="rs-new-name" placeholder="Name (z. B. Große Kehrmaschine)" style="flex:1;min-width:150px;padding:5px 8px;font-size:12px;" onkeydown="if(event.key==='Enter')rsAdd()">
+          <select class="form-control" id="rs-new-typ" style="width:130px;padding:5px 8px;font-size:12px;"><option value="maschinell">maschinell</option><option value="manuell">manuell</option><option value="team">Team</option></select>
+          <input class="form-control" id="rs-new-speed" type="number" min="0" step="0.5" placeholder="km/h" style="width:90px;padding:5px 8px;font-size:12px;" onkeydown="if(event.key==='Enter')rsAdd()">
+          <button class="btn btn-primary" style="padding:5px 10px;font-size:12px;white-space:nowrap;" onclick="rsAdd()">+ Hinzufügen</button>
         </div>
       </div>
     </div>
