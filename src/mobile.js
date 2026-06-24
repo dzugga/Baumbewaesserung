@@ -928,20 +928,43 @@ function makeTreeIcon(tree, idx) {
 function renderMarkers() {
   Object.values(mapMarkers).forEach(m=>map.removeLayer(m));
   mapMarkers={};
+  renderTourGeoms(); // Flächen/Strecken (geomStr) zuerst zeichnen, Marker liegen darüber
   routeOrder.forEach((id,idx)=>{
     const tree=trees.find(t=>t.id===id);
-    if(!tree||!tree.lat||!tree.lng)return;
-    const m=L.marker([tree.lat,tree.lng],{icon:makeTreeIcon(tree,idx)})
+    const np=navPoint(tree); if(!np)return; // Punkt=Koordinate, Fläche=Zentroid, Linie=Mittelpunkt
+    const m=L.marker(np,{icon:makeTreeIcon(tree,idx)})
       .addTo(map).on('click',()=>openSheet(id));
     mapMarkers[id]=m;
   });
-  renderTourGeoms(); // Flächen/Strecken (geomStr) der Tour mitzeichnen
   // Route drawn separately via drawRoute() to load from Firestore
 }
 
 // Gezeichnete Geometrie (Flächen/Strecken am Doc, geomStr) der Tour auf der Karte zeigen
 let geomLayers={};
 function _mGeom(t){ if(!t||!t.geomStr) return null; try{ return JSON.parse(t.geomStr); }catch(_){ return null; } }
+// Navigations-/Stopp-Punkt eines Objekts: Punkt=Koordinate, Fläche=Zentroid, Linie=Mittelpunkt (stabil).
+function navPoint(t){
+  if(!t) return null;
+  if(t.lat&&t.lng) return [t.lat,t.lng];
+  const g=_mGeom(t); if(!g) return null;
+  if(g.type==='Polygon'){ const ring=g.coordinates[0]||[]; const r=ring.length>1?ring.slice(0,-1):ring; let la=0,ln=0,n=0; for(const c of r){ la+=c[1]; ln+=c[0]; n++; } return n?[la/n,ln/n]:null; }
+  if(g.type==='LineString'){ const pts=(g.coordinates||[]).map(c=>[c[1],c[0]]); return pts.length?pts[Math.floor(pts.length/2)]:null; }
+  return null;
+}
+function hasNav(t){ return !!navPoint(t); }
+// Navi-Ziel: bei Linien der dem aktuellen GPS nächstgelegene Punkt (sonst Mittelpunkt), sonst wie navPoint.
+function navTarget(t){
+  const g=_mGeom(t);
+  if(g && g.type==='LineString' && gpsLatLng){ const pts=(g.coordinates||[]).map(c=>[c[1],c[0]]); let best=pts[0],bd=Infinity; for(const p of pts){ const d=haversine(gpsLatLng[0],gpsLatLng[1],p[0],p[1]); if(d<bd){bd=d;best=p;} } return best||navPoint(t); }
+  return navPoint(t);
+}
+// Distanz (m) eines Punktes zum Objekt: Linie=nächster Stützpunkt, sonst zum navPoint.
+function _distToTreeM(latlng,t){
+  if(!latlng) return Infinity;
+  const g=_mGeom(t);
+  if(g && g.type==='LineString'){ const pts=(g.coordinates||[]).map(c=>[c[1],c[0]]); let bd=Infinity; for(const p of pts){ const d=haversine(latlng[0],latlng[1],p[0],p[1])*1000; if(d<bd)bd=d; } return bd; }
+  const np=navPoint(t); return np?haversine(latlng[0],latlng[1],np[0],np[1])*1000:Infinity;
+}
 function _mGeomBounds(){ let b=null; for(const id in geomLayers){ const lb=geomLayers[id].getBounds&&geomLayers[id].getBounds(); if(lb&&lb.isValid()) b=b?b.extend(lb):L.latLngBounds(lb.getSouthWest(),lb.getNorthEast()); } return b; }
 function renderTourGeoms(){
   Object.values(geomLayers).forEach(l=>{ try{ map.removeLayer(l); }catch(_){} }); geomLayers={};
@@ -998,7 +1021,7 @@ async function drawRoute(){
 
   // Route war veraltet (inaktive/entfernte Objekte) oder ohne GeoJSON:
   // frische Straßenroute über die aktiven Stopps berechnen
-  const activeStops=routeOrder.map(id=>trees.find(t=>t.id===id)).filter(t=>t&&t.lat&&t.lng);
+  const activeStops=routeOrder.map(id=>trees.find(t=>t.id===id)).filter(t=>t&&hasNav(t));
   const street=await naviStreetLine(activeStops);
   if(street && street.length>1){
     routeLayer=L.polyline(street,{color,weight:4,opacity:.85}).addTo(map);
@@ -1007,10 +1030,7 @@ async function drawRoute(){
   }
 
   // Fallback: dashed polyline with depot if set
-  const pts=routeOrder.map(id=>{
-    const t=trees.find(x=>x.id===id);
-    return t&&t.lat&&t.lng?[t.lat,t.lng]:null;
-  }).filter(Boolean);
+  const pts=routeOrder.map(id=>navPoint(trees.find(x=>x.id===id))).filter(Boolean);
   if(pts.length<2)return;
 
   // Add depot to route if configured
@@ -1024,7 +1044,7 @@ let depotMarker=null;
 // Frische straßenfolgende Linie über die aktiven Stopps (ORS), inkl. Betriebshof
 async function naviStreetLine(stops){
   try{
-    const pts=stops.map(s=>[s.lat,s.lng]).filter(p=>p[0]&&p[1]);
+    const pts=stops.map(s=>navPoint(s)).filter(Boolean);
     if(pts.length<2) return null;
     const withDepot=await getRouteWithDepot(pts);
     const res=await orsDirections(withDepot,false);
@@ -1075,14 +1095,14 @@ function goToNextTree(){
   if(idx===-1){toast('Alle Bäume abgearbeitet! 🎉');return;}
   const id=routeOrder[idx];
   const tree=trees.find(t=>t.id===id);
-  if(tree&&tree.lat&&tree.lng) map.panTo([tree.lat,tree.lng],{animate:true});
+  const np=navPoint(tree); if(np) map.panTo(np,{animate:true});
   openSheet(id);
 }
 
 function recalcFromGPS(){
   if(!gpsLatLng){toast('GPS noch nicht verfügbar');return;}
   // Nearest-neighbor from GPS position
-  const remaining=trees.filter(t=>!t.lastStatus&&t.lat&&t.lng);
+  const remaining=trees.filter(t=>!t.lastStatus&&hasNav(t));
   if(remaining.length===0){toast('Alle erledigt!');return;}
   const done=trees.filter(t=>t.lastStatus);
   const ordered=nearestNeighbor(remaining,gpsLatLng[0],gpsLatLng[1]);
@@ -1100,11 +1120,12 @@ function nearestNeighbor(pts,startLat,startLng){
     let best=null,bestD=Infinity;
     for(const p of pts){
       if(visited.has(p.id))continue;
-      const d=haversine(lat,lng,p.lat,p.lng);
+      const np=navPoint(p); if(!np)continue;
+      const d=haversine(lat,lng,np[0],np[1]);
       if(d<bestD){bestD=d;best=p;}
     }
     if(!best)break;
-    result.push(best);visited.add(best.id);lat=best.lat;lng=best.lng;
+    const bp=navPoint(best); result.push(best);visited.add(best.id);lat=bp[0];lng=bp[1];
   }
   return result;
 }
@@ -1189,7 +1210,7 @@ function naviPickTarget(){
   if(open) return open.tree;
   for(const id of routeOrder){
     const t=trees.find(x=>x.id===id);
-    if(t && !t.lastStatus && t.lat && t.lng) return t;
+    if(t && !t.lastStatus && hasNav(t)) return t;
   }
   return null;
 }
@@ -1198,7 +1219,7 @@ function naviPickTarget(){
 // damit die Reihenfolge-Nummern in Liste/Karte zur tatsächlichen Fahrreihenfolge passen.
 function naviReorderFromGPS(){
   if(!gpsLatLng) return;
-  const remaining=trees.filter(t=>!t.lastStatus&&t.lat&&t.lng);
+  const remaining=trees.filter(t=>!t.lastStatus&&hasNav(t));
   if(!remaining.length) return;
   const done=trees.filter(t=>t.lastStatus);
   const ordered=nearestNeighbor(remaining,gpsLatLng[0],gpsLatLng[1]);
@@ -1213,8 +1234,8 @@ function naviNearestOpenStop(latlng){
   let best=null,bd=Infinity;
   for(const id of routeOrder){
     const t=trees.find(x=>x.id===id);
-    if(!t || t.lastStatus || !t.lat || !t.lng) continue;
-    const d=haversine(latlng[0],latlng[1],t.lat,t.lng)*1000;
+    if(!t || t.lastStatus || !hasNav(t)) continue;
+    const d=_distToTreeM(latlng,t);
     if(d<bd){ bd=d; best=t; }
   }
   return best?{tree:best,dist:bd}:null;
@@ -1231,7 +1252,7 @@ async function naviStart(){
   if(!target){toast('Alle Objekte erledigt 🎉');return;}
   naviTargetId=target.id;
   toast('Navi wird berechnet…');
-  const ok=await naviFetchRoute(gpsLatLng,[target.lat,target.lng]);
+  const ok=await naviFetchRoute(gpsLatLng, navTarget(target));
   if(!ok){toast('Route konnte nicht berechnet werden');return;}
   if(naviFullRoute) await naviFetchFullRoute(); // ganze Restroute für Übersicht
   naviActive=true; naviStepIdx=1; naviPreIdx=-1; naviNowIdx=-1; naviOffrouteHits=0; naviFollow=true;
@@ -1259,9 +1280,9 @@ async function naviFetchRoute(from,to){
 // Ganze Restroute (GPS → alle verbleibenden Stopps in Reihenfolge) für die Übersichts-Anzeige
 async function naviFetchFullRoute(){
   naviFullGeom=null;
-  const stops=routeOrder.map(id=>trees.find(t=>t.id===id)).filter(t=>t&&!t.lastStatus&&t.lat&&t.lng);
+  const stops=routeOrder.map(id=>trees.find(t=>t.id===id)).filter(t=>t&&!t.lastStatus&&hasNav(t));
   if(!stops.length || !gpsLatLng) return;
-  const pts=[gpsLatLng, ...stops.map(s=>[s.lat,s.lng])];
+  const pts=[gpsLatLng, ...stops.map(s=>navTarget(s))];
   try{
     const res=await orsDirections(pts,false);
     if(res&&res.geom.length) naviFullGeom=res.geom;
@@ -1275,7 +1296,7 @@ function naviUpdate(latlng){
   // Ankunft an IRGENDEINEM offenen Stopp erkennen (Fahrer fährt evtl. woanders hin)
   const near=naviNearestOpenStop(latlng);
   if(near && near.dist<NAVI_ARRIVE_M){ naviTargetId=near.tree.id; naviArrive(); return; }
-  const distToTarget=haversine(latlng[0],latlng[1],target.lat,target.lng)*1000;
+  const distToTarget=_distToTreeM(latlng,target);
   while(naviStepIdx<naviSteps.length-1){
     const s=naviSteps[naviStepIdx];
     const d=haversine(latlng[0],latlng[1],s.loc[0],s.loc[1])*1000;
@@ -1326,7 +1347,7 @@ async function naviReroute(){
   naviRerouting=true; naviOffrouteHits=0;
   const target=trees.find(t=>t.id===naviTargetId);
   if(target){
-    const ok=await naviFetchRoute(gpsLatLng,[target.lat,target.lng]);
+    const ok=await naviFetchRoute(gpsLatLng, navTarget(target));
     if(ok){ naviStepIdx=1; naviPreIdx=-1; naviNowIdx=-1; if(naviFullRoute) await naviFetchFullRoute(); naviDrawDisplay(false); toast('Route neu berechnet'); naviVoice(gpsLatLng); }
   }
   naviRerouting=false;
@@ -1528,10 +1549,10 @@ function naviArrow(step){
 // ─── TOUR-GESAMTÜBERSICHT ─────────────────────────────────────────
 async function naviOverview(){
   if(!gpsLatLng){ toast('GPS noch nicht verfügbar'); return; }
-  const stops=routeOrder.map(id=>trees.find(t=>t.id===id)).filter(t=>t&&!t.lastStatus&&t.lat&&t.lng);
+  const stops=routeOrder.map(id=>trees.find(t=>t.id===id)).filter(t=>t&&!t.lastStatus&&hasNav(t));
   if(!stops.length){ toast('Alle Objekte erledigt 🎉'); return; }
   toast('Tour-Übersicht wird berechnet…');
-  const pts=[gpsLatLng, ...stops.map(s=>[s.lat,s.lng])];
+  const pts=[gpsLatLng, ...stops.map(s=>navTarget(s))];
   let legs=null, total={dist:0,dur:0};
   try{
     const res=await orsDirections(pts,false);
@@ -1644,6 +1665,7 @@ function openSheet(id){
   const idx=routeOrder.indexOf(id);
   const statusVal=tree.lastStatus||'';
   const reasonVal=tree.lastReason||'';
+  const _np=navPoint(tree); // Ziel für „In Google Maps" (Punkt / Flächen-Zentroid / Linien-Mittelpunkt)
 
   // Build reason chips
   const reasonChips=reasons.length>0
@@ -1651,7 +1673,7 @@ function openSheet(id){
     : '<div style="font-size:12px;color:var(--text3);padding:4px 0;">Keine Gründe hinterlegt — bitte in der Desktop-App unter Verwaltung einrichten.</div>';
 
   document.getElementById('sheet-body').innerHTML=`
-    ${tree.lat&&tree.lng?`<button class="btn btn-secondary" style="width:100%;margin-bottom:14px;display:flex;align-items:center;justify-content:center;gap:6px;" onclick="naviExternal(${tree.lat},${tree.lng})">
+    ${_np?`<button class="btn btn-secondary" style="width:100%;margin-bottom:14px;display:flex;align-items:center;justify-content:center;gap:6px;" onclick="naviExternal(${_np[0]},${_np[1]})">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
       In Google Maps navigieren
     </button>`:''}
@@ -1731,9 +1753,8 @@ function openSheet(id){
   document.getElementById('sheet-backdrop').classList.add('open');
   document.getElementById('detail-sheet').classList.add('open');
 
-  // Pan map to tree
-  if(tree.lat&&tree.lng&&currentTab==='map')
-    map.panTo([tree.lat,tree.lng],{animate:true});
+  // Pan map to tree/geometry
+  if(_np&&currentTab==='map') map.panTo(_np,{animate:true});
 }
 
 let _sheetStatus=null;
@@ -1832,7 +1853,7 @@ async function saveReport(id){
         if(nextIdx!==-1){
           const nextId=routeOrder[nextIdx];
           const next=trees.find(t=>t.id===nextId);
-          if(next&&next.lat&&next.lng) map.panTo([next.lat,next.lng],{animate:true,duration:0.8});
+          const _nnp=navPoint(next); if(_nnp) map.panTo(_nnp,{animate:true,duration:0.8});
         }
       },800);
     }).catch(e=>{
