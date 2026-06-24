@@ -2566,6 +2566,19 @@ function renderList(){
     });
   }
   const list=document.getElementById('tree-list');if(!list)return;
+  // Lazy-Liste: ohne Suche/Tour-Auswahl/Filter und bei vielen Einträgen nicht alle auflisten —
+  // nur ein Hinweis (Karte zeigt weiter alles). Suche oder Tour-Auswahl füllt die Liste.
+  const _noFilter = !q && !activeTours.size && !showUnplanned && !objFilterActive();
+  if(_noFilter && filtered.length>600){
+    const noun=_listMode==='abschnitte'?'Abschnitte':'Objekte';
+    list.innerHTML=`<div class="empty-state" style="padding:34px 18px;text-align:center;">
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <p style="font-weight:600;margin:8px 0 2px;">${filtered.length.toLocaleString('de-DE')} ${noun}</p>
+      <p style="font-size:12px;color:var(--text3);line-height:1.55;">Für die Übersicht nicht alle aufgelistet.<br>Oben <b>suchen</b> (Name/Straße) oder eine <b>Tour wählen</b> — dann erscheinen die passenden Einträge. Auf der Karte sind alle sichtbar.</p>
+    </div>`;
+    document.getElementById('list-count').textContent=`${filtered.length} ${_listMode==='abschnitte'?'Einträge':'Objekte'}`;
+    return;
+  }
   if(filtered.length===0){list.innerHTML=`<div class="empty-state"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22V12"/><path d="M12 12C12 12 7 9 7 5a5 5 0 0 1 10 0c0 4-5 7-5 7z"/></svg><p>Keine Objekte gefunden</p></div>`;
   } else {
     const tourMap=new Map(tours.map(t=>[t.id,t]));   // Perf: 1× statt tours.find pro Zeile
