@@ -1655,8 +1655,18 @@ function _hasDrawnGeom(t){ return !!(t && (t.geomStr || (t.geom&&t.geom.coordina
 // (Fahrbahn/Gehweg links/rechts …) referenzieren ihn über containerExtId und ERBEN Geometrie +
 // Länge: leer = erbt, eigene Länge/Geometrie = Override. Container selbst ist nicht tour-planbar.
 function _isContainer(t){ return !!(t && t.containerTyp); }
-function _containerOf(t){ if(!t||!t.containerExtId) return null; return (trees||[]).find(x=>x.containerTyp&&x.extId===t.containerExtId)||null; }
-function _ausstattungOf(containerExtId){ return containerExtId?(trees||[]).filter(t=>t.containerExtId===containerExtId):[]; }
+// Indizes (extId→Container, extId→Seiten[]) — EINMAL je trees-Array statt find/filter pro Aufruf (sonst O(n²) beim Rendern vieler Abschnitte).
+let _contIndex=null, _ausstIndex=null, _ctIndexRef=null;
+function _rebuildContIndex(){
+  _contIndex=new Map(); _ausstIndex=new Map();
+  for(const t of (trees||[])){
+    if(t.containerTyp) _contIndex.set(t.extId, t);
+    if(t.containerExtId){ let a=_ausstIndex.get(t.containerExtId); if(!a){ a=[]; _ausstIndex.set(t.containerExtId,a); } a.push(t); }
+  }
+  _ctIndexRef=trees;
+}
+function _containerOf(t){ if(!t||!t.containerExtId) return null; if(_ctIndexRef!==trees) _rebuildContIndex(); return _contIndex.get(t.containerExtId)||null; }
+function _ausstattungOf(containerExtId){ if(!containerExtId) return []; if(_ctIndexRef!==trees) _rebuildContIndex(); return _ausstIndex.get(containerExtId)||[]; }
 // Effektive Länge/Fläche + Einheit: eigener Wert, sonst geerbt vom Container
 function _effMenge(t){ if(!t) return 0; if(t.menge!=null&&t.menge!=='') return parseFloat(t.menge)||0; const c=_containerOf(t); return c?(parseFloat(c.menge)||0):0; }
 function _effEinheit(t){ if(t&&t.einheit) return t.einheit; const c=_containerOf(t); return c?(c.einheit||''):''; }
