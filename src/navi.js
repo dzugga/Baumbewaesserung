@@ -283,14 +283,16 @@ async function startBewässerungLogin(name, pid, tid) {
     renderList('');
     updateProgress();
     updateNetworkBadge();
-    setTimeout(()=>map.invalidateSize(),100);
-
-    // Auto-zoom
-    const withCoords = trees.filter(t=>t.lat&&t.lng);
-    if(withCoords.length>1){
-      const bounds=L.latLngBounds(withCoords.map(t=>[t.lat,t.lng]));
-      if(bounds.isValid()) map.fitBounds(bounds,{padding:[60,60],maxZoom:17});
-    }
+    // Karte zuerst messen, DANN auf die ganze Tour einpassen — sonst hat der Container beim
+    // Einpassen noch die falsche Größe (Tab gerade erst sichtbar) → falscher Zoom/Ausschnitt.
+    setTimeout(()=>{
+      map.invalidateSize();
+      const withCoords = trees.filter(t=>t.lat&&t.lng);
+      if(withCoords.length){
+        const bounds=L.latLngBounds(withCoords.map(t=>[t.lat,t.lng]));
+        if(bounds.isValid()) map.fitBounds(bounds,{padding:[40,40],maxZoom:17});
+      }
+    },150);
 
     startGPS();
     drawRoute();
