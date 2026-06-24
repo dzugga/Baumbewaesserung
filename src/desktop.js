@@ -4994,6 +4994,21 @@ async function buildArten(){
   await loadArten(); renderArtenList();
   notify(`✓ ${byName.size} Arten · ${ups.length} Objekte zugeordnet`);
 }
+// Wird ein Listenwert umbenannt/zusammengeführt/gelöscht, die Tour-Zuordnungsregeln mitführen,
+// damit keine falschen „Regelverstöße" durch veraltete Regel-Werte entstehen. newVal=null → entfernen.
+async function _propagateRuleRename(fieldKey, oldVal, newVal){
+  if(!currentProjectId || oldVal==null || oldVal==='') return;
+  const ups=[];
+  for(const t of tours){
+    const reg=t.regeln; if(!reg||!Array.isArray(reg[fieldKey])||!reg[fieldKey].includes(oldVal)) continue;
+    const arr=reg[fieldKey].filter(v=>v!==oldVal);
+    if(newVal!=null && newVal!=='' && !arr.includes(newVal)) arr.push(newVal);
+    const newReg={...reg}; if(arr.length) newReg[fieldKey]=arr; else delete newReg[fieldKey];
+    t.regeln=newReg; ups.push({id:t.id,regeln:newReg});
+  }
+  for(const u of ups){ try{ await updateDoc(doc(db,'projects',currentProjectId,'tours',u.id),{regeln:u.regeln}); }catch(e){ console.warn('Regel-Mitführung',e); } }
+  if(ups.length) try{ renderTourenGrid(); }catch(_){}
+}
 async function renameArt(id){
   if(isReadonly()) return;
   const a=artenList.find(x=>x.id===id); if(!a) return;
@@ -5004,6 +5019,7 @@ async function renameArt(id){
   await updateDoc(doc(db,'projects',currentProjectId,'arten',id),{name});
   const ups=trees.filter(t=>t.artId===id).map(t=>{t.art=name;return {id:t.id,data:{art:name}};});
   await _chunkedTreeUpdate(ups);
+  await _propagateRuleRename('art', a.name, name);
   await loadArten(); renderArtenList();
   notify(`✓ Umbenannt — ${ups.length} Objekte aktualisiert`);
 }
@@ -5016,6 +5032,7 @@ async function mergeArt(srcId,tgtId){
   const ups=trees.filter(t=>t.artId===srcId).map(t=>{t.artId=tgtId;t.art=tgt.name;return {id:t.id,data:{artId:tgtId,art:tgt.name}};});
   await _chunkedTreeUpdate(ups);
   await deleteDoc(doc(db,'projects',currentProjectId,'arten',srcId));
+  await _propagateRuleRename('art', src.name, tgt.name);
   await loadArten(); renderArtenList();
   notify(`✓ Zusammengeführt — ${ups.length} Objekte umgehängt`);
 }
@@ -5025,6 +5042,7 @@ async function deleteArt(id){
   if((artCountById()[id]||0)>0){ notify('Nur löschbar bei Häufigkeit 0'); return; }
   if(!await confirmByName({label:'Art', name:a.name})) return;
   await deleteDoc(doc(db,'projects',currentProjectId,'arten',id));
+  await _propagateRuleRename('art', a.name, null);
   await loadArten(); renderArtenList();
   notify('✓ Gelöscht');
 }
@@ -5077,7 +5095,7 @@ async function renameListVal(fieldKey,id){
   if(dup){ if(confirm('„'+name+'" existiert bereits — stattdessen zusammenführen?')) return mergeListVal(fieldKey,id,dup.id); return; }
   const old=e.label; e.label=name;
   const ups=_treesUsing(fieldKey,old).map(t=>{ t[fieldKey]=name; return {id:t.id,data:{[fieldKey]:name}}; });
-  await _chunkedTreeUpdate(ups); await saveListValues(); renderFieldCatalog();
+  await _chunkedTreeUpdate(ups); await saveListValues(); await _propagateRuleRename(fieldKey, old, name); renderFieldCatalog();
   notify(`✓ Umbenannt — ${ups.length} Objekte aktualisiert`);
 }
 async function mergeListVal(fieldKey,srcId,tgtId){
@@ -5088,7 +5106,7 @@ async function mergeListVal(fieldKey,srcId,tgtId){
   const ups=_treesUsing(fieldKey,src.label).map(t=>{ t[fieldKey]=tgt.label; return {id:t.id,data:{[fieldKey]:tgt.label}}; });
   await _chunkedTreeUpdate(ups);
   listValues[fieldKey]=(listValues[fieldKey]||[]).filter(x=>x.id!==srcId);
-  await saveListValues(); renderFieldCatalog();
+  await saveListValues(); await _propagateRuleRename(fieldKey, src.label, tgt.label); renderFieldCatalog();
   notify(`✓ Zusammengeführt — ${ups.length} Objekte umgehängt`);
 }
 async function deleteListVal(fieldKey,id){
@@ -5097,7 +5115,7 @@ async function deleteListVal(fieldKey,id){
   if(_treesUsing(fieldKey,e.label).length>0){ notify('Nur löschbar, wenn kein Objekt den Wert nutzt'); return; }
   if(!await confirmByName({label:'Wert', name:e.label})) return;
   listValues[fieldKey]=(listValues[fieldKey]||[]).filter(x=>x.id!==id);
-  await saveListValues(); renderFieldCatalog(); notify('✓ Gelöscht');
+  await saveListValues(); await _propagateRuleRename(fieldKey, e.label, null); renderFieldCatalog(); notify('✓ Gelöscht');
 }
 async function buildListFromObjects(fieldKey){
   if(isReadonly()) return notify('Nur Lesezugriff');
@@ -5205,7 +5223,7 @@ async function rankMerge(fieldKey,srcId,tgtId){
   const ups=trees.filter(t=>(t[fieldKey]||'')===srcId).map(t=>{ t[fieldKey]=tgtId; return {id:t.id,data:{[fieldKey]:tgtId}}; });
   await _chunkedTreeUpdate(ups);
   listValues[fieldKey]=listValues[fieldKey].filter(x=>x.id!==srcId);
-  await saveListValues(); _afterRankChange();
+  await saveListValues(); await _propagateRuleRename(fieldKey, srcId, tgtId); _afterRankChange();
   notify(`✓ Zusammengeführt — ${ups.length} Objekte umgehängt`);
 }
 async function rankDelete(fieldKey,id){
@@ -5214,7 +5232,7 @@ async function rankDelete(fieldKey,id){
   if(_rankUseCount(fieldKey,id)>0){ notify('Nur löschbar, wenn kein Objekt den Wert nutzt'); return; }
   if(!await confirmByName({label:'Wert', name:e.label})) return;
   listValues[fieldKey]=listValues[fieldKey].filter(x=>x.id!==id);
-  await saveListValues(); _afterRankChange(); notify('✓ Gelöscht');
+  await saveListValues(); await _propagateRuleRename(fieldKey, id, null); _afterRankChange(); notify('✓ Gelöscht');
 }
 // Nach Farb-/Label-/Rang-Änderung: Detail + abhängige Ansichten aktualisieren
 function _afterRankChange(){ renderFieldCatalog(); try{ renderList(); }catch(_){} }
