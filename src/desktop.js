@@ -1483,6 +1483,7 @@ function makeMarker(tree){
     let tour=null;
     if(activeTourOnMap && treeTourIds.includes(activeTourOnMap)) tour=tours.find(t=>t.id===activeTourOnMap);
     else { const activeId=treeTourIds.find(id=>activeTours.has(id)); if(activeId) tour=tours.find(t=>t.id===activeId); }
+    if(!tour && assignMode && assignTourId && treeTourIds.includes(assignTourId)) tour=tours.find(t=>t.id===assignTourId); // Planen: Ziel-Tour einfärben (Rest bleibt sichtbar/neutral)
     color=tour?tour.color:'#6b6760';
   }
   const num=getRouteNum(tree.id);
@@ -1632,7 +1633,12 @@ let _flaechenLayer=null, _flaechenLayerKey='', _flaechenBundle=null, _flaechenBu
 const FL_NEUTRAL='#000'; // Standardfarbe ohne Tour-Auswahl (wie Punktobjekte: erst bei Auswahl eingefärbt)
 // Tourfarbe einer Fläche – analog zu makeMarker: NUR bei aktiver Tour-Auswahl, sonst null.
 function _flTourColorFor(t){
-  if(!t || !activeTours.size) return null;
+  if(!t) return null;
+  if(assignMode && assignTourId && !activeTours.size){ // Planen: nur die Ziel-Tour einfärben, Rest neutral (alle bleiben sichtbar)
+    const inT = _isContainer(t) ? _ausstattungOf(t.extId).some(s=>treeInTour(s,assignTourId)) : treeInTour(t,assignTourId);
+    return inT ? ((tours.find(x=>x.id===assignTourId)||{}).color||null) : null;
+  }
+  if(!activeTours.size) return null;
   if(_isContainer(t)){ // Abschnitt selbst ist nicht verplant → Farbe einer Seite, die in einer aktiven Tour liegt
     for(const s of _ausstattungOf(t.extId)){ const sid=getTreeTourIds(s).find(id=>activeTours.has(id)); if(sid) return (tours.find(x=>x.id===sid)||{}).color||null; }
     return null;
@@ -1642,7 +1648,9 @@ function _flTourColorFor(t){
   return id ? ((tours.find(x=>x.id===id)||{}).color||null) : null;
 }
 function _flStyleForTree(t, isLine){
-  if(t && lassoSelection.size>0 && lassoSelection.has(t.id)) // Lasso-Vorauswahl: violetter Akzent wie bei Punkt-Markern
+  // Lasso-/Planungs-Vorauswahl: violetter Akzent. Beim Abschnitt zählt auch eine vorgewählte Seite
+  // (im Mittellinien-Modus hat die Seite keine eigene Linie → der Abschnitt vertritt sie).
+  if(t && lassoSelection.size>0 && (lassoSelection.has(t.id) || (_isContainer(t) && _ausstattungOf(t.extId).some(s=>lassoSelection.has(s.id)))))
     return isLine?{ color:'#7c3aed', weight:6, opacity:0.95 }:{ color:'#7c3aed', weight:3, fillColor:'#7c3aed', fillOpacity:0.4 };
   const col=_flTourColorFor(t);
   if(activeTours.size && !col) return isLine?{ color:'#b9b6b0', weight:2, opacity:0.5 }:{ color:'#b9b6b0', weight:1, fillColor:'#b9b6b0', fillOpacity:0.06 }; // andere Tour → ausgegraut
@@ -3704,6 +3712,8 @@ function startAssignMode(){
   document.getElementById('assign-lasso-banner').classList.add('visible');
   map.getContainer().style.cursor='crosshair';
   closePanel();
+  // Ziel-Tour gleich farblich einblenden (sieht man, was schon zugeordnet ist / wo erweitern)
+  refreshMarkers(); try{ renderDrawnGeoms(); }catch(_){}
 
   // Lasso canvas events
   // Allow map pan when not actively drawing
@@ -3796,6 +3806,7 @@ function setAssignTour(id){
   if(sel) sel.value=id;
   updateAssignSwatch();
   renderLassoActions(); // Ziel-Tour-Name in den Aktions-Buttons aktualisieren
+  if(assignMode){ refreshMarkers(); try{ renderDrawnGeoms(); }catch(_){} } // neue Ziel-Tour farblich einblenden
 }
 
 function updateAssignSwatch(){
@@ -3818,6 +3829,7 @@ function cancelAssign(){
   canvas.ontouchstart=null;canvas.ontouchmove=null;canvas.ontouchend=null;
   document.getElementById('assign-lasso-banner').classList.remove('visible');
   map.getContainer().style.cursor='';
+  refreshMarkers(); try{ renderDrawnGeoms(); }catch(_){} // Planen-Einfärbung zurücknehmen
 }
 
 // Hinweisdialog, wenn ein Baum bereits anderen Touren zugeordnet ist.
