@@ -1763,7 +1763,9 @@ function renderDrawnGeoms(){
   });
 }
 function _drawnSelBounds(){ let b=null; for(const id in _drawnById){ const t=trees.find(x=>x.id===id); const l=_drawnById[id];
-  if(t&&treeInAnyActiveTour(t)&&l.getBounds){ const lb=l.getBounds(); if(lb&&lb.isValid()) b=b?b.extend(lb):L.latLngBounds(lb.getSouthWest(),lb.getNorthEast()); } } return b; }
+  // Container zählt, wenn EINE seiner Seiten in einer aktiven Tour liegt (Mittellinien-Modus); im Versatz-Modus sind die Seiten selbst im Layer.
+  const inSel = t && (treeInAnyActiveTour(t) || (_isContainer(t) && _ausstattungOf(t.extId).some(s=>treeInAnyActiveTour(s))));
+  if(inSel&&l.getBounds){ const lb=l.getBounds(); if(lb&&lb.isValid()) b=b?b.extend(lb):L.latLngBounds(lb.getSouthWest(),lb.getNorthEast()); } } return b; }
 
 // ─── ZEICHNEN-MODUS (Fläche/Strecke auf der Karte) ───────────────────────────
 let _drawMode=null, _drawPts=[], _drawLayer=null;
