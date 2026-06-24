@@ -1196,7 +1196,7 @@ async function loadSavedRoutes(force=false){
       }
     } else if(activeTours.has(tour.id)) {
       // Ausgewählte Tour ohne gespeicherte Route — Reihenfolge für Nummerierung berechnen (kein Read)
-      const trs=trees.filter(t=>treeInTour(t,tour.id)&&t.lat&&t.lng&&t.aktiv!==false);
+      const trs=_routableTrees(tour.id);
       if(trs.length>0){
         const depot=getDepot();
         const ordered=nearestNeighborTSP(trs,depot?.lat,depot?.lng);
@@ -1215,7 +1215,7 @@ async function calculateAndSaveRoute(tourId){
   if(!getRoutePlanningEnabled()){ notify('Reihenfolgeplanung ist deaktiviert'); return; }
   if(isOverviewTour(tourId)){ notify('Übersichtstouren erhalten keine Route'); return; }
   const tour=tours.find(t=>t.id===tourId);if(!tour)return;
-  const trs=trees.filter(t=>treeInTour(t,tourId)&&t.lat&&t.lng&&t.aktiv!==false);
+  const trs=_routableTrees(tourId); // Punkte + Flächen/Linien (Stellvertreter-Koordinate)
   if(trs.length<1){notify('Keine Objekte in dieser Tour');return;}
 
   setSyncState('syncing','Route wird berechnet…');
@@ -1274,7 +1274,7 @@ async function calculateAndSaveRoute(tourId){
 
   // Draw on map
   drawSavedRoute(tourId, routeData);
-  rebuildMarkersWithNumbers();renderList();renderLegend();
+  rebuildMarkersWithNumbers();renderDrawnGeoms();renderList();renderLegend();
   updateRouteInfoBar();
   setSyncState('ok','Route gespeichert');
   notify(`✓ Route gespeichert — ${km.toFixed(1)} km`);
@@ -1594,6 +1594,20 @@ function _fmtArea(m2){ return m2>=10000?(m2/10000).toFixed(2).replace('.',',')+'
 // Gezeichnete Geometrie liegt als JSON-String am Doc (geomStr) — Firestore kann keine verschachtelten Arrays
 function _treeGeom(t){ if(!t) return null; if(t.geom&&t.geom.coordinates) return t.geom; if(t.geomStr){ try{ return JSON.parse(t.geomStr); }catch(_){ return null; } } return null; }
 function _hasDrawnGeom(t){ return !!(t && (t.geomStr || (t.geom&&t.geom.coordinates))); }
+// Stellvertreter-Koordinate [lat,lng] für die Routenberechnung: Punkt=Koordinate, Fläche=Zentroid, Linie=Mittelpunkt.
+function _routePoint(t){
+  if(!t) return null;
+  if(t.lat&&t.lng) return [t.lat,t.lng];
+  const g=_treeGeom(t); if(!g) return null;
+  if(g.type==='Polygon'){ const ring=g.coordinates[0]||[]; const r=ring.length>1?ring.slice(0,-1):ring; let la=0,ln=0,n=0; for(const c of r){ la+=c[1]; ln+=c[0]; n++; } return n?[la/n,ln/n]:null; }
+  if(g.type==='LineString'){ const pts=(g.coordinates||[]).map(c=>[c[1],c[0]]); return pts.length?pts[Math.floor(pts.length/2)]:null; }
+  return null;
+}
+// Tour-Objekte für die Routenberechnung: Punkte + Geometrie (mit Stellvertreter-Koordinate als flache Kopie, id bleibt)
+function _routableTrees(tourId){
+  return trees.filter(t=>treeInTour(t,tourId)&&t.aktiv!==false&&_routePoint(t))
+    .map(t=>{ if(t.lat&&t.lng) return t; const p=_routePoint(t); return {...t, lat:p[0], lng:p[1]}; });
+}
 let _drawnLayer=null, _drawnById={}, _drawnSelId='';
 function renderDrawnGeoms(){
   if(!map) return;
@@ -1610,6 +1624,10 @@ function renderDrawnGeoms(){
     layer.on('click',()=>selectTree(t.id,false));
     layer.bindTooltip((t.name||(t.geomType==='linie'?'Strecke':'Fläche'))+(t.menge?' · '+(t.einheit==='m'?_fmtLen(t.menge):_fmtArea(t.menge)):''),{sticky:true});
     layer.addTo(_drawnLayer); _drawnById[t.id]=layer;
+    // Reihenfolge-Nummer am Zentroid (nur bei aktiver Tour-Auswahl/berechneter Route sichtbar)
+    const num=getRouteNum(t.id);
+    if(num!=null){ try{ const c=layer.getBounds().getCenter(); const col=_flTourColorFor(t)||FL_NEUTRAL;
+      L.marker(c,{interactive:false,icon:L.divIcon({className:'',html:'<div style="min-width:18px;height:18px;border-radius:9px;background:'+col+';border:2px solid #fff;color:#fff;font:700 10px/14px monospace;text-align:center;padding:0 3px;box-shadow:0 0 2px rgba(0,0,0,.6);">'+num+'</div>',iconSize:[18,18],iconAnchor:[9,9]})}).addTo(_drawnLayer); }catch(_){} }
   });
 }
 function _drawnSelBounds(){ let b=null; for(const id in _drawnById){ const t=trees.find(x=>x.id===id); const l=_drawnById[id];
@@ -1838,7 +1856,7 @@ async function applyTourSelection(fit){
           if(routeSnap.exists){
             drawSavedRoute(tid,routeSnap.data());
           } else {
-            const trs=trees.filter(t=>treeInTour(t,tid)&&t.lat&&t.lng);
+            const trs=_routableTrees(tid);
             const depot=getDepot();
             tourOrder[tid]=nearestNeighborTSP(trs,depot?.lat,depot?.lng).map(t=>t.id);
             missing++;
@@ -1865,6 +1883,7 @@ async function applyTourSelection(fit){
   applyClusterMode(_effectiveCluster(), false); // Cluster nur ohne Tour-Auswahl → in Touransicht Einzelmarker
   setMarkerVisibility();
   rebuildMarkersWithNumbers();
+  renderDrawnGeoms(); // Geometrie mit aktualisierten Reihenfolge-Nummern/Farben
   _applyFlaechenSelection();
   updateRouteInfoBar();
   renderLegend();
@@ -2153,8 +2172,7 @@ function buildSimModel(route,skipBew){
     pts=geojson.features[0].geometry.coordinates.map(c=>[c[1],c[0]]);
   } else if(route.orderIds){
     const depot=getDepot();
-    const ot=route.orderIds.map(id=>trees.find(t=>t.id===id)).filter(t=>t&&t.lat&&t.lng);
-    pts=ot.map(t=>[t.lat,t.lng]);
+    pts=route.orderIds.map(id=>_routePoint(trees.find(t=>t.id===id))).filter(Boolean);
     if(depot){ const dp=[depot.lat,depot.lng]; pts=getDepotMode()==='round'?[dp,...pts,dp]:[dp,...pts]; }
   }
   if(pts.length<2) return null;
