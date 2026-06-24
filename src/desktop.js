@@ -1158,8 +1158,9 @@ function drawSavedRoute(tourId, routeData){
 
   let layer;
   if(geojson){
-    // Draw real street route from saved geojson
-    layer=L.geoJSON(geojson,{style:{color:tour.color,weight:4,opacity:.85}}).addTo(map);
+    // Draw real street route from saved geojson — interactive:false, damit Klicks zu den
+    // darunterliegenden Objekten/Straßenabschnitten durchgehen (Detail bleibt erreichbar)
+    layer=L.geoJSON(geojson,{interactive:false,style:{color:tour.color,weight:4,opacity:.85}}).addTo(map);
   } else {
     // Draw straight-line fallback from saved order
     const orderedTrees=routeData.orderIds
@@ -1168,7 +1169,7 @@ function drawSavedRoute(tourId, routeData){
     const depot=getDepot();
     let pts=orderedTrees.map(t=>[t.lat,t.lng]);
     if(depot){const dp=[depot.lat,depot.lng];pts=getDepotMode()==='round'?[dp,...pts,dp]:[dp,...pts];}
-    layer=L.polyline(pts,{color:tour.color,weight:3,opacity:.7,dashArray:'8 5'}).addTo(map);
+    layer=L.polyline(pts,{interactive:false,color:tour.color,weight:3,opacity:.7,dashArray:'8 5'}).addTo(map);
   }
   tourRoutes[tourId]={layer,km:routeData.km||0,durationSec:routeData.durationSec||0};
   if(!routesVisible) map.removeLayer(layer);
