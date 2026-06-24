@@ -2834,7 +2834,11 @@ function openAbschnitt(id){
   switchDetailTab('details');
   const _vb=document.getElementById('panel-body-verlauf'); if(_vb) _vb._treeId=id;
   document.getElementById('detail-panel').classList.add('open');
-  if(_drawnById[id]){ try{ const b=_drawnById[id].getBounds&&_drawnById[id].getBounds(); if(b&&b.isValid()) map.fitBounds(b,{padding:[60,60],maxZoom:18,animate:true}); }catch(_){} }
+  // Abschnitt auf der Karte grün hervorheben (vorherige Auswahl zurücksetzen) + heranzoomen
+  if(_drawnSelId && _drawnSelId!==id && _drawnById[_drawnSelId]){ const p0=trees.find(x=>x.id===_drawnSelId); try{ _drawnById[_drawnSelId].setStyle(_flStyleForTree(p0, p0&&geomTypeOf(p0)==='linie')); }catch(_){} }
+  const _lyr=_drawnById[id];
+  if(_lyr){ try{ _lyr.setStyle({color:'#1d9e75',weight:6,opacity:1}); _lyr.bringToFront&&_lyr.bringToFront(); }catch(_){} _drawnSelId=id;
+    try{ const b=_lyr.getBounds&&_lyr.getBounds(); if(b&&b.isValid()) map.fitBounds(b,{padding:[60,60],maxZoom:18,animate:true}); }catch(_){} }
 }
 async function abschnittAddSeite(containerId){
   const c=trees.find(t=>t.id===containerId); if(!c||isReadonly()) return;
