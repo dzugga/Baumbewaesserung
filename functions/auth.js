@@ -88,10 +88,13 @@ exports.driverLogin = onCall({ region: REGION }, async (req) => {
     await ref.update(upd);
     const personRole = d.role || 'fahrer';
     const personCap = await capForRole(personRole, oid2);
+    // Mandanten-Feature-Flags (z. B. Navi) — Default aus; Fahrer dürfen das orgs-Doc nicht direkt lesen.
+    let naviEnabled = false;
+    try { const og = await db.collection('orgs').doc(oid2).get(); naviEnabled = !!(og.exists && og.data().naviEnabled); } catch (_) {}
     const token = await admin.auth().createCustomToken('drv_' + ref.id, {
       orgId: oid2, role: personRole, cap: personCap, driverId: ref.id, name: d.name,
     });
-    return { token, driverId: ref.id, name: d.name, orgId: oid2, role: personRole, sessionId };
+    return { token, driverId: ref.id, name: d.name, orgId: oid2, role: personRole, sessionId, naviEnabled };
   }
 
   // Kein Treffer: Fehlversuch auf ALLE getesteten (nicht gesperrten) Kandidaten zaehlen.
@@ -202,6 +205,16 @@ exports.setOrgOrsKey = onCall({ region: REGION }, async (req) => {
   if (key.length > 200) throw new HttpsError('invalid-argument', 'Key zu lang');
   await db.collection('orgs').doc(targetOrg).set({ orsKey: key }, { merge: true });
   return { ok: true };
+});
+
+// ── Superadmin schaltet die Navi-Funktion eines Mandanten frei (Feature-Flag) ──
+exports.setOrgNavi = onCall({ region: REGION }, async (req) => {
+  const { role } = requireAdmin(req.auth);
+  if (role !== 'superadmin') throw new HttpsError('permission-denied', 'Nur Superadmin');
+  const { orgId, naviEnabled } = req.data || {};
+  if (!orgId) throw new HttpsError('invalid-argument', 'orgId fehlt');
+  await db.collection('orgs').doc(String(orgId)).set({ naviEnabled: !!naviEnabled }, { merge: true });
+  return { ok: true, naviEnabled: !!naviEnabled };
 });
 
 // ── Superadmin verschiebt ein Projekt in einen anderen Mandanten ────────────

@@ -4948,6 +4948,7 @@ function renderBaeumeTableWith(treeList){
     <div style="padding:12px 20px 8px;display:flex;align-items:center;gap:16px;flex-shrink:0;border-bottom:1px solid var(--border);background:var(--surface);">
       <span style="font-size:13px;font-weight:600;color:var(--text);">${sorted.length} Objekte${activeTourOnMap&&_atOnMap?' — <span style=color:'+_atOnMap.color+';font-weight:700>'+dlEsc(_atOnMap.name)+'</span>':''}</span>
       <span style="font-size:12px;color:var(--text3);">Klick auf Zeile → Karte</span>
+      ${(currentRole==='superadmin'||currentCap==='admin')?`<button onclick="checkBaumIdDuplicates()" class="btn btn-secondary" style="margin-left:auto;padding:3px 10px;font-size:11px;white-space:nowrap;" title="Prüft alle Objekt-IDs dieses Projekts auf Dubletten">Objekt-IDs prüfen</button>`:''}
     </div>
     <div style="overflow:auto;flex:1;">
       <table style="width:100%;border-collapse:collapse;font-size:13px;background:var(--surface);">
@@ -6576,13 +6577,26 @@ async function doImport(){
 }
 
 // ─── BAUM ID ──────────────────────────────────────────────────
+// Dubletten-Prüfung (Admin): scannt die Objekt-IDs des offenen Projekts (keine Extra-Reads, nutzt geladene trees)
+function checkBaumIdDuplicates(){
+  const seen=new Map();
+  trees.forEach(t=>{ const id=(t.baumId||'').trim(); if(id) seen.set(id,(seen.get(id)||0)+1); });
+  const dups=[...seen.entries()].filter(([,n])=>n>1);
+  const noId=trees.filter(t=>!(t.baumId||'').trim()).length;
+  if(!dups.length){ notify('✓ Keine doppelten Objekt-IDs'+(noId?` · ${noId} ohne ID`:'')); return; }
+  const total=dups.reduce((s,[,n])=>s+n,0);
+  const list=dups.slice(0,15).map(([id,n])=>`${id} ×${n}`).join('\n');
+  alert(`⚠ ${dups.length} Objekt-IDs sind doppelt vergeben (${total} betroffene Objekte):\n\n${list}${dups.length>15?`\n… und ${dups.length-15} weitere`:''}${noId?`\n\nZusätzlich ${noId} Objekte ohne Objekt-ID.`:''}`);
+}
 async function getNextBaumId(){
-  // Read current counter from project, increment atomically
-  const projRef=doc(db,'projects',currentProjectId);
-  const projSnap=await getDoc(projRef);
-  const current=projSnap.data()?.lastBaumId||0;
-  const next=current+1;
-  await updateDoc(projRef,{lastBaumId:next});
+  // Atomar in einer Transaktion zählen → keine doppelten IDs bei gleichzeitigem Anlegen (zwei Planer).
+  const ref=db.collection('projects').doc(currentProjectId);
+  const next=await db.runTransaction(async tx=>{
+    const s=await tx.get(ref);
+    const n=(s.data()?.lastBaumId||0)+1;
+    tx.update(ref,{lastBaumId:n});
+    return n;
+  });
   // Format: B-00001, B-00002, ...
   return 'B-'+String(next).padStart(5,'0');
 }
@@ -9867,6 +9881,7 @@ async function renderMandanten(){
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
         <span style="font-size:14px;font-weight:700;">${dlEsc(o.name||o.id)}</span>
         ${o.code?`<span style="font-size:10px;font-weight:700;background:var(--green-light);color:var(--green);padding:2px 8px;border-radius:99px;">${dlEsc(o.code)}</span>`:''}
+        <label title="Navi-Funktion in der Fahrer-App für diesen Mandanten freischalten" style="font-size:11px;display:inline-flex;align-items:center;gap:5px;cursor:pointer;color:var(--text2);background:var(--bg);border:1px solid var(--border);border-radius:99px;padding:2px 9px;"><input type="checkbox" ${o.naviEnabled?'checked':''} onchange="setOrgNaviUi('${dlEsc(o.id)}',this.checked)" style="width:13px;height:13px;cursor:pointer;margin:0;">Navi-App</label>
         <span style="font-size:11px;color:var(--text3);margin-left:auto;">${drvCount[o.id]||0} Personen · ${projs.filter(p=>p.orgId===o.id).length} Projekte</span>
       </div>
       ${projs.filter(p=>p.orgId===o.id).map(p=>projRow(p,o.id)).join('')||'<div style="font-size:12px;color:var(--text3);padding:2px 0;">Keine Projekte.</div>'}
@@ -9890,6 +9905,10 @@ async function createOrgUi(){
     notify('✓ Mandant „'+name+'" angelegt');
     renderMandanten();
   }catch(e){ notify(fnErr(e)); }
+}
+async function setOrgNaviUi(orgId, enabled){
+  try{ await dlFnCall('setOrgNavi',{orgId,naviEnabled:!!enabled}); notify(enabled?'✓ Navi-App für Mandant aktiviert':'Navi-App für Mandant deaktiviert'); }
+  catch(e){ notify(fnErr(e)); renderMandanten(); }
 }
 async function moveProjectUi(projectId,projectName,targetOrgId){
   if(!confirm(`Projekt „${projectName}" wirklich in einen anderen Mandanten verschieben?\nAlle Objekte, Touren und Verläufe ziehen mit um.`)){ renderMandanten(); return; }
@@ -10123,7 +10142,7 @@ Object.assign(window,{
   startAssignMode,setAssignTour,cancelAssign,assignTreeToTour,
   openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,
   pickProjIcon,artSetIcon,artSetTime,setArtDefaultTime,artApplyTimeToAll,
-  renderMandanten,createOrgUi,moveProjectUi,flaechenImportOpen,flaechenImportRun,flaechenTourGenOpen,flaechenTourGenRun,
+  renderMandanten,createOrgUi,moveProjectUi,setOrgNaviUi,checkBaumIdDuplicates,flaechenImportOpen,flaechenImportRun,flaechenTourGenOpen,flaechenTourGenRun,
   addWmsLayer,deleteWmsLayer,editWmsLayer,cancelWmsEdit,renderWmsList,
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,toggleTourCounts,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,

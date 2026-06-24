@@ -1003,10 +1003,14 @@ async function saveNewTree() {
   const btn = document.getElementById('btn-form-save');
   btn.disabled = true; btn.textContent = 'Speichert…';
 
-  // BaumId lokal generieren — kein Firestore-Read nötig (offline-sicher)
+  // BaumId lokal generieren — kein Firestore-Read nötig (offline-sicher).
+  // Geräte-Token sorgt für globale Eindeutigkeit: der reine Zähler liegt pro Gerät in localStorage,
+  // sonst erzeugen zwei Erfasser auf zwei Geräten identische IDs (B-00001-L …).
   const localCounter = parseInt(localStorage.getItem('bwt_local_baumid') || '0') + 1;
   localStorage.setItem('bwt_local_baumid', String(localCounter));
-  const baumId = 'B-' + String(localCounter).padStart(5, '0') + '-L'; // -L = lokal
+  let devTag = localStorage.getItem('bwt_device_tag');
+  if (!devTag) { devTag = Math.random().toString(36).slice(2, 7); localStorage.setItem('bwt_device_tag', devTag); }
+  const baumId = 'B-' + String(localCounter).padStart(5, '0') + '-L' + devTag; // -L<token> = lokal, geräteweit eindeutig
 
   // Dokument-ID vorab erzeugen → Foto-Pfad steht vor dem Speichern fest (1 Write inkl. Foto-URLs)
   const colRef = db.collection('projects').doc(currentProjectId).collection('trees');

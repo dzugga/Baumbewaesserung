@@ -175,7 +175,8 @@ async function doLogin() {
     await firebase.auth().signInWithCustomToken(data.token);
     startSession(data.sessionId, _onSessionKicked);
     _driverAuth={orgId:data.orgId, name:data.name||name, driverId:data.driverId};
-    try{ localStorage.setItem('bwt_mobile_orgcode',orgcode.toUpperCase()); localStorage.setItem('bwt_mobile_name',name); }catch(_){}
+    _naviEnabled=!!data.naviEnabled; // Mandanten-Flag (Superadmin) steuert die Navi-Funktion
+    try{ localStorage.setItem('bwt_mobile_orgcode',orgcode.toUpperCase()); localStorage.setItem('bwt_mobile_name',name); localStorage.setItem('bwt_navi_enabled', _naviEnabled?'1':''); }catch(_){}
     await pickTour(_driverAuth.orgId, _driverAuth.name);
   }catch(e){
     const code=e&&e.code||''; const msg=e&&e.message||'';
@@ -1057,7 +1058,10 @@ let naviActive=false, naviSteps=[], naviGeom=[], naviTargetId=null, naviStepIdx=
     naviCompassHeading=null, naviCompassOn=false, naviLastApplied=null,
     naviFullRoute=true, naviFullGeom=null;
 
+// Mandanten-Flag (Superadmin): steuert, ob die Navi-Funktion verfügbar ist. Default aus; aus localStorage vorbelegt für Reloads.
+let _naviEnabled = (()=>{ try{ return localStorage.getItem('bwt_navi_enabled')==='1'; }catch(_){ return false; } })();
 function naviInit(){
+  if(!_naviEnabled) return; // Navi pro Mandant abschaltbar
   const ov=document.querySelector('.map-overlay-top');
   if(ov && !document.getElementById('btn-navi')){
     const b=document.createElement('button');
