@@ -88,13 +88,13 @@ exports.driverLogin = onCall({ region: REGION }, async (req) => {
     await ref.update(upd);
     const personRole = d.role || 'fahrer';
     const personCap = await capForRole(personRole, oid2);
-    // Mandanten-Feature-Flags (z. B. Navi) — Default aus; Fahrer dürfen das orgs-Doc nicht direkt lesen.
-    let naviEnabled = false;
-    try { const og = await db.collection('orgs').doc(oid2).get(); naviEnabled = !!(og.exists && og.data().naviEnabled); } catch (_) {}
+    // Mandanten-Feature-Flags (Navi) + Routing-Key — Default aus; Fahrer dürfen das orgs-Doc nicht direkt lesen.
+    let naviEnabled = false, orsKey = '';
+    try { const og = await db.collection('orgs').doc(oid2).get(); if (og.exists) { const od = og.data(); naviEnabled = !!od.naviEnabled; orsKey = od.orsKey || ''; } } catch (_) {}
     const token = await admin.auth().createCustomToken('drv_' + ref.id, {
       orgId: oid2, role: personRole, cap: personCap, driverId: ref.id, name: d.name,
     });
-    return { token, driverId: ref.id, name: d.name, orgId: oid2, role: personRole, sessionId, naviEnabled };
+    return { token, driverId: ref.id, name: d.name, orgId: oid2, role: personRole, sessionId, naviEnabled, orsKey };
   }
 
   // Kein Treffer: Fehlversuch auf ALLE getesteten (nicht gesperrten) Kandidaten zaehlen.

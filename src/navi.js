@@ -52,10 +52,33 @@ initAppCheck();
 const db = getFirestore(fbApp);
 
 // ─── NAVIGATIONS-/KARTEN-ENDPUNKTE ────────────────────────────
-// Für Self-Hosting nur diese zwei Konstanten umstellen (siehe docs/self-hosting.md).
-// OSRM-Basis ohne abschließenden Slash; Tile-URL als {z}/{x}/{y}-Template.
-const NAVI_OSRM_BASE = 'https://router.project-osrm.org';          // self-hosted z. B. 'https://route.infra.example.de'
+// Routing über OpenRouteService (eigener Mandanten-Key, DSGVO-freundlich, Server in DE) –
+// statt des öffentlichen OSRM-Demo-Servers. Key kommt aus dem Login (orsKey am Mandanten).
+const NAVI_ORS_BASE = 'https://api.openrouteservice.org/v2/directions/driving-car/geojson';
 const NAVI_TILE_URL  = BASEMAP_FARBE; // amtliche basemap.de (statt OSM-Kachelserver)
+// ORS-Manövertyp (numerisch) → OSRM-ähnliche {type,mod} für die Pfeil-/Banner-Logik (naviArrow bleibt unverändert)
+const _ORS_TYPE = { 0:{mod:'left'}, 1:{mod:'right'}, 2:{mod:'sharp left'}, 3:{mod:'sharp right'},
+  4:{mod:'slight left'}, 5:{mod:'slight right'}, 6:{mod:'straight',type:'continue'}, 7:{type:'roundabout'},
+  8:{type:'roundabout'}, 9:{mod:'uturn'}, 10:{type:'arrive'}, 11:{type:'depart'}, 12:{mod:'slight left'}, 13:{mod:'slight right'} };
+let _orsKey = (()=>{ try{ return localStorage.getItem('bwt_ors_key')||''; }catch(_){ return ''; } })();
+// Eine ORS-Directions-Anfrage. pts=[[lat,lng],…]. Liefert {geom:[lat,lng][], steps[], segs[], total} oder null.
+async function orsDirections(pts, withSteps){
+  const key=_orsKey || (currentProjectData&&currentProjectData.orsKey) || '';
+  if(!key || !pts || pts.length<2) return null;
+  const body={ coordinates:pts.map(p=>[p[1],p[0]]), language:'de', instructions:!!withSteps, units:'m' };
+  const r=await fetch(NAVI_ORS_BASE,{ method:'POST', headers:{ 'Authorization':key, 'Content-Type':'application/json' }, body:JSON.stringify(body) });
+  if(!r.ok) throw new Error('ORS '+r.status);
+  const j=await r.json(); const f=j.features&&j.features[0]; if(!f) return null;
+  const geom=(f.geometry.coordinates||[]).map(c=>[c[1],c[0]]);
+  const props=f.properties||{}, sum=props.summary||{};
+  const segs=(props.segments||[]).map(s=>({ dist:s.distance||0, dur:s.duration||0 }));
+  const steps=[];
+  if(withSteps) (props.segments||[]).forEach(seg=>(seg.steps||[]).forEach(st=>{
+    const m=_ORS_TYPE[st.type]||{}, wp=(st.way_points&&st.way_points[0])||0;
+    steps.push({ instr:st.instruction||'', loc:geom[wp]||geom[0], type:m.type||'turn', mod:m.mod||'', dist:st.distance||0, dur:st.duration||0, lanes:[] });
+  }));
+  return { geom, steps, segs, total:{ dist:sum.distance||0, dur:sum.duration||0 } };
+}
 
 // ─── STATE ────────────────────────────────────────────────────
 let currentDriver = null;
@@ -176,7 +199,8 @@ async function doLogin() {
     startSession(data.sessionId, _onSessionKicked);
     _driverAuth={orgId:data.orgId, name:data.name||name, driverId:data.driverId};
     _naviEnabled=!!data.naviEnabled; // Mandanten-Flag (Superadmin) steuert die Navi-Funktion
-    try{ localStorage.setItem('bwt_mobile_orgcode',orgcode.toUpperCase()); localStorage.setItem('bwt_mobile_name',name); localStorage.setItem('bwt_navi_enabled', _naviEnabled?'1':''); }catch(_){}
+    _orsKey=data.orsKey||''; // Routing-Key (ORS) des Mandanten
+    try{ localStorage.setItem('bwt_mobile_orgcode',orgcode.toUpperCase()); localStorage.setItem('bwt_mobile_name',name); localStorage.setItem('bwt_navi_enabled', _naviEnabled?'1':''); localStorage.setItem('bwt_ors_key', _orsKey); }catch(_){}
     await pickTour(_driverAuth.orgId, _driverAuth.name);
   }catch(e){
     const code=e&&e.code||''; const msg=e&&e.message||'';
@@ -952,16 +976,14 @@ async function drawRoute(){
 
 let depotMarker=null;
 
-// Frische straßenfolgende Linie über die aktiven Stopps (OSRM), inkl. Betriebshof
+// Frische straßenfolgende Linie über die aktiven Stopps (ORS), inkl. Betriebshof
 async function naviStreetLine(stops){
   try{
     const pts=stops.map(s=>[s.lat,s.lng]).filter(p=>p[0]&&p[1]);
     if(pts.length<2) return null;
     const withDepot=await getRouteWithDepot(pts);
-    const coordStr=withDepot.map(p=>`${p[1]},${p[0]}`).join(';');
-    const url=`${NAVI_OSRM_BASE}/route/v1/driving/${coordStr}?overview=full&geometries=geojson`;
-    const r=await fetch(url); const j=await r.json();
-    if(j.routes&&j.routes[0]) return j.routes[0].geometry.coordinates.map(c=>[c[1],c[0]]);
+    const res=await orsDirections(withDepot,false);
+    if(res&&res.geom.length>1) return res.geom;
   }catch(e){}
   return null;
 }
@@ -1049,7 +1071,7 @@ function haversine(a,b,c,d){
 }
 
 // ═══ NAVI-MODUS (Turn-by-turn, Beta) ══════════════════════════════
-// Keyless via OSRM (öffentlicher Demo-Server). Deutsche Manöver-Texte,
+// Routing via OpenRouteService (Mandanten-Key). Deutsche Manöver-Texte aus ORS,
 // Sprachausgabe (Web Speech), Wake-Lock, Off-Route-Reroute, Ankunft→Sheet.
 const NAVI_ARRIVE_M=35, NAVI_ADVANCE_M=25, NAVI_OFFROUTE_M=70, NAVI_OFFROUTE_HITS=3;
 let naviActive=false, naviSteps=[], naviGeom=[], naviTargetId=null, naviStepIdx=1,
@@ -1180,21 +1202,11 @@ async function naviStart(){
 
 async function naviFetchRoute(from,to){
   try{
-    const url=`${NAVI_OSRM_BASE}/route/v1/driving/${from[1]},${from[0]};${to[1]},${to[0]}?steps=true&overview=full&geometries=geojson`;
-    const r=await fetch(url); const j=await r.json();
-    if(!j.routes||!j.routes[0])return false;
-    const rt=j.routes[0];
-    naviGeom=rt.geometry.coordinates.map(c=>[c[1],c[0]]);
-    naviSteps=(rt.legs[0]?.steps||[]).map(s=>({
-      instr:osrmInstr(s),
-      loc:[s.maneuver.location[1],s.maneuver.location[0]],
-      type:s.maneuver.type, mod:s.maneuver.modifier||'',
-      dist:s.distance||0, dur:s.duration||0,
-      lanes:(s.intersections||[]).slice(-1)[0]?.lanes
-        ? s.intersections.slice(-1)[0].lanes.map(l=>({valid:!!l.valid, ind:(l.indications||['none'])[0]}))
-        : [],
-    }));
-    naviTotal={dist:rt.distance, dur:rt.duration};
+    const res=await orsDirections([from,to],true);
+    if(!res || !res.steps.length) return false;
+    naviGeom=res.geom;
+    naviSteps=res.steps;            // ORS liefert die Anweisungstexte (instr) bereits auf Deutsch
+    naviTotal=res.total;
     return naviSteps.length>0;
   }catch(e){ return false; }
 }
@@ -1205,11 +1217,9 @@ async function naviFetchFullRoute(){
   const stops=routeOrder.map(id=>trees.find(t=>t.id===id)).filter(t=>t&&!t.lastStatus&&t.lat&&t.lng);
   if(!stops.length || !gpsLatLng) return;
   const pts=[gpsLatLng, ...stops.map(s=>[s.lat,s.lng])];
-  const coordStr=pts.map(p=>`${p[1]},${p[0]}`).join(';');
   try{
-    const url=`${NAVI_OSRM_BASE}/route/v1/driving/${coordStr}?overview=full&geometries=geojson`;
-    const r=await fetch(url); const j=await r.json();
-    if(j.routes&&j.routes[0]) naviFullGeom=j.routes[0].geometry.coordinates.map(c=>[c[1],c[0]]);
+    const res=await orsDirections(pts,false);
+    if(res&&res.geom.length) naviFullGeom=res.geom;
   }catch(e){}
 }
 
@@ -1470,29 +1480,6 @@ function naviArrow(step){
   if(m==='slight right')return '↗';
   return '↑';
 }
-
-function osrmInstr(s){
-  const m=s.maneuver||{}, t=m.type, mod=m.modifier||'', name=s.name?` auf ${s.name}`:'';
-  const dir={'left':'links','slight left':'leicht links','sharp left':'scharf links',
-    'right':'rechts','slight right':'leicht rechts','sharp right':'scharf rechts',
-    'straight':'geradeaus','uturn':'wenden'}[mod]||'';
-  const cap=x=>x?x.charAt(0).toUpperCase()+x.slice(1):'';
-  switch(t){
-    case 'depart': return 'Losfahren'+name;
-    case 'turn': return (dir?`${cap(dir)} abbiegen`:'Abbiegen')+name;
-    case 'new name': return 'Weiter'+name;
-    case 'continue': return (dir&&dir!=='geradeaus'?`${cap(dir)} weiter`:'Geradeaus weiter')+name;
-    case 'merge': return 'Einfädeln'+name;
-    case 'on ramp': return 'Auffahrt nehmen'+name;
-    case 'off ramp': return 'Abfahrt nehmen'+name;
-    case 'fork': return (dir?`${cap(dir)} halten`:'Halten')+name;
-    case 'end of road': return (dir?`${cap(dir)} abbiegen`:'Abbiegen')+name;
-    case 'roundabout': case 'rotary': return `Im Kreisverkehr die ${m.exit||''}. Ausfahrt`+name;
-    case 'roundabout turn': return (dir?`Im Kreisverkehr ${dir}`:'Im Kreisverkehr')+name;
-    case 'arrive': return 'Ziel erreicht';
-    default: return (dir?cap(dir):'Weiter')+name;
-  }
-}
 // ─── TOUR-GESAMTÜBERSICHT ─────────────────────────────────────────
 async function naviOverview(){
   if(!gpsLatLng){ toast('GPS noch nicht verfügbar'); return; }
@@ -1500,12 +1487,10 @@ async function naviOverview(){
   if(!stops.length){ toast('Alle Objekte erledigt 🎉'); return; }
   toast('Tour-Übersicht wird berechnet…');
   const pts=[gpsLatLng, ...stops.map(s=>[s.lat,s.lng])];
-  const coordStr=pts.map(p=>`${p[1]},${p[0]}`).join(';');
   let legs=null, total={dist:0,dur:0};
   try{
-    const url=`${NAVI_OSRM_BASE}/route/v1/driving/${coordStr}?overview=false`;
-    const r=await fetch(url); const j=await r.json();
-    if(j.routes&&j.routes[0]){ legs=j.routes[0].legs; total={dist:j.routes[0].distance,dur:j.routes[0].duration}; }
+    const res=await orsDirections(pts,false);
+    if(res){ legs=res.segs.map(s=>({duration:s.dur,distance:s.dist})); total={dist:res.total.dist,dur:res.total.dur}; }
   }catch(e){}
   naviShowOverview(stops, legs, total);
 }
