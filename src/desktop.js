@@ -1334,13 +1334,24 @@ async function refreshAllRoutes(){
   document.getElementById('route-info-bar').classList.remove('visible');
 }
 
-// Kennzahlen einer Tour: bevorzugt geladene Route (tourRoutes), sonst persistierte Tour-Werte
+// Geschwindigkeit (km/h) des der Tour zugeordneten Reinigungssystems (0 = keins/keine Geschwindigkeit).
+function _tourSpeedKmh(tid){
+  const t=tours.find(x=>x.id===tid); if(!t||!t.reinigungssystem) return 0;
+  const s=getReinigungssysteme().find(x=>x.id===t.reinigungssystem);
+  const v=s&&parseFloat(s.speed); return (typeof v==='number'&&v>0)?v:0;
+}
+// Kennzahlen einer Tour: bevorzugt geladene Route (tourRoutes), sonst persistierte Tour-Werte.
+// Ist der Tour ein Reinigungssystem mit Geschwindigkeit zugeordnet, bestimmt diese die Fahrtzeit
+// (Fahrtzeit = Streckenlänge ÷ Geschwindigkeit) statt der ORS-/Auto-Fahrzeit.
 function tourMetrics(tid){
+  let km=null, durationSec=0;
   const rt=tourRoutes[tid];
-  if(rt) return {km:rt.km||0, durationSec:rt.durationSec||0};
-  const t=tours.find(x=>x.id===tid);
-  if(t && typeof t.routeKm==='number') return {km:t.routeKm, durationSec:t.routeDriveSec||0};
-  return null;
+  if(rt){ km=rt.km||0; durationSec=rt.durationSec||0; }
+  else { const t=tours.find(x=>x.id===tid); if(t && typeof t.routeKm==='number'){ km=t.routeKm; durationSec=t.routeDriveSec||0; } }
+  if(km==null) return null;
+  const sp=_tourSpeedKmh(tid);
+  if(sp>0 && km>0) durationSec = km/sp*3600;
+  return {km, durationSec};
 }
 // Füllt das Routen-Kennzahlen-Panel (Sidebar): Gesamtzeit + km, Proportionsleiste, Chips.
 function _fillRoutePanel(name,cnt,km,driveMin,bewMin,zusMin,azMin){
@@ -1657,11 +1668,46 @@ function _routableTrees(tourId){
     .map(t=>{ if(t.lat&&t.lng) return t; const p=_routePoint(t); return {...t, lat:p[0], lng:p[1]}; });
 }
 let _drawnLayer=null, _drawnById={}, _drawnSelId='';
+// ── Versatz-Modus: Abschnitt-Seiten parallel zur Mittellinie versetzt zeichnen (Umschalter) ──
+let _versatzOn=false;
+function toggleVersatz(){
+  _versatzOn=!_versatzOn;
+  const b=document.getElementById('btn-toggle-versatz');
+  if(b){ b.style.background=_versatzOn?'var(--green-light)':'var(--surface)'; b.style.color=_versatzOn?'var(--green)':'var(--text2)'; }
+  renderDrawnGeoms();
+  notify(_versatzOn?'Seiten versetzt dargestellt':'Seiten auf der Mittellinie');
+}
+// Vorzeichenbehafteter Seitenversatz (Meter): links negativ, rechts positiv; Magnitude je Element-Kategorie.
+function _sideOffsetM(s){
+  const el=String(s&&s.element||'').toLowerCase();
+  const mag={Fahrbahn:2.5,Radweg:4.5,Gehweg:6.5,Parkstreifen:5.5,'Grünstreifen':7.5}[_elemCategory(el)]||3;
+  const dir=/_l$|links$/.test(el)?-1:/_r$|rechts$/.test(el)?1:0;
+  return mag*dir;
+}
+// Polylinie [lat,lng][] um `meters` senkrecht zur Laufrichtung versetzen (rechts = positiv).
+function _offsetLatLngs(ll, meters){
+  if(!Array.isArray(ll)||ll.length<2||!meters) return ll;
+  const R=6378137, toRad=Math.PI/180; const out=[];
+  for(let i=0;i<ll.length;i++){
+    const a=ll[Math.max(0,i-1)], b=ll[Math.min(ll.length-1,i+1)];
+    const lat=ll[i][0]*toRad;
+    const dx=(b[1]-a[1])*Math.cos(lat), dy=(b[0]-a[0]); // Richtung in (Ost, Nord), Grad
+    const len=Math.hypot(dx,dy)||1;
+    const nx=dy/len, ny=-dx/len; // Rechts-Normale (Ost, Nord)
+    const dLat=(meters*ny)/R/toRad;
+    const dLng=(meters*nx)/(R*Math.cos(lat))/toRad;
+    out.push([ll[i][0]+dLat, ll[i][1]+dLng]);
+  }
+  return out;
+}
+// Reihenfolge-Nummer eines Abschnitts (Hauptlinien-Modus) = kleinste Nummer seiner Seiten in der aktiven Route.
+function _containerRouteNum(t){ let n=null; for(const s of _ausstattungOf(t.extId)){ const r=getRouteNum(s.id); if(r!=null && (n==null||r<n)) n=r; } return n; }
 function renderDrawnGeoms(){
   if(!map) return;
   if(_drawnLayer){ map.removeLayer(_drawnLayer); _drawnLayer=null; } _drawnById={};
   // Seiten (Ausstattung) zeichnen sich NICHT selbst — der Abschnitt-Container vertritt sie (eine Linie statt 4 deckungsgleicher).
   const list=(trees||[]).filter(t=>_hasDrawnGeom(t)&&isActive(t)&&!t.containerExtId);
+  const _vb=document.getElementById('btn-toggle-versatz'); if(_vb) _vb.style.display=(trees||[]).some(_isContainer)?'flex':'none';
   if(!list.length) return;
   // Zeichenreihenfolge: große Flächen unten, kleine darüber, Linien zuoberst → überlappte/kleinere bleiben anklickbar
   const _isLine=t=>_treeGeom(t)?.type==='LineString';
@@ -1671,8 +1717,25 @@ function renderDrawnGeoms(){
   const _rend = list.length>150 ? L.canvas({padding:0.5}) : null;
   const _opt = st => _rend ? {renderer:_rend, ...st} : st;
   _drawnLayer=L.featureGroup().addTo(map); // featureGroup → getBounds() für „einpassen"
+  const _placeNum=(num,latlng,col)=>{ if(num==null||!latlng) return; try{ L.marker(latlng,{interactive:false,icon:L.divIcon({className:'',html:'<div style="min-width:18px;height:18px;border-radius:9px;background:'+(col||FL_NEUTRAL)+';border:2px solid #fff;color:#fff;font:700 10px/14px monospace;text-align:center;padding:0 3px;box-shadow:0 0 2px rgba(0,0,0,.6);">'+num+'</div>',iconSize:[18,18],iconAnchor:[9,9]})}).addTo(_drawnLayer); }catch(_){} };
   list.forEach(t=>{
     const g=_treeGeom(t); if(!g) return;
+    // Versatz-Modus: Abschnitt-Seiten einzeln, senkrecht zur Mittellinie versetzt
+    if(_versatzOn && _isContainer(t) && g.type==='LineString'){
+      const sides=_ausstattungOf(t.extId);
+      if(sides.length){
+        const baseLL=(g.coordinates||[]).map(c=>[c[1],c[0]]); if(baseLL.length<2) return;
+        sides.forEach(s=>{
+          const ll=_offsetLatLngs(baseLL,_sideOffsetM(s));
+          const layer=L.polyline(ll,_opt(_flStyleForTree(s,true)));
+          layer.on('click',()=>{ if(assignMode&&!lassoDrawing){ toggleLassoSelect(s.id); _applyFlaechenSelection(); } else if(!assignMode) selectTree(s.id,false); });
+          layer.bindTooltip((t.name||'Abschnitt')+' · '+_elemLabel(s),{sticky:true});
+          layer.addTo(_drawnLayer); _drawnById[s.id]=layer;
+          _placeNum(getRouteNum(s.id), ll[Math.floor(ll.length/2)], _flTourColorFor(s));
+        });
+        return; // Container-Mittellinie im Versatz-Modus nicht zusätzlich zeichnen
+      }
+    }
     let layer;
     if(g.type==='Polygon'){ const ll=(g.coordinates[0]||[]).map(c=>[c[1],c[0]]); if(ll.length<3) return; layer=L.polygon(ll,_opt(_flStyleForTree(t,false))); }
     else if(g.type==='LineString'){ const ll=(g.coordinates||[]).map(c=>[c[1],c[0]]); if(ll.length<2) return; layer=L.polyline(ll,_opt(_flStyleForTree(t,true))); }
@@ -1686,10 +1749,9 @@ function renderDrawnGeoms(){
     });
     layer.bindTooltip((t.name||(t.geomType==='linie'?'Strecke':'Fläche'))+(t.menge?' · '+(t.einheit==='m'?_fmtLen(t.menge):_fmtArea(t.menge)):''),{sticky:true});
     layer.addTo(_drawnLayer); _drawnById[t.id]=layer;
-    // Reihenfolge-Nummer am Zentroid (nur bei aktiver Tour-Auswahl/berechneter Route sichtbar)
-    const num=getRouteNum(t.id);
-    if(num!=null){ try{ const c=layer.getBounds().getCenter(); const col=_flTourColorFor(t)||FL_NEUTRAL;
-      L.marker(c,{interactive:false,icon:L.divIcon({className:'',html:'<div style="min-width:18px;height:18px;border-radius:9px;background:'+col+';border:2px solid #fff;color:#fff;font:700 10px/14px monospace;text-align:center;padding:0 3px;box-shadow:0 0 2px rgba(0,0,0,.6);">'+num+'</div>',iconSize:[18,18],iconAnchor:[9,9]})}).addTo(_drawnLayer); }catch(_){} }
+    // Reihenfolge-Nummer (nur bei aktiver Route): Abschnitt = kleinste Nummer seiner Seiten, sonst eigene
+    const num=_isContainer(t)?_containerRouteNum(t):getRouteNum(t.id);
+    if(num!=null){ try{ _placeNum(num, layer.getBounds().getCenter(), _flTourColorFor(t)); }catch(_){} }
   });
 }
 function _drawnSelBounds(){ let b=null; for(const id in _drawnById){ const t=trees.find(x=>x.id===id); const l=_drawnById[id];
@@ -10651,7 +10713,7 @@ Object.assign(window,{
   renderMandanten,createOrgUi,moveProjectUi,setOrgNaviUi,checkBaumIdDuplicates,flaechenImportOpen,flaechenImportRun,geomDocsImportOpen,geomDocsImportRun,strMigOpen,flaechenTourGenOpen,flaechenTourGenRun,
   addWmsLayer,deleteWmsLayer,editWmsLayer,cancelWmsEdit,renderWmsList,
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,
-  toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,toggleTourCounts,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
+  toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,toggleTourCounts,toggleVersatz,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,saveOrgCode,dlToggleNoLogin,setDriverFunktion,setDriverEinsatz,dlDismissLoginRequest,dlFunktionAdd,dlFunktionRemove,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,

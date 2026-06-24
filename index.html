@@ -576,6 +576,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         style="position:absolute;top:204px;left:14px;z-index:450;display:flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);color:var(--text2);cursor:pointer;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/><circle cx="12" cy="12" r="2.5"/></svg>
       </button>
+      <!-- Seiten versetzt anzeigen (nur Abschnitts-Projekte) -->
+      <button id="btn-toggle-versatz" onclick="toggleVersatz()" title="Seiten versetzt anzeigen (Fahrbahn/Gehweg links & rechts)"
+        style="display:none;position:absolute;top:280px;left:14px;z-index:450;align-items:center;justify-content:center;width:34px;height:34px;padding:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);color:var(--text2);cursor:pointer;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="8" x2="21" y2="8"/><line x1="3" y1="16" x2="21" y2="16"/></svg>
+      </button>
       <!-- Tour simulieren (nur bei 1 Tour mit Route) -->
       <button id="btn-sim-tour" onclick="simulateActiveTour()" title="Tour simulieren"
         style="display:none;position:absolute;top:242px;left:14px;z-index:450;align-items:center;justify-content:center;width:34px;height:34px;padding:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);color:var(--text2);cursor:pointer;">
