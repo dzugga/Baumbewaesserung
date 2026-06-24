@@ -10,11 +10,20 @@
 // Lizenz: OpenStreetMap-Daten © OpenStreetMap-Mitwirkende, ODbL — Namensnennung erforderlich,
 // Eintrag in „Lizenzen & Dienste" (SI_DIENSTE) ergänzen, bevor produktiv genutzt.
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 
 const HOME = process.env.USERPROFILE || process.env.HOME || '.';
 const OUT_DIR = `${HOME}/Downloads/_ahlen_out`;
 const OVERPASS = 'https://overpass-api.de/api/interpreter';
+
+// Zuständigkeit aus dem Straßenverzeichnis (zuvor mit parse-ahlen-strv.mjs erzeugt), Match über normalisierten Namen.
+const normName = s => String(s||'').toLowerCase().replace(/ß/g,'ss').replace(/\([^)]*\)/g,'').replace(/[^a-zäöü0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+let zMap = new Map();
+try{
+  const arr = JSON.parse(readFileSync(`${OUT_DIR}/ahlen-strv.json`,'utf8'));
+  for(const r of arr){ const k=normName(r.name); if(k && !zMap.has(k)) zMap.set(k, r); }
+  console.log('Zuständigkeit aus Verzeichnis geladen:', zMap.size, 'Straßen.');
+}catch(e){ console.warn('Hinweis: ahlen-strv.json fehlt — Import OHNE Zuständigkeit. Erst „node scripts/parse-ahlen-strv.mjs" ausführen.'); }
 
 // Welche Straßentypen als reinigungsrelevante Abschnitte (anpassbar):
 const HIGHWAY = ['primary','secondary','tertiary','unclassified','residential','living_street','pedestrian','service'];
@@ -43,20 +52,31 @@ if(!res.ok){ console.error('Overpass-Fehler:', res.status, await res.text()); pr
 const data = await res.json();
 const ways = (data.elements||[]).filter(e=>e.type==='way' && Array.isArray(e.geometry) && e.geometry.length>=2);
 
-const docs=[]; let totalM=0;
+const docs=[]; let totalM=0, matched=0;
 for(const w of ways){
   const coords = w.geometry.map(p=>[+p.lon.toFixed(7), +p.lat.toFixed(7)]);
   const m = lenM(coords); totalM += m;
   const t = w.tags||{};
+  const name = t.name || t.ref || ('Straße '+w.id);
+  const z = zMap.get(normName(name)); if(z) matched++;
+  // Art nach Fahrbahn-Zuständigkeit → Aufwandssatz je Art (Stadt = echter min/100 m, Anlieger = 0) + Filter
+  const art = z?.zustFahrbahn==='stadt' ? 'Fahrbahn (Stadt)'
+            : z?.zustFahrbahn==='anlieger' ? 'Fahrbahn (Anlieger)'
+            : 'Fahrbahn';
   docs.push({
     extId: 'osm-'+w.id,
     geomType: 'linie',
     geomStr: JSON.stringify({ type:'LineString', coordinates: coords }),
     menge: m, einheit: 'm',
-    name: t.name || t.ref || ('Straße '+w.id),
-    art: 'Fahrbahn',                 // Standard-Art; Reinigungsklasse/Häufigkeit später aus Ahlener Verzeichnis
+    name,
+    art,
     strassentyp: t.highway || '',    // Kundenfeld-Kandidat
     belag: t.surface || '',
+    // Zuständigkeit aus dem Straßenverzeichnis (Option b: alle Straßen, Zuständigkeit als Filterfeld):
+    zustFahrbahn: z?.zustFahrbahn || '',   // 'stadt' | 'anlieger' | ''
+    zustGehweg:   z?.zustGehweg   || '',
+    strKategorie: z?.kategorie    || '',
+    strSchluessel:z?.schluessel   || '',
     baumId: 'S-'+w.id,               // Objekt-ID
   });
 }
@@ -67,6 +87,8 @@ const named = docs.filter(d=>!/^Straße \d+$/.test(d.name)).length;
 console.log('\n================ ERGEBNIS ================');
 console.log('Straßen-Abschnitte:', docs.length.toLocaleString('de-DE'));
 console.log('davon mit Namen:   ', named.toLocaleString('de-DE'));
+console.log('mit Zuständigkeit (Verzeichnis-Treffer):', matched.toLocaleString('de-DE'), '('+Math.round(matched/Math.max(named,1)*100)+'% der benannten)');
+console.log('  davon Stadt-Fahrbahn:', docs.filter(d=>d.zustFahrbahn==='stadt').length.toLocaleString('de-DE'));
 console.log('Gesamtlänge:       ', (totalM/1000).toFixed(1), 'km');
 console.log('Geschrieben nach:  ', `${OUT_DIR}/ahlen-strecken-docs.json`);
 console.log('\nNächster Schritt: Admin → Mandanten → „Geometrie-Datensätze einspielen" → Datei wählen → Zielprojekt Ahlen.');
