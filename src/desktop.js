@@ -1415,19 +1415,27 @@ function tourMetrics(tid){
   if(rt){ km=rt.km||0; durationSec=rt.durationSec||0; }
   else { const t=tours.find(x=>x.id===tid); if(t && typeof t.routeKm==='number'){ km=t.routeKm; durationSec=t.routeDriveSec||0; } }
   if(km==null) return null;
+  const routeKm=km; // ORS-Routenstrecke (gefahrener Weg) — vor dem Geschwindigkeits-Override
   const sp=_tourSpeedKmh(tid);
-  if(sp>0){ const wm=_tourWorkMeters(tid); if(wm>0){ km = wm/1000; durationSec = wm*3.6/sp; } } // km + Zeit über die zu bearbeitende Strecke (beide Seiten); m × 3,6 / (km/h) = Sekunden
-  return {km, durationSec};
+  let reinKm=null;
+  if(sp>0){ const wm=_tourWorkMeters(tid); if(wm>0){ reinKm=wm/1000; km = reinKm; durationSec = wm*3.6/sp; } } // km + Zeit über die zu bearbeitende Strecke (beide Seiten)
+  return {km, durationSec, routeKm, reinKm}; // reinKm = Reinigungsstrecke (beide Seiten), nur bei Reinigungssystem; routeKm = ORS-Routenstrecke
 }
 // Füllt das Routen-Kennzahlen-Panel (Sidebar): Gesamtzeit + km, Proportionsleiste, Chips.
-function _fillRoutePanel(name,cnt,km,driveMin,bewMin,zusMin,azMin){
+function _fillRoutePanel(name,cnt,km,driveMin,bewMin,zusMin,azMin,routeKm){
   const sp=document.getElementById('sidebar-route-info'); if(!sp) return;
   driveMin=Math.round(driveMin||0); bewMin=Math.round(bewMin||0); zusMin=Math.round(zusMin||0); azMin=Math.round(azMin||0);
   const total=driveMin+bewMin+zusMin;
   const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=v; };
   set('sidebar-route-tour-name',name||'');
   set('sidebar-route-cnt',(cnt!=null?cnt:0)+' Objekte');
-  set('sidebar-route-km',km!=null?km.toFixed(1)+' km':'–');
+  // Bei Reinigungssystem: km = Reinigungsstrecke (beide Seiten) + zusätzlich die ORS-Routenstrecke (gefahrener Weg)
+  const showRoute = routeKm!=null && km!=null && Math.abs(routeKm-km)>0.05;
+  const kmEl=document.getElementById('sidebar-route-km');
+  if(kmEl){
+    kmEl.textContent = km!=null ? (showRoute?`${km.toFixed(1)} km Rein. · ${routeKm.toFixed(1)} km Route`:km.toFixed(1)+' km') : '–';
+    kmEl.title = showRoute ? `Reinigungsstrecke (beide Seiten): ${km.toFixed(1)} km · gefahrene Routenstrecke (ORS): ${routeKm.toFixed(1)} km` : '';
+  }
   set('sidebar-route-drive',driveMin?fmtMin(driveMin):'–');
   set('sidebar-route-taet',bewMin?fmtMin(bewMin):'–');
   set('sidebar-route-total',total?fmtMin(total):'–');
@@ -1454,9 +1462,9 @@ function updateRouteInfoBar(){
   if(bar) bar.classList.remove('visible'); // schwebende Routen-Info-Leiste entfernt — Infos im Seitenpanel
   // Mehrere Touren ausgewählt → kompakte Summe
   if(activeTours.size>1){
-    let km=0,dur=0,zusAll=0,azAll=0; activeTours.forEach(tid=>{ const m=tourMetrics(tid); if(m){ km+=m.km; dur+=m.durationSec; } const tt=tours.find(x=>x.id===tid); if(tt){ zusAll+=tourZusatzMin(tt); if(tt.arbeitszeitMin>0) azAll+=tt.arbeitszeitMin; } });
+    let km=0,dur=0,zusAll=0,azAll=0,rKm=0; activeTours.forEach(tid=>{ const m=tourMetrics(tid); if(m){ km+=m.km; dur+=m.durationSec; rKm+=(m.routeKm||0); } const tt=tours.find(x=>x.id===tid); if(tt){ zusAll+=tourZusatzMin(tt); if(tt.arbeitszeitMin>0) azAll+=tt.arbeitszeitMin; } });
     const members=trees.filter(t=>treeInAnyActiveTour(t)&&isActive(t)); const cnt=members.length;
-    _fillRoutePanel(`${activeTours.size} Touren`, cnt, km||null, dur/60, bewMinutes(members), zusAll, azAll);
+    _fillRoutePanel(`${activeTours.size} Touren`, cnt, km||null, dur/60, bewMinutes(members), zusAll, azAll, rKm||null);
     return;
   }
   const _activeM=activeTourOnMap?tourMetrics(activeTourOnMap):null;
@@ -1464,7 +1472,7 @@ function updateRouteInfoBar(){
   const members=tour?trees.filter(t=>treeInTour(t,activeTourOnMap)&&isActive(t)):[];
   if(_activeM || members.length){ // Flächen-Touren haben keine Route, aber Objekte → Panel trotzdem zeigen
     const cnt=members.length;
-    _fillRoutePanel(tour?.name||'', cnt, _activeM?_activeM.km:null, _activeM?_activeM.durationSec/60:0, bewMinutes(members), tourZusatzMin(tour), (tour&&tour.arbeitszeitMin>0)?tour.arbeitszeitMin:0);
+    _fillRoutePanel(tour?.name||'', cnt, _activeM?_activeM.km:null, _activeM?_activeM.durationSec/60:0, bewMinutes(members), tourZusatzMin(tour), (tour&&tour.arbeitszeitMin>0)?tour.arbeitszeitMin:0, _activeM?_activeM.routeKm:null);
   } else {
     if(bar) bar.classList.remove('visible');
     const sp=document.getElementById('sidebar-route-info'); if(sp) sp.style.display='none';
