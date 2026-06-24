@@ -1484,23 +1484,16 @@ function updateRouteInfoBar(){
 let _routeNumMap=null;
 function buildRouteNumMap(){
   const m=new Map();
-  if(activeTours.size>1) return m; // bei Mehrfachauswahl keine (kollidierenden) Nummern
-  if(activeTourOnMap && tourOrder[activeTourOnMap]) tourOrder[activeTourOnMap].forEach((id,i)=>{ if(!m.has(id)) m.set(id,i+1); });
-  for(const [tid,order] of Object.entries(tourOrder)){ if(tid===activeTourOnMap) continue; order.forEach((id,i)=>{ if(!m.has(id)) m.set(id,i+1); }); }
+  // Reihenfolge-Nummern NUR bei genau EINER angezeigten Tour (sonst keine — werden mit der Tour ausgeblendet)
+  if(!activeTourOnMap || !tourOrder[activeTourOnMap]) return m;
+  tourOrder[activeTourOnMap].forEach((id,i)=>{ if(!m.has(id)) m.set(id,i+1); });
   return m;
 }
 function getRouteNum(treeId){
   if(_routeNumMap) return _routeNumMap.get(treeId) ?? null; // vorberechnete Map während Bulk-Renders
-  if(activeTours.size>1) return null;
-  if(activeTourOnMap && tourOrder[activeTourOnMap]){
-    const idx=tourOrder[activeTourOnMap].indexOf(treeId);
-    if(idx!==-1) return idx+1;
-  }
-  for(const [,order] of Object.entries(tourOrder)){
-    const idx=order.indexOf(treeId);
-    if(idx!==-1)return idx+1;
-  }
-  return null;
+  if(!activeTourOnMap || !tourOrder[activeTourOnMap]) return null; // keine angezeigte Tour → keine Nummern
+  const idx=tourOrder[activeTourOnMap].indexOf(treeId);
+  return idx!==-1 ? idx+1 : null;
 }
 
 function makeMarker(tree){
