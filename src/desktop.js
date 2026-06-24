@@ -2503,7 +2503,8 @@ function renderList(){
   // Abschnittsnamen je extId (für Seiten: Straßenname als Anzeige + durchsuchbar)
   const _contName={}; for(const t of trees){ if(t.containerTyp) _contName[t.extId]=t.name||''; }
   let filtered=trees.filter(t=>{
-    if(_listMode==='abschnitte' && t.containerExtId) return false; // Abschnitts-Modus: Seiten ausblenden
+    if(_listMode==='abschnitte'){ if(t.containerExtId) return false; } // Abschnitts-Modus: Seiten ausblenden
+    else if(_isContainer(t)) return false; // Objekt-Modus: Abschnitt-Container sind keine Objekte → ausblenden
     const cn=t.containerExtId?(_contName[t.containerExtId]||''):'';
     const mq=matchTerms([t.name,t.art,t.stadtteil,t.baumnr,t.baumId,t.pflanzjahr,cn].join(' '), q);
     const mf = treeVisibleSel(t);
@@ -2563,7 +2564,7 @@ function renderList(){
     // Rechtsklick auf eine Objektzeile: kein (Browser-)Menü
     list.oncontextmenu=e=>{ if(e.target.closest('[data-treeid]')) e.preventDefault(); };
   }
-  document.getElementById('list-count').textContent=`${filtered.length} Objekte`;
+  document.getElementById('list-count').textContent=`${filtered.length} ${_listMode==='abschnitte'?'Einträge':'Objekte'}`;
 }
 
 function selectTree(id, pan=true){
@@ -2820,7 +2821,6 @@ function openAbschnitt(id){
   }).join('')||'<div style="font-size:12px;color:var(--text3);padding:6px 0;">Noch keine Ausstattung.</div>';
   document.getElementById('panel-body').innerHTML=`
     <div class="detail-field" style="padding:5px 0;"><span class="detail-key">Objekt-ID</span><span class="detail-val" style="font-family:monospace;font-weight:700;color:var(--green);">${dlEsc(c.baumId||'–')}</span></div>
-    ${c.art?`<div class="detail-field" style="padding:5px 0;"><span class="detail-key">Zuständigkeit</span><span class="detail-val">${dlEsc(c.art)}</span></div>`:''}
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0 14px;">
       <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;"><div style="font-size:11px;color:var(--text3);">Länge</div><div style="font-size:17px;font-weight:700;">${(parseFloat(c.menge)||0).toLocaleString('de-DE')} ${eh}</div></div>
       <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;"><div style="font-size:11px;color:var(--text3);">Ausstattung</div><div style="font-size:17px;font-weight:700;">${sides.length}</div></div>
@@ -4587,9 +4587,11 @@ function filterBaeumeTable(q){
 }
 
 function renderBaeumeTable(){
-  _baeumeAllTrees = [...trees]; // cache all trees
+  // Abschnitt-Container sind keine Objekte → nicht in der Objekt-Tabelle führen
+  const base=trees.filter(t=>!_isContainer(t));
+  _baeumeAllTrees = [...base]; // cache all (Objekt-)trees
   document.getElementById('baeume-search-count').textContent = '';
-  renderBaeumeTableWith(_baeumeShowInactive ? trees : trees.filter(isActive));
+  renderBaeumeTableWith(_baeumeShowInactive ? base : base.filter(isActive));
 }
 
 // ─── SAMMELAKTION (nur Superadmin): wirkt auf die aktuell gefilterte/angezeigte Menge ───
@@ -4697,7 +4699,7 @@ async function loadArten(){
   _artIconMap=null; // Symbol-Zuordnung neu aufbauen
 }
 function artCountById(){
-  const m={}; trees.forEach(t=>{ if(t.artId) m[t.artId]=(m[t.artId]||0)+1; }); return m;
+  const m={}; trees.forEach(t=>{ if(_isContainer(t)) return; if(t.artId) m[t.artId]=(m[t.artId]||0)+1; }); return m; // Container sind keine Objekte → nicht mitzählen
 }
 function switchBaeumeTab(tab){
   const o=document.getElementById('baeume-objekte'), a=document.getElementById('baeume-arten');
@@ -4720,9 +4722,12 @@ function renderArtenList(){
   const el=document.getElementById(_artenMountId); if(!el) return;
   const byId=artCountById();
   const validIds=new Set(artenList.map(a=>a.id));
-  const unmapped=trees.filter(t=>(t.art||'').trim() && !(t.artId&&validIds.has(t.artId))).length;
+  const unmapped=trees.filter(t=>!_isContainer(t)&&(t.art||'').trim() && !(t.artId&&validIds.has(t.artId))).length;
   const ro=isReadonly();
-  const sorted=[...artenList].sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  // Container-Arten (z. B. „Straßenabschnitt") sind keine Tätigkeits-Arten → aus der Liste ausblenden
+  const _contArtIds=new Set(trees.filter(_isContainer).map(t=>t.artId).filter(Boolean));
+  const objCount=trees.filter(t=>!_isContainer(t)).length;
+  const sorted=[...artenList].filter(a=>!(_contArtIds.has(a.id)&&!byId[a.id])).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   const rows=sorted.map(a=>{
     const c=byId[a.id]||0;
     return `<tr style="border-top:1px solid var(--border);">
@@ -4746,7 +4751,7 @@ function renderArtenList(){
   el.innerHTML=`<div style="max-width:780px;margin:0 auto;">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
       <div style="font-size:15px;font-weight:700;">Arten – ${FL.art}</div>
-      <span style="font-size:12px;color:var(--text3);">${artenList.length} Einträge · ${trees.length} Objekte</span>
+      <span style="font-size:12px;color:var(--text3);">${sorted.length} Einträge · ${objCount} Objekte</span>
       ${ro?'':`<button class="btn btn-primary" style="margin-left:auto;padding:5px 11px;font-size:12px;" onclick="buildArten()">Liste aus Objekten aufbauen/aktualisieren</button>`}
     </div>
     ${ro?'':`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin-bottom:10px;">
@@ -4878,7 +4883,8 @@ async function buildArten(){
   notify('Arten-Liste wird aktualisiert…');
   await loadArten();
   const byName=new Map(artenList.map(a=>[a.name,a.id]));
-  const names=[...new Set(trees.map(t=>(t.art||'').trim()).filter(Boolean))];
+  // Container (Abschnitte) sind keine Objekte → ihre „Art" (Straßenabschnitt) NICHT in die Arten-Liste aufnehmen
+  const names=[...new Set(trees.filter(t=>!_isContainer(t)).map(t=>(t.art||'').trim()).filter(Boolean))];
   for(const nm of names){
     if(!byName.has(nm)){
       const ref=await addDoc(collection(db,'projects',currentProjectId,'arten'),{name:nm,orgId:currentProjectData?.orgId||currentOrg||null,createdAt:serverTimestamp()});
@@ -4886,7 +4892,7 @@ async function buildArten(){
     }
   }
   const ups=[];
-  trees.forEach(t=>{ const nm=(t.art||'').trim(); const id=nm?byName.get(nm):''; if((t.artId||'')!==(id||'')){ ups.push({id:t.id,data:{artId:id||null}}); t.artId=id||null; } });
+  trees.forEach(t=>{ if(_isContainer(t)) return; const nm=(t.art||'').trim(); const id=nm?byName.get(nm):''; if((t.artId||'')!==(id||'')){ ups.push({id:t.id,data:{artId:id||null}}); t.artId=id||null; } });
   await _chunkedTreeUpdate(ups);
   await loadArten(); renderArtenList();
   notify(`✓ ${byName.size} Arten · ${ups.length} Objekte zugeordnet`);
