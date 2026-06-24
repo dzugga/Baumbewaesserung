@@ -1358,7 +1358,7 @@ function tourMetrics(tid){
   else { const t=tours.find(x=>x.id===tid); if(t && typeof t.routeKm==='number'){ km=t.routeKm; durationSec=t.routeDriveSec||0; } }
   if(km==null) return null;
   const sp=_tourSpeedKmh(tid);
-  if(sp>0){ const wm=_tourWorkMeters(tid); if(wm>0) durationSec = wm*3.6/sp; } // m × 3,6 / (km/h) = Sekunden
+  if(sp>0){ const wm=_tourWorkMeters(tid); if(wm>0){ km = wm/1000; durationSec = wm*3.6/sp; } } // km + Zeit über die zu bearbeitende Strecke (beide Seiten); m × 3,6 / (km/h) = Sekunden
   return {km, durationSec};
 }
 // Füllt das Routen-Kennzahlen-Panel (Sidebar): Gesamtzeit + km, Proportionsleiste, Chips.
