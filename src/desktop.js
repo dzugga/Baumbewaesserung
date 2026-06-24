@@ -1562,6 +1562,8 @@ function _flTourColorFor(t){
   return id ? ((tours.find(x=>x.id===id)||{}).color||null) : null;
 }
 function _flStyleForTree(t, isLine){
+  if(t && lassoSelection.size>0 && lassoSelection.has(t.id)) // Lasso-Vorauswahl: violetter Akzent wie bei Punkt-Markern
+    return isLine?{ color:'#7c3aed', weight:6, opacity:0.95 }:{ color:'#7c3aed', weight:3, fillColor:'#7c3aed', fillOpacity:0.4 };
   const col=_flTourColorFor(t);
   if(activeTours.size && !col) return isLine?{ color:'#b9b6b0', weight:2, opacity:0.5 }:{ color:'#b9b6b0', weight:1, fillColor:'#b9b6b0', fillOpacity:0.06 }; // andere Tour → ausgegraut
   if(col) return isLine?{ color:col, weight:5, opacity:0.95 }:{ color:col, weight:1.5, fillColor:col, fillOpacity:0.5 };                                       // gewählte Tour → Tourfarbe
@@ -1630,7 +1632,7 @@ function renderDrawnGeoms(){
     if(g.type==='Polygon'){ const ll=(g.coordinates[0]||[]).map(c=>[c[1],c[0]]); if(ll.length<3) return; layer=L.polygon(ll,_opt(_flStyleForTree(t,false))); }
     else if(g.type==='LineString'){ const ll=(g.coordinates||[]).map(c=>[c[1],c[0]]); if(ll.length<2) return; layer=L.polyline(ll,_opt(_flStyleForTree(t,true))); }
     if(!layer) return;
-    layer.on('click',()=>selectTree(t.id,false));
+    layer.on('click',()=>{ if(assignMode&&!lassoDrawing){ toggleLassoSelect(t.id); _applyFlaechenSelection(); } else if(!assignMode) selectTree(t.id,false); });
     layer.bindTooltip((t.name||(t.geomType==='linie'?'Strecke':'Fläche'))+(t.menge?' · '+(t.einheit==='m'?_fmtLen(t.menge):_fmtArea(t.menge)):''),{sticky:true});
     layer.addTo(_drawnLayer); _drawnById[t.id]=layer;
     // Reihenfolge-Nummer am Zentroid (nur bei aktiver Tour-Auswahl/berechneter Route sichtbar)
@@ -7707,6 +7709,23 @@ async function applyLasso(){
     const pt=map.latLngToContainerPoint(L.latLng(tree.lat,tree.lng));
     if(touchesLasso(pt.x+offX,pt.y+offY,MARKER_RADIUS)) selected.push(tree);
   });
+  // Geometrie-Objekte (Fläche/Strecke/Straßenabschnitt) ohne Marker: über Stützpunkte der Geometrie —
+  // getroffen, sobald EIN (gesampelter) Geometriepunkt im Lasso liegt. Zusätzlich bei Flächen:
+  // Treffer, wenn das Lasso komplett INNERHALB der Fläche gezogen wurde (Lasso-Punkt in Polygon).
+  const _l0=lassoPoints[0];
+  trees.forEach(tree=>{
+    if((tree.lat&&tree.lng) || !_hasDrawnGeom(tree)) return;
+    const g=_treeGeom(tree); if(!g) return;
+    const isPoly = g.type==='Polygon';
+    const ring = isPoly ? (g.coordinates[0]||[]) : (g.coordinates||[]);
+    if(!ring.length) return;
+    const proj = ring.map(c=>{ const p=map.latLngToContainerPoint(L.latLng(c[1],c[0])); return {x:p.x+offX,y:p.y+offY}; });
+    let hit=false;
+    const step=Math.max(1,Math.floor(proj.length/12)); // höchstens ~12 Stützpunkte je Objekt prüfen (Perf)
+    for(let i=0;i<proj.length;i+=step){ if(touchesLasso(proj[i].x,proj[i].y,4)){ hit=true; break; } }
+    if(!hit && isPoly && _l0 && proj.length>=3 && pointInPolygon(_l0.x,_l0.y,proj)) hit=true; // Lasso liegt in der Fläche
+    if(hit) selected.push(tree);
+  });
 
   lassoPoints=[];
   if(selected.length===0){notify('Keine Objekte im Lasso-Bereich');return;}
@@ -7715,7 +7734,8 @@ async function applyLasso(){
   // erst, wenn der Nutzer in der Aktionsleiste Hinzufügen/Verschieben/Entfernen wählt.
   let added=0;
   selected.forEach(t=>{ if(!lassoSelection.has(t.id)){ lassoSelection.add(t.id); added++; } });
-  remakeMarkers(selected.map(t=>t.id)); // Auswahl-Ringe zeigen
+  remakeMarkers(selected.map(t=>t.id)); // Auswahl-Ringe zeigen (Punkt-Marker)
+  _applyFlaechenSelection(); // Geometrie-Objekte (Fläche/Strecke) neu einfärben
   renderLassoActions();
   notify(`${lassoSelection.size} Objekte ausgewählt${added<selected.length?` (${added} neu)`:''}`);
 }
@@ -7737,6 +7757,7 @@ function remakeMarkers(ids){
 function toggleLassoSelect(id){
   if(lassoSelection.has(id)) lassoSelection.delete(id); else lassoSelection.add(id);
   remakeMarkers([id]);
+  _applyFlaechenSelection();
   renderLassoActions();
 }
 
@@ -7744,6 +7765,7 @@ function clearLassoSelection(){
   if(!lassoSelection.size){ renderLassoActions(); return; }
   const ids=[...lassoSelection]; lassoSelection.clear();
   remakeMarkers(ids);
+  _applyFlaechenSelection();
   renderLassoActions();
 }
 
@@ -7811,6 +7833,7 @@ async function lassoAction(mode){
   const doneIds=[...lassoSelection]; lassoSelection.clear();
   if(_pendingTreeRender){ _pendingTreeRender=false; refreshMarkers(); renderList(); }
   else remakeMarkers(doneIds); // Auswahl-Ringe weg + neue Farben sofort
+  renderDrawnGeoms(); // Geometrie-Objekte mit neuer Tour-Zuordnung umfärben
   rebuildAssignPills();
   renderLassoActions();
   setSyncState('ok','Synchronisiert');
