@@ -10208,6 +10208,71 @@ async function geomDocsImportRun(close){
     setTimeout(()=>{ if(close) close(); },1500);
   }catch(e){ setMsg('Fehler: '+(e.message||e)); notify('Fehler: '+(e.message||e)); if(run){run.disabled=false;run.style.opacity=1;} }
 }
+// Migration: flache Linien-Straßen → Abschnitt-Container + 4 Seiten (Fahrbahn/Gehweg L/R).
+// Räumt zuerst versehentlich eingespielte Container/Seiten weg (nicht _migrated), wandelt dann die
+// flachen Straßen an Ort und Stelle um; bisherige Tour-Zuordnung wandert auf die Fahrbahn-Seiten.
+// Idempotent: migrierte Docs tragen _migrated=true und werden beim Aufräumen verschont.
+async function strMigOpen(){
+  if(currentRole!=='superadmin'){ notify('Nur Superadmin'); return; }
+  let projs=[];
+  try{ const [pq,oq]=await Promise.all([db.collection('projects').get(),db.collection('orgs').get()]);
+    const on={}; oq.forEach(d=>on[d.id]=d.data().name||d.id);
+    projs=pq.docs.map(d=>({id:d.id,name:d.data().name||d.id,orgId:d.data().orgId,org:on[d.data().orgId]||d.data().orgId})).sort((a,b)=>((a.org||'')+a.name).localeCompare((b.org||'')+b.name));
+  }catch(e){ notify('Projekte laden fehlgeschlagen'); return; }
+  const m=document.createElement('div'); m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100001;display:flex;align-items:center;justify-content:center;padding:20px;';
+  m.innerHTML=`<div style="background:var(--surface);border-radius:10px;width:500px;max-width:94vw;overflow:hidden;">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;">Flache Straßen → Abschnitte umwandeln</div>
+    <div style="padding:16px 18px;display:flex;flex-direction:column;gap:12px;font-size:13px;">
+      <label style="font-size:12px;color:var(--text3);">Projekt<select id="sm-proj" class="form-control" style="width:100%;margin-top:3px;">${projs.map(p=>`<option value="${dlEsc(p.id)}"${p.id===currentProjectId?' selected':''}>${dlEsc(p.org)} · ${dlEsc(p.name)}</option>`).join('')}</select></label>
+      <button id="sm-analyze" class="btn btn-secondary" style="padding:7px 12px;">Analysieren</button>
+      <div id="sm-info" style="font-size:12px;color:var(--text2);white-space:pre-line;min-height:20px;"></div>
+      <div style="font-size:11px;color:var(--text3);">Schritt 1: versehentlich eingespielte Container/Seiten entfernen (ohne Tour-Zuordnung). Schritt 2: flache Straßen → Abschnitt + 4 Seiten (Fahrbahn/Gehweg L/R); bisherige Tour-Zuordnung wandert auf die Fahrbahn-Seiten. Danach Routen neu berechnen.</div>
+    </div>
+    <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
+      <button id="sm-cancel" class="btn btn-secondary" style="padding:7px 12px;">Abbrechen</button>
+      <button id="sm-run" class="btn btn-primary" style="padding:7px 14px;opacity:.5;" disabled>Ausführen</button>
+    </div></div>`;
+  document.body.appendChild(m);
+  const close=()=>m.remove(); m.querySelector('#sm-cancel').onclick=close; m.addEventListener('click',e=>{ if(e.target===m) close(); });
+  const info=()=>document.getElementById('sm-info'); const runBtn=()=>document.getElementById('sm-run');
+  let _data=null;
+  m.querySelector('#sm-analyze').onclick=async()=>{
+    const pid=document.getElementById('sm-proj').value; info().textContent='Lade…';
+    try{
+      const snap=await db.collection('projects').doc(pid).collection('trees').get();
+      const all=snap.docs.map(d=>({id:d.id,...d.data()}));
+      const remove=all.filter(t=>(t.containerTyp||t.containerExtId)&&!t._migrated); // versehentlich Eingespieltes
+      const flat=all.filter(t=>!t.containerTyp&&!t.containerExtId&&t.geomStr&&geomTypeOf(t)==='linie'&&t.extId);
+      const planned=flat.filter(t=>(t.tourIds&&t.tourIds.length)||t.tourId).length;
+      _data={pid,flat,removeIds:remove.map(x=>x.id)};
+      info().textContent=`Zu entfernen (eingespielte Container/Seiten): ${remove.length}\nFlache Straßen → Abschnitte: ${flat.length}\n  davon mit Tour-Zuordnung → Fahrbahn: ${planned}\nNeue Seiten: ${flat.length*4}`;
+      if(!remove.length&&!flat.length) info().textContent+='\n\nNichts zu tun (bereits umgewandelt?).';
+      runBtn().disabled=false; runBtn().style.opacity=1;
+    }catch(e){ info().textContent='Fehler: '+(e.message||e); }
+  };
+  m.querySelector('#sm-run').onclick=async()=>{
+    if(!_data) return; const {pid,flat,removeIds}=_data; const rb=runBtn(); rb.disabled=true; rb.style.opacity=.5;
+    const col=db.collection('projects').doc(pid).collection('trees');
+    try{
+      for(let i=0;i<removeIds.length;i+=400){ const b=db.batch(); removeIds.slice(i,i+400).forEach(id=>b.delete(col.doc(id))); await b.commit(); info().textContent=`Entferne… ${Math.min(i+400,removeIds.length)}/${removeIds.length}`; }
+      for(let i=0;i<flat.length;i+=90){ // je Straße 1 Update + 4 Sets = 5 Ops → 90×5=450 < 500
+        const b=db.batch();
+        for(const s of flat.slice(i,i+90)){
+          const fbArt=s.zustFahrbahn==='stadt'?'Fahrbahn (Stadt)':s.zustFahrbahn==='anlieger'?'Fahrbahn (Anlieger)':'Fahrbahn';
+          const gwArt=s.zustGehweg==='stadt'?'Gehweg (Stadt)':s.zustGehweg==='anlieger'?'Gehweg (Anlieger)':'Gehweg';
+          const oldT=(s.tourIds&&s.tourIds.length)?s.tourIds:(s.tourId?[s.tourId]:[]);
+          b.update(col.doc(s.id),{containerTyp:'strecke',art:'Straßenabschnitt',tourIds:[],tourId:'',_migrated:true});
+          [['fahrbahn_l','Fahrbahn links',fbArt,oldT],['fahrbahn_r','Fahrbahn rechts',fbArt,oldT],['gehweg_l','Gehweg links',gwArt,[]],['gehweg_r','Gehweg rechts',gwArt,[]]].forEach(([element,label,art,tids])=>{
+            b.set(col.doc(),{ name:label, element, elementLabel:label, art, geomType:'linie', containerExtId:s.extId, baumId:(s.baumId||('S-'+s.extId))+'-'+element, orgId:s.orgId||'', aktiv:true, tourIds:tids, tourId:tids[0]||'', history:[], _migrated:true, createdAt:firebase.firestore.FieldValue.serverTimestamp() });
+          });
+        }
+        await b.commit(); info().textContent=`Wandle um… ${Math.min(i+90,flat.length)}/${flat.length} Straßen`;
+      }
+      info().textContent=`✓ Fertig: ${removeIds.length} entfernt, ${flat.length} Abschnitte mit ${flat.length*4} Seiten. Bitte Routen neu berechnen.`;
+      notify('✓ Migration fertig — '+flat.length+' Abschnitte');
+    }catch(e){ info().textContent='Fehler: '+(e.message||e); notify('Fehler: '+(e.message||e)); rb.disabled=false; rb.style.opacity=1; }
+  };
+}
 async function renderMandanten(){
   const el=document.getElementById('mandanten-body'); if(!el) return;
   if(currentRole!=='superadmin'){ el.innerHTML='<div style="padding:24px;color:var(--text3);font-size:13px;">Nur der Superadmin kann Mandanten verwalten.</div>'; return; }
@@ -10240,7 +10305,7 @@ async function renderMandanten(){
       </div>
       <div style="font-size:11px;color:var(--text3);margin-top:6px;">Danach unter Admin → Benutzer Personen für den neuen Mandanten anlegen.</div>
     </div>
-    <div style="margin-bottom:16px;"><button class="btn btn-secondary" style="font-size:12px;padding:7px 12px;" onclick="flaechenImportOpen()">⬗ Flächen-Bundle einspielen</button> <button class="btn btn-secondary" style="font-size:12px;padding:7px 12px;" onclick="geomDocsImportOpen()">／ Geometrie-Datensätze einspielen</button> <span style="font-size:11px;color:var(--text3);">Bundle = importierte Flächen · Datensätze = Linien/Flächen mit Geometrie am Doc (z. B. Ahlen-Straßen).</span></div>
+    <div style="margin-bottom:16px;"><button class="btn btn-secondary" style="font-size:12px;padding:7px 12px;" onclick="flaechenImportOpen()">⬗ Flächen-Bundle einspielen</button> <button class="btn btn-secondary" style="font-size:12px;padding:7px 12px;" onclick="geomDocsImportOpen()">／ Geometrie-Datensätze einspielen</button> <button class="btn btn-secondary" style="font-size:12px;padding:7px 12px;" onclick="strMigOpen()">⇄ Straßen → Abschnitte</button> <span style="font-size:11px;color:var(--text3);">Bundle = importierte Flächen · Datensätze = Linien/Flächen mit Geometrie am Doc (z. B. Ahlen-Straßen).</span></div>
     ${orgs.map(o=>`<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 16px;margin-bottom:12px;">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
         <span style="font-size:14px;font-weight:700;">${dlEsc(o.name||o.id)}</span>
@@ -10506,7 +10571,7 @@ Object.assign(window,{
   startAssignMode,setAssignTour,cancelAssign,assignTreeToTour,
   openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,
   pickProjIcon,artSetIcon,artSetTime,artSetRate,setArtDefaultTime,artApplyTimeToAll,
-  renderMandanten,createOrgUi,moveProjectUi,setOrgNaviUi,checkBaumIdDuplicates,flaechenImportOpen,flaechenImportRun,geomDocsImportOpen,geomDocsImportRun,flaechenTourGenOpen,flaechenTourGenRun,
+  renderMandanten,createOrgUi,moveProjectUi,setOrgNaviUi,checkBaumIdDuplicates,flaechenImportOpen,flaechenImportRun,geomDocsImportOpen,geomDocsImportRun,strMigOpen,flaechenTourGenOpen,flaechenTourGenRun,
   addWmsLayer,deleteWmsLayer,editWmsLayer,cancelWmsEdit,renderWmsList,
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,toggleTourCounts,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
