@@ -455,6 +455,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <input type="text" id="search-input" placeholder="Suchen…" oninput="renderListDebounced();document.getElementById('search-clear').style.display=this.value?'flex':'none'">
         <button id="search-clear" type="button" aria-label="Suche aufheben" title="Suche aufheben" onclick="const i=document.getElementById('search-input');i.value='';this.style.display='none';renderListDebounced();i.focus();" style="display:none;position:absolute;right:6px;top:50%;transform:translateY(-50%);border:none;background:none;cursor:pointer;color:var(--text3);padding:2px;line-height:0;align-items:center;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
+      <!-- Umschalter Abschnitte / Objekte (nur Abschnitts-Projekte) -->
+      <div id="list-mode-toggle" style="display:none;margin-top:7px;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;">
+        <button id="lm-abschnitte" type="button" onclick="setListMode('abschnitte')" style="flex:1;padding:4px 0;border:none;background:var(--surface);color:var(--text2);cursor:pointer;font-weight:600;font-size:11px;">Abschnitte</button>
+        <button id="lm-objekte" type="button" onclick="setListMode('objekte')" style="flex:1;padding:4px 0;border:none;border-left:1px solid var(--border);background:var(--surface);color:var(--text2);cursor:pointer;font-weight:600;font-size:11px;">Objekte</button>
+      </div>
     </div>
 
     <!-- Tour legend inside sidebar -->
@@ -667,6 +672,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
             <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;color:var(--text2);">
               <input type="checkbox" id="s-cluster" style="width:16px;height:16px;cursor:pointer;">
               Bei vielen Objekten nahe Marker zu Clustern zusammenfassen (flüssiger; beim Reinzoomen wieder einzeln). Gilt nur ohne Tour-Auswahl — sobald eine Tour eingeblendet ist, immer Einzelmarker.
+            </label>
+          </div>
+          <div class="form-group" id="s-list-abschnitte-group" style="display:none;">
+            <label class="form-label">Objektliste bei Abschnitten</label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;color:var(--text2);">
+              <input type="checkbox" id="s-list-abschnitte" style="width:16px;height:16px;cursor:pointer;">
+              Liste standardmäßig auf „Abschnitte" (nur Straßen/Abschnitte statt aller Seiten — kompaktere Übersicht). Im Betrieb jederzeit oben in der Liste umschaltbar.
             </label>
           </div>
           <div class="form-group" id="s-saison-group" style="display:none;">

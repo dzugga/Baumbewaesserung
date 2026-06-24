@@ -591,6 +591,7 @@ async function openProject(projectId){
   document.getElementById('detail-panel')?.classList.remove('open'); selectedTreeId=null; // offenes Objekt-Detail des alten Projekts schließen (kein stehengebliebener Füllgrad/Wert)
   const snap=await getDoc(doc(db,'projects',projectId));
   currentProjectData={id:projectId,...snap.data()};
+  _listMode = currentProjectData.listAbschnitteDefault ? 'abschnitte' : 'objekte'; // Listen-Standard je Projekt
   document.getElementById('active-project-name').textContent=currentProjectData.name;
   // Mandant neben dem Projektnamen (gecacht, max. 1 Read)
   const apOrg=document.getElementById('active-project-org');
@@ -2485,11 +2486,24 @@ const renderListDebounced=_debounce(()=>renderList(),160);
 const filterBaeumeTableDebounced=_debounce(v=>filterBaeumeTable(v),160);
 const filterDetailTableDebounced=_debounce(v=>filterDetailTable(v),160);
 
+// Listen-Modus: 'objekte' = alle Objekte (inkl. Seiten) · 'abschnitte' = nur Abschnitte/Container (kompakt)
+let _listMode='objekte';
+function setListMode(mode){ _listMode=(mode==='abschnitte')?'abschnitte':'objekte'; renderList(); }
+function _syncListModeToggle(){
+  const wrap=document.getElementById('list-mode-toggle'); if(!wrap) return;
+  const hasC=(trees||[]).some(_isContainer);
+  wrap.style.display=hasC?'flex':'none';
+  const a=document.getElementById('lm-abschnitte'), o=document.getElementById('lm-objekte');
+  const act=(el,on)=>{ if(!el) return; el.style.background=on?'var(--green)':'var(--surface)'; el.style.color=on?'#fff':'var(--text2)'; };
+  act(a,_listMode==='abschnitte'); act(o,_listMode!=='abschnitte');
+}
 function renderList(){
+  _syncListModeToggle();
   const q=document.getElementById('search-input')?.value.toLowerCase()||'';
   // Abschnittsnamen je extId (für Seiten: Straßenname als Anzeige + durchsuchbar)
   const _contName={}; for(const t of trees){ if(t.containerTyp) _contName[t.extId]=t.name||''; }
   let filtered=trees.filter(t=>{
+    if(_listMode==='abschnitte' && t.containerExtId) return false; // Abschnitts-Modus: Seiten ausblenden
     const cn=t.containerExtId?(_contName[t.containerExtId]||''):'';
     const mq=matchTerms([t.name,t.art,t.stadtteil,t.baumnr,t.baumId,t.pflanzjahr,cn].join(' '), q);
     const mf = treeVisibleSel(t);
@@ -4133,6 +4147,8 @@ function openSettings(){
   // Zeitaufwand-Standard wird jetzt im Reiter Objekte → Typ/Art gepflegt
   const _fg=document.getElementById('s-fuellgrad'); if(_fg) _fg.checked=!!currentProjectData?.fuellgradAktiv;
   const _cl=document.getElementById('s-cluster'); if(_cl) _cl.checked=!!currentProjectData?.clusterAktiv;
+  const _la=document.getElementById('s-list-abschnitte'); if(_la) _la.checked=!!currentProjectData?.listAbschnitteDefault;
+  const _lag=document.getElementById('s-list-abschnitte-group'); if(_lag) _lag.style.display=(trees||[]).some(_isContainer)?'':'none';
   const _sg=document.getElementById('s-saison-group'); if(_sg) _sg.style.display=currentProjectData?.hatFlaechen?'':'none';
   const _sv=document.getElementById('s-saison-von'); if(_sv) _sv.value=_mmddToTtmm(getSaison().von);
   const _sb=document.getElementById('s-saison-bis'); if(_sb) _sb.value=_mmddToTtmm(getSaison().bis);
@@ -4318,6 +4334,7 @@ async function applySettings(){
     routeOptMode:document.getElementById('s-route-opt')?.value||getRouteOptMode(),
     fuellgradAktiv:document.getElementById('s-fuellgrad')?.checked||false,
     clusterAktiv:document.getElementById('s-cluster')?.checked||false,
+    listAbschnitteDefault:document.getElementById('s-list-abschnitte')?.checked||false,
     routePlanning:getRoutePlanningEnabled(),
     name:currentProjectData?.name||'', // Projektname wird unter Verwaltung → Projekte verwaltet
     sommerVon:_ttmmToMmdd(document.getElementById('s-saison-von')?.value)||SAISON_DEFAULT.von,
@@ -4325,6 +4342,7 @@ async function applySettings(){
   };
   if(lat&&lng) updates.depot={lat,lng,address:addr||`${lat.toFixed(5)}, ${lng.toFixed(5)}`};
   await saveProjectSettings(updates);
+  _listMode = updates.listAbschnitteDefault ? 'abschnitte' : 'objekte'; // neuen Standard sofort anwenden
   document.getElementById('active-project-name').textContent=updates.name;
   closeSettings();renderDepotMarker();
   await loadSavedRoutes();
@@ -10722,7 +10740,7 @@ Object.assign(window,{
   renderReinigungssysteme,rsAdd,rsUpdate,rsDelete,
   renderMandanten,createOrgUi,moveProjectUi,setOrgNaviUi,checkBaumIdDuplicates,flaechenImportOpen,flaechenImportRun,geomDocsImportOpen,geomDocsImportRun,strMigOpen,flaechenTourGenOpen,flaechenTourGenRun,
   addWmsLayer,deleteWmsLayer,editWmsLayer,cancelWmsEdit,renderWmsList,
-  setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,
+  setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,setListMode,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,toggleTourCounts,toggleVersatz,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,saveOrgCode,dlToggleNoLogin,setDriverFunktion,setDriverEinsatz,dlDismissLoginRequest,dlFunktionAdd,dlFunktionRemove,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
