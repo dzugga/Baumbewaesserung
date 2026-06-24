@@ -5441,6 +5441,15 @@ function renderBaeumeTableWith(treeList){
       <p>Noch keine Objekte</p></div>`;
     return;
   }
+  // Lazy: ohne Suche/Filter und bei vielen Objekten nicht alle Zeilen rendern — erst Hinweis (Übersicht/Performance)
+  const _q=(document.getElementById('baeume-search')?.value||'').trim();
+  if(!_q && !_baeumeNoGpsFilter && (treeList||[]).length>600){
+    wrap.innerHTML=`<div class="empty-state" style="margin-top:40px;text-align:center;">
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <p style="font-weight:600;margin:8px 0 2px;">${treeList.length.toLocaleString('de-DE')} Objekte</p>
+      <p style="font-size:12px;color:var(--text3);line-height:1.55;max-width:380px;margin:0 auto;">Für die Übersicht nicht alle aufgelistet. Oben <b>suchen</b> (Name, Stadtteil, Objekt-ID …) oder „Ohne GPS" filtern — dann erscheinen die Treffer.</p></div>`;
+    return;
+  }
 
   // Sort: if a tour active, sort by route number; else alphabetical
   let sorted=[...treeList];
