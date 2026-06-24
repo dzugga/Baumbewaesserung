@@ -1614,12 +1614,16 @@ function renderDrawnGeoms(){
   if(_drawnLayer){ map.removeLayer(_drawnLayer); _drawnLayer=null; } _drawnById={};
   const list=(trees||[]).filter(t=>_hasDrawnGeom(t)&&isActive(t));
   if(!list.length) return;
-  _drawnLayer=L.featureGroup().addTo(map); // featureGroup → getBounds() für „einpassen"
+  // Zeichenreihenfolge: große Flächen unten, kleine darüber, Linien zuoberst → überlappte/kleinere bleiben anklickbar
+  const _isLine=t=>_treeGeom(t)?.type==='LineString';
+  const _polyA=t=>{ const g=_treeGeom(t); if(!g||g.type!=='Polygon') return 0; return (typeof t.menge==='number'&&t.einheit==='m2')?t.menge:_geoArea((g.coordinates[0]||[]).map(c=>[c[1],c[0]])); };
+  list.sort((a,b)=>{ const al=_isLine(a),bl=_isLine(b); if(al!==bl) return al?1:-1; if(al) return 0; return _polyA(b)-_polyA(a); });
+  _drawnLayer=L.featureGroup().addTo(map); // featureGroup → getBounds() für „einpassen"; SVG-Renderer (Standard) für zuverlässige Klick-Treffer
   list.forEach(t=>{
     const g=_treeGeom(t); if(!g) return;
     let layer;
-    if(g.type==='Polygon'){ const ll=(g.coordinates[0]||[]).map(c=>[c[1],c[0]]); if(ll.length<3) return; layer=L.polygon(ll,{renderer:L.canvas({padding:0.5}),..._flStyleForTree(t,false)}); }
-    else if(g.type==='LineString'){ const ll=(g.coordinates||[]).map(c=>[c[1],c[0]]); if(ll.length<2) return; layer=L.polyline(ll,{renderer:L.canvas({padding:0.5}),..._flStyleForTree(t,true)}); }
+    if(g.type==='Polygon'){ const ll=(g.coordinates[0]||[]).map(c=>[c[1],c[0]]); if(ll.length<3) return; layer=L.polygon(ll,_flStyleForTree(t,false)); }
+    else if(g.type==='LineString'){ const ll=(g.coordinates||[]).map(c=>[c[1],c[0]]); if(ll.length<2) return; layer=L.polyline(ll,_flStyleForTree(t,true)); }
     if(!layer) return;
     layer.on('click',()=>selectTree(t.id,false));
     layer.bindTooltip((t.name||(t.geomType==='linie'?'Strecke':'Fläche'))+(t.menge?' · '+(t.einheit==='m'?_fmtLen(t.menge):_fmtArea(t.menge)):''),{sticky:true});
