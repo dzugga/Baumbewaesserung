@@ -2503,7 +2503,7 @@ function _geomChip(tree){
   const gt=geomTypeOf(tree);
   if(gt==='flaeche') return '<span title="Fläche" style="color:#0369a1;font-weight:700;margin-right:5px;">▱</span>';
   if(gt==='linie') return '<span title="Strecke" style="color:#6d28d9;font-weight:700;margin-right:5px;">／</span>';
-  return '';
+  return '<span title="Punkt" style="color:#6b6760;font-weight:700;margin-right:5px;">●</span>';
 }
 function openDetail(id){
   const tree=trees.find(t=>t.id===id);if(!tree)return;
