@@ -6579,14 +6579,18 @@ async function doImport(){
 // ─── BAUM ID ──────────────────────────────────────────────────
 // Dubletten-Prüfung (Admin): scannt die Objekt-IDs des offenen Projekts (keine Extra-Reads, nutzt geladene trees)
 function checkBaumIdDuplicates(){
+  // Nur AKTIVE Objekte: archivierte (per „Löschen" bei vorhandener Historie nur inaktiv gesetzte) zählen nicht.
+  const act=trees.filter(isActive);
   const seen=new Map();
-  trees.forEach(t=>{ const id=(t.baumId||'').trim(); if(id) seen.set(id,(seen.get(id)||0)+1); });
+  act.forEach(t=>{ const id=(t.baumId||'').trim(); if(id) seen.set(id,(seen.get(id)||0)+1); });
   const dups=[...seen.entries()].filter(([,n])=>n>1);
-  const noId=trees.filter(t=>!(t.baumId||'').trim()).length;
+  const noId=act.filter(t=>!(t.baumId||'').trim()).length;
+  const archived=trees.length-act.length;
+  const archNote=archived?`\n\n(${archived} archivierte/inaktive Objekte werden nicht geprüft.)`:'';
   if(!dups.length){ notify('✓ Keine doppelten Objekt-IDs'+(noId?` · ${noId} ohne ID`:'')); return; }
   const total=dups.reduce((s,[,n])=>s+n,0);
   const list=dups.slice(0,15).map(([id,n])=>`${id} ×${n}`).join('\n');
-  alert(`⚠ ${dups.length} Objekt-IDs sind doppelt vergeben (${total} betroffene Objekte):\n\n${list}${dups.length>15?`\n… und ${dups.length-15} weitere`:''}${noId?`\n\nZusätzlich ${noId} Objekte ohne Objekt-ID.`:''}`);
+  alert(`⚠ ${dups.length} Objekt-IDs sind doppelt vergeben (${total} betroffene aktive Objekte):\n\n${list}${dups.length>15?`\n… und ${dups.length-15} weitere`:''}${noId?`\n\nZusätzlich ${noId} Objekte ohne Objekt-ID.`:''}${archNote}`);
 }
 async function getNextBaumId(){
   // Atomar in einer Transaktion zählen → keine doppelten IDs bei gleichzeitigem Anlegen (zwei Planer).
