@@ -4711,7 +4711,7 @@ function updateBtnFilterNoGps(){
 function filterBaeumeTable(q){
   const countEl = document.getElementById('baeume-search-count');
   let filtered = _baeumeAllTrees.filter(tree=>
-    matchTerms([tree.name,tree.art,tree.stadtteil,tree.baumnr,tree.baumId,tree.pflanzjahr,tree.pflanzzeitpunkt].join(' '), q)
+    matchTerms([tree.name,tree.art,tree.stadtteil,tree.baumnr,tree.baumId,tree.pflanzjahr,tree.pflanzzeitpunkt,(tree.containerExtId&&_containerOf(tree)?.name)||''].join(' '), q)
   );
   if(_baeumeNoGpsFilter) filtered = filtered.filter(t => !t.lat || !t.lng);
   if(!_baeumeShowInactive) filtered = filtered.filter(isActive);
@@ -5501,7 +5501,7 @@ function renderBaeumeTableWith(treeList){
     rows+=`<tr style="border-top:1px solid var(--border);transition:background .1s;cursor:pointer;${inact?'opacity:.55;':''}" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''" data-treeid="${tree.id}">
       <td style="padding:8px 12px;font-family:'DM Mono',monospace;color:var(--text3);font-size:11px;white-space:nowrap;">${rNum!=null?'<b style=color:var(--green)>#'+rNum+'</b>':'–'}</td>
       <td style="padding:8px 12px;font-family:'DM Mono',monospace;font-size:11px;font-weight:600;color:var(--green);white-space:nowrap;">${dlEsc(tree.baumId||'–')}</td>
-      <td style="padding:8px 12px;font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${dlEsc(tree.name||'')}">${inact?'<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:9px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);margin-right:5px;">INAKTIV</span>':''}${_geomChip(tree)}${dlEsc(tree.name||'–')}</td>
+      <td style="padding:8px 12px;font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${dlEsc((tree.containerExtId&&_containerOf(tree)?.name)||tree.name||'')}">${inact?'<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:9px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);margin-right:5px;">INAKTIV</span>':''}${_geomChip(tree)}${(()=>{ const c=tree.containerExtId?_containerOf(tree):null; return c?`${dlEsc(c.name||'–')}<span style="color:var(--text3);font-weight:400;font-size:11px;"> · ${dlEsc(_elemLabel(tree))}</span>`:dlEsc(tree.name||'–'); })()}</td>
       <td style="padding:8px 12px;color:var(--text2);white-space:nowrap;">${dlEsc(tree.stadtteil||'–')}</td>
       <td style="padding:8px 12px;color:var(--text2);font-family:'DM Mono',monospace;font-size:11px;white-space:nowrap;">${dlEsc(tree.baumnr||'–')}</td>
       <td style="padding:8px 12px;color:var(--text2);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${dlEsc(tree.art||'')}">${dlEsc(tree.art||'–')}</td>
