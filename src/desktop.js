@@ -1558,7 +1558,7 @@ function makeMarker(tree){
 function setMarkerVisibility(){
   trees.forEach(tree=>{
     const m=mapMarkers[tree.id];if(!m)return;
-    let show=treeVisibleSel(tree);
+    let show=treeVisibleSel(tree) && _typeShown(tree);
     // Optional: Eigenschaften-Filter auch auf der Karte anwenden
     if(show && objFilterOnMap && !objMatchesPropFilter(tree)) show=false;
     if(show) _mAdd(m); else _mDel(m);
@@ -1738,6 +1738,16 @@ function _effMenge(t){ if(!t) return 0; if(t.menge!=null&&t.menge!=='') return p
 function _effEinheit(t){ if(t&&t.einheit) return t.einheit; const c=_containerOf(t); return c?(c.einheit||''):''; }
 // Vererbungs-Zustand einer Seite: erbt | eigene Länge | eigene Geometrie
 function _ausstStatus(t){ if(t&&(t.geomStr||(t.geom&&t.geom.coordinates))) return 'geom'; if(t&&t.menge!=null&&t.menge!=='') return 'laenge'; return 'erbt'; }
+// ── Objekttyp-Filter (Karte): Punkt/Strecke/Fläche/Abschnitt ein-/ausblendbar für die Planung ──
+let _typeFilter={}; // Kategorie → false = ausgeblendet
+function _objCategory(t){
+  if(_isContainer(t) || (t&&t.containerExtId)) return 'abschnitt'; // Abschnitt-Container + seine Seiten
+  const gt=geomTypeOf(t);
+  if(gt==='flaeche') return 'flaeche';
+  if(gt==='linie') return 'linie';
+  return 'punkt';
+}
+function _typeShown(t){ return _typeFilter[_objCategory(t)]!==false; }
 // Stellvertreter-Koordinate [lat,lng] für die Routenberechnung: Punkt=Koordinate, Fläche=Zentroid, Linie=Mittelpunkt.
 function _routePoint(t){
   if(!t) return null;
@@ -1753,6 +1763,28 @@ function _routableTrees(tourId){
     .map(t=>{ if(t.lat&&t.lng) return t; const p=_routePoint(t); return {...t, lat:p[0], lng:p[1]}; });
 }
 let _drawnLayer=null, _drawnById={}, _drawnSelId='';
+// ── Objekttyp-Filter (Karten-Button): Punkt/Strecke/Fläche/Abschnitt ein-/ausblenden ──
+function _presentCategories(){ const s=new Set(); for(const t of (trees||[])){ if(isActive(t)) s.add(_objCategory(t)); } return s; }
+function toggleTypeFilter(){
+  const p=document.getElementById('type-filter-panel'); if(!p) return;
+  if(p.style.display==='block'){ p.style.display='none'; return; }
+  renderTypeFilterPanel(); p.style.display='block';
+}
+function renderTypeFilterPanel(){
+  const p=document.getElementById('type-filter-panel'); if(!p) return;
+  const present=_presentCategories();
+  const cats=[['punkt','Punktobjekte'],['linie','Strecken'],['flaeche','Flächen'],['abschnitt','Straßenabschnitte']].filter(([c])=>present.has(c));
+  if(!cats.length){ p.innerHTML='<div style="font-size:12px;color:var(--text3);padding:4px;">Keine Objekte.</div>'; return; }
+  p.innerHTML=`<div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px;">Auf der Karte anzeigen</div>`+
+    cats.map(([c,l])=>`<label style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12px;cursor:pointer;color:var(--text2);white-space:nowrap;"><input type="checkbox" ${_typeFilter[c]!==false?'checked':''} onchange="setTypeVisible('${c}',this.checked)" style="width:14px;height:14px;cursor:pointer;flex:none;">${l}</label>`).join('');
+}
+function setTypeVisible(cat,on){
+  _typeFilter[cat]=!!on;
+  setMarkerVisibility();
+  try{ renderFlaechen(); }catch(_){ try{ renderDrawnGeoms(); }catch(__){} } // renderFlaechen ruft renderDrawnGeoms + gated Bundle
+  const b=document.getElementById('btn-type-filter');
+  if(b){ const anyHidden=Object.values(_typeFilter).some(v=>v===false); b.style.background=anyHidden?'var(--green-light)':'var(--surface)'; b.style.color=anyHidden?'var(--green)':'var(--text2)'; }
+}
 // ── Versatz-Modus: Abschnitt-Seiten parallel zur Mittellinie versetzt zeichnen (Umschalter) ──
 let _versatzOn=false;
 function toggleVersatz(){
@@ -1791,8 +1823,9 @@ function renderDrawnGeoms(){
   if(!map) return;
   if(_drawnLayer){ map.removeLayer(_drawnLayer); _drawnLayer=null; } _drawnById={};
   // Seiten (Ausstattung) zeichnen sich NICHT selbst — der Abschnitt-Container vertritt sie (eine Linie statt 4 deckungsgleicher).
-  const list=(trees||[]).filter(t=>_hasDrawnGeom(t)&&isActive(t)&&!t.containerExtId);
+  const list=(trees||[]).filter(t=>_hasDrawnGeom(t)&&isActive(t)&&!t.containerExtId&&_typeShown(t));
   const _vb=document.getElementById('btn-toggle-versatz'); if(_vb) _vb.style.display=(trees||[]).some(_isContainer)?'flex':'none';
+  const _tb=document.getElementById('btn-type-filter'); if(_tb) _tb.style.display=_presentCategories().size>1?'flex':'none';
   if(!list.length) return;
   // Zeichenreihenfolge: große Flächen unten, kleine darüber, Linien zuoberst → überlappte/kleinere bleiben anklickbar
   const _isLine=t=>_treeGeom(t)?.type==='LineString';
@@ -1906,6 +1939,9 @@ async function finishDraw(){
 
 async function renderFlaechen(){
   renderDrawnGeoms(); // gezeichnete Geometrie immer rendern (unabhängig vom Import-Bundle)
+  // Objekttyp-Filter: importierte Flächen (Bundle) ausblenden, wenn „Flächen" abgewählt sind
+  if(_typeFilter.flaeche===false){ if(_flaechenLayer&&map.hasLayer(_flaechenLayer)) map.removeLayer(_flaechenLayer); return; }
+  if(_flaechenLayer && !map.hasLayer(_flaechenLayer)) _flaechenLayer.addTo(map); // wieder einblenden
   // Bundle nur laden, wenn es IMPORTIERTE Flächen gibt (extId, Geometrie im Bundle). Rein gezeichnete
   // Flächen (geom am Doc, kein extId) brauchen kein Bundle → kein 404.
   const hasFl = currentProjectData?.hatFlaechen || (Array.isArray(trees) && trees.some(t=>t.geomType==='flaeche' && t.extId && !_hasDrawnGeom(t)));
@@ -10872,7 +10908,7 @@ Object.assign(window,{
   renderMandanten,createOrgUi,moveProjectUi,setOrgNaviUi,checkBaumIdDuplicates,flaechenImportOpen,flaechenImportRun,geomDocsImportOpen,geomDocsImportRun,strMigOpen,flaechenTourGenOpen,flaechenTourGenRun,
   addWmsLayer,deleteWmsLayer,editWmsLayer,cancelWmsEdit,renderWmsList,
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,setListMode,
-  toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,toggleTourCounts,toggleVersatz,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
+  toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,toggleTourCounts,toggleVersatz,toggleTypeFilter,setTypeVisible,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,saveOrgCode,dlToggleNoLogin,setDriverFunktion,setDriverEinsatz,dlDismissLoginRequest,dlFunktionAdd,dlFunktionRemove,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
