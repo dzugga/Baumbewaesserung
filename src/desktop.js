@@ -2513,15 +2513,17 @@ function selectTree(id, pan=true){
       }
     }, wasOnMap ? 0 : 200);
   }
-  else if(geomTypeOf(tree)!=='punkt' && _drawnById[tree.id]){
-    // Gezeichnete Geometrie (am Doc): heranzoomen + kurz grün hervorheben
-    const isLine=tree.geomType==='linie';
-    if(_drawnSelId && _drawnSelId!==tree.id && _drawnById[_drawnSelId]){ const p0=trees.find(x=>x.id===_drawnSelId); try{ _drawnById[_drawnSelId].setStyle(_flStyleForTree(p0, p0&&p0.geomType==='linie')); }catch(_){} }
+  else if(geomTypeOf(tree)!=='punkt' && (_drawnById[tree.id] || (tree.containerExtId && _containerOf(tree) && _drawnById[_containerOf(tree).id]))){
+    // Gezeichnete Geometrie (am Doc): heranzoomen + kurz grün hervorheben.
+    // Seite ohne eigene Linie → auf die Linie ihres Abschnitt-Containers zoomen.
+    const _lid=_drawnById[tree.id]?tree.id:_containerOf(tree).id;
+    const isLine=geomTypeOf(trees.find(x=>x.id===_lid)||tree)==='linie';
+    if(_drawnSelId && _drawnSelId!==_lid && _drawnById[_drawnSelId]){ const p0=trees.find(x=>x.id===_drawnSelId); try{ _drawnById[_drawnSelId].setStyle(_flStyleForTree(p0, p0&&p0.geomType==='linie')); }catch(_){} }
     setTimeout(()=>{ try{
       map.invalidateSize();
-      const lyr=_drawnById[tree.id]; if(!lyr) return;
+      const lyr=_drawnById[_lid]; if(!lyr) return;
       try{ lyr.setStyle(isLine?{color:'#1d9e75',weight:6,opacity:1}:{color:'#1d9e75',weight:3,fillColor:'#1d9e75',fillOpacity:0.55}); lyr.bringToFront&&lyr.bringToFront(); }catch(_){}
-      _drawnSelId=tree.id;
+      _drawnSelId=_lid;
       if(pan && lyr.getBounds){ const b=lyr.getBounds(); if(b.isValid()) map.fitBounds(b,{padding:[60,60],maxZoom:18,animate:true}); }
     }catch(_){} }, wasOnMap?0:250);
   }
