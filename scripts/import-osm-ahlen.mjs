@@ -47,7 +47,7 @@ function lenM(coords){ // Haversine-Summe über [lon,lat]-Paare
 }
 
 console.log('Frage Overpass nach Ahlener Straßen …');
-const res = await fetch(OVERPASS, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'data='+encodeURIComponent(QUERY) });
+const res = await fetch(OVERPASS, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded','Accept':'application/json','User-Agent':'Baumbewaesserung-Import/1.0 (kommunale Reinigungsplanung; Kontakt: dzugga@infa.de)'}, body:'data='+encodeURIComponent(QUERY) });
 if(!res.ok){ console.error('Overpass-Fehler:', res.status, await res.text()); process.exit(1); }
 const data = await res.json();
 const ways = (data.elements||[]).filter(e=>e.type==='way' && Array.isArray(e.geometry) && e.geometry.length>=2);
@@ -55,9 +55,10 @@ const ways = (data.elements||[]).filter(e=>e.type==='way' && Array.isArray(e.geo
 const docs=[]; let totalM=0, matched=0;
 for(const w of ways){
   const coords = w.geometry.map(p=>[+p.lon.toFixed(7), +p.lat.toFixed(7)]);
-  const m = lenM(coords); totalM += m;
   const t = w.tags||{};
-  const name = t.name || t.ref || ('Straße '+w.id);
+  if(!t.name && !t.ref) continue; // unbenannte Wege (Zufahrten/Service) überspringen — keine Reinigungs-Straßen
+  const m = lenM(coords); totalM += m;
+  const name = t.name || t.ref;
   const z = zMap.get(normName(name)); if(z) matched++;
   // Art nach Fahrbahn-Zuständigkeit → Aufwandssatz je Art (Stadt = echter min/100 m, Anlieger = 0) + Filter
   const art = z?.zustFahrbahn==='stadt' ? 'Fahrbahn (Stadt)'
