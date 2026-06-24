@@ -10001,6 +10001,60 @@ async function flaechenTourGenRun(){
     notify(`✓ ${p.tourList.length} Touren erzeugt · ${nTrees} Flächen zugeordnet`);
   }catch(e){ console.warn('flaechenTourGen', e); notify('Fehler: '+(e.message||e)); }
 }
+
+// ── Geometrie-Datensätze einspielen (Superadmin): Linien/Flächen mit geomStr am Doc (kein Bundle) ──
+// Für gezeichnete-/OSM-Geometrie (z. B. Ahlen-Straßen aus import-osm-ahlen.mjs).
+async function geomDocsImportOpen(){
+  if(currentRole!=='superadmin'){ notify('Nur Superadmin'); return; }
+  let projs=[];
+  try{ const [pq,oq]=await Promise.all([db.collection('projects').get(),db.collection('orgs').get()]);
+    const on={}; oq.forEach(d=>on[d.id]=d.data().name||d.id);
+    projs=pq.docs.map(d=>({id:d.id,name:d.data().name||d.id,orgId:d.data().orgId,org:on[d.data().orgId]||d.data().orgId})).sort((a,b)=>((a.org||'')+a.name).localeCompare((b.org||'')+b.name));
+  }catch(e){ notify('Projekte laden fehlgeschlagen'); return; }
+  const m=document.createElement('div');
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100001;display:flex;align-items:center;justify-content:center;padding:20px;';
+  m.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:460px;max-width:94vw;overflow:hidden;">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;">／ Geometrie-Datensätze einspielen</div>
+    <div style="padding:16px 18px;display:flex;flex-direction:column;gap:12px;font-size:13px;">
+      <label style="font-size:12px;color:var(--text3);">Zielprojekt<select id="gd-proj" class="form-control" style="width:100%;margin-top:3px;">${projs.map(p=>`<option value="${dlEsc(p.id)}|${dlEsc(p.orgId)}"${p.id===currentProjectId?' selected':''}>${dlEsc(p.org)} · ${dlEsc(p.name)}</option>`).join('')}</select></label>
+      <label style="font-size:12px;color:var(--text3);">Datensätze (z. B. ahlen-strecken-docs.json)<input id="gd-docs" type="file" accept=".json" class="form-control" style="width:100%;margin-top:3px;"></label>
+      <div id="gd-status" style="font-size:12px;color:var(--text2);min-height:18px;"></div>
+      <div style="font-size:11px;color:var(--text3);">Linien-/Flächen-Objekte mit Geometrie direkt am Doc (geomStr). Es wird nichts überschrieben — am besten ein leeres Zielprojekt.</div>
+    </div>
+    <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
+      <button id="gd-cancel" class="btn btn-secondary" style="padding:7px 12px;">Abbrechen</button>
+      <button id="gd-run" class="btn btn-primary" style="padding:7px 14px;">Einspielen</button>
+    </div>
+  </div>`;
+  document.body.appendChild(m);
+  const close=()=>m.remove();
+  m.querySelector('#gd-cancel').onclick=close;
+  m.addEventListener('click',e=>{ if(e.target===m) close(); });
+  m.querySelector('#gd-run').onclick=()=>geomDocsImportRun(close);
+}
+async function geomDocsImportRun(close){
+  if(currentRole!=='superadmin') return;
+  const sel=document.getElementById('gd-proj')?.value||''; const [pid,org]=sel.split('|');
+  const f=document.getElementById('gd-docs')?.files?.[0];
+  const setMsg=t=>{ const e=document.getElementById('gd-status'); if(e) e.textContent=t; };
+  if(!pid||!org){ setMsg('Kein Zielprojekt.'); return; }
+  if(!f){ setMsg('Bitte Datei wählen.'); return; }
+  const run=document.getElementById('gd-run'); if(run){ run.disabled=true; run.style.opacity=.5; }
+  try{
+    const docs=JSON.parse(await f.text());
+    if(!Array.isArray(docs)||!docs.length){ setMsg('Datei enthält keine Datensätze.'); if(run){run.disabled=false;run.style.opacity=1;} return; }
+    for(let i=0;i<docs.length;i+=400){
+      const batch=db.batch();
+      docs.slice(i,i+400).forEach(d=>{ const ref=db.collection('projects').doc(pid).collection('trees').doc();
+        batch.set(ref,{...d, orgId:org, aktiv:true, tourIds:[], tourId:'', history:[], createdAt:firebase.firestore.FieldValue.serverTimestamp()}); });
+      await batch.commit();
+      setMsg(`${Math.min(i+400,docs.length)} / ${docs.length} geschrieben…`);
+    }
+    setMsg('✓ Fertig: '+docs.length+' Objekte eingespielt.');
+    notify('✓ '+docs.length+' Geometrie-Objekte eingespielt');
+    setTimeout(()=>{ if(close) close(); },1500);
+  }catch(e){ setMsg('Fehler: '+(e.message||e)); notify('Fehler: '+(e.message||e)); if(run){run.disabled=false;run.style.opacity=1;} }
+}
 async function renderMandanten(){
   const el=document.getElementById('mandanten-body'); if(!el) return;
   if(currentRole!=='superadmin'){ el.innerHTML='<div style="padding:24px;color:var(--text3);font-size:13px;">Nur der Superadmin kann Mandanten verwalten.</div>'; return; }
@@ -10033,7 +10087,7 @@ async function renderMandanten(){
       </div>
       <div style="font-size:11px;color:var(--text3);margin-top:6px;">Danach unter Admin → Benutzer Personen für den neuen Mandanten anlegen.</div>
     </div>
-    <div style="margin-bottom:16px;"><button class="btn btn-secondary" style="font-size:12px;padding:7px 12px;" onclick="flaechenImportOpen()">⬗ Flächen-Bundle einspielen</button> <span style="font-size:11px;color:var(--text3);">Geometrie + Datensätze aus der Aufbereitung in ein (leeres) Projekt laden.</span></div>
+    <div style="margin-bottom:16px;"><button class="btn btn-secondary" style="font-size:12px;padding:7px 12px;" onclick="flaechenImportOpen()">⬗ Flächen-Bundle einspielen</button> <button class="btn btn-secondary" style="font-size:12px;padding:7px 12px;" onclick="geomDocsImportOpen()">／ Geometrie-Datensätze einspielen</button> <span style="font-size:11px;color:var(--text3);">Bundle = importierte Flächen · Datensätze = Linien/Flächen mit Geometrie am Doc (z. B. Ahlen-Straßen).</span></div>
     ${orgs.map(o=>`<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 16px;margin-bottom:12px;">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
         <span style="font-size:14px;font-weight:700;">${dlEsc(o.name||o.id)}</span>
@@ -10299,7 +10353,7 @@ Object.assign(window,{
   startAssignMode,setAssignTour,cancelAssign,assignTreeToTour,
   openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,
   pickProjIcon,artSetIcon,artSetTime,artSetRate,setArtDefaultTime,artApplyTimeToAll,
-  renderMandanten,createOrgUi,moveProjectUi,setOrgNaviUi,checkBaumIdDuplicates,flaechenImportOpen,flaechenImportRun,flaechenTourGenOpen,flaechenTourGenRun,
+  renderMandanten,createOrgUi,moveProjectUi,setOrgNaviUi,checkBaumIdDuplicates,flaechenImportOpen,flaechenImportRun,geomDocsImportOpen,geomDocsImportRun,flaechenTourGenOpen,flaechenTourGenRun,
   addWmsLayer,deleteWmsLayer,editWmsLayer,cancelWmsEdit,renderWmsList,
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,toggleTourCounts,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
