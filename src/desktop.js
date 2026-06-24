@@ -2355,11 +2355,13 @@ function buildSimModel(route,skipBew){
   const totalDrive=route.durationSec||(totalGeo/1000/30*3600);
   const waterSec=skipBew?0:getBewDuration()*60;
   const depot=getDepot();
-  const ot=(route.orderIds||[]).map(id=>trees.find(t=>t.id===id)).filter(t=>t&&t.lat&&t.lng);
+  // Stellvertreter-Koordinate je Objekt (Punkt = selbst, Fläche = Zentroid, Linie/Seite = Mittelpunkt) →
+  // funktioniert auch für Abschnitt-Seiten ohne eigene lat/lng (Geometrie geerbt vom Container).
+  const ot=(route.orderIds||[]).map(id=>trees.find(t=>t.id===id)).map(t=>{ const p=t?_routePoint(t):null; return p?{t,p}:null; }).filter(Boolean);
   if(ot.length===0) return null;
   const wp=[];
   if(depot) wp.push({type:'depot',coord:[depot.lat,depot.lng]});
-  ot.forEach(t=>wp.push({type:'water',coord:[t.lat,t.lng],tree:t}));
+  ot.forEach(({t,p})=>wp.push({type:'water',coord:p,tree:t}));
   if(depot&&getDepotMode()==='round') wp.push({type:'depot',coord:[depot.lat,depot.lng]});
   let prev=0;
   wp.forEach((w,i)=>{ let idx=simNearestVertexLocal(pts,w.coord,i===0?0:prev); if(idx<prev) idx=prev; w.idx=idx; prev=idx; });
