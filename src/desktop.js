@@ -1340,9 +1340,17 @@ function _tourSpeedKmh(tid){
   const s=getReinigungssysteme().find(x=>x.id===t.reinigungssystem);
   const v=s&&parseFloat(s.speed); return (typeof v==='number'&&v>0)?v:0;
 }
+// Zu bearbeitende Strecke einer Tour (Meter) = Summe der effektiven Längen ALLER Linien-Objekte der Tour.
+// Fahrbahn links und rechts zählen getrennt (jede ihre Länge) — die zu reinigende Strecke ist also
+// die Summe beider Seiten, nicht die einmalige Mittellinie/Route.
+function _tourWorkMeters(tid){
+  let m=0;
+  for(const t of (trees||[])){ if(t.aktiv===false||!treeInTour(t,tid)) continue; if(geomTypeOf(t)==='linie') m+=_effMenge(t); }
+  return m;
+}
 // Kennzahlen einer Tour: bevorzugt geladene Route (tourRoutes), sonst persistierte Tour-Werte.
-// Ist der Tour ein Reinigungssystem mit Geschwindigkeit zugeordnet, bestimmt diese die Fahrtzeit
-// (Fahrtzeit = Streckenlänge ÷ Geschwindigkeit) statt der ORS-/Auto-Fahrzeit.
+// Ist der Tour ein Reinigungssystem mit Geschwindigkeit zugeordnet, bestimmt diese die Fahrtzeit über die
+// zu bearbeitende Strecke (Summe der Seiten-Längen ÷ Geschwindigkeit) statt der ORS-/Auto-Fahrzeit.
 function tourMetrics(tid){
   let km=null, durationSec=0;
   const rt=tourRoutes[tid];
@@ -1350,7 +1358,7 @@ function tourMetrics(tid){
   else { const t=tours.find(x=>x.id===tid); if(t && typeof t.routeKm==='number'){ km=t.routeKm; durationSec=t.routeDriveSec||0; } }
   if(km==null) return null;
   const sp=_tourSpeedKmh(tid);
-  if(sp>0 && km>0) durationSec = km/sp*3600;
+  if(sp>0){ const wm=_tourWorkMeters(tid); if(wm>0) durationSec = wm*3.6/sp; } // m × 3,6 / (km/h) = Sekunden
   return {km, durationSec};
 }
 // Füllt das Routen-Kennzahlen-Panel (Sidebar): Gesamtzeit + km, Proportionsleiste, Chips.
