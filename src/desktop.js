@@ -2397,8 +2397,11 @@ const filterDetailTableDebounced=_debounce(v=>filterDetailTable(v),160);
 
 function renderList(){
   const q=document.getElementById('search-input')?.value.toLowerCase()||'';
+  // Abschnittsnamen je extId (für Seiten: Straßenname als Anzeige + durchsuchbar)
+  const _contName={}; for(const t of trees){ if(t.containerTyp) _contName[t.extId]=t.name||''; }
   let filtered=trees.filter(t=>{
-    const mq=matchTerms([t.name,t.art,t.stadtteil,t.baumnr,t.baumId,t.pflanzjahr].join(' '), q);
+    const cn=t.containerExtId?(_contName[t.containerExtId]||''):'';
+    const mq=matchTerms([t.name,t.art,t.stadtteil,t.baumnr,t.baumId,t.pflanzjahr,cn].join(' '), q);
     const mf = treeVisibleSel(t);
     return mq&&mf&&objMatchesPropFilter(t);
   });
@@ -2433,11 +2436,15 @@ function renderList(){
       const seqBadge=rNum!=null?`<span class="tree-seq" style="background:${color||'#6b6760'};">${rNum}</span>`:'';
       // Tour-Namen-Chips nur bei Mehrfachauswahl (da ist der Tourname relevant); bei 0/1 ausgeblendet
       const tourBadges=nSel>=2?treeTours.map(t=>`<span class="badge" style="background:${t.color}22;color:${t.color};">${dlEsc(t.name)}</span>`).join(''):'';
-      const meta=[tree.art||'Unbekannt',tree.stadtteil].filter(Boolean).map(dlEsc).join(' · ');
+      const _isSide=!!tree.containerExtId; // Seite eines Abschnitts → Straßenname als Titel, Seite+Art als Meta
+      const dispName=_isSide?(_contName[tree.containerExtId]||tree.name||'–'):(tree.name||'–');
+      const meta=_isSide
+        ? [_elemLabel(tree),tree.art].filter(Boolean).map(dlEsc).join(' · ')
+        : [tree.art||'Unbekannt',tree.stadtteil].filter(Boolean).map(dlEsc).join(' · ');
       return `<div class="tree-item${sel}" data-treeid="${tree.id}">
         <div class="tree-icon" style="background:${bg};">${objIcon(tree)}${seqBadge}</div>
         <div class="tree-info">
-          <div class="tree-name">${_geomChip(tree)}${dlEsc(tree.name||'–')}</div>
+          <div class="tree-name">${_geomChip(tree)}${dlEsc(dispName)}</div>
           <div class="tree-meta">${meta}</div>
           ${tourBadges?`<div class="tree-badges">${tourBadges}</div>`:''}
         </div>
