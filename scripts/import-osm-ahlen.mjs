@@ -63,6 +63,9 @@ if(!res.ok){ console.error('Overpass-Fehler:', res.status, await res.text()); pr
 const data = await res.json();
 const ways = (data.elements||[]).filter(e=>e.type==='way' && Array.isArray(e.geometry) && e.geometry.length>=2);
 
+// Container-Modell: je Straße EIN Abschnitt-Container (trägt Linie + Länge) + 4 Seiten als Ausstattung
+// (Fahrbahn/Gehweg links/rechts), die Geometrie + Länge ERBEN (kein geomStr/menge am Seiten-Doc).
+// Die Seiten sind die planbaren Objekte (eigene Tour/Status); der Container ist die Klammer.
 const docs=[]; let totalM=0, matched=0;
 for(const w of ways){
   const coords = w.geometry.map(p=>[+p.lon.toFixed(7), +p.lat.toFixed(7)]);
@@ -71,36 +74,43 @@ for(const w of ways){
   const m = lenM(coords); totalM += m;
   const name = t.name || t.ref;
   const z = zMap.get(normName(name)); if(z) matched++;
-  // Art nach Fahrbahn-Zuständigkeit → Aufwandssatz je Art (Stadt = echter min/100 m, Anlieger = 0) + Filter
-  const art = z?.zustFahrbahn==='stadt' ? 'Fahrbahn (Stadt)'
-            : z?.zustFahrbahn==='anlieger' ? 'Fahrbahn (Anlieger)'
-            : 'Fahrbahn';
+  const ext = 'osm-'+w.id;
+  // Art nach Zuständigkeit je Seite → Aufwandssatz je Art (Stadt = echter min/100 m, Anlieger = 0)
+  const fbArt = z?.zustFahrbahn==='stadt' ? 'Fahrbahn (Stadt)' : z?.zustFahrbahn==='anlieger' ? 'Fahrbahn (Anlieger)' : 'Fahrbahn';
+  const gwArt = z?.zustGehweg  ==='stadt' ? 'Gehweg (Stadt)'   : z?.zustGehweg  ==='anlieger' ? 'Gehweg (Anlieger)'   : 'Gehweg';
+  // Abschnitt-Container
   docs.push({
-    extId: 'osm-'+w.id,
+    extId: ext,
+    containerTyp: 'strecke',
     geomType: 'linie',
     geomStr: JSON.stringify({ type:'LineString', coordinates: coords }),
     menge: m, einheit: 'm',
     name,
-    art,
-    strassentyp: t.highway || '',    // Kundenfeld-Kandidat
+    art: 'Straßenabschnitt',
+    strassentyp: t.highway || '',
     belag: t.surface || '',
-    // Zuständigkeit aus dem Straßenverzeichnis (Option b: alle Straßen, Zuständigkeit als Filterfeld):
     zustFahrbahn: z?.zustFahrbahn || '',   // 'stadt' | 'anlieger' | ''
     zustGehweg:   z?.zustGehweg   || '',
     strKategorie: z?.kategorie    || '',
     strSchluessel:z?.schluessel   || '',
-    baumId: 'S-'+w.id,               // Objekt-ID
+    baumId: 'S-'+w.id,
   });
+  // 4 Standard-Seiten (erben Geometrie + Länge vom Container)
+  for(const [element,label,sart] of [['fahrbahn_l','Fahrbahn links',fbArt],['fahrbahn_r','Fahrbahn rechts',fbArt],['gehweg_l','Gehweg links',gwArt],['gehweg_r','Gehweg rechts',gwArt]]){
+    docs.push({ containerExtId: ext, element, elementLabel: label, name: label, art: sart, geomType: 'linie', baumId: 'S-'+w.id+'-'+element });
+  }
 }
 
 mkdirSync(OUT_DIR, { recursive: true });
 writeFileSync(`${OUT_DIR}/ahlen-strecken-docs.json`, JSON.stringify(docs));
-const named = docs.filter(d=>!/^Straße \d+$/.test(d.name)).length;
+const containers = docs.filter(d=>d.containerTyp);
+const sides = docs.filter(d=>d.containerExtId);
 console.log('\n================ ERGEBNIS ================');
-console.log('Straßen-Abschnitte:', docs.length.toLocaleString('de-DE'));
-console.log('davon mit Namen:   ', named.toLocaleString('de-DE'));
-console.log('mit Zuständigkeit (Verzeichnis-Treffer):', matched.toLocaleString('de-DE'), '('+Math.round(matched/Math.max(named,1)*100)+'% der benannten)');
-console.log('  davon Stadt-Fahrbahn:', docs.filter(d=>d.zustFahrbahn==='stadt').length.toLocaleString('de-DE'));
-console.log('Gesamtlänge:       ', (totalM/1000).toFixed(1), 'km');
-console.log('Geschrieben nach:  ', `${OUT_DIR}/ahlen-strecken-docs.json`);
-console.log('\nNächster Schritt: Admin → Mandanten → „Geometrie-Datensätze einspielen" → Datei wählen → Zielprojekt Ahlen.');
+console.log('Abschnitte (Container):', containers.length.toLocaleString('de-DE'));
+console.log('Seiten (Ausstattung):  ', sides.length.toLocaleString('de-DE'), '(4 je Abschnitt: Fahrbahn/Gehweg L+R)');
+console.log('Datensätze gesamt:     ', docs.length.toLocaleString('de-DE'));
+console.log('mit Zuständigkeit (Verzeichnis-Treffer):', matched.toLocaleString('de-DE'), '('+Math.round(matched/Math.max(containers.length,1)*100)+'% der Abschnitte)');
+console.log('  davon Stadt-Fahrbahn:', containers.filter(d=>d.zustFahrbahn==='stadt').length.toLocaleString('de-DE'));
+console.log('Gesamtlänge:           ', (totalM/1000).toFixed(1), 'km');
+console.log('Geschrieben nach:      ', `${OUT_DIR}/ahlen-strecken-docs.json`);
+console.log('\nNächster Schritt: in ein LEERES Zielprojekt einspielen (Admin → Mandanten → „Geometrie-Datensätze einspielen").');

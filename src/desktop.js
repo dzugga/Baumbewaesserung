@@ -717,7 +717,7 @@ function getBewDuration(){
 // Linie = min/100 m (zeitaufwandM) × Länge; Fläche = min/100 m² (zeitaufwandM2) × Fläche. Ohne passenden Satz: 0.
 function artBewMin(tree){
   const a=(tree.artId&&artenList.find(x=>x.id===tree.artId))||artenList.find(x=>x.name===(tree.art||'').trim());
-  const gt=geomTypeOf(tree), menge=parseFloat(tree.menge)||0;
+  const gt=geomTypeOf(tree), menge=_effMenge(tree);
   if(gt==='linie'){ const r=a&&a.zeitaufwandM; return (typeof r==='number'&&r>0&&menge>0)?r*menge/100:0; }
   if(gt==='flaeche'){ const r=a&&a.zeitaufwandM2; return (typeof r==='number'&&r>0&&menge>0)?r*menge/100:0; }
   const v=a&&a.zeitaufwand;
@@ -1565,6 +1565,10 @@ const FL_NEUTRAL='#000'; // Standardfarbe ohne Tour-Auswahl (wie Punktobjekte: e
 // Tourfarbe einer Fläche – analog zu makeMarker: NUR bei aktiver Tour-Auswahl, sonst null.
 function _flTourColorFor(t){
   if(!t || !activeTours.size) return null;
+  if(_isContainer(t)){ // Abschnitt selbst ist nicht verplant → Farbe einer Seite, die in einer aktiven Tour liegt
+    for(const s of _ausstattungOf(t.extId)){ const sid=getTreeTourIds(s).find(id=>activeTours.has(id)); if(sid) return (tours.find(x=>x.id===sid)||{}).color||null; }
+    return null;
+  }
   if(activeTourOnMap && treeInTour(t,activeTourOnMap)) return (tours.find(x=>x.id===activeTourOnMap)||{}).color||null;
   const id=getTreeTourIds(t).find(id=>activeTours.has(id));
   return id ? ((tours.find(x=>x.id===id)||{}).color||null) : null;
@@ -1604,8 +1608,22 @@ function _fmtLen(m){ return m>=1000?(m/1000).toFixed(2).replace('.',',')+' km':M
 function _fmtArea(m2){ return m2>=10000?(m2/10000).toFixed(2).replace('.',',')+' ha':Math.round(m2)+' m²'; }
 // Geometrie am Doc rendern (Fläche=Polygon, Strecke=Linie) — getrennt vom Import-Bundle
 // Gezeichnete Geometrie liegt als JSON-String am Doc (geomStr) — Firestore kann keine verschachtelten Arrays
-function _treeGeom(t){ if(!t) return null; if(t.geom&&t.geom.coordinates) return t.geom; if(t.geomStr){ try{ return JSON.parse(t.geomStr); }catch(_){ return null; } } return null; }
-function _hasDrawnGeom(t){ return !!(t && (t.geomStr || (t.geom&&t.geom.coordinates))); }
+function _treeGeom(t){ if(!t) return null; if(t.geom&&t.geom.coordinates) return t.geom; if(t.geomStr){ try{ return JSON.parse(t.geomStr); }catch(_){ return null; } }
+  const c=_containerOf(t); if(c) return _treeGeom(c); // Seite ohne eigene Geometrie erbt vom Abschnitt-Container
+  return null; }
+function _hasDrawnGeom(t){ return !!(t && (t.geomStr || (t.geom&&t.geom.coordinates) || (t&&t.containerExtId&&_containerOf(t)))); }
+// ── Container / Ausstattung (Straßenabschnitt mit Seiten) ────────────────────────────
+// Abschnitt = Container (Feld containerTyp, z. B. 'strecke') trägt Linie + Länge. Die Seiten
+// (Fahrbahn/Gehweg links/rechts …) referenzieren ihn über containerExtId und ERBEN Geometrie +
+// Länge: leer = erbt, eigene Länge/Geometrie = Override. Container selbst ist nicht tour-planbar.
+function _isContainer(t){ return !!(t && t.containerTyp); }
+function _containerOf(t){ if(!t||!t.containerExtId) return null; return (trees||[]).find(x=>x.containerTyp&&x.extId===t.containerExtId)||null; }
+function _ausstattungOf(containerExtId){ return containerExtId?(trees||[]).filter(t=>t.containerExtId===containerExtId):[]; }
+// Effektive Länge/Fläche + Einheit: eigener Wert, sonst geerbt vom Container
+function _effMenge(t){ if(!t) return 0; if(t.menge!=null&&t.menge!=='') return parseFloat(t.menge)||0; const c=_containerOf(t); return c?(parseFloat(c.menge)||0):0; }
+function _effEinheit(t){ if(t&&t.einheit) return t.einheit; const c=_containerOf(t); return c?(c.einheit||''):''; }
+// Vererbungs-Zustand einer Seite: erbt | eigene Länge | eigene Geometrie
+function _ausstStatus(t){ if(t&&(t.geomStr||(t.geom&&t.geom.coordinates))) return 'geom'; if(t&&t.menge!=null&&t.menge!=='') return 'laenge'; return 'erbt'; }
 // Stellvertreter-Koordinate [lat,lng] für die Routenberechnung: Punkt=Koordinate, Fläche=Zentroid, Linie=Mittelpunkt.
 function _routePoint(t){
   if(!t) return null;
@@ -1624,7 +1642,8 @@ let _drawnLayer=null, _drawnById={}, _drawnSelId='';
 function renderDrawnGeoms(){
   if(!map) return;
   if(_drawnLayer){ map.removeLayer(_drawnLayer); _drawnLayer=null; } _drawnById={};
-  const list=(trees||[]).filter(t=>_hasDrawnGeom(t)&&isActive(t));
+  // Seiten (Ausstattung) zeichnen sich NICHT selbst — der Abschnitt-Container vertritt sie (eine Linie statt 4 deckungsgleicher).
+  const list=(trees||[]).filter(t=>_hasDrawnGeom(t)&&isActive(t)&&!t.containerExtId);
   if(!list.length) return;
   // Zeichenreihenfolge: große Flächen unten, kleine darüber, Linien zuoberst → überlappte/kleinere bleiben anklickbar
   const _isLine=t=>_treeGeom(t)?.type==='LineString';
@@ -1640,7 +1659,13 @@ function renderDrawnGeoms(){
     if(g.type==='Polygon'){ const ll=(g.coordinates[0]||[]).map(c=>[c[1],c[0]]); if(ll.length<3) return; layer=L.polygon(ll,_opt(_flStyleForTree(t,false))); }
     else if(g.type==='LineString'){ const ll=(g.coordinates||[]).map(c=>[c[1],c[0]]); if(ll.length<2) return; layer=L.polyline(ll,_opt(_flStyleForTree(t,true))); }
     if(!layer) return;
-    layer.on('click',()=>{ if(assignMode&&!lassoDrawing){ toggleLassoSelect(t.id); _applyFlaechenSelection(); } else if(!assignMode) selectTree(t.id,false); });
+    layer.on('click',()=>{
+      if(assignMode&&!lassoDrawing){
+        if(_isContainer(t)){ _ausstattungOf(t.extId).forEach(s=>lassoSelection.add(s.id)); renderLassoActions(); } // Abschnitt → alle Seiten vorwählen
+        else toggleLassoSelect(t.id);
+        _applyFlaechenSelection();
+      } else if(!assignMode){ if(_isContainer(t)) openAbschnitt(t.id); else selectTree(t.id,false); }
+    });
     layer.bindTooltip((t.name||(t.geomType==='linie'?'Strecke':'Fläche'))+(t.menge?' · '+(t.einheit==='m'?_fmtLen(t.menge):_fmtArea(t.menge)):''),{sticky:true});
     layer.addTo(_drawnLayer); _drawnById[t.id]=layer;
     // Reihenfolge-Nummer am Zentroid (nur bei aktiver Tour-Auswahl/berechneter Route sichtbar)
@@ -2512,10 +2537,10 @@ function fieldAppliesTo(c, gt){ return !(c && c.geomTypes && c.geomTypes.length)
 function _geomActive(){ return Array.isArray(trees) && trees.some(t=>geomTypeOf(t)!=='punkt'); }
 function _geomLabel(tree){
   const name={punkt:'Punkt',linie:'Linie',flaeche:'Fläche'}[geomTypeOf(tree)]||geomTypeOf(tree);
-  if(tree.menge==null||tree.menge==='') return name;
-  const eh={m2:'m²',m:'m',Stk:'Stk'}[tree.einheit]||tree.einheit||'';
-  const m=typeof tree.menge==='number'?tree.menge.toLocaleString('de-DE'):tree.menge;
-  return name+' · '+m+(eh?' '+eh:'');
+  const mv=_effMenge(tree);
+  if(!mv) return name;
+  const eh={m2:'m²',m:'m',Stk:'Stk'}[_effEinheit(tree)]||_effEinheit(tree)||'';
+  return name+' · '+mv.toLocaleString('de-DE')+(eh?' '+eh:'');
 }
 // Kleiner Geometrie-Chip für Listen (Fläche/Strecke); Punkt = kein Chip
 function _geomChip(tree){
@@ -2526,6 +2551,7 @@ function _geomChip(tree){
 }
 function openDetail(id){
   const tree=trees.find(t=>t.id===id);if(!tree)return;
+  if(_isContainer(tree)){ openAbschnitt(id); return; } // Abschnitt → eigenes Fenster
   _mountDetailPanel();
   selectedTreeId=id;renderList();
   const tour=primaryTour(tree);
@@ -2543,7 +2569,9 @@ function openDetail(id){
 
   // Kompakt: leere Felder ausblenden (kein „–"-Rauschen), Koordinaten ganz raus
   const drow=(k,v,vs)=>v?`<div class="detail-field" style="padding:5px 0;"><span class="detail-key">${k}</span><span class="detail-val"${vs?` style="${vs}"`:''}>${dlEsc(''+v)}</span></div>`:'';
+  const _cont=_containerOf(tree); // gehört dieses Objekt zu einem Abschnitt? → Rücksprung anbieten
   let body=`
+    ${_cont?`<div onclick="openAbschnitt('${_cont.id}')" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--green);padding:2px 0 8px;">← ${dlEsc(_cont.name||'Abschnitt')}</div>`:''}
     ${_zE?`<div class="status-bar" style="background:${statusBg};color:${statusColor};">${dlEsc(FL.zustand)} — ${dlEsc(zLabel)}</div>`:''}
 
     <div class="form-section">Identifikation</div>
@@ -2639,6 +2667,97 @@ function openDetail(id){
   });
 }
 
+// ─── ABSCHNITTS-FENSTER (Container mit Ausstattung) ───────────────────────────
+const _ELEM_ORDER=['fahrbahn_l','fahrbahn_r','gehweg_l','gehweg_r','radweg_l','radweg_r','parkstreifen','gruenstreifen'];
+const _ELEM_LABEL={fahrbahn_l:'Fahrbahn links',fahrbahn_r:'Fahrbahn rechts',gehweg_l:'Gehweg links',gehweg_r:'Gehweg rechts',radweg_l:'Radweg links',radweg_r:'Radweg rechts',parkstreifen:'Parkstreifen',gruenstreifen:'Grünstreifen'};
+function _elemLabel(s){ return _ELEM_LABEL[s.element]||s.elementLabel||s.name||'Seite'; }
+function openAbschnitt(id){
+  const c=trees.find(t=>t.id===id); if(!c) return;
+  if(!_isContainer(c)) return openDetail(id);
+  _mountDetailPanel(); selectedTreeId=id; renderList();
+  const _erank=s=>{ const i=_ELEM_ORDER.indexOf(s.element); return i<0?99:i; };
+  const sides=_ausstattungOf(c.extId).slice().sort((a,b)=>_erank(a)-_erank(b)||(_elemLabel(a)).localeCompare(_elemLabel(b)));
+  const eh={m2:'m²',m:'m',Stk:'Stk'}[c.einheit]||c.einheit||'';
+  const totalMin=Math.round(sides.reduce((s,x)=>s+artBewMin(x),0));
+  document.getElementById('panel-title').textContent=c.name||'Abschnitt';
+  const _meta=document.getElementById('panel-meta'); if(_meta) _meta.textContent=(c.stadtteil?dlEsc(c.stadtteil)+' · ':'')+'Abschnitt';
+  const badge=st=>st==='geom'?'<span style="font-size:11px;padding:2px 8px;border-radius:6px;background:#e0edff;color:#0369a1;">eigene Geometrie</span>'
+    :st==='laenge'?'<span style="font-size:11px;padding:2px 8px;border-radius:6px;background:#fdebd0;color:#92560a;">eigene Länge</span>'
+    :'<span style="font-size:11px;padding:2px 8px;border-radius:6px;background:var(--surface2);color:var(--text2);">erbt</span>';
+  const rows=sides.map(s=>{
+    const tr=primaryTour(s), tcol=tr?tr.color:'#b4b2a9';
+    const done=s.lastStatus==='bewaessert', sdot=done?'#1d9e75':(s.lastStatus==='nicht'?'#dc2626':'#b4b2a9');
+    const ml=_effMenge(s), ehs=_effEinheit(s)==='m2'?'m²':_effEinheit(s), mlS=ml?ml.toLocaleString('de-DE')+(ehs?' '+ehs:''):'';
+    const st=_ausstStatus(s);
+    const lenS=!mlS?'':st==='erbt'?`<span style="color:var(--text3);">${mlS} geerbt</span>`:st==='laenge'?`<span style="color:#92560a;">${mlS} eigen</span>`:`<span style="color:#0369a1;">${mlS} gezeichnet</span>`;
+    const am=Math.round(artBewMin(s));
+    return `<div onclick="selectTree('${s.id}')" style="cursor:pointer;border:1px solid var(--border);border-radius:8px;padding:9px 11px;margin-bottom:7px;">
+      <div style="display:flex;align-items:center;gap:9px;">
+        <span style="width:9px;height:9px;border-radius:50%;background:${sdot};flex:none;"></span>
+        <div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:600;">${dlEsc(_elemLabel(s))}</div>
+          <div style="font-size:11px;color:var(--text2);">${dlEsc(s.art||'–')}${am?' · '+am+' min':''}</div></div>
+        ${badge(st)}
+      </div>
+      <div style="display:flex;gap:14px;margin:6px 0 0 18px;font-size:11px;color:var(--text2);flex-wrap:wrap;">
+        <span><span style="color:${tcol};">●</span> ${tr?dlEsc(tr.name):'keine Tour'}</span>
+        ${lenS?`<span>${lenS}</span>`:''}
+        <span>${done?'erledigt':'offen'}</span>
+      </div>
+    </div>`;
+  }).join('')||'<div style="font-size:12px;color:var(--text3);padding:6px 0;">Noch keine Ausstattung.</div>';
+  document.getElementById('panel-body').innerHTML=`
+    <div class="detail-field" style="padding:5px 0;"><span class="detail-key">Objekt-ID</span><span class="detail-val" style="font-family:monospace;font-weight:700;color:var(--green);">${dlEsc(c.baumId||'–')}</span></div>
+    ${c.art?`<div class="detail-field" style="padding:5px 0;"><span class="detail-key">Zuständigkeit</span><span class="detail-val">${dlEsc(c.art)}</span></div>`:''}
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0 14px;">
+      <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;"><div style="font-size:11px;color:var(--text3);">Länge</div><div style="font-size:17px;font-weight:700;">${(parseFloat(c.menge)||0).toLocaleString('de-DE')} ${eh}</div></div>
+      <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;"><div style="font-size:11px;color:var(--text3);">Ausstattung</div><div style="font-size:17px;font-weight:700;">${sides.length}</div></div>
+      <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;"><div style="font-size:11px;color:var(--text3);">Zeit gesamt</div><div style="font-size:17px;font-weight:700;">${totalMin} min</div></div>
+    </div>
+    <div class="form-section" style="display:flex;justify-content:space-between;align-items:center;">Ausstattung <span style="font-size:11px;font-weight:400;color:var(--text3);">leer = erbt vom Abschnitt</span></div>
+    <div style="padding:6px 0;">${rows}</div>
+    ${isReadonly()?'':`<button class="btn btn-secondary" style="width:100%;padding:7px;font-size:12px;" onclick="abschnittAddSeite('${c.id}')">+ Seite hinzufügen</button>`}
+  `;
+  document.getElementById('panel-actions').innerHTML=isReadonly()?'':`<button class="btn btn-secondary" style="flex:1;" onclick="openEditTree('${c.id}')">Abschnitt bearbeiten</button>`;
+  switchDetailTab('details');
+  const _vb=document.getElementById('panel-body-verlauf'); if(_vb) _vb._treeId=id;
+  document.getElementById('detail-panel').classList.add('open');
+  if(_drawnById[id]){ try{ const b=_drawnById[id].getBounds&&_drawnById[id].getBounds(); if(b&&b.isValid()) map.fitBounds(b,{padding:[60,60],maxZoom:18,animate:true}); }catch(_){} }
+}
+async function abschnittAddSeite(containerId){
+  const c=trees.find(t=>t.id===containerId); if(!c||isReadonly()) return;
+  const common=[['fahrbahn_l','Fahrbahn links'],['fahrbahn_r','Fahrbahn rechts'],['gehweg_l','Gehweg links'],['gehweg_r','Gehweg rechts'],['radweg_l','Radweg links'],['radweg_r','Radweg rechts'],['parkstreifen','Parkstreifen'],['gruenstreifen','Grünstreifen']];
+  const existing=new Set(_ausstattungOf(c.extId).map(s=>s.element).filter(Boolean));
+  const m=document.createElement('div'); m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100001;display:flex;align-items:center;justify-content:center;padding:20px;';
+  m.innerHTML=`<div style="background:var(--surface);border-radius:10px;width:400px;max-width:94vw;overflow:hidden;">
+    <div style="padding:13px 16px;border-bottom:1px solid var(--border);font-weight:700;font-size:14px;">+ Seite zu „${dlEsc(c.name||'Abschnitt')}"</div>
+    <div style="padding:14px 16px;display:flex;flex-direction:column;gap:11px;">
+      <div><div style="font-size:11px;color:var(--text3);margin-bottom:5px;">Bezeichnung</div>
+        <div style="display:flex;flex-wrap:wrap;gap:5px;">${common.map(([k,l])=>`<button type="button" data-k="${k}" data-l="${dlEsc(l)}" class="as-pick" ${existing.has(k)?'disabled':''} style="font-size:11px;padding:4px 9px;border:1px solid var(--border);border-radius:99px;background:var(--bg);cursor:pointer;${existing.has(k)?'opacity:.4;cursor:not-allowed;':''}">${dlEsc(l)}</button>`).join('')}</div>
+        <input id="as-name" class="form-control" placeholder="oder eigene Bezeichnung" style="width:100%;margin-top:8px;padding:6px 9px;font-size:12px;"></div>
+      <label style="font-size:11px;color:var(--text3);">Art (Aufwandssatz)<select id="as-art" class="form-control" style="width:100%;margin-top:3px;"><option value="">— wählen —</option>${artenList.map(a=>`<option value="${dlEsc(a.name)}">${dlEsc(a.name)}</option>`).join('')}</select></label>
+      <div style="font-size:11px;color:var(--text3);">Erbt Geometrie und Länge vom Abschnitt. Eigene Länge/Geometrie später im Objekt setzen.</div>
+    </div>
+    <div style="padding:11px 16px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
+      <button id="as-cancel" class="btn btn-secondary" style="padding:6px 12px;">Abbrechen</button>
+      <button id="as-save" class="btn btn-primary" style="padding:6px 14px;">Hinzufügen</button>
+    </div></div>`;
+  document.body.appendChild(m);
+  let pick={k:'',l:''};
+  m.querySelectorAll('.as-pick').forEach(b=>{ if(b.disabled) return; b.onclick=()=>{ pick={k:b.dataset.k,l:b.dataset.l}; m.querySelectorAll('.as-pick').forEach(x=>x.style.borderColor='var(--border)'); b.style.borderColor='var(--green)'; const n=document.getElementById('as-name'); if(n) n.value=''; }; });
+  const close=()=>m.remove(); m.querySelector('#as-cancel').onclick=close; m.addEventListener('click',e=>{ if(e.target===m) close(); });
+  m.querySelector('#as-save').onclick=async()=>{
+    const custom=(document.getElementById('as-name').value||'').trim();
+    const label=custom||pick.l, element=custom?'':pick.k, art=document.getElementById('as-art').value||'';
+    if(!label){ notify('Bitte eine Bezeichnung wählen'); return; }
+    const btn=m.querySelector('#as-save'); btn.disabled=true; btn.style.opacity=.5;
+    try{
+      const baumId=await getNextBaumId();
+      await addDoc(collection(db,'projects',currentProjectId,'trees'),{ name:label, element, elementLabel:label, art, geomType:'linie', containerExtId:c.extId, baumId, aktiv:true, tourIds:[], tourId:'', history:[], createdAt:serverTimestamp() });
+      notify('✓ Seite „'+label+'" hinzugefügt'); close();
+      setTimeout(()=>{ if(trees.find(t=>t.id===containerId)) openAbschnitt(containerId); },300);
+    }catch(e){ notify('Fehler: '+(e.message||e)); btn.disabled=false; btn.style.opacity=1; }
+  };
+}
 function switchDetailTab(tab) {
   const bodyDetails = document.getElementById('panel-body');
   const bodyVerlauf = document.getElementById('panel-body-verlauf');
@@ -7722,7 +7841,7 @@ async function applyLasso(){
   // Treffer, wenn das Lasso komplett INNERHALB der Fläche gezogen wurde (Lasso-Punkt in Polygon).
   const _l0=lassoPoints[0];
   trees.forEach(tree=>{
-    if((tree.lat&&tree.lng) || !_hasDrawnGeom(tree)) return;
+    if((tree.lat&&tree.lng) || !_hasDrawnGeom(tree) || _isContainer(tree)) return; // Container nicht planbar — nur seine Seiten
     const g=_treeGeom(tree); if(!g) return;
     const isPoly = g.type==='Polygon';
     const ring = isPoly ? (g.coordinates[0]||[]) : (g.coordinates||[]);
@@ -10372,7 +10491,7 @@ Object.assign(window,{
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,clearLassoSelection,
   createProject,openProject,showProjectScreen,psSetOrgFilter,setSiTab,
-  switchView,openDetail,closePanel,logWatering,applyClusterMode,
+  switchView,openDetail,openAbschnitt,abschnittAddSeite,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
   openAddTree,openEditTree,closeTreeModal,saveTree,deleteTree,
