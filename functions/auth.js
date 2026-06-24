@@ -15,7 +15,7 @@ const db = admin.firestore();
 const REGION = 'europe-west3'; // Frankfurt — wie Firestore/Storage (EU-Datenverarbeitung)
 const MAX_FAILS = 5;
 const LOCK_MS = 15 * 60 * 1000; // 15 Min Sperre nach zu vielen Fehlversuchen
-const SESSION_STALE_MS = 90 * 1000; // ältere aktive Sitzung gilt als tot (Gerät zu/abgestürzt) → Übernahme erlaubt
+const SESSION_STALE_MS = 30 * 1000; // ältere aktive Sitzung gilt als tot (Gerät zu/abgestürzt) → Übernahme erlaubt. Muss ≥ 2× Heartbeat (15 s, src/session.js) sein, sonst gilt eine aktive App zwischen zwei Pings fälschlich als tot.
 
 // ---- PIN-Hashing (scrypt, ohne Zusatz-Abhaengigkeit) ----
 function makeSalt() { return crypto.randomBytes(16).toString('hex'); }

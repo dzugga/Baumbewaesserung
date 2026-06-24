@@ -18,7 +18,7 @@ export function startSession(sessionId, onKicked) {
       }
     } catch (_) { /* Netzfehler ignorieren — nächster Beat versucht es erneut */ }
   };
-  _hb = setInterval(beat, 45000);
+  _hb = setInterval(beat, 15000); // muss ≤ SESSION_STALE_MS/2 (30 s, functions/auth.js) bleiben
 }
 
 export async function endSession() {
