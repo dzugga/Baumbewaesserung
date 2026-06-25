@@ -1480,14 +1480,18 @@ function _fillRoutePanel(name,cnt,km,driveMin,bewMin,zusMin,azMin,routeKm,routeR
   const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=v; };
   set('sidebar-route-tour-name',name||'');
   set('sidebar-route-cnt',(cnt!=null?cnt:0)+' Objekte');
-  // km-Zahl: bei Reinigungssystem „Reinigungsstrecke (beide Seiten) · gefahrene Route", sonst nur die Route.
-  const showRein = km!=null && routeKm!=null && Math.abs(routeKm-km)>0.05; // Reinigungssystem aktiv → km = Reinigungsstrecke
+  // Bei Reinigungssystem: km = Reinigungsstrecke (beide Seiten). Geschätzte Gesamtfahrstrecke = Reinigung + Anfahrt/Leerfahrt
+  // (die ORS-Route allein wäre zu kurz, weil sie jede Straße nur 1× befährt — beide Seiten erst mit Arc-Routing exakt).
+  const showRein = km!=null && routeKm!=null && Math.abs(routeKm-km)>0.05;
+  const gesamtKm = (showRein && routeLeerKm!=null) ? km+routeLeerKm : null;
   const kmEl=document.getElementById('sidebar-route-km');
   if(kmEl){
-    kmEl.textContent = showRein ? `${km.toFixed(1)} km Rein. · ${routeKm.toFixed(1)} km Route` : ((routeKm!=null?routeKm:km)!=null ? (routeKm!=null?routeKm:km).toFixed(1)+' km' : '–');
-    kmEl.title = showRein ? `Reinigungsstrecke (zu reinigen, beide Seiten): ${km.toFixed(1)} km · gefahrene Route: ${routeKm.toFixed(1)} km (davon ${routeLeerKm!=null?routeLeerKm.toFixed(1):'–'} km Anfahrt)` : '';
+    kmEl.textContent = showRein
+      ? (gesamtKm!=null ? `${km.toFixed(1)} km Rein. · ~${gesamtKm.toFixed(1)} km Fahrt` : `${km.toFixed(1)} km Rein. · ${routeKm.toFixed(1)} km Route`)
+      : ((routeKm!=null?routeKm:km)!=null ? (routeKm!=null?routeKm:km).toFixed(1)+' km' : '–');
+    kmEl.title = showRein ? `Reinigungsstrecke (beide Seiten): ${km.toFixed(1)} km · geschätzte Gesamtfahrstrecke (Reinigung + Anfahrt): ~${gesamtKm!=null?gesamtKm.toFixed(1):'–'} km · ORS-Route (jede Straße 1×): ${routeKm.toFixed(1)} km` : '';
   }
-  // Aufteilung der gefahrenen Route: nur die Anfahrt/Leerfahrt ausweisen (nicht mit der Reinigungsstrecke verwechseln)
+  // Sub-Zeile: Anfahrt/Leerfahrt (der Teil der Route, der nicht über die zu reinigenden Strecken läuft)
   const splitEl=document.getElementById('sidebar-route-split');
   if(splitEl){
     if(routeLeerKm!=null){ splitEl.style.display='block'; splitEl.innerHTML=`<span style="opacity:.7;">davon Anfahrt/Leerfahrt:</span> ${routeLeerKm.toFixed(1)} km`; }
