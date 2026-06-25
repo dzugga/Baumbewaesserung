@@ -7088,12 +7088,23 @@ function utmToLatLng(easting,northing,zone){
 function impCoords(a,b){
   if(isNaN(a)||isNaN(b)) return {lat:null,lng:null};
   if(Math.abs(a)<=1000 && Math.abs(b)<=1000) return {lat:a,lng:b}; // Dezimalgrad
-  const A=Math.abs(a), B=Math.abs(b);
+  let A=Math.abs(a), B=Math.abs(b);
+  if(Math.max(A,B)>1e8){ A/=1000; B/=1000; } // sehr große Werte = Millimeter (z. B. NRW-Altdaten in mm) → Meter
   // Northing = Wert im DE-Bereich (~5,2–6,1 Mio); der andere ist Easting (egal welche Spalte)
   let northing,easting;
   if(A>=4000000&&A<=7000000){ northing=A; easting=B; }
   else if(B>=4000000&&B<=7000000){ northing=B; easting=A; }
   else { northing=Math.max(A,B); easting=Math.min(A,B); }
+  // Gauß-Krüger (EPSG:31466/67/68/69): Rechtswert ≈ Zone×1 Mio + 500.000 (Zone 2 ≈ 2,5 Mio … Zone 5 ≈ 5,5 Mio).
+  // Bessel-Ellipsoid + Datumsshift → nur mit proj4 korrekt (alte NRW-/DE-Katasterdaten).
+  if(typeof proj4!=='undefined' && easting>=1500000 && easting<5500000 && (easting%1000000)>200000 && (easting%1000000)<800000){
+    const z=Math.round((easting-500000)/1000000);
+    if(z>=2&&z<=5){ try{
+      const def='+proj=tmerc +lat_0=0 +lon_0='+(z*3)+' +k=1 +x_0='+(z*1000000+500000)+' +y_0=0 +ellps=bessel +towgs84=598.1,73.7,418.2,0.202,0.045,-2.455,6.7 +units=m +no_defs';
+      const [lng,lat]=proj4(def,'WGS84',[easting,northing]);
+      if(impInDE(lat,lng)) return {lat,lng};
+    }catch(_){} }
+  }
   let zone=32; // Standard DE-West (EPSG:25832)
   if(easting>=1000000){ const z=Math.floor(easting/1000000); if(z===32||z===33){ zone=z; easting=easting%1000000; } } // Zonen-Präfix (z. B. 32460696)
   const r=utmToLatLng(easting,northing,zone);
