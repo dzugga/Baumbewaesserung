@@ -5313,6 +5313,14 @@ async function rankSetColor(fieldKey,id,color){
   const e=listValues[fieldKey].find(x=>x.id===id); if(!e) return;
   e.farbe=color; await saveListValues(); _afterRankChange();
 }
+// Zahlenwert je geordnetem Listenwert (z. B. wöchentlich = 1) — für Auswertung/Soll-Ist
+async function rankSetZahl(fieldKey,id,val){
+  if(isReadonly()) return; _materializeRank(fieldKey);
+  const e=listValues[fieldKey].find(x=>x.id===id); if(!e) return;
+  const v=String(val??'').trim().replace(',','.'); const n=parseFloat(v);
+  if(v===''||isNaN(n)) delete e.zahl; else e.zahl=n;
+  await saveListValues(); _afterRankChange();
+}
 async function rankMove(fieldKey,id,dir){
   if(isReadonly()) return; _materializeRank(fieldKey);
   const arr=[...listValues[fieldKey]].sort((a,b)=>(a.rang||0)-(b.rang||0));
@@ -5357,6 +5365,7 @@ function _rankFieldCard(fieldKey,title){
       </td>
       <td style="padding:6px 8px;"><input type="color" value="${e.farbe||'#9ca3af'}" ${ro?'disabled':''} onchange="rankSetColor('${fieldKey}','${e.id}',this.value)" style="width:34px;height:24px;border:1px solid var(--border);border-radius:5px;padding:0;background:none;cursor:${ro?'default':'pointer'};"></td>
       <td style="padding:6px 12px;"><span style="display:inline-block;padding:2px 9px;border-radius:6px;background:${e.farbe||'#9ca3af'}22;color:${e.farbe||'#777'};font-size:12px;font-weight:600;">${dlEsc(e.label)}</span></td>
+      <td style="padding:6px 8px;text-align:right;">${ro?(e.zahl??'<span style="color:var(--text3);">–</span>'):`<input type="number" step="0.5" value="${e.zahl??''}" onchange="rankSetZahl('${fieldKey}','${e.id}',this.value)" style="width:58px;padding:3px 6px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;" title="Zahlenwert für Auswertung/Soll-Ist (z. B. wöchentlich = 1, 2× wöchentlich = 2)">`}</td>
       <td style="padding:6px 12px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text2);">${c}</td>
       <td style="padding:6px 12px;white-space:nowrap;text-align:right;">${ro?'':`
         <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" onclick="rankRename('${fieldKey}','${e.id}')">Umbenennen</button>
@@ -5366,9 +5375,9 @@ function _rankFieldCard(fieldKey,title){
   }).join('');
   return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;"><div style="font-size:14px;font-weight:700;">${dlEsc(title)}</div><span style="font-size:11px;color:var(--text3);background:var(--surface2);padding:2px 7px;border-radius:5px;">Geordnete Liste · ${vals.length}</span></div>
-    <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">Mit ▲▼ die Reihenfolge (Rang) festlegen — bestimmt Sortierung und Auswertung. Die Farbe färbt die Anzeige in Tabelle und Detail.</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">Mit ▲▼ die Reihenfolge (Rang) festlegen — bestimmt Sortierung und Auswertung. Die Farbe färbt die Anzeige in Tabelle und Detail. Spalte „Zahl": optionaler Zahlenwert je Eintrag (z. B. wöchentlich = 1) — Grundlage für spätere Soll-Ist-Kontrolle.</div>
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
-      <thead><tr style="background:var(--surface2);"><th style="padding:6px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Rang</th><th style="padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Farbe</th><th style="padding:6px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Wert</th><th style="padding:6px 12px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Häufigkeit</th><th></th></tr></thead>
+      <thead><tr style="background:var(--surface2);"><th style="padding:6px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Rang</th><th style="padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Farbe</th><th style="padding:6px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Wert</th><th style="padding:6px 8px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);" title="Zahlenwert für Auswertung/Soll-Ist (z. B. wöchentlich = 1)">Zahl</th><th style="padding:6px 12px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Häufigkeit</th><th></th></tr></thead>
       <tbody>${rows}</tbody></table>
     ${ro?'':`<div style="display:flex;gap:6px;margin-top:8px;"><input id="lv-new-${fieldKey}" class="form-control" placeholder="Neuer Wert…" style="flex:1;padding:6px 10px;font-size:13px;" onkeydown="if(event.key==='Enter')rankAdd('${fieldKey}')"><button class="btn btn-primary" style="padding:6px 12px;font-size:12px;white-space:nowrap;" onclick="rankAdd('${fieldKey}')">+ Hinzufügen</button></div>`}
   </div>`;
@@ -10975,7 +10984,7 @@ Object.assign(window,{
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterInlineTours,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
   renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,_fillMerge,cfGeomToggle,
-  rankAdd,rankRename,rankSetColor,rankMove,rankMerge,rankDelete,
+  rankAdd,rankRename,rankSetColor,rankSetZahl,rankMove,rankMerge,rankDelete,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,clearLassoSelection,
   createProject,openProject,showProjectScreen,psSetOrgFilter,setSiTab,
