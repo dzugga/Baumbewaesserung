@@ -7012,13 +7012,23 @@ function buildImportMapping(headerRow){
   };
   const coordAliases=['lat','lng','latitude','longitude','breite','breitengrad','lange','langengrad','koordinate1','koordinate2','koordinate','rechtswert','hochwert','ostwert','nordwert','easting','northing','east','north','utm','gps','x','y','e','n'];
   const baumIdAliases=['objektid','baumid','interneid'];
-  (headerRow||[]).forEach((h,i)=>{
-    const n=_normH(h); if(!n) return;
-    if(baumIdAliases.includes(n)){ if(map.baumId==null) map.baumId=i; return; }
-    if(coordAliases.includes(n)){ coordCols.push(i); return; }
-    for(const k of Object.keys(labelFor)){ if(n===_normH(labelFor[k]) || (aliases[k]||[]).includes(n)){ if(map[k]==null) map[k]=i; return; } }
-    for(const c of customFields){ if(n===_normH(c.label)){ if(map[c.key]==null) map[c.key]=i; return; } }
-  });
+  const heads=(headerRow||[]).map((h,i)=>({n:_normH(h),i})).filter(x=>x.n);
+  // 1) EXAKTE Treffer zuerst (Feld-Anzeigename ODER Kundenfeld-Label) — schlägt generische Aliasse,
+  //    damit z. B. ein Kundenfeld „Ortsteil" nicht vom Stadtteil-Alias „ortsteil" geschluckt wird.
+  for(const {n,i} of heads){
+    if(baumIdAliases.includes(n)){ if(map.baumId==null) map.baumId=i; continue; }
+    let hit=false;
+    for(const k of Object.keys(labelFor)){ if(n===_normH(labelFor[k])){ if(map[k]==null) map[k]=i; hit=true; break; } }
+    if(hit) continue;
+    for(const c of customFields){ if(n===_normH(c.label)){ if(map[c.key]==null) map[c.key]=i; hit=true; break; } }
+  }
+  // 2) Generische Aliasse + Koordinaten für noch freie Spalten
+  const used=new Set(Object.values(map));
+  for(const {n,i} of heads){
+    if(used.has(i)) continue;
+    if(coordAliases.includes(n)){ coordCols.push(i); continue; }
+    for(const k of Object.keys(labelFor)){ if((aliases[k]||[]).includes(n)){ if(map[k]==null){ map[k]=i; used.add(i); } break; } }
+  }
   map._coord=coordCols.slice(0,2);
   return map;
 }
