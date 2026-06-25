@@ -6992,7 +6992,7 @@ async function saveDriverAssignment(tourId,driver){
 }
 
 // ─── EXCEL IMPORT (mit Vorschau/Koordinaten-Kontrolle) ───────
-let _importRows=[], _importSwap=false, _impMap=null, _impLayer=null, _importNew={};
+let _importRows=[], _importSwap=false, _impMap=null, _impLayer=null, _importNew={}, _importTourCols=[];
 // Spaltenüberschriften normalisieren (Umlaute/Sonderzeichen/Groß-klein egal)
 function _normH(s){ return String(s==null?'':s).toLowerCase().replace(/ß/g,'ss').replace(/ä/g,'a').replace(/ö/g,'o').replace(/ü/g,'u').replace(/[^a-z0-9]/g,''); }
 // Excel-Spaltenüberschriften → Feldschlüssel (Reihenfolge egal, Label ODER Alias erlaubt)
@@ -7081,6 +7081,8 @@ function downloadObjectsExport(){
 }
 // Zahl robust parsen (auch Dezimal-Komma "52,28")
 function impNum(v){ if(v==null)return NaN; if(typeof v==='number')return v; return parseFloat(String(v).trim().replace(',','.')); }
+// „ja"-Zelle für Tour-Spalten (auch x/1/wahr/yes); „nein"/leer/0 = false
+function _truthyImport(v){ const n=_normH(v); return n==='ja'||n==='j'||n==='x'||n==='1'||n==='true'||n==='wahr'||n==='yes'||n==='y'; }
 // Plausibel in Deutschland?
 function impInDE(la,lo){ return la>47&&la<55.5&&lo>5&&lo<16; }
 // ETRS89/UTM (EPSG:25832/25833) -> WGS84 (Snyder-Inverse, GRS80≈WGS84)
@@ -7142,6 +7144,11 @@ async function importExcel(input){
   if(map.name==null){ notify('Spalte „'+FL.name+'" nicht gefunden — bitte Überschriften prüfen (Vorlage nutzen).'); return; }
   const [c0,c1]=map._coord;
   const get=(row,k)=> map[k]!=null ? row[map[k]] : undefined;
+  // Tour-Spalten: noch freie Spalte, deren Überschrift = Name einer angelegten ECHTEN Tour → ja/x/1 ordnet zu
+  const _used=new Set([...Object.values(map).filter(v=>typeof v==='number'), ...(map._coord||[])]);
+  const tourCols=[];
+  (rows[0]||[]).forEach((h,i)=>{ if(_used.has(i)) return; const n=_normH(h); if(!n) return; const t=tours.find(x=>!x.uebersicht && _normH(x.name)===n); if(t) tourCols.push({i,id:t.id,name:t.name}); });
+  _importTourCols=tourCols.map(c=>c.name);
   const parsed=[];
   for(let i=1;i<rows.length;i++){
     const row=rows[i]; if(!row||!row.length) continue;
@@ -7161,6 +7168,7 @@ async function importExcel(input){
       lat, lng,
     };
     customFields.forEach(c=>{ if(map[c.key]!=null) o[c.key]=String(row[map[c.key]]??'').trim(); });
+    if(tourCols.length){ const tids=[]; for(const tc of tourCols){ if(_truthyImport(row[tc.i])) tids.push(tc.id); } o.tourIds=tids; }
     parsed.push(o);
   }
   if(!parsed.length){ notify('Keine Datenzeilen gefunden'); return; }
@@ -7238,7 +7246,7 @@ function renderImportPreview(){
   });
   const out=withC.length-inDE;
   const sum=document.getElementById('imp-summary');
-  if(sum) sum.textContent=`${_importRows.length} Zeilen · ${withC.length} mit Koordinaten · ${_importRows.length-withC.length} ohne · ${inDE} in Deutschland`;
+  if(sum) sum.textContent=`${_importRows.length} Zeilen · ${withC.length} mit Koordinaten · ${_importRows.length-withC.length} ohne · ${inDE} in Deutschland`+(_importTourCols.length?` · Tour-Zuordnung über Spalten: ${_importTourCols.join(', ')}`:'');
   const warn=document.getElementById('imp-warn');
   if(warn){
     if(out>0){ warn.style.display='block'; warn.textContent=`⚠ ${out} Objekt(e) liegen außerhalb Deutschlands — Koordinaten evtl. vertauscht. Schalter oben nutzen und Karte prüfen.`; }
@@ -7270,12 +7278,15 @@ async function doImport(){
           wasser:r.wasser||'mittel', zustand:r.zustand||'mittel',
         };
         customFields.forEach(c=>{ if(r[c.key]!=null) fields[c.key]=r[c.key]; });
+        // Tour-Zuordnung aus ja/nein-Tag-Spalten (nur wenn Tour-Spalten vorhanden waren)
+        if(Array.isArray(r.tourIds)){ fields.tourIds=r.tourIds; fields.tourId=r.tourIds[0]||''; }
         const existId = r.baumId && byBaumId.get(r.baumId);
         if(existId){ batch.update(colRef.doc(existId), fields); updated++; }
         else {
           counter++;
           batch.set(colRef.doc(),{
-            ...fields, datum:'',tourId:'',tourIds:[],history:[],
+            datum:'',tourId:'',tourIds:[],history:[],
+            ...fields,
             baumId:'B-'+String(counter).padStart(5,'0'), createdAt:serverTimestamp(),
             orgId: currentProjectData?.orgId || currentOrg,
           });
