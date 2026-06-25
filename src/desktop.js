@@ -1227,6 +1227,42 @@ function updateRouteToggleBtn(){
 function toggleRouteLines(){ routesVisible=!routesVisible; applyRouteVisibility(); updateRouteToggleBtn(); }
 
 // Draw a saved route on the map (from Firestore data, no ORS call)
+// Routen-Aufteilung: Anteil der gefahrenen Route, der ÜBER Tour-Strecken läuft (Reinigungsfahrt)
+// vs. Rest (Anfahrt/Leerfahrt). Exakt aus der Geometrie — summiert sich zur Routenlänge.
+function _bboxLL(ll){ let a=90,b=-90,c=180,d=-180; for(const p of ll){ if(p[0]<a)a=p[0]; if(p[0]>b)b=p[0]; if(p[1]<c)c=p[1]; if(p[1]>d)d=p[1]; } return [a,b,c,d]; }
+function _ptSegMeters(p,a,b){ // Punkt-zu-Segment-Distanz in Metern (lokale planare Näherung)
+  const mPerLat=111320, mPerLng=111320*Math.cos(p[0]*Math.PI/180);
+  const px=p[1]*mPerLng, py=p[0]*mPerLat, ax=a[1]*mPerLng, ay=a[0]*mPerLat, bx=b[1]*mPerLng, by=b[0]*mPerLat;
+  const dx=bx-ax, dy=by-ay, len2=dx*dx+dy*dy;
+  let t=len2?((px-ax)*dx+(py-ay)*dy)/len2:0; t=t<0?0:t>1?1:t;
+  return Math.hypot(px-(ax+t*dx), py-(ay+t*dy));
+}
+function _computeRouteSplit(geojson, tourId){
+  try{
+    const coords=geojson?.features?.[0]?.geometry?.coordinates; if(!coords||coords.length<2) return null;
+    const seen=new Set(), polys=[], boxes=[]; // Tour-Strecken (lat/lng), je Container einmal
+    for(const t of (trees||[])){
+      if(t.aktiv===false||!treeInTour(t,tourId)) continue;
+      const g=_treeGeom(t); if(!g||g.type!=='LineString') continue;
+      const key=t.containerExtId||t.id; if(seen.has(key)) continue; seen.add(key);
+      const ll=(g.coordinates||[]).map(c=>[c[1],c[0]]); if(ll.length>=2){ polys.push(ll); boxes.push(_bboxLL(ll)); }
+    }
+    if(!polys.length) return null; // keine Strecken-Objekte → keine sinnvolle Aufteilung
+    const TOLM=16, TOLD=16/111320; let rein=0, leer=0;
+    for(let i=1;i<coords.length;i++){
+      const a=coords[i-1], b=coords[i];
+      const mid=[(a[1]+b[1])/2,(a[0]+b[0])/2];
+      const dKm=haversine(a[1],a[0],b[1],b[0]);
+      let near=false;
+      for(let k=0;k<polys.length && !near;k++){ const bb=boxes[k];
+        if(mid[0]<bb[0]-TOLD||mid[0]>bb[1]+TOLD||mid[1]<bb[2]-TOLD||mid[1]>bb[3]+TOLD) continue;
+        const poly=polys[k]; for(let j=1;j<poly.length;j++){ if(_ptSegMeters(mid,poly[j-1],poly[j])<=TOLM){ near=true; break; } }
+      }
+      if(near) rein+=dKm; else leer+=dKm;
+    }
+    return {routeReinKm:rein, routeLeerKm:leer};
+  }catch(e){ console.warn('routeSplit',e); return null; }
+}
 function drawSavedRoute(tourId, routeData){
   const tour=tours.find(t=>t.id===tourId);if(!tour)return;
   if(tourRoutes[tourId]){map.removeLayer(tourRoutes[tourId].layer);delete tourRoutes[tourId];}
@@ -1254,7 +1290,8 @@ function drawSavedRoute(tourId, routeData){
     if(depot){const dp=[depot.lat,depot.lng];pts=getDepotMode()==='round'?[dp,...pts,dp]:[dp,...pts];}
     layer=L.polyline(pts,{pane:'routeline',interactive:false,color:tour.color,weight:3,opacity:.7,dashArray:'8 5'}).addTo(map);
   }
-  tourRoutes[tourId]={layer,km:routeData.km||0,durationSec:routeData.durationSec||0};
+  const _split=geojson?_computeRouteSplit(geojson,tourId):null;
+  tourRoutes[tourId]={layer,km:routeData.km||0,durationSec:routeData.durationSec||0,routeReinKm:_split?_split.routeReinKm:null,routeLeerKm:_split?_split.routeLeerKm:null};
   if(!routesVisible) map.removeLayer(layer);
   if(currentView==='touren') renderTourenGrid();
 }
@@ -1419,22 +1456,31 @@ function tourMetrics(tid){
   const sp=_tourSpeedKmh(tid);
   let reinKm=null;
   if(sp>0){ const wm=_tourWorkMeters(tid); if(wm>0){ reinKm=wm/1000; km = reinKm; durationSec = wm*3.6/sp; } } // km + Zeit über die zu bearbeitende Strecke (beide Seiten)
-  return {km, durationSec, routeKm, reinKm}; // reinKm = Reinigungsstrecke (beide Seiten), nur bei Reinigungssystem; routeKm = ORS-Routenstrecke
+  // Aufteilung der gefahrenen Route: Reinigungsfahrt (über Tour-Strecken) + Anfahrt/Leerfahrt — summiert zu routeKm
+  const routeReinKm = rt && typeof rt.routeReinKm==='number' ? rt.routeReinKm : null;
+  const routeLeerKm = rt && typeof rt.routeLeerKm==='number' ? rt.routeLeerKm : null;
+  return {km, durationSec, routeKm, reinKm, routeReinKm, routeLeerKm};
 }
 // Füllt das Routen-Kennzahlen-Panel (Sidebar): Gesamtzeit + km, Proportionsleiste, Chips.
-function _fillRoutePanel(name,cnt,km,driveMin,bewMin,zusMin,azMin,routeKm){
+function _fillRoutePanel(name,cnt,km,driveMin,bewMin,zusMin,azMin,routeKm,routeReinKm,routeLeerKm){
   const sp=document.getElementById('sidebar-route-info'); if(!sp) return;
   driveMin=Math.round(driveMin||0); bewMin=Math.round(bewMin||0); zusMin=Math.round(zusMin||0); azMin=Math.round(azMin||0);
   const total=driveMin+bewMin+zusMin;
   const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=v; };
   set('sidebar-route-tour-name',name||'');
   set('sidebar-route-cnt',(cnt!=null?cnt:0)+' Objekte');
-  // Bei Reinigungssystem: km = Reinigungsstrecke (beide Seiten) + zusätzlich die ORS-Routenstrecke (gefahrener Weg)
-  const showRoute = routeKm!=null && km!=null && Math.abs(routeKm-km)>0.05;
+  // Hauptzahl = gefahrene Route; Tooltip = zusätzlich die Reinigungsstrecke (Oberfläche, beide Seiten)
+  const totalKm = routeKm!=null?routeKm:km;
   const kmEl=document.getElementById('sidebar-route-km');
   if(kmEl){
-    kmEl.textContent = km!=null ? (showRoute?`${km.toFixed(1)} km Rein. · ${routeKm.toFixed(1)} km Route`:km.toFixed(1)+' km') : '–';
-    kmEl.title = showRoute ? `Reinigungsstrecke (beide Seiten): ${km.toFixed(1)} km · gefahrene Routenstrecke (ORS): ${routeKm.toFixed(1)} km` : '';
+    kmEl.textContent = totalKm!=null ? totalKm.toFixed(1)+' km' : '–';
+    kmEl.title = (km!=null && routeKm!=null && Math.abs(routeKm-km)>0.05) ? `Reinigungsstrecke (Oberfläche, beide Seiten): ${km.toFixed(1)} km · gefahrene Route: ${routeKm.toFixed(1)} km` : '';
+  }
+  // Aufteilung der gefahrenen Route: Reinigungsfahrt (auf Tour-Strecken) + Anfahrt/Leerfahrt
+  const splitEl=document.getElementById('sidebar-route-split');
+  if(splitEl){
+    if(routeReinKm!=null && routeLeerKm!=null){ splitEl.style.display='block'; splitEl.innerHTML=`<span style="opacity:.7;">Route:</span> ${routeReinKm.toFixed(1)} km Reinigung · ${routeLeerKm.toFixed(1)} km Anfahrt`; }
+    else splitEl.style.display='none';
   }
   set('sidebar-route-drive',driveMin?fmtMin(driveMin):'–');
   set('sidebar-route-taet',bewMin?fmtMin(bewMin):'–');
@@ -1462,9 +1508,9 @@ function updateRouteInfoBar(){
   if(bar) bar.classList.remove('visible'); // schwebende Routen-Info-Leiste entfernt — Infos im Seitenpanel
   // Mehrere Touren ausgewählt → kompakte Summe
   if(activeTours.size>1){
-    let km=0,dur=0,zusAll=0,azAll=0,rKm=0; activeTours.forEach(tid=>{ const m=tourMetrics(tid); if(m){ km+=m.km; dur+=m.durationSec; rKm+=(m.routeKm||0); } const tt=tours.find(x=>x.id===tid); if(tt){ zusAll+=tourZusatzMin(tt); if(tt.arbeitszeitMin>0) azAll+=tt.arbeitszeitMin; } });
+    let km=0,dur=0,zusAll=0,azAll=0,rKm=0,rrKm=0,rlKm=0,hasSplit=false; activeTours.forEach(tid=>{ const m=tourMetrics(tid); if(m){ km+=m.km; dur+=m.durationSec; rKm+=(m.routeKm||0); if(m.routeReinKm!=null){ rrKm+=m.routeReinKm; rlKm+=(m.routeLeerKm||0); hasSplit=true; } } const tt=tours.find(x=>x.id===tid); if(tt){ zusAll+=tourZusatzMin(tt); if(tt.arbeitszeitMin>0) azAll+=tt.arbeitszeitMin; } });
     const members=trees.filter(t=>treeInAnyActiveTour(t)&&isActive(t)); const cnt=members.length;
-    _fillRoutePanel(`${activeTours.size} Touren`, cnt, km||null, dur/60, bewMinutes(members), zusAll, azAll, rKm||null);
+    _fillRoutePanel(`${activeTours.size} Touren`, cnt, km||null, dur/60, bewMinutes(members), zusAll, azAll, rKm||null, hasSplit?rrKm:null, hasSplit?rlKm:null);
     return;
   }
   const _activeM=activeTourOnMap?tourMetrics(activeTourOnMap):null;
@@ -1472,7 +1518,7 @@ function updateRouteInfoBar(){
   const members=tour?trees.filter(t=>treeInTour(t,activeTourOnMap)&&isActive(t)):[];
   if(_activeM || members.length){ // Flächen-Touren haben keine Route, aber Objekte → Panel trotzdem zeigen
     const cnt=members.length;
-    _fillRoutePanel(tour?.name||'', cnt, _activeM?_activeM.km:null, _activeM?_activeM.durationSec/60:0, bewMinutes(members), tourZusatzMin(tour), (tour&&tour.arbeitszeitMin>0)?tour.arbeitszeitMin:0, _activeM?_activeM.routeKm:null);
+    _fillRoutePanel(tour?.name||'', cnt, _activeM?_activeM.km:null, _activeM?_activeM.durationSec/60:0, bewMinutes(members), tourZusatzMin(tour), (tour&&tour.arbeitszeitMin>0)?tour.arbeitszeitMin:0, _activeM?_activeM.routeKm:null, _activeM?_activeM.routeReinKm:null, _activeM?_activeM.routeLeerKm:null);
   } else {
     if(bar) bar.classList.remove('visible');
     const sp=document.getElementById('sidebar-route-info'); if(sp) sp.style.display='none';
