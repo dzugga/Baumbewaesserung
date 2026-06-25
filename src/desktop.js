@@ -589,6 +589,17 @@ async function openProject(projectId){
   { const sc=document.getElementById('search-clear'); if(sc) sc.style.display='none'; }
   tourLegendQuery='';
   document.getElementById('detail-panel')?.classList.remove('open'); selectedTreeId=null; // offenes Objekt-Detail des alten Projekts schließen (kein stehengebliebener Füllgrad/Wert)
+  // Planen-Modus, Tour-Auswahl und Routen-Panel des ALTEN Projekts zurücksetzen (sonst bleiben Planungsleiste/Zeiten hängen)
+  _lassoActive=false; assignMode=false; lassoMode=false; lassoDrawing=false; lassoPoints=[]; assignTourId=null; lassoTourId=null;
+  if(lassoSelection&&lassoSelection.size) lassoSelection.clear();
+  activeTours.clear(); showUnplanned=false; activeTourOnMap=null;
+  Object.values(tourRoutes).forEach(r=>{ try{ map.removeLayer(r.layer); }catch(_){} }); tourRoutes={};
+  document.getElementById('assign-lasso-banner')?.classList.remove('visible');
+  document.getElementById('lasso-action-bar')?.classList.remove('visible');
+  document.getElementById('lasso-canvas')?.classList.remove('active');
+  { const _sri=document.getElementById('sidebar-route-info'); if(_sri) _sri.style.display='none'; }
+  document.getElementById('route-info-bar')?.classList.remove('visible');
+  if(map) map.getContainer().style.cursor='';
   const snap=await getDoc(doc(db,'projects',projectId));
   currentProjectData={id:projectId,...snap.data()};
   _listMode = currentProjectData.listAbschnitteDefault ? 'abschnitte' : 'objekte'; // Listen-Standard je Projekt
