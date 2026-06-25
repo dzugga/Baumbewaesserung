@@ -7022,10 +7022,13 @@ function buildImportMapping(headerRow){
   map._coord=coordCols.slice(0,2);
   return map;
 }
-// Zustand/Priorität-Zelle (Label oder Schlüssel) → stabile id; leer/unbekannt → 'mittel'
+// Geordnete-Listen-Zelle → stabile id. Match auf Label/Schlüssel ODER auf den hinterlegten Zahlenwert
+// (z. B. Import-Zelle „2" trifft den Wert mit Zahl 2). Leer/unbekannt → 'mittel'.
 function mapRankImport(fk,val){
-  const v=_normH(val); if(!v) return 'mittel';
-  const e=rankList(fk).find(x=>_normH(x.id)===v||_normH(x.label)===v);
+  const raw=String(val??'').trim(); const v=_normH(raw); if(!v) return 'mittel';
+  const list=rankList(fk);
+  let e=list.find(x=>_normH(x.id)===v||_normH(x.label)===v);
+  if(!e){ const num=parseFloat(raw.replace(',','.')); if(!isNaN(num)) e=list.find(x=>x.zahl!=null && Number(x.zahl)===num); }
   return e?e.id:'mittel';
 }
 // Welche Listenwerte aus dem Import sind neu (würden angelegt)?
