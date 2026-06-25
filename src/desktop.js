@@ -1480,17 +1480,17 @@ function _fillRoutePanel(name,cnt,km,driveMin,bewMin,zusMin,azMin,routeKm,routeR
   const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=v; };
   set('sidebar-route-tour-name',name||'');
   set('sidebar-route-cnt',(cnt!=null?cnt:0)+' Objekte');
-  // Hauptzahl = gefahrene Route; Tooltip = zusätzlich die Reinigungsstrecke (Oberfläche, beide Seiten)
-  const totalKm = routeKm!=null?routeKm:km;
+  // km-Zahl: bei Reinigungssystem „Reinigungsstrecke (beide Seiten) · gefahrene Route", sonst nur die Route.
+  const showRein = km!=null && routeKm!=null && Math.abs(routeKm-km)>0.05; // Reinigungssystem aktiv → km = Reinigungsstrecke
   const kmEl=document.getElementById('sidebar-route-km');
   if(kmEl){
-    kmEl.textContent = totalKm!=null ? totalKm.toFixed(1)+' km' : '–';
-    kmEl.title = (km!=null && routeKm!=null && Math.abs(routeKm-km)>0.05) ? `Reinigungsstrecke (Oberfläche, beide Seiten): ${km.toFixed(1)} km · gefahrene Route: ${routeKm.toFixed(1)} km` : '';
+    kmEl.textContent = showRein ? `${km.toFixed(1)} km Rein. · ${routeKm.toFixed(1)} km Route` : ((routeKm!=null?routeKm:km)!=null ? (routeKm!=null?routeKm:km).toFixed(1)+' km' : '–');
+    kmEl.title = showRein ? `Reinigungsstrecke (zu reinigen, beide Seiten): ${km.toFixed(1)} km · gefahrene Route: ${routeKm.toFixed(1)} km (davon ${routeLeerKm!=null?routeLeerKm.toFixed(1):'–'} km Anfahrt)` : '';
   }
-  // Aufteilung der gefahrenen Route: Reinigungsfahrt (auf Tour-Strecken) + Anfahrt/Leerfahrt
+  // Aufteilung der gefahrenen Route: nur die Anfahrt/Leerfahrt ausweisen (nicht mit der Reinigungsstrecke verwechseln)
   const splitEl=document.getElementById('sidebar-route-split');
   if(splitEl){
-    if(routeReinKm!=null && routeLeerKm!=null){ splitEl.style.display='block'; splitEl.innerHTML=`<span style="opacity:.7;">Route:</span> ${routeReinKm.toFixed(1)} km Reinigung · ${routeLeerKm.toFixed(1)} km Anfahrt`; }
+    if(routeLeerKm!=null){ splitEl.style.display='block'; splitEl.innerHTML=`<span style="opacity:.7;">davon Anfahrt/Leerfahrt:</span> ${routeLeerKm.toFixed(1)} km`; }
     else splitEl.style.display='none';
   }
   set('sidebar-route-drive',driveMin?fmtMin(driveMin):'–');
