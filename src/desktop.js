@@ -1720,6 +1720,7 @@ function refreshMarkers(){
 // ── Flächen-Geometrie (Phase 1): Bundle aus Storage laden + als Canvas-Polygone rendern ──
 let _flaechenLayer=null, _flaechenLayerKey='', _flaechenBundle=null, _flaechenBundleKey='', _flaechenBusy=false, _flaechenByExt={}, _flaechenSelExt='';
 const FL_NEUTRAL='#000'; // Standardfarbe ohne Tour-Auswahl (wie Punktobjekte: erst bei Auswahl eingefärbt)
+const FL_MULTI='#eab308';  // Überschneidung: Objekt in mehreren angezeigten Touren → gelb (wie bei Punkt-Markern)
 // Tourfarbe einer Fläche – analog zu makeMarker: NUR bei aktiver Tour-Auswahl, sonst null.
 function _flTourColorFor(t){
   if(!t) return null;
@@ -1728,13 +1729,20 @@ function _flTourColorFor(t){
     return inT ? ((tours.find(x=>x.id===assignTourId)||{}).color||null) : null;
   }
   if(!activeTours.size) return null;
-  if(_isContainer(t)){ // Abschnitt selbst ist nicht verplant → Farbe einer Seite, die in einer aktiven Tour liegt
-    for(const s of _ausstattungOf(t.extId)){ const sid=getTreeTourIds(s).find(id=>activeTours.has(id)); if(sid) return (tours.find(x=>x.id===sid)||{}).color||null; }
+  if(_isContainer(t)){ // Abschnitt: aktive Touren ALLER Seiten sammeln — ≥2 = Überschneidung → gelb (wie Punkte)
+    const set=new Set();
+    for(const s of _ausstattungOf(t.extId)){ for(const id of getTreeTourIds(s)){ if(activeTours.has(id)) set.add(id); } }
+    if(set.size>=2) return FL_MULTI;
+    if(set.size===1) return (tours.find(x=>x.id===[...set][0])||{}).color||null;
     return null;
   }
-  if(activeTourOnMap && treeInTour(t,activeTourOnMap)) return (tours.find(x=>x.id===activeTourOnMap)||{}).color||null;
-  const id=getTreeTourIds(t).find(id=>activeTours.has(id));
-  return id ? ((tours.find(x=>x.id===id)||{}).color||null) : null;
+  const act=getTreeTourIds(t).filter(id=>activeTours.has(id));
+  if(act.length>=2) return FL_MULTI; // in mehreren angezeigten Touren → gelb
+  if(act.length===1){
+    if(activeTourOnMap && act.includes(activeTourOnMap)) return (tours.find(x=>x.id===activeTourOnMap)||{}).color||null;
+    return (tours.find(x=>x.id===act[0])||{}).color||null;
+  }
+  return null;
 }
 function _flStyleForTree(t, isLine){
   // Lasso-/Planungs-Vorauswahl: violetter Akzent. Beim Abschnitt zählt auch eine vorgewählte Seite
@@ -1908,6 +1916,7 @@ function renderDrawnGeoms(){
           const ll=_offsetLatLngs(baseLL,_sideOffsetM(s));
           const layer=L.polyline(ll,_opt(_flStyleForTree(s,true)));
           layer.on('click',()=>{ if(assignMode&&!lassoDrawing){ toggleLassoSelect(s.id); _applyFlaechenSelection(); } else if(!assignMode) selectTree(s.id,false); });
+          layer.on('contextmenu',e=>{ try{ e.originalEvent&&e.originalEvent.preventDefault(); }catch(_){} showTreeTourContextMenu(s, e); });
           layer.bindTooltip((t.name||'Abschnitt')+' · '+_elemLabel(s),{sticky:true});
           layer.addTo(_drawnLayer); _drawnById[s.id]=layer;
           _placeNum(getRouteNum(s.id), ll[Math.floor(ll.length/2)], _flTourColorFor(s));
@@ -1926,6 +1935,7 @@ function renderDrawnGeoms(){
         _applyFlaechenSelection();
       } else if(!assignMode){ if(_isContainer(t)) openAbschnitt(t.id); else selectTree(t.id,false); }
     });
+    layer.on('contextmenu',e=>{ try{ e.originalEvent&&e.originalEvent.preventDefault(); }catch(_){} showTreeTourContextMenu(t, e); }); // Rechtsklick → verplante Touren anzeigen
     layer.bindTooltip((t.name||(t.geomType==='linie'?'Strecke':'Fläche'))+(t.menge?' · '+(t.einheit==='m'?_fmtLen(t.menge):_fmtArea(t.menge)):''),{sticky:true});
     layer.addTo(_drawnLayer); _drawnById[t.id]=layer;
     // Reihenfolge-Nummer (nur bei aktiver Route): Abschnitt = kleinste Nummer seiner Seiten, sonst eigene
@@ -2027,7 +2037,7 @@ async function renderFlaechen(){
     _flaechenLayer=L.geoJSON(bundle, {
       renderer: L.canvas({ padding:0.5 }),
       style: f=>_flStyleFor(f.properties&&f.properties.extId),
-      onEachFeature:(f,layer)=>{ const ext=f.properties&&f.properties.extId; if(ext) _flaechenByExt[ext]=layer; const t=byExt[ext]; if(t){ layer.on('click',()=>selectTree(t.id,false)); layer.bindTooltip((t.name||'Fläche')+(t.menge?' · '+t.menge+' m²':''),{sticky:true}); } }
+      onEachFeature:(f,layer)=>{ const ext=f.properties&&f.properties.extId; if(ext) _flaechenByExt[ext]=layer; const t=byExt[ext]; if(t){ layer.on('click',()=>selectTree(t.id,false)); layer.on('contextmenu',e=>{ try{ e.originalEvent&&e.originalEvent.preventDefault(); }catch(_){} showTreeTourContextMenu(t, e); }); layer.bindTooltip((t.name||'Fläche')+(t.menge?' · '+t.menge+' m²':''),{sticky:true}); } }
     }).addTo(map);
     _flaechenLayerKey=key;
     _applyFlaechenSelection(); // bestehende Tour-Auswahl auf neue Polygone übernehmen
@@ -8388,8 +8398,17 @@ function showTreeTourContextMenu(tree, e){
   // Vorhandenes Popup entfernen
   document.getElementById('tree-tour-popup')?.remove();
 
-  const treeTourList=getTreeTourIds(tree).map(id=>tours.find(t=>t.id===id)).filter(Boolean);
-  if(treeTourList.length===0) return; // kein Popup wenn keine Tour
+  // Touren ermitteln: Abschnitt-Container hat selbst keine Touren → aus seinen Seiten sammeln (je Tour die Seiten merken)
+  let rows;
+  if(_isContainer(tree)){
+    const map=new Map();
+    for(const s of _ausstattungOf(tree.extId)){ for(const id of getTreeTourIds(s)){ const tr=tours.find(t=>t.id===id); if(!tr) continue; if(!map.has(id)) map.set(id,{tour:tr,sides:[]}); map.get(id).sides.push(_elemLabel(s)); } }
+    rows=[...map.values()].map(v=>({color:v.tour.color,name:v.tour.name,sub:v.sides.join(' · ')}));
+  } else {
+    rows=getTreeTourIds(tree).map(id=>tours.find(t=>t.id===id)).filter(Boolean).map(t=>({color:t.color,name:t.name,sub:''}));
+  }
+  if(rows.length===0) return; // kein Popup wenn keine Tour
+  const treeTourList=rows; // (Variablenname unten beibehalten)
 
   // Position aus Leaflet-Event
   const pt=e.containerPoint||{x:0,y:0};
@@ -8411,14 +8430,15 @@ function showTreeTourContextMenu(tree, e){
     min-width:180px;
     font-size:13px;
   `;
+  const _ttitle=_isContainer(tree)?((tree.name||'Abschnitt')):(tree.name||'–');
   popup.innerHTML=`
     <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin-bottom:8px;">
-      ${tree.name||'–'} — Touren
+      ${dlEsc(_ttitle)} — Touren
     </div>
     ${treeTourList.map(t=>`
       <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);">
-        <div style="width:10px;height:10px;border-radius:50%;background:${t.color};flex-shrink:0;"></div>
-        <span style="font-weight:600;color:${t.color};">${t.name}</span>
+        <div style="width:10px;height:10px;border-radius:50%;background:${t.color};flex-shrink:0;margin-top:2px;align-self:flex-start;"></div>
+        <span style="min-width:0;"><span style="font-weight:600;color:${t.color};">${dlEsc(t.name)}</span>${t.sub?`<br><span style="font-size:11px;color:var(--text3);">${dlEsc(t.sub)}</span>`:''}</span>
       </div>`).join('')}
     <div style="margin-top:8px;font-size:11px;color:var(--text3);">${treeTourList.length} Tour${treeTourList.length!==1?'en':''}</div>
   `;
