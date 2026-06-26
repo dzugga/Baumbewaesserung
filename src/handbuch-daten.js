@@ -101,6 +101,8 @@ export const HANDBUCH = [
         text: 'Für echte Straßenrouten wird ein kostenloser OpenRouteService-Key benötigt (openrouteservice.org). Eintragen unter Admin → Allgemein — der Key gilt für die ganze Stadt.' },
       { title: 'Feldbezeichnungen anpassen', keywords: ['feldbezeichnung', 'label', 'umbenennen', 'felder'],
         text: 'Die Beschriftungen der Objektfelder (z. B. „Anlage/Straße", „Typ/Art", „Priorität") werden in der Ansicht „Objekte" → Reiter „Felder & Listen" im Abschnitt „Feldbezeichnungen" je Projekt umbenannt — Änderungen wirken sofort überall in der Oberfläche (interner Bezug bleibt gleich).' },
+      { title: 'Fahrer-App: sichtbare Felder festlegen', keywords: ['fahrer-app', 'mobil', 'sichtbare felder', 'stammdaten', 'anzeige', 'kundenfeld', 'felder ausblenden'],
+        text: 'In „Objekte" → Reiter „Felder & Listen" → Abschnitt „Fahrer-App: sichtbare Felder" wird je Projekt festgelegt, welche Stammdaten in der Detail-Ansicht der Fahrer-App erscheinen — Standardfelder ebenso wie eigene Felder. So lassen sich für das jeweilige Projekt unpassende Felder ausblenden und stattdessen die relevanten anzeigen. Die Beschriftungen folgen automatisch den Projekt-Feldbezeichnungen. Koordinaten und Routen-Nr. sind immer dabei; erfasste Werte (Status/Zustand, Priorität, Notiz) stehen ohnehin im oberen Bereich.' },
       { title: 'Projekte verwalten', keywords: ['projekt anlegen', 'projekt löschen', 'umbenennen'],
         text: 'Admin → Projekte: Projekte anlegen, umbenennen und löschen (Löschen erfordert Bestätigung und entfernt alle Objekte des Projekts endgültig).' },
     ],

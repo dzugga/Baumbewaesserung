@@ -94,6 +94,28 @@ const RANK_SEED_M = {
 function _rankM(fk){ const l=currentProjectData?.listValues?.[fk]; return (l&&l.length)?[...l].sort((a,b)=>(a.rang||0)-(b.rang||0)):(RANK_SEED_M[fk]||[]); }
 function _rankOptsM(fk,cur){ return _rankM(fk).map(e=>`<option value="${esc(e.id)}"${cur===e.id?' selected':''}>${esc(e.label)}</option>`).join(''); }
 function _flM(fk,def){ return (currentProjectData?.fieldLabels?.[fk])||def; }
+// Welche Stammdaten-Felder das Detail der Fahrer-App zeigt (projekt-konfigurierbar am Projekt-Doc).
+const _MOBIL_INFO_DEFLBL={baumnr:'Objektnummer',art:'Typ / Art',stadtteil:'Stadtteil',pflanzjahr:'Jahr',pflanzzeitpunkt:'Zeitpunkt',zustand:'Zustand',wasser:'Priorität',notiz:'Notiz'};
+function _mobilInfoFields(){
+  const cfg=currentProjectData?.mobilFelder;
+  if(Array.isArray(cfg)) return cfg;  // explizit konfiguriert (auch leer = absichtlich nichts)
+  return ['baumnr','art','pflanzjahr','pflanzzeitpunkt', ...((currentProjectData?.customFields||[]).map(c=>c.key))];
+}
+function _mobilFieldLabel(key){
+  const cf=(currentProjectData?.customFields||[]).find(c=>c.key===key);
+  if(cf) return cf.label||key;
+  return _flM(key, _MOBIL_INFO_DEFLBL[key]||key);
+}
+function _mobilFieldVal(tree,key){
+  if(key==='zustand'||key==='wasser'){ const e=_rankM(key).find(x=>x.id===tree[key]); return e?e.label:(tree[key]||'–'); }
+  const v=tree[key]; return (v!=null&&v!=='')?String(v):'–';
+}
+function _mobilInfoRows(tree){
+  return _mobilInfoFields().map(key=>{
+    const it=key==='art'?' style="font-style:italic;"':'';
+    return `<div class="field-row"><span class="field-key">${esc(_mobilFieldLabel(key))}</span><span class="field-val"${it}>${esc(_mobilFieldVal(tree,key))}</span></div>`;
+  }).join('');
+}
 let currentProjectId = null;
 let currentTourId = null;
 let currentTour = null;
@@ -1723,10 +1745,7 @@ function openSheet(id){
 
     <!-- Info fields -->
     <div class="section-title">Stammdaten</div>
-    <div class="field-row"><span class="field-key">Baumnr.</span><span class="field-val">${esc(tree.baumnr||'–')}</span></div>
-    <div class="field-row"><span class="field-key">Baumart</span><span class="field-val" style="font-style:italic;">${esc(tree.art||'–')}</span></div>
-    <div class="field-row"><span class="field-key">Pflanzjahr</span><span class="field-val">${esc(tree.pflanzjahr||'–')}</span></div>
-    <div class="field-row"><span class="field-key">Pflanzzeit</span><span class="field-val">${esc(tree.pflanzzeitpunkt||'–')}</span></div>
+    ${_mobilInfoRows(tree)}
     <div class="field-row"><span class="field-key">Koordinaten</span><span class="field-val" style="font-size:11px;font-family:monospace;">${tree.lat?tree.lat.toFixed(5)+', '+tree.lng.toFixed(5):'–'}</span></div>
     <div class="field-row"><span class="field-key">Route #</span><span class="field-val">#${idx+1}</span></div>
     ${tree.lastStatus?`<div class="field-row"><span class="field-key">Letzte Meldung</span><span class="field-val">${tree.lastStatus==='bewaessert'?'✓ Erledigt':'✕ Nicht erledigt'}</span></div>`:''}

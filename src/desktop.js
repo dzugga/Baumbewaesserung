@@ -5485,11 +5485,21 @@ function renderFieldOverview(el){
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;">
       ${labelFields.map(([k,def])=>`<div><label style="display:block;font-size:11px;color:var(--text3);margin-bottom:3px;">${dlEsc(def)}</label><input class="form-control" id="fl-${k}" value="${dlEsc(FL[k]||'')}" placeholder="${dlEsc(DEFAULT_LABELS[k]||def)}" onchange="setFieldLabel('${k}',this.value)" style="padding:6px 9px;font-size:13px;"></div>`).join('')}
     </div>`;
+  // Fahrer-App: welche Stammdaten im Detail-Sheet erscheinen (projekt-konfigurierbar)
+  const mobilCand=[['baumnr',FL.baumnr||'Objektnummer'],['art',FL.art||'Typ / Art'],['stadtteil',FL.stadtteil||'Stadtteil'],['pflanzjahr',FL.pflanzjahr||'Jahr'],['pflanzzeitpunkt',FL.pflanzzeitpunkt||'Zeitpunkt'],...customFields.map(c=>[c.key,c.label])];
+  const mobilSel=Array.isArray(currentProjectData?.mobilFelder)?currentProjectData.mobilFelder:['baumnr','art','pflanzjahr','pflanzzeitpunkt',...customFields.map(c=>c.key)];
+  const mobilSection = ro ? '' : `
+    <div style="font-size:13px;font-weight:700;margin:26px 0 4px;">Fahrer-App: sichtbare Felder</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">Welche Stammdaten im Detail der Fahrer-App angezeigt werden. Koordinaten und Routen-Nr. sind immer dabei; Zustand, Priorität und Notiz erfasst der Fahrer ohnehin im oberen Bereich.</div>
+    <div style="display:flex;flex-wrap:wrap;gap:9px 18px;">
+      ${mobilCand.map(([k,l])=>`<label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" ${mobilSel.includes(k)?'checked':''} onchange="toggleMobilFeld('${k}',this.checked)" style="margin:0;cursor:pointer;">${dlEsc(l)}</label>`).join('')}
+    </div>`;
   el.innerHTML=`<div style="max-width:880px;margin:0 auto;">
     <div style="font-size:16px;font-weight:700;margin-bottom:4px;">Felder & Listen</div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:16px;">Wähle ein Feld, um seine Auswahlliste zu pflegen; die Bezeichnungen änderst du unten. Freitext-Felder (${dlEsc(FL.name)}, ${dlEsc(FL.baumnr)}, ${dlEsc(FL.notiz)}) haben keine Liste.</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;">${tiles}</div>
     ${!ro && customFields.length<5?`<button class="btn btn-secondary" style="padding:7px 14px;font-size:12px;margin-top:16px;" onclick="addCustomField()">+ Kundenfeld hinzufügen (${customFields.length}/5)</button>`:''}
+    ${mobilSection}
     ${labelGrid}
   </div>`;
 }
@@ -6213,6 +6223,19 @@ async function setFieldLabel(key, value){
     _refreshFieldLabelViews(); // offenes Detail-Panel / Tabelle / Filter mit neuen Bezeichnungen aktualisieren
     notify('✓ Bezeichnung gespeichert');
   }catch(e){ console.warn('setFieldLabel',e); notify(dlErr(e)); }
+}
+// Stammdaten-Feld für die Fahrer-App ein-/ausblenden (Liste am Projekt-Doc, kanonische Reihenfolge)
+async function toggleMobilFeld(key, on){
+  if(isReadonly()||!currentProjectId) return;
+  const order=['baumnr','art','stadtteil','pflanzjahr','pflanzzeitpunkt',...customFields.map(c=>c.key)];
+  let cur=Array.isArray(currentProjectData?.mobilFelder)?[...currentProjectData.mobilFelder]:['baumnr','art','pflanzjahr','pflanzzeitpunkt',...customFields.map(c=>c.key)];
+  cur=cur.filter(k=>k!==key);
+  if(on) cur.push(key);
+  cur.sort((a,b)=>order.indexOf(a)-order.indexOf(b));
+  try{
+    await updateDoc(doc(db,'projects',currentProjectId),{mobilFelder:cur});
+    if(currentProjectData) currentProjectData.mobilFelder=cur;
+  }catch(e){ console.warn('toggleMobilFeld',e); notify(dlErr(e)); }
 }
 
 async function migrateTourIds(){
@@ -11048,7 +11071,7 @@ Object.assign(window,{
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
   renderRollenView,saveRole,addRole,deleteRole,toggleBenutzerRollen,toggleBenutzerTouren,changeBenutzerOrg,changeDtaProject,renderUsage,exportUsageCSV,
   startGpsPlacement,startMoveObject,saveMoveObject,cancelMoveObject,toggleFilterNoGps,updateBtnFilterNoGps,
-  saveFieldLabels, setFieldLabel, migrateTourIds,
+  saveFieldLabels, setFieldLabel, toggleMobilFeld, migrateTourIds,
   doLogin, doLogout, toggleLoginMode,
 });
 
