@@ -627,7 +627,7 @@ async function startErfassung(pid){
   currentProjectData = { id: pid, ...snap.data() };
   currentProjectId = pid;
   // Typ/Art-Liste laden (1 Read; für Dropdown). Offline → leer, Dropdown zeigt nur den Bestandswert.
-  try { const as = await db.collection('projects').doc(pid).collection('arten').get(); artenE = as.docs.map(d => d.data().name).filter(Boolean); }
+  try { const as = await db.collection('projects').doc(pid).collection('arten').get(); artenE = as.docs.map(d => ({ name: d.data().name, klasse: d.data().klasse||'' })).filter(a => a.name); }
   catch(_) { artenE = []; }
 
   await watchTrees(pid);
@@ -830,8 +830,9 @@ function _listOptsE(fk, cur) {
 function _rankOptsE(fk, cur) {
   return _rankE(fk).map(e=>`<option value="${esc(e.id)}"${e.id===cur?' selected':''}>${esc(e.label)}</option>`).join('');
 }
-function _artOptsE(cur) {
-  let labels = [...new Set(artenE.filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+function _artOptsE(cur, klasse) {
+  // Nur Arten der Objektklasse (ohne Klassen-Tag = gilt für alle)
+  let labels = [...new Set(artenE.filter(a => a && a.name && (!a.klasse || a.klasse === (klasse||''))).map(a => a.name))].sort((a,b)=>a.localeCompare(b));
   cur = (cur||'').trim();
   if (cur && !labels.includes(cur)) labels.unshift(cur);
   return `<option value="">— bitte wählen —</option>` + labels.map(n=>`<option value="${esc(n)}"${n===cur?' selected':''}>${esc(n)}</option>`).join('');
@@ -862,7 +863,7 @@ function applyErfFieldVisibility(t) {
 
 // Listen-Dropdowns des Formulars füllen; t=null → Neuanlage (Standardwerte)
 function populateErfForm(t) {
-  const a = document.getElementById('f-art'); if (a) a.innerHTML = _artOptsE(t ? t.art : '');
+  const a = document.getElementById('f-art'); if (a) a.innerHTML = _artOptsE(t ? t.art : '', t ? (t.klasse||'') : '');
   const z = document.getElementById('f-zustand'); if (z) z.innerHTML = _rankOptsE('zustand', t ? (t.zustand||'mittel') : 'mittel');
   const w = document.getElementById('f-wasser');  if (w) w.innerHTML = _rankOptsE('wasser',  t ? (t.wasser||t.wasserbedarf||'mittel') : 'mittel');
   const s = document.getElementById('f-stadtteil'); if (s) s.innerHTML = _listOptsE('stadtteil', t ? t.stadtteil : '');
