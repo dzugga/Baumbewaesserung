@@ -1768,6 +1768,8 @@ function _geomStyleFor(cat){
   const c=(currentProjectData?.geomStyle&&currentProjectData.geomStyle[cat])||{};
   return { color:c.color||d.color, weight:c.weight!=null?c.weight:d.weight, opacity:c.opacity!=null?c.opacity:d.opacity, fillOpacity:c.fillOpacity!=null?c.fillOpacity:d.fillOpacity };
 }
+// Stärke der versetzten (Versatz-)Seitenlinien — eigener Wert, sonst Abschnittsnetz-Stärke
+function _versatzWeight(){ const v=currentProjectData?.geomStyle?.versatz?.weight; return v!=null?v:_geomStyleFor('abschnitt').weight; }
 async function setGeomStyle(cat,prop,val){
   if(isReadonly()||!currentProjectId) return;
   const gs=JSON.parse(JSON.stringify(currentProjectData?.geomStyle||{}));
@@ -1930,6 +1932,13 @@ function renderDisplayPanel(){
             <label style="display:flex;align-items:center;gap:4px;">Deckkraft<input type="range" min="0" max="1" step="0.05" value="${tv}" onchange="setGeomStyle('${c}','${tp}',this.value)" style="width:64px;"></label>
           </div></div>`;
       });
+      if(present.has('abschnitt')){
+        h+=`<div style="margin:6px 0;"><div style="font-size:12px;margin-bottom:3px;">Versetzte Linien</div>
+          <div style="display:flex;align-items:center;gap:9px;font-size:11px;color:var(--text3);flex-wrap:wrap;">
+            <label style="display:flex;align-items:center;gap:4px;">Stärke<input type="number" min="0.5" max="12" step="0.5" value="${_versatzWeight()}" onchange="setGeomStyle('versatz','weight',this.value)" style="width:46px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;"></label>
+            <span>Farbe/Deckkraft wie Abschnittsnetz</span>
+          </div></div>`;
+      }
     }
   }
   p.innerHTML=h;
@@ -2111,7 +2120,8 @@ function renderDrawnGeoms(){
         const baseLL=(g.coordinates||[]).map(c=>[c[1],c[0]]); if(baseLL.length<2) return;
         sides.forEach(s=>{
           const ll=_offsetLatLngs(baseLL,_sideOffsetM(s));
-          const layer=L.polyline(ll,_opt(_flStyleForTree(s,true)));
+          const _vst=_flStyleForTree(s,true); _vst.weight=_versatzWeight(); // eigene Stärke für versetzte Linien
+          const layer=L.polyline(ll,_opt(_vst));
           layer.on('click',()=>{ if(assignMode&&!lassoDrawing){ toggleLassoSelect(s.id); _applyFlaechenSelection(); } else if(!assignMode) selectTree(s.id,false); });
           layer.on('contextmenu',e=>{ L.DomEvent.stopPropagation(e); try{ e.originalEvent&&e.originalEvent.preventDefault(); }catch(_){} showTreeTourContextMenu(s, e); });
           layer.bindTooltip((t.name||'Abschnitt')+' · '+_elemLabel(s),{sticky:true});
