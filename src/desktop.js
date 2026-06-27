@@ -1588,8 +1588,8 @@ function makeMarker(tree){
   const treeTourIds=getTreeTourIds(tree);
   const realIds=realTourIds(tree);                            // Übersichtstouren zählen nicht mit
   const isMulti=realIds.length>1;                             // mehrere ECHTE Tourzuordnungen → Zähler
-  const activeForTree=treeTourIds.filter(id=>activeTours.has(id));
-  const multiActive=activeForTree.length>=2;                  // mehrere gleichzeitig eingeblendet → gelb
+  const activeForTree=treeTourIds.filter(id=>activeTours.has(id) && !isOverviewTour(id)); // Übersichtstouren zählen nicht
+  const multiActive=activeForTree.length>=2;                  // mehrere gleichzeitig eingeblendete ECHTE Touren → gelb
   // Farbe: mehrere gleichzeitig aktive Touren → gelb; sonst aktive/Primär-Tourfarbe
   let color;
   if(multiActive){
@@ -1779,15 +1779,17 @@ function _flTourColorFor(t){
   if(_isContainer(t)){ // Abschnitt: aktive Touren ALLER Seiten sammeln — ≥2 = Überschneidung → gelb (wie Punkte)
     const set=new Set();
     for(const s of _ausstattungOf(t.extId)){ for(const id of getTreeTourIds(s)){ if(activeTours.has(id)) set.add(id); } }
-    if(set.size>=2) return FL_MULTI;
-    if(set.size===1) return (tours.find(x=>x.id===[...set][0])||{}).color||null;
+    const realSet=[...set].filter(id=>!isOverviewTour(id)); // Übersichtstouren zählen nicht für „gelb"
+    if(realSet.length>=2) return FL_MULTI;
+    if(set.size>=1) return (tours.find(x=>x.id===(realSet[0]||[...set][0]))||{}).color||null; // bevorzugt echte Tour
     return null;
   }
   const act=getTreeTourIds(t).filter(id=>activeTours.has(id));
-  if(act.length>=2) return FL_MULTI; // in mehreren angezeigten Touren → gelb
-  if(act.length===1){
-    if(activeTourOnMap && act.includes(activeTourOnMap)) return (tours.find(x=>x.id===activeTourOnMap)||{}).color||null;
-    return (tours.find(x=>x.id===act[0])||{}).color||null;
+  const realAct=act.filter(id=>!isOverviewTour(id)); // Übersichtstouren zählen nicht für „gelb"
+  if(realAct.length>=2) return FL_MULTI;
+  if(act.length>=1){
+    const pick=(activeTourOnMap && act.includes(activeTourOnMap)) ? activeTourOnMap : (realAct[0]||act[0]);
+    return (tours.find(x=>x.id===pick)||{}).color||null;
   }
   return null;
 }
@@ -8907,10 +8909,11 @@ function showTreeTourContextMenu(tree, e){
   if(_isContainer(tree)){
     const map=new Map();
     for(const s of _ausstattungOf(tree.extId)){ for(const id of getTreeTourIds(s)){ const tr=tours.find(t=>t.id===id); if(!tr) continue; if(!map.has(id)) map.set(id,{tour:tr,sides:[]}); map.get(id).sides.push(_elemLabel(s)); } }
-    rows=[...map.values()].map(v=>({color:v.tour.color,name:v.tour.name,sub:v.sides.join(' · ')}));
+    rows=[...map.values()].map(v=>({color:v.tour.color,name:v.tour.name,sub:v.sides.join(' · '),ueb:!!v.tour.uebersicht}));
   } else {
-    rows=getTreeTourIds(tree).map(id=>tours.find(t=>t.id===id)).filter(Boolean).map(t=>({color:t.color,name:t.name,sub:''}));
+    rows=getTreeTourIds(tree).map(id=>tours.find(t=>t.id===id)).filter(Boolean).map(t=>({color:t.color,name:t.name,sub:'',ueb:!!t.uebersicht}));
   }
+  rows.sort((a,b)=>(a.ueb?1:0)-(b.ueb?1:0)); // echte Touren zuerst, Übersicht unten
   if(rows.length===0) return; // kein Popup wenn keine Tour
   const treeTourList=rows; // (Variablenname unten beibehalten)
 
@@ -8935,16 +8938,18 @@ function showTreeTourContextMenu(tree, e){
     font-size:13px;
   `;
   const _ttitle=_isContainer(tree)?((tree.name||'Abschnitt')):(tree.name||'–');
+  const _rc=treeTourList.filter(t=>!t.ueb).length, _uc=treeTourList.length-_rc; // echte vs. Übersicht
+  const _uebTag=`<span title="Übersichtstour — keine echte Tour, zählt nicht für die Planung" style="display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:99px;padding:0 6px;vertical-align:middle;margin-left:4px;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>Übersicht</span>`;
   popup.innerHTML=`
     <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin-bottom:8px;">
       ${dlEsc(_ttitle)} — Touren
     </div>
     ${treeTourList.map(t=>`
-      <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);">
+      <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);${t.ueb?'opacity:.75;':''}">
         <div style="width:10px;height:10px;border-radius:50%;background:${t.color};flex-shrink:0;margin-top:2px;align-self:flex-start;"></div>
-        <span style="min-width:0;"><span style="font-weight:600;color:${t.color};">${dlEsc(t.name)}</span>${t.sub?`<br><span style="font-size:11px;color:var(--text3);">${dlEsc(t.sub)}</span>`:''}</span>
+        <span style="min-width:0;"><span style="font-weight:600;color:${t.color};">${dlEsc(t.name)}</span>${t.ueb?_uebTag:''}${t.sub?`<br><span style="font-size:11px;color:var(--text3);">${dlEsc(t.sub)}</span>`:''}</span>
       </div>`).join('')}
-    <div style="margin-top:8px;font-size:11px;color:var(--text3);">${treeTourList.length} Tour${treeTourList.length!==1?'en':''}</div>
+    <div style="margin-top:8px;font-size:11px;color:var(--text3);">${_rc} Tour${_rc!==1?'en':''}${_uc?` · ${_uc} Übersicht`:''}</div>
   `;
   document.body.appendChild(popup);
 
