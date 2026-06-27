@@ -1740,8 +1740,8 @@ function toggleTourCounts(){
 }
 function toggleRouteNums(){
   _showRouteNums=!_showRouteNums;
-  refreshMarkers();    // Routennummern auf Punkt-Markern
-  renderDrawnGeoms();  // Routennummern auf Abschnitten/Seiten
+  remakeMarkers(Object.keys(mapMarkers)); // Routennummern auf Punkt-Markern neu — ohne Routen-Reload (Linie bleibt)
+  renderDrawnGeoms();                      // Routennummern auf Abschnitten/Seiten
 }
 
 function refreshMarkers(){
