@@ -1607,7 +1607,7 @@ function makeMarker(tree){
   const isPreselected=lassoSelection.size>0 && lassoSelection.has(tree.id); // Lasso-Vorauswahl
   const numColor=multiActive?'#a16207':color; // lesbarer Reihenfolge-Zähler auf Gelb
 
-  const badge=(num!=null&&_showNums)
+  const badge=(num!=null&&_showRouteNums)
     ?`<div style="position:absolute;bottom:-5px;right:-5px;min-width:16px;height:16px;border-radius:8px;background:#fff;border:1.5px solid ${numColor};color:${numColor};font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:monospace;padding:0 2px;">${num}</div>`:'';
 
   const ring=isHighlighted
@@ -1722,12 +1722,14 @@ function toggleMapFilter(){
   if(btn) btn.style.background=open?'var(--green-light)':'var(--surface)';
 }
 // Tour-Zähler (orange Badges) ein-/ausblenden — Farbdarstellung bleibt eindeutig
-let _showNums=true; // EIN Schalter für alle Nummern-Bubbles: Routennummern (Marker + Geometrie) + Tour-Zähler-Badges
+let _showRouteNums=true;  // Routennummern (Reihenfolge) auf Markern + Geometrie
+let _showTourCounts=true; // Tourhäufigkeit: orange „in N Touren"-Badge (CSS)
 function toggleTourCounts(){
-  _showNums=!_showNums;
-  document.body.classList.toggle('hide-tour-counts',!_showNums); // Tour-Zähler-Badges (CSS)
-  const btn=document.getElementById('btn-toggle-counts');
-  if(btn) btn.style.background=_showNums?'var(--green-light)':'var(--surface)';
+  _showTourCounts=!_showTourCounts;
+  document.body.classList.toggle('hide-tour-counts',!_showTourCounts);
+}
+function toggleRouteNums(){
+  _showRouteNums=!_showRouteNums;
   refreshMarkers();    // Routennummern auf Punkt-Markern
   renderDrawnGeoms();  // Routennummern auf Abschnitten/Seiten
 }
@@ -1850,7 +1852,7 @@ const _CAT_LABEL={punkt:'Punkte',linie:'Strecken',flaeche:'Flächen',abschnitt:'
 async function saveDisplayDefaults(){
   if(isReadonly()||!currentProjectId) return;
   const hidden=Object.keys(_typeFilter).filter(c=>_typeFilter[c]===false);
-  const d={ showNums:_showNums, routesVisible, versatz:_versatzOn, colorMode:_colorMode, hidden };
+  const d={ showRouteNums:_showRouteNums, showTourCounts:_showTourCounts, routesVisible, versatz:_versatzOn, colorMode:_colorMode, hidden };
   try{
     await updateDoc(doc(db,'projects',currentProjectId),{displayDefaults:d});
     if(currentProjectData) currentProjectData.displayDefaults=d;
@@ -1863,13 +1865,15 @@ function _applyDisplayDefaults(){
   if(_displayDefaultsApplied===currentProjectId) return;
   _displayDefaultsApplied=currentProjectId;
   const d=currentProjectData?.displayDefaults;
-  _showNums = d&&d.showNums!=null ? !!d.showNums : true;
+  const _legacyNums = d&&d.showNums!=null ? !!d.showNums : true; // Alt-Standard (gemeinsamer Schalter) → beide
+  _showRouteNums = d&&d.showRouteNums!=null ? !!d.showRouteNums : _legacyNums;
+  _showTourCounts = d&&d.showTourCounts!=null ? !!d.showTourCounts : _legacyNums;
   routesVisible = d&&d.routesVisible!=null ? !!d.routesVisible : true;
   _versatzOn = !!(d&&d.versatz);
   _colorMode = (d&&d.colorMode)||'none';
   _typeFilter = {};
   if(d&&Array.isArray(d.hidden)) d.hidden.forEach(c=>{ _typeFilter[c]=false; });
-  document.body.classList.toggle('hide-tour-counts', !_showNums);
+  document.body.classList.toggle('hide-tour-counts', !_showTourCounts);
   try{ applyRouteVisibility(); }catch(_){}
   try{ refreshMarkers(); }catch(_){}
   try{ renderFlaechen(); }catch(_){ try{ renderDrawnGeoms(); }catch(__){} }
@@ -1884,7 +1888,8 @@ function renderDisplayPanel(){
   h+=`<div style="font-size:12px;font-weight:600;margin:4px 0 2px;">Sichtbarkeit</div>`;
   ['punkt','linie','flaeche','abschnitt'].filter(c=>present.has(c)).forEach(c=>{ h+=chk(_typeFilter[c]!==false,`setTypeVisible('${c}',this.checked)`,dlEsc(_CAT_LABEL[c])); });
   h+=chk(routesVisible,'toggleRouteLines()','Routenlinien ein/aus');
-  h+=chk(_showNums,'toggleTourCounts()','Tourhäufigkeit ein/aus');
+  h+=chk(_showTourCounts,'toggleTourCounts()','Tourhäufigkeit ein/aus');
+  h+=chk(_showRouteNums,'toggleRouteNums()','Routennummern ein/aus');
   if(hasCont) h+=chk(_versatzOn,'toggleVersatz()','Objekte nach Lage versetzt');
   if(hasCont){
     h+=`<div style="font-size:12px;font-weight:600;margin:10px 0 2px;border-top:1px solid var(--border);padding-top:8px;">Einfärben nach</div>`;
@@ -2078,7 +2083,7 @@ function renderDrawnGeoms(){
   const _rend = list.length>150 ? L.canvas({padding:0.5}) : null;
   const _opt = st => _rend ? {renderer:_rend, ...st} : st;
   _drawnLayer=L.featureGroup().addTo(map); // featureGroup → getBounds() für „einpassen"
-  const _placeNum=(num,latlng,col)=>{ if(!_showNums||num==null||!latlng) return; try{ L.marker(latlng,{interactive:false,icon:L.divIcon({className:'',html:'<div style="min-width:18px;height:18px;border-radius:9px;background:'+(col||FL_NEUTRAL)+';border:2px solid #fff;color:#fff;font:700 10px/14px monospace;text-align:center;padding:0 3px;box-shadow:0 0 2px rgba(0,0,0,.6);">'+num+'</div>',iconSize:[18,18],iconAnchor:[9,9]})}).addTo(_drawnLayer); }catch(_){} };
+  const _placeNum=(num,latlng,col)=>{ if(!_showRouteNums||num==null||!latlng) return; try{ L.marker(latlng,{interactive:false,icon:L.divIcon({className:'',html:'<div style="min-width:18px;height:18px;border-radius:9px;background:'+(col||FL_NEUTRAL)+';border:2px solid #fff;color:#fff;font:700 10px/14px monospace;text-align:center;padding:0 3px;box-shadow:0 0 2px rgba(0,0,0,.6);">'+num+'</div>',iconSize:[18,18],iconAnchor:[9,9]})}).addTo(_drawnLayer); }catch(_){} };
   list.forEach(t=>{
     const g=_treeGeom(t); if(!g) return;
     // Versatz-Modus: Abschnitt-Seiten einzeln, senkrecht zur Mittellinie versetzt
@@ -11507,7 +11512,7 @@ Object.assign(window,{
   renderMandanten,createOrgUi,moveProjectUi,setOrgNaviUi,checkBaumIdDuplicates,flaechenImportOpen,flaechenImportRun,geomDocsImportOpen,geomDocsImportRun,strMigOpen,flaechenTourGenOpen,flaechenTourGenRun,
   addWmsLayer,deleteWmsLayer,editWmsLayer,cancelWmsEdit,renderWmsList,
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,setListMode,
-  toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,toggleTourCounts,toggleVersatz,toggleTypeFilter,setTypeVisible,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
+  toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,toggleTourCounts,toggleRouteNums,toggleVersatz,toggleTypeFilter,setTypeVisible,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,saveOrgCode,dlToggleNoLogin,setDriverFunktion,setDriverEinsatz,dlDismissLoginRequest,dlFunktionAdd,dlFunktionRemove,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
