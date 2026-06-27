@@ -1301,6 +1301,16 @@ function _computeRouteSplit(geojson, tourId){
     return {routeReinKm:rein, routeLeerKm:leer};
   }catch(e){ console.warn('routeSplit',e); return null; }
 }
+// Routenlinien-Stil je Projekt: 'solid' = durchgezogen (kein dashArray), sonst gestrichelt
+function _routeDash(pat){ return currentProjectData?.routeLineStyle==='solid' ? null : pat; }
+async function setRouteLineStyle(val){
+  if(isReadonly()||!currentProjectId) return;
+  try{
+    await updateDoc(doc(db,'projects',currentProjectId),{routeLineStyle:val});
+    if(currentProjectData) currentProjectData.routeLineStyle=val;
+    loadSavedRoutes(true); // Routen mit neuem Linienstil neu zeichnen
+  }catch(e){ console.warn('setRouteLineStyle',e); notify(dlErr(e)); }
+}
 function drawSavedRoute(tourId, routeData){
   const tour=tours.find(t=>t.id===tourId);if(!tour)return;
   if(tourRoutes[tourId]){map.removeLayer(tourRoutes[tourId].layer);delete tourRoutes[tourId];}
@@ -1317,7 +1327,7 @@ function drawSavedRoute(tourId, routeData){
   if(map && !map.getPane('routeline')){ map.createPane('routeline'); const p=map.getPane('routeline'); p.style.zIndex=390; p.style.pointerEvents='none'; }
   let layer;
   if(geojson){
-    layer=L.geoJSON(geojson,{pane:'routeline',interactive:false,style:{color:tour.color,weight:3,opacity:.9,dashArray:'3 8'}}).addTo(map);
+    layer=L.geoJSON(geojson,{pane:'routeline',interactive:false,style:{color:tour.color,weight:3,opacity:.9,dashArray:_routeDash('3 8')}}).addTo(map);
   } else {
     // Draw straight-line fallback from saved order
     const orderedTrees=routeData.orderIds
@@ -1326,7 +1336,7 @@ function drawSavedRoute(tourId, routeData){
     const depot=getDepot();
     let pts=orderedTrees.map(t=>[t.lat,t.lng]);
     if(depot){const dp=[depot.lat,depot.lng];pts=getDepotMode()==='round'?[dp,...pts,dp]:[dp,...pts];}
-    layer=L.polyline(pts,{pane:'routeline',interactive:false,color:tour.color,weight:3,opacity:.7,dashArray:'8 5'}).addTo(map);
+    layer=L.polyline(pts,{pane:'routeline',interactive:false,color:tour.color,weight:3,opacity:.7,dashArray:_routeDash('8 5')}).addTo(map);
   }
   const _split=geojson?_computeRouteSplit(geojson,tourId):null;
   tourRoutes[tourId]={layer,km:routeData.km||0,durationSec:routeData.durationSec||0,routeReinKm:_split?_split.routeReinKm:null,routeLeerKm:_split?_split.routeLeerKm:null};
@@ -1895,6 +1905,14 @@ function renderDisplayPanel(){
     h+=`<div style="font-size:12px;font-weight:600;margin:10px 0 2px;border-top:1px solid var(--border);padding-top:8px;">Einfärben nach</div>`;
     const rad=(val,label)=>`<label style="display:flex;align-items:center;gap:8px;font-size:13px;padding:3px 0;cursor:pointer;"><input type="radio" name="dp-cm" ${_colorMode===val?'checked':''} onchange="setColorMode('${val}')" style="margin:0;cursor:pointer;"><span>${label}</span></label>`;
     h+=rad('none','aus (Tourfarbe)')+rad('rk','Reinigungsklasse')+rad('haeuf','Reinigungshäufigkeit');
+  }
+  if(!ro){
+    const rls=currentProjectData?.routeLineStyle==='solid'?'solid':'dashed';
+    h+=`<div style="display:flex;align-items:center;gap:8px;font-size:13px;margin:10px 0 2px;border-top:1px solid var(--border);padding-top:8px;">Routenlinie
+      <select onchange="setRouteLineStyle(this.value)" style="margin-left:auto;padding:3px 6px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
+        <option value="dashed"${rls==='dashed'?' selected':''}>gestrichelt</option>
+        <option value="solid"${rls==='solid'?' selected':''}>durchgezogen</option>
+      </select></div>`;
   }
   if(!ro){
     h+=`<div style="border-top:1px solid var(--border);margin:10px 0 0;padding-top:8px;"><button onclick="saveDisplayDefaults()" class="btn btn-secondary" style="width:100%;padding:6px;font-size:12px;">★ Aktuelle Auswahl als Projekt-Standard</button></div>`;
@@ -11520,7 +11538,7 @@ Object.assign(window,{
   startGpsPlacement,startMoveObject,saveMoveObject,cancelMoveObject,toggleFilterNoGps,updateBtnFilterNoGps,
   saveFieldLabels, setFieldLabel, toggleMobilFeld, migrateTourIds, deriveHaeufigkeitFromZustaendigkeit,
   addObjektklasse, renameObjektklasse, setKlasseStruktur, toggleKlasseFeld, deleteObjektklasse,
-  addReinigungsklasse, renameReinigungsklasse, setRkFreq, setRkColor, deleteReinigungsklasse, onKlasseChange, setColorMode, setAbschnittRk, toggleDisplayPanel, setGeomStyle, saveDisplayDefaults,
+  addReinigungsklasse, renameReinigungsklasse, setRkFreq, setRkColor, deleteReinigungsklasse, onKlasseChange, setColorMode, setAbschnittRk, toggleDisplayPanel, setGeomStyle, saveDisplayDefaults, setRouteLineStyle,
   doLogin, doLogout, toggleLoginMode,
 });
 
