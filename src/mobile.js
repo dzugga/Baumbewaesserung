@@ -3,7 +3,12 @@ import { installErrorHandler } from './errlog.js'; installErrorHandler('mobil');
 import { BASEMAP_FARBE, BASEMAP_ATTR } from './basemaps.js';
 import { firebaseConfig } from './firebase-config.js';
 import { esc } from './esc.js';
+import { titelOf, typOf, buildContainerIndex, klasseFelderOf } from './objektrollen.js';
 import { startSession, endSession } from './session.js';
+// Container-Index (extId→Abschnitt) für die Anzeige-Rollen; aus dem vollen Projekt-Snapshot gebaut.
+let _objIndex = null;
+function _setObjIndex(objs){ _objIndex = buildContainerIndex(objs); }
+function _getContainer(extId){ return _objIndex ? _objIndex.getContainer(extId) : null; }
 function _onSessionKicked(){ try{ alert('Abgemeldet: Diese Kennung wurde an einem anderen Gerät angemeldet.'); }catch(_){}; try{ firebase.auth().signOut(); }catch(_){}; location.reload(); }
 // Firebase compat API shims — maps modular API calls to compat SDK
 function initializeApp(cfg){ return firebase.initializeApp(cfg); }
@@ -111,7 +116,8 @@ function _mobilFieldVal(tree,key){
   const v=tree[key]; return (v!=null&&v!=='')?String(v):'–';
 }
 function _mobilInfoRows(tree){
-  return _mobilInfoFields().map(key=>{
+  const kf=klasseFelderOf(tree, currentProjectData?.objektklassen);
+  return _mobilInfoFields().filter(key=>!kf||kf.includes(key)).map(key=>{
     const it=key==='art'?' style="font-style:italic;"':'';
     return `<div class="field-row"><span class="field-key">${esc(_mobilFieldLabel(key))}</span><span class="field-val"${it}>${esc(_mobilFieldVal(tree,key))}</span></div>`;
   }).join('');
@@ -363,6 +369,7 @@ async function startBewässerungLogin(name, pid, tid) {
       if(pauseSnapshot)return;
       // Client-seitiger Filter: tourIds-Array oder altes tourId-Feld
       const all=snap.docs.map(d=>({id:d.id,...d.data()}));
+      _setObjIndex(all);
       trees=all.filter(t=>(t.tourIds||[t.tourId]).includes(tid) && t.aktiv!==false);
       routeOrder=routeOrder.filter(id=>trees.find(t=>t.id===id));
       trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
@@ -435,7 +442,7 @@ function updateNextTreePreview() {
   } else {
     const id = routeOrder[idx];
     const tree = trees.find(t=>t.id===id);
-    nextEl.textContent = tree ? `#${idx+1} — ${tree.name||'–'}` : '–';
+    nextEl.textContent = tree ? `#${idx+1} — ${titelOf(tree,_getContainer)||'–'}` : '–';
     nextEl.style.color = '';
   }
 }
@@ -519,6 +526,7 @@ async function dialogNeuStarten(){
   unsubTrees = _reoQ1.onSnapshot(snap => {
     if(pauseSnapshot) return;
     const _all = snap.docs.map(d=>({id:d.id,...d.data()}));
+    _setObjIndex(_all);
     trees = _all.filter(t=>(t.tourIds||[t.tourId]).includes(currentTourId) && t.aktiv!==false);
     routeOrder = routeOrder.filter(id=>trees.find(t=>t.id===id));
     trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
@@ -911,8 +919,9 @@ async function reopenTour() {
     const _reoQ2 = db.collection('projects').doc(currentProjectId).collection('trees')/* alle laden, client-seitig filtern */;
     unsubTrees = _reoQ2.onSnapshot(snap => {
       if(pauseSnapshot) return;
-      trees = snap.docs.map(d=>({id:d.id,...d.data()}))
-        .filter(t=>(t.tourIds||[t.tourId]).includes(currentTourId) && t.aktiv!==false);
+      const _all = snap.docs.map(d=>({id:d.id,...d.data()}));
+      _setObjIndex(_all);
+      trees = _all.filter(t=>(t.tourIds||[t.tourId]).includes(currentTourId) && t.aktiv!==false);
       routeOrder = routeOrder.filter(id=>trees.find(t=>t.id===id));
       trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
       renderMarkers();
@@ -1648,7 +1657,7 @@ window.naviSetBearing=(deg)=>{ if(map&&map.setBearing){ map.setBearing(deg); ret
 function renderList(q=''){
   const el=document.getElementById('tree-list-mobile');
   let list=routeOrder.map(id=>trees.find(t=>t.id===id)).filter(Boolean);
-  if(q) list=list.filter(t=>(t.name||'').toLowerCase().includes(q.toLowerCase())||(t.art||'').toLowerCase().includes(q.toLowerCase()));
+  if(q){ const ql=q.toLowerCase(); list=list.filter(t=>titelOf(t,_getContainer).toLowerCase().includes(ql)||(t.art||'').toLowerCase().includes(ql)); }
   if(list.length===0){el.innerHTML='<div style="padding:40px;text-align:center;color:var(--text3);">Keine Bäume</div>';return;}
   el.innerHTML=list.map((tree,i)=>{
     const idx=routeOrder.indexOf(tree.id);
@@ -1658,8 +1667,8 @@ function renderList(q=''){
     return `<div class="tree-row${st?' done':''}" data-id="${tree.id}">
       <div class="tree-row-num" style="background:${color}22;color:${color};">${idx+1}</div>
       <div class="tree-row-info">
-        <div class="tree-row-name">${esc(tree.name||'–')}</div>
-        <div class="tree-row-meta">${esc(tree.art||'–')} · ${esc(tree.stadtteil||'')}</div>
+        <div class="tree-row-name">${esc(titelOf(tree,_getContainer)||'–')}</div>
+        <div class="tree-row-meta">${esc(typOf(tree)||'–')} · ${esc(tree.stadtteil||'')}</div>
       </div>
       <div class="status-dot ${dotClass}"></div>
     </div>`;
@@ -1680,9 +1689,9 @@ function openSheet(id){
   selectedTreeId=id;
   const tree=trees.find(t=>t.id===id);
   if(!tree)return;
-  document.getElementById('sheet-title').textContent=tree.name||'–';
+  document.getElementById('sheet-title').textContent=titelOf(tree,_getContainer)||'–';
   document.getElementById('sheet-meta').textContent=
-    `${tree.art||'–'} · ${tree.stadtteil||''} · ${tree.baumnr||''}`;
+    `${typOf(tree)||'–'} · ${tree.stadtteil||''} · ${tree.baumnr||''}`;
 
   const idx=routeOrder.indexOf(id);
   const statusVal=tree.lastStatus||'';
@@ -1746,7 +1755,6 @@ function openSheet(id){
     <!-- Info fields -->
     <div class="section-title">Stammdaten</div>
     ${_mobilInfoRows(tree)}
-    <div class="field-row"><span class="field-key">Koordinaten</span><span class="field-val" style="font-size:11px;font-family:monospace;">${tree.lat?tree.lat.toFixed(5)+', '+tree.lng.toFixed(5):'–'}</span></div>
     <div class="field-row"><span class="field-key">Route #</span><span class="field-val">#${idx+1}</span></div>
     ${tree.lastStatus?`<div class="field-row"><span class="field-key">Letzte Meldung</span><span class="field-val">${tree.lastStatus==='bewaessert'?'✓ Erledigt':'✕ Nicht erledigt'}</span></div>`:''}
   `;

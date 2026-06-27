@@ -3,7 +3,14 @@ import { installErrorHandler } from './errlog.js'; installErrorHandler('erfassun
 import { BASEMAP_FARBE, BASEMAP_ATTR } from './basemaps.js';
 import { firebaseConfig } from './firebase-config.js';
 import { esc } from './esc.js';
+import { titelOf as orTitel, buildContainerIndex, klasseFelderOf } from './objektrollen.js';
 import { startSession, endSession } from './session.js';
+// Lazy Container-Index für Anzeige-Rollen; baut neu, sobald sich allTrees ändert.
+let _erfIdx = null, _erfIdxRef = null;
+function _erfGetContainer(extId){
+  if(_erfIdxRef !== allTrees){ _erfIdx = buildContainerIndex(allTrees); _erfIdxRef = allTrees; }
+  return _erfIdx.getContainer(extId);
+}
 function _onSessionKicked(){ try{ alert('Abgemeldet: Diese Kennung wurde an einem anderen Gerät angemeldet.'); }catch(_){}; try{ firebase.auth().signOut(); }catch(_){}; location.reload(); }
 // ─── FIREBASE CONFIG (zentral in firebase-config.js) ──────────
 const fbApp = firebase.initializeApp(firebaseConfig);
@@ -252,7 +259,7 @@ function treeTooltipHtml(tree, type) {
   let tag = '';
   if (type === 'koord') tag = '<br><i style="color:#1e40af">Koordinate gesetzt</i>';
   else if (type === 'bestand') tag = '<br><i style="color:#dc2626">Bestand</i>';
-  return `<b>${esc(tree.name || '–')}</b><br><span style="font-family:monospace">${esc(id)}</span>${tag}`;
+  return `<b>${esc(orTitel(tree, _erfGetContainer) || '–')}</b><br><span style="font-family:monospace">${esc(id)}</span>${tag}`;
 }
 
 function makeKoordIcon() {
@@ -829,6 +836,30 @@ function _artOptsE(cur) {
   if (cur && !labels.includes(cur)) labels.unshift(cur);
   return `<option value="">— bitte wählen —</option>` + labels.map(n=>`<option value="${esc(n)}"${n===cur?' selected':''}>${esc(n)}</option>`).join('');
 }
+// Welche Stammdaten die Erfassungs-Form zeigt — identisch zur Fahrer-App (mobilFelder am Projekt-Doc).
+// name/zustand/wasser/notiz bleiben immer (Pflicht- bzw. Vor-Ort-Erfassungsfelder, nicht in mobilFelder).
+function _erfFieldSel(t) {
+  const c = currentProjectData?.mobilFelder;
+  const base = Array.isArray(c) ? c : ['baumnr', 'art', 'pflanzjahr', 'pflanzzeitpunkt', ..._customE().map(cf => cf.key)];
+  const kf = klasseFelderOf(t, currentProjectData?.objektklassen); // zusätzlich nach Objektklasse einschränken
+  return kf ? base.filter(k => kf.includes(k)) : base;
+}
+const _ERF_GOVERNED = ['stadtteil', 'baumnr', 'art', 'pflanzjahr', 'pflanzzeitpunkt'];
+function applyErfFieldVisibility(t) {
+  const sel = _erfFieldSel(t);
+  _ERF_GOVERNED.forEach(key => {
+    const el = document.getElementById('f-' + key); if (!el) return;
+    const grp = el.closest('.field-group'); if (!grp) return;
+    grp.style.display = sel.includes(key) ? '' : 'none';
+  });
+  // 2-Spalten-Reihen aufräumen: leere Reihe verstecken, einzelnes sichtbares Feld volle Breite
+  document.querySelectorAll('#form-sheet .field-row-2').forEach(row => {
+    const vis = [...row.querySelectorAll(':scope > .field-group')].filter(g => g.style.display !== 'none');
+    row.style.display = vis.length === 0 ? 'none' : '';
+    row.style.gridTemplateColumns = vis.length === 1 ? '1fr' : '';
+  });
+}
+
 // Listen-Dropdowns des Formulars füllen; t=null → Neuanlage (Standardwerte)
 function populateErfForm(t) {
   const a = document.getElementById('f-art'); if (a) a.innerHTML = _artOptsE(t ? t.art : '');
@@ -838,7 +869,9 @@ function populateErfForm(t) {
   const j = document.getElementById('f-pflanzjahr'); if (j) j.innerHTML = _listOptsE('pflanzjahr', t ? t.pflanzjahr : '');
   const p = document.getElementById('f-pflanzzeitpunkt'); if (p) p.innerHTML = _listOptsE('pflanzzeitpunkt', t ? t.pflanzzeitpunkt : '');
   const wrap = document.getElementById('f-custom-fields');
-  if (wrap) wrap.innerHTML = _customE().map(c=>`<div class="field-group"><label class="field-label">${esc(c.label)}</label><select class="field-input" id="f-${c.key}">${_listOptsE(c.key, t ? t[c.key] : '')}</select></div>`).join('');
+  const sel = _erfFieldSel(t);
+  if (wrap) wrap.innerHTML = _customE().filter(c => sel.includes(c.key)).map(c=>`<div class="field-group"><label class="field-label">${esc(c.label)}</label><select class="field-input" id="f-${c.key}">${_listOptsE(c.key, t ? t[c.key] : '')}</select></div>`).join('');
+  applyErfFieldVisibility(t);
 }
 
 // ─── MODUS 1: NEUER BAUM ─────────────────────────────────────
@@ -890,7 +923,8 @@ function collectFormEdits() {
     wasser: document.getElementById('f-wasser').value,
     notiz: document.getElementById('f-notiz').value,
   };
-  _customE().forEach(c=>{ const el=document.getElementById('f-'+c.key); o[c.key]=el?el.value:''; });
+  // Nur gerenderte (= ausgewählte) Kundenfelder übernehmen; ausgeblendete nicht überschreiben
+  _customE().forEach(c=>{ const el=document.getElementById('f-'+c.key); if(el) o[c.key]=el.value; });
   return o;
 }
 
@@ -921,7 +955,7 @@ async function saveKoordEdits() {
   clearPendingPhotos();
   Object.assign(tree, edits, { _edited: true });
   document.getElementById('koord-tree-name').textContent =
-    `${tree.name || '–'}${tree.baumnr ? ' · ' + tree.baumnr : ''}`;
+    `${orTitel(tree, _erfGetContainer) || '–'}${tree.baumnr ? ' · ' + tree.baumnr : ''}`;
   closeFormSheet();
   // Fotos hängen direkt am bestehenden Objekt (unabhängig vom Positions-Speichern)
   if (photoBlobs.length && tree.id) {
@@ -948,7 +982,7 @@ function openOverviewEditSheet(tree, marker, type) {
   overviewEditType = type || 'erfasst';
   document.querySelector('#form-sheet .sheet-title').textContent = 'Eigenschaften bearbeiten';
   document.getElementById('form-coords-display').textContent =
-    (type === 'bestand' ? (tree.baumnr || '') : (tree.baumId || '')) || (tree.name || '');
+    (type === 'bestand' ? (tree.baumnr || '') : (tree.baumId || '')) || (orTitel(tree, _erfGetContainer) || '');
   fillFormFromTree(tree);
   clearPendingPhotos();
   const ff = document.getElementById('foto-field'); if (ff) ff.style.display = '';

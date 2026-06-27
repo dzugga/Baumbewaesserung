@@ -8,6 +8,7 @@ import { initAppCheck } from './appcheck.js';
 import { basemapLayer, BASEMAP_FARBE, BASEMAP_GRAU, BASEMAP_ATTR } from './basemaps.js';
 import { firebaseConfig } from './firebase-config.js';
 import { esc as dlEsc } from './esc.js'; // dlEsc = projektweites HTML-Escape (zentral in esc.js)
+import { titelOf as orTitel, ELEM_GRUPPE_ORDER, ELEM_GRUPPE_LABEL, haeufigkeitOf as orHaeuf, objektartOf as orObjektart, lageOf as orLage } from './objektrollen.js'; // zentrale Rollen (Objekt + Lage, Reinigungs-Häufigkeit)
 
 function initializeApp(cfg){ return firebase.initializeApp(cfg); }
 function getFirestore(app){ return firebase.firestore(app); }
@@ -381,6 +382,8 @@ function buildWmsLayer(cfg){
 
 let wmsLayerInstances={}; // id -> aktuelle Leaflet-Ebene
 let _basemaps={}, _overlayLayers={}; // Anzeigename -> Leaflet-Ebene (für die Chip-Leiste)
+let _basemapDefaultApplied='__init__'; // Projekt-Standardkarte einmal je Projekt-Öffnen anwenden
+let _displayDefaultsApplied='__init__'; // Darstellungs-Standard einmal je Projekt-Öffnen anwenden
 function rebuildLayerControl(){
   // aktive Custom-Ebenen merken, dann alle entfernen
   const active=new Set();
@@ -394,9 +397,17 @@ function rebuildLayerControl(){
     if(c.type==='overlay'){ _overlayLayers[c.name]=lyr; if(active.has(c.id)) lyr.addTo(map); }
     else { _basemaps[c.name]=lyr; if(active.has(c.id)){ lyr.addTo(map); customBaseActive=true; } }
   });
+  // Projekt-Standardkarte beim Öffnen anwenden (einmal je Projekt; überschreibt die initiale „Karte")
+  if(_basemapDefaultApplied!==currentProjectId){
+    _basemapDefaultApplied=currentProjectId;
+    let pref=null; try{ pref=localStorage.getItem('bwt_basemap_'+currentProjectId); }catch(_){} // persönliche Wahl (pro Anwender/Gerät)
+    const def=pref || currentProjectData?.defaultBasemap;                                       // sonst Projekt-Standard
+    if(def && _basemaps[def]){ Object.values(_basemaps).forEach(l=>map.removeLayer(l)); _basemaps[def].addTo(map); customBaseActive=true; }
+  }
   if(customBaseActive){ map.removeLayer(baseFarbe); map.removeLayer(baseGrau); }
   else if(!map.hasLayer(baseFarbe)&&!map.hasLayer(baseGrau)){ baseFarbe.addTo(map); } // Standard: Karte (Farbe)
   renderBasemapSwitcher();
+  _applyDisplayDefaults(); // gespeicherte Sichtbarkeit/Einfärbung/Versatz beim Projekt-Öffnen anwenden
 }
 // Karten-Auswahl: aufklappbares Panel über dem Karten-Button unten links
 function closeBasemapPanel(){
@@ -405,20 +416,36 @@ function closeBasemapPanel(){
 }
 function renderBasemapSwitcher(){
   const panel=document.getElementById('basemap-panel'); if(!panel) return;
+  const ro=isReadonly(); const def=currentProjectData?.defaultBasemap;
   const baseNames=Object.keys(_basemaps);
   let activeBase=baseNames.find(n=>map.hasLayer(_basemaps[n]));
   if(!activeBase){ _basemaps['Karte'].addTo(map); activeBase='Karte'; }
+  const _q=s=>(s+'').replace(/"/g,'&quot;');
+  const star=n=> ro?'' : `<span data-setdefault="${_q(n)}" title="${n===def?'Standardkarte dieses Projekts':'Als Standardkarte für dieses Projekt setzen'}" style="cursor:pointer;padding:0 3px;font-size:14px;line-height:1;color:${n===def?'var(--green)':'var(--text3)'};">${n===def?'★':'☆'}</span>`;
+  const optBase=(n,act)=>`<div data-base="${_q(n)}" class="bm-opt${act?' active':''}"><svg class="chk" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 7"/></svg><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(n)}</span>${star(n)}</div>`;
   const opt=(label,attr,act)=>`<button ${attr} class="bm-opt${act?' active':''}"><svg class="chk" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 7"/></svg><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(label)}</span></button>`;
   let html=`<div class="bm-plabel">Hintergrundkarte</div>`;
-  html+=baseNames.map(n=>opt(n,`data-base="${(n+'').replace(/"/g,'&quot;')}"`,n===activeBase)).join('');
+  html+=baseNames.map(n=>optBase(n,n===activeBase)).join('');
   const ovNames=Object.keys(_overlayLayers);
-  if(ovNames.length) html+=`<div class="bm-plabel" style="margin-top:3px;border-top:1px solid var(--border);padding-top:6px;">Zusatz-Ebenen</div>`+ovNames.map(n=>opt(n,`data-overlay="${(n+'').replace(/"/g,'&quot;')}"`,map.hasLayer(_overlayLayers[n]))).join('');
+  if(ovNames.length) html+=`<div class="bm-plabel" style="margin-top:3px;border-top:1px solid var(--border);padding-top:6px;">Zusatz-Ebenen</div>`+ovNames.map(n=>opt(n,`data-overlay="${_q(n)}"`,map.hasLayer(_overlayLayers[n]))).join('');
+  if(!ro) html+=`<div style="font-size:10px;color:var(--text3);padding:6px 8px 0;border-top:1px solid var(--border);margin-top:4px;line-height:1.4;">★ = Projekt-Standard (für alle) · Karte anklicken = nur für dich</div>`;
   panel.innerHTML=html;
   panel.onclick=e=>{
+    const sd=e.target.closest('[data-setdefault]');
+    if(sd){ e.stopPropagation(); setDefaultBasemap(sd.dataset.setdefault); return; }
     const b=e.target.closest('[data-base]'), o=e.target.closest('[data-overlay]');
-    if(b){ const n=b.dataset.base; if(_basemaps[n]){ Object.values(_basemaps).forEach(l=>map.removeLayer(l)); _basemaps[n].addTo(map); renderBasemapSwitcher(); closeBasemapPanel(); } }
+    if(b){ const n=b.dataset.base; if(_basemaps[n]){ Object.values(_basemaps).forEach(l=>map.removeLayer(l)); _basemaps[n].addTo(map); try{ if(currentProjectId) localStorage.setItem('bwt_basemap_'+currentProjectId, n); }catch(_){} renderBasemapSwitcher(); closeBasemapPanel(); } }
     else if(o){ const n=o.dataset.overlay, l=_overlayLayers[n]; if(l){ map.hasLayer(l)?map.removeLayer(l):l.addTo(map); renderBasemapSwitcher(); } }
   };
+}
+async function setDefaultBasemap(name){
+  if(isReadonly()||!currentProjectId) return;
+  try{
+    await updateDoc(doc(db,'projects',currentProjectId),{defaultBasemap:name});
+    if(currentProjectData) currentProjectData.defaultBasemap=name;
+    notify('✓ „'+name+'" als Standardkarte gesetzt');
+    renderBasemapSwitcher();
+  }catch(e){ console.warn('setDefaultBasemap',e); notify(dlErr(e)); }
 }
 rebuildLayerControl();
 // Eigene Zoom-Buttons + Karten-Auswahl-Button verdrahten (statt Leaflet-Standard-Controls)
@@ -1580,7 +1607,7 @@ function makeMarker(tree){
   const isPreselected=lassoSelection.size>0 && lassoSelection.has(tree.id); // Lasso-Vorauswahl
   const numColor=multiActive?'#a16207':color; // lesbarer Reihenfolge-Zähler auf Gelb
 
-  const badge=num!=null
+  const badge=(num!=null&&_showNums)
     ?`<div style="position:absolute;bottom:-5px;right:-5px;min-width:16px;height:16px;border-radius:8px;background:#fff;border:1.5px solid ${numColor};color:${numColor};font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:monospace;padding:0 2px;">${num}</div>`:'';
 
   const ring=isHighlighted
@@ -1612,7 +1639,7 @@ function makeMarker(tree){
   });
   const m=L.marker([tree.lat,tree.lng],{icon,zIndexOffset:isHighlighted?500:(isPreselected?300:0)})
     .on('click',()=>{ if(assignMode&&!lassoDrawing) toggleLassoSelect(tree.id); else if(!assignMode) selectTree(tree.id,false); })
-    .on('contextmenu', e=>showTreeTourContextMenu(tree, e));
+    .on('contextmenu', e=>{ L.DomEvent.stopPropagation(e); try{ e.originalEvent&&e.originalEvent.preventDefault(); }catch(_){} showTreeTourContextMenu(tree, e); });
   return _mAdd(m);
 }
 
@@ -1695,12 +1722,14 @@ function toggleMapFilter(){
   if(btn) btn.style.background=open?'var(--green-light)':'var(--surface)';
 }
 // Tour-Zähler (orange Badges) ein-/ausblenden — Farbdarstellung bleibt eindeutig
-let showTourCounts=true;
+let _showNums=true; // EIN Schalter für alle Nummern-Bubbles: Routennummern (Marker + Geometrie) + Tour-Zähler-Badges
 function toggleTourCounts(){
-  showTourCounts=!showTourCounts;
-  document.body.classList.toggle('hide-tour-counts',!showTourCounts);
+  _showNums=!_showNums;
+  document.body.classList.toggle('hide-tour-counts',!_showNums); // Tour-Zähler-Badges (CSS)
   const btn=document.getElementById('btn-toggle-counts');
-  if(btn) btn.style.background=showTourCounts?'var(--green-light)':'var(--surface)';
+  if(btn) btn.style.background=_showNums?'var(--green-light)':'var(--surface)';
+  refreshMarkers();    // Routennummern auf Punkt-Markern
+  renderDrawnGeoms();  // Routennummern auf Abschnitten/Seiten
 }
 
 function refreshMarkers(){
@@ -1720,6 +1749,24 @@ function refreshMarkers(){
 // ── Flächen-Geometrie (Phase 1): Bundle aus Storage laden + als Canvas-Polygone rendern ──
 let _flaechenLayer=null, _flaechenLayerKey='', _flaechenBundle=null, _flaechenBundleKey='', _flaechenBusy=false, _flaechenByExt={}, _flaechenSelExt='';
 const FL_NEUTRAL='#000'; // Standardfarbe ohne Tour-Auswahl (wie Punktobjekte: erst bei Auswahl eingefärbt)
+// Projekt-konfigurierbare Standard-Darstellung der Geometrie (ohne Tour-Auswahl): Farbe/Stärke/Transparenz je Typ
+const _GEOM_STYLE_DEF={ abschnitt:{color:'#000000',weight:4,opacity:0.85,fillOpacity:0.2}, linie:{color:'#000000',weight:4,opacity:0.85,fillOpacity:0.2}, flaeche:{color:'#000000',weight:1,opacity:0.85,fillOpacity:0.2}, punkt:{color:'#000000',weight:1,opacity:0.85,fillOpacity:0.2} };
+function _geomStyleFor(cat){
+  const d=_GEOM_STYLE_DEF[cat]||_GEOM_STYLE_DEF.linie;
+  const c=(currentProjectData?.geomStyle&&currentProjectData.geomStyle[cat])||{};
+  return { color:c.color||d.color, weight:c.weight!=null?c.weight:d.weight, opacity:c.opacity!=null?c.opacity:d.opacity, fillOpacity:c.fillOpacity!=null?c.fillOpacity:d.fillOpacity };
+}
+async function setGeomStyle(cat,prop,val){
+  if(isReadonly()||!currentProjectId) return;
+  const gs=JSON.parse(JSON.stringify(currentProjectData?.geomStyle||{}));
+  if(!gs[cat]) gs[cat]={};
+  gs[cat][prop]= prop==='color' ? val : parseFloat(val);
+  try{
+    await updateDoc(doc(db,'projects',currentProjectId),{geomStyle:gs});
+    if(currentProjectData) currentProjectData.geomStyle=gs;
+    try{ renderFlaechen(); }catch(_){ try{ renderDrawnGeoms(); }catch(__){} }
+  }catch(e){ console.warn('setGeomStyle',e); notify(dlErr(e)); }
+}
 const FL_MULTI='#eab308';  // Überschneidung: Objekt in mehreren angezeigten Touren → gelb (wie bei Punkt-Markern)
 // Tourfarbe einer Fläche – analog zu makeMarker: NUR bei aktiver Tour-Auswahl, sonst null.
 function _flTourColorFor(t){
@@ -1744,21 +1791,140 @@ function _flTourColorFor(t){
   }
   return null;
 }
+let _colorMode='none';   // Karten-Einfärbung: 'none' | 'rk' (Reinigungsklasse) | 'haeuf' (Häufigkeit)
+function _haeufColor(h){ h=Math.round(h||0); if(h<=0) return '#d1d5db'; return ({1:'#22c55e',2:'#3b82f6',3:'#f59e0b'})[h]||'#ef4444'; }
+// Repräsentative Häufigkeit eines Abschnitts = höchste Häufigkeit seiner Seiten (sonst eigene)
+function _haeufOf(t){
+  if(_isContainer(t)){ const vals=_ausstattungOf(t.extId).map(s=>orHaeuf(s,_rkById,_containerByExt)).filter(v=>v!=null); return vals.length?Math.max(...vals):null; }
+  return orHaeuf(t,_rkById,_containerByExt);
+}
 function _flStyleForTree(t, isLine){
   // Lasso-/Planungs-Vorauswahl: violetter Akzent. Beim Abschnitt zählt auch eine vorgewählte Seite
   // (im Mittellinien-Modus hat die Seite keine eigene Linie → der Abschnitt vertritt sie).
   if(t && lassoSelection.size>0 && (lassoSelection.has(t.id) || (_isContainer(t) && _ausstattungOf(t.extId).some(s=>lassoSelection.has(s.id)))))
     return isLine?{ color:'#7c3aed', weight:6, opacity:0.95 }:{ color:'#7c3aed', weight:3, fillColor:'#7c3aed', fillOpacity:0.4 };
+  // Modus „nach Reinigungsklasse einfärben": Abschnitte (und ihre versetzten Seiten) in RK-Farbe, Rest blass
+  if(_colorMode==='rk'){
+    let rkId=null;
+    if(_isContainer(t)) rkId=t.reinigungsklasse;
+    else if(t&&t.containerExtId){ const c=_containerOf(t); rkId=c&&c.reinigungsklasse; }
+    if(rkId){ const rk=_rkById(rkId); const c2=(rk&&rk.color)||'#cbd5e1';
+      return isLine?{ color:c2, weight:6, opacity:0.95 }:{ color:c2, weight:2, fillColor:c2, fillOpacity:0.5 }; }
+    return isLine?{ color:'#d1d5db', weight:2, opacity:0.5 }:{ color:'#d1d5db', weight:1, fillColor:'#d1d5db', fillOpacity:0.1 };
+  }
+  // Modus „nach Häufigkeit einfärben": Abschnitt/Seite nach Reinigungs-Häufigkeit
+  if(_colorMode==='haeuf'){
+    const h=_haeufOf(t);
+    const c2=h==null?'#e5e7eb':_haeufColor(h);
+    return isLine?{ color:c2, weight:6, opacity:0.95 }:{ color:c2, weight:2, fillColor:c2, fillOpacity:0.5 };
+  }
   const col=_flTourColorFor(t);
   if(activeTours.size && !col) return isLine?{ color:'#b9b6b0', weight:2, opacity:0.5 }:{ color:'#b9b6b0', weight:1, fillColor:'#b9b6b0', fillOpacity:0.06 }; // andere Tour → ausgegraut
   if(col) return isLine?{ color:col, weight:5, opacity:0.95 }:{ color:col, weight:1.5, fillColor:col, fillOpacity:0.5 };                                       // gewählte Tour → Tourfarbe
-  return isLine?{ color:FL_NEUTRAL, weight:4, opacity:0.85 }:{ color:FL_NEUTRAL, weight:1, fillColor:FL_NEUTRAL, fillOpacity:0.2 };                            // keine Auswahl → neutral (schwarz)
+  const gs=_geomStyleFor(_objCategory(t)); // projekt-konfigurierbare Standard-Darstellung (Farbe/Stärke/Transparenz)
+  return isLine?{ color:gs.color, weight:gs.weight, opacity:gs.opacity }:{ color:gs.color, weight:gs.weight, fillColor:gs.color, fillOpacity:gs.fillOpacity };
 }
 function _flStyleFor(extId){ return _flStyleForTree(trees.find(x=>x.extId===extId)); }
 // Flächen folgen der Tour-Auswahl (gleiche Logik wie Punktobjekte) – Stil je Polygon neu setzen.
 function _applyFlaechenSelection(){
   if(_flaechenLayer) _flaechenLayer.eachLayer(l=>{ const ext=l.feature&&l.feature.properties&&l.feature.properties.extId; if(ext&&l.setStyle) l.setStyle(_flStyleFor(ext)); });
   for(const id in _drawnById){ const t=trees.find(x=>x.id===id), l=_drawnById[id]; if(t&&l&&l.setStyle) l.setStyle(_flStyleForTree(t, t.geomType==='linie')); }
+}
+// Karten-Modus „nach Reinigungsklasse einfärben" umschalten
+function _updateColorBtns(){
+  const b=document.getElementById('btn-color-mode'); if(b){ const on=_colorMode!=='none'; b.style.background=on?'var(--green)':'var(--surface)'; b.style.color=on?'#fff':'var(--text2)'; }
+  // Aktive Option im Menü markieren
+  document.querySelectorAll('#color-mode-menu [data-mode]').forEach(el=>{ el.style.fontWeight=el.dataset.mode===_colorMode?'700':'400'; el.style.color=el.dataset.mode===_colorMode?'var(--green)':'var(--text)'; });
+}
+function toggleColorMenu(){ const m=document.getElementById('color-mode-menu'); if(m) m.style.display=m.style.display==='none'?'block':'none'; }
+function setColorMode(mode){
+  _colorMode=mode; _updateColorBtns();
+  const m=document.getElementById('color-mode-menu'); if(m) m.style.display='none';
+  _applyFlaechenSelection(); _renderRkLegend();
+}
+// ── „Darstellung"-Panel: Sichtbarkeit, Einfärben, Standard-Stile gebündelt ──
+const _CAT_LABEL={punkt:'Punkte',linie:'Strecken',flaeche:'Flächen',abschnitt:'Abschnitte'};
+// Panel-Auswahl (Sichtbarkeit/Einfärben/Versatz) als Projekt-Standard speichern
+async function saveDisplayDefaults(){
+  if(isReadonly()||!currentProjectId) return;
+  const hidden=Object.keys(_typeFilter).filter(c=>_typeFilter[c]===false);
+  const d={ showNums:_showNums, routesVisible, versatz:_versatzOn, colorMode:_colorMode, hidden };
+  try{
+    await updateDoc(doc(db,'projects',currentProjectId),{displayDefaults:d});
+    if(currentProjectData) currentProjectData.displayDefaults=d;
+    notify('✓ Darstellung als Projekt-Standard gespeichert');
+  }catch(e){ console.warn('saveDisplayDefaults',e); notify(dlErr(e)); }
+}
+// Projekt-Standard der Darstellung beim Öffnen anwenden (einmal je Projekt; Flag oben deklariert)
+function _applyDisplayDefaults(){
+  if(!currentProjectId) return;                              // beim Modul-Init (kein Projekt) nichts tun (vermeidet TDZ)
+  if(_displayDefaultsApplied===currentProjectId) return;
+  _displayDefaultsApplied=currentProjectId;
+  const d=currentProjectData?.displayDefaults;
+  _showNums = d&&d.showNums!=null ? !!d.showNums : true;
+  routesVisible = d&&d.routesVisible!=null ? !!d.routesVisible : true;
+  _versatzOn = !!(d&&d.versatz);
+  _colorMode = (d&&d.colorMode)||'none';
+  _typeFilter = {};
+  if(d&&Array.isArray(d.hidden)) d.hidden.forEach(c=>{ _typeFilter[c]=false; });
+  document.body.classList.toggle('hide-tour-counts', !_showNums);
+  try{ applyRouteVisibility(); }catch(_){}
+  try{ refreshMarkers(); }catch(_){}
+  try{ renderFlaechen(); }catch(_){ try{ renderDrawnGeoms(); }catch(__){} }
+  try{ _applyFlaechenSelection(); _renderRkLegend(); }catch(_){}
+}
+function toggleDisplayPanel(){ const p=document.getElementById('display-panel'); if(!p) return; if(p.style.display==='block'){ p.style.display='none'; return; } renderDisplayPanel(); p.style.display='block'; }
+function renderDisplayPanel(){
+  const p=document.getElementById('display-panel'); if(!p) return;
+  const ro=isReadonly(), present=_presentCategories(), hasCont=(trees||[]).some(_isContainer);
+  const chk=(on,call,label)=>`<label style="display:flex;align-items:center;gap:8px;font-size:13px;padding:4px 0;cursor:pointer;"><input type="checkbox" ${on?'checked':''} onchange="${call}" style="margin:0;cursor:pointer;"><span>${label}</span></label>`;
+  let h=`<div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.04em;margin:0 0 6px;">DARSTELLUNG</div>`;
+  h+=`<div style="font-size:12px;font-weight:600;margin:4px 0 2px;">Sichtbarkeit</div>`;
+  ['punkt','linie','flaeche','abschnitt'].filter(c=>present.has(c)).forEach(c=>{ h+=chk(_typeFilter[c]!==false,`setTypeVisible('${c}',this.checked)`,dlEsc(_CAT_LABEL[c])); });
+  h+=chk(routesVisible,'toggleRouteLines()','Routenlinien ein/aus');
+  h+=chk(_showNums,'toggleTourCounts()','Tourhäufigkeit ein/aus');
+  if(hasCont) h+=chk(_versatzOn,'toggleVersatz()','Objekte nach Lage versetzt');
+  if(hasCont){
+    h+=`<div style="font-size:12px;font-weight:600;margin:10px 0 2px;border-top:1px solid var(--border);padding-top:8px;">Einfärben nach</div>`;
+    const rad=(val,label)=>`<label style="display:flex;align-items:center;gap:8px;font-size:13px;padding:3px 0;cursor:pointer;"><input type="radio" name="dp-cm" ${_colorMode===val?'checked':''} onchange="setColorMode('${val}')" style="margin:0;cursor:pointer;"><span>${label}</span></label>`;
+    h+=rad('none','aus (Tourfarbe)')+rad('rk','Reinigungsklasse')+rad('haeuf','Reinigungshäufigkeit');
+  }
+  if(!ro){
+    h+=`<div style="border-top:1px solid var(--border);margin:10px 0 0;padding-top:8px;"><button onclick="saveDisplayDefaults()" class="btn btn-secondary" style="width:100%;padding:6px;font-size:12px;">★ Aktuelle Auswahl als Projekt-Standard</button></div>`;
+  }
+  if(!ro){
+    const sc=['abschnitt','linie','flaeche'].filter(c=>present.has(c)), lbl={abschnitt:'Abschnittsnetz',linie:'Linien / Strecken',flaeche:'Flächen'};
+    if(sc.length){
+      h+=`<div style="font-size:12px;font-weight:600;margin:10px 0 4px;border-top:1px solid var(--border);padding-top:8px;">Standard-Darstellung</div>`;
+      sc.forEach(c=>{
+        const s=_geomStyleFor(c), tp=c==='flaeche'?'fillOpacity':'opacity', tv=c==='flaeche'?s.fillOpacity:s.opacity;
+        h+=`<div style="margin:6px 0;"><div style="font-size:12px;margin-bottom:3px;">${lbl[c]}</div>
+          <div style="display:flex;align-items:center;gap:9px;font-size:11px;color:var(--text3);flex-wrap:wrap;">
+            <label style="display:flex;align-items:center;gap:4px;">Farbe<input type="color" value="${s.color}" onchange="setGeomStyle('${c}','color',this.value)" style="width:28px;height:22px;padding:1px;border:1px solid var(--border);border-radius:5px;cursor:pointer;"></label>
+            <label style="display:flex;align-items:center;gap:4px;">Stärke<input type="number" min="0.5" max="12" step="0.5" value="${s.weight}" onchange="setGeomStyle('${c}','weight',this.value)" style="width:46px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;"></label>
+            <label style="display:flex;align-items:center;gap:4px;">Deckkraft<input type="range" min="0" max="1" step="0.05" value="${tv}" onchange="setGeomStyle('${c}','${tp}',this.value)" style="width:64px;"></label>
+          </div></div>`;
+      });
+    }
+  }
+  p.innerHTML=h;
+}
+function _renderRkLegend(){
+  const el=document.getElementById('rk-legend'); if(!el) return;
+  if(_colorMode==='rk' && reinigungsklassen.length){
+    el.style.display='block';
+    el.innerHTML=`<div style="font-size:11px;font-weight:700;margin-bottom:6px;">Reinigungsklassen</div>`+
+      reinigungsklassen.map(r=>`<div style="display:flex;align-items:center;gap:7px;font-size:12px;margin-bottom:3px;"><span style="width:14px;height:4px;border-radius:2px;background:${dlEsc(r.color||'#cbd5e1')};flex:none;"></span>${dlEsc(r.name)}</div>`).join('')+
+      `<div style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text3);margin-top:4px;"><span style="width:14px;height:4px;border-radius:2px;background:#d1d5db;flex:none;"></span>ohne Klasse</div>`;
+  } else if(_colorMode==='haeuf'){
+    const present=new Set();
+    for(const t of (trees||[])){ if(_isContainer(t)){ const h=_haeufOf(t); if(h!=null) present.add(Math.round(h)); } }
+    const vals=[...present].sort((a,b)=>a-b);
+    el.style.display='block';
+    el.innerHTML=`<div style="font-size:11px;font-weight:700;margin-bottom:6px;">Häufigkeit / Woche</div>`+
+      (vals.length?vals.map(v=>`<div style="display:flex;align-items:center;gap:7px;font-size:12px;margin-bottom:3px;"><span style="width:14px;height:4px;border-radius:2px;background:${_haeufColor(v)};flex:none;"></span>${v===0?'0 (keine Reinigung)':v+'×'}</div>`).join('')
+        :`<div style="font-size:12px;color:var(--text3);">noch keine Häufigkeiten gesetzt</div>`);
+  } else { el.style.display='none'; el.innerHTML=''; }
 }
 // Bounds aller Flächen der aktuell ausgewählten Touren (für „einpassen")
 function _flaechenSelBounds(){
@@ -1801,6 +1967,8 @@ function _rebuildContIndex(){
   _ctIndexRef=trees;
 }
 function _containerOf(t){ if(!t||!t.containerExtId) return null; if(_ctIndexRef!==trees) _rebuildContIndex(); return _contIndex.get(t.containerExtId)||null; }
+// Adapter für die geteilten Resolver (objektrollen.js erwartet getContainer(extId))
+function _containerByExt(extId){ return _containerOf({containerExtId:extId}); }
 function _ausstattungOf(containerExtId){ if(!containerExtId) return []; if(_ctIndexRef!==trees) _rebuildContIndex(); return _ausstIndex.get(containerExtId)||[]; }
 // Effektive Länge/Fläche + Einheit: eigener Wert, sonst geerbt vom Container
 function _effMenge(t){ if(!t) return 0; if(t.menge!=null&&t.menge!=='') return parseFloat(t.menge)||0; const c=_containerOf(t); return c?(parseFloat(c.menge)||0):0; }
@@ -1861,7 +2029,7 @@ function toggleVersatz(){
   const b=document.getElementById('btn-toggle-versatz');
   if(b){ b.style.background=_versatzOn?'var(--green-light)':'var(--surface)'; b.style.color=_versatzOn?'var(--green)':'var(--text2)'; }
   renderDrawnGeoms();
-  notify(_versatzOn?'Seiten versetzt dargestellt':'Seiten auf der Mittellinie');
+  notify(_versatzOn?'Objekte nach Lage versetzt':'Objekte auf der Mittellinie');
 }
 // Vorzeichenbehafteter Seitenversatz (Meter): links negativ, rechts positiv; Magnitude je Element-Kategorie.
 function _sideOffsetM(s){
@@ -1895,6 +2063,10 @@ function renderDrawnGeoms(){
   const list=(trees||[]).filter(t=>_hasDrawnGeom(t)&&isActive(t)&&!t.containerExtId&&_typeShown(t));
   const _vb=document.getElementById('btn-toggle-versatz'); if(_vb) _vb.style.display=(trees||[]).some(_isContainer)?'flex':'none';
   const _tb=document.getElementById('btn-type-filter'); if(_tb) _tb.style.display=_presentCategories().size>1?'flex':'none';
+  const _hasCont=(trees||[]).some(_isContainer);
+  const _cmb=document.getElementById('btn-color-mode'); if(_cmb) _cmb.style.display=_hasCont?'flex':'none';
+  _updateColorBtns();
+  _renderRkLegend();
   if(!list.length) return;
   // Zeichenreihenfolge: große Flächen unten, kleine darüber, Linien zuoberst → überlappte/kleinere bleiben anklickbar
   const _isLine=t=>_treeGeom(t)?.type==='LineString';
@@ -1904,7 +2076,7 @@ function renderDrawnGeoms(){
   const _rend = list.length>150 ? L.canvas({padding:0.5}) : null;
   const _opt = st => _rend ? {renderer:_rend, ...st} : st;
   _drawnLayer=L.featureGroup().addTo(map); // featureGroup → getBounds() für „einpassen"
-  const _placeNum=(num,latlng,col)=>{ if(num==null||!latlng) return; try{ L.marker(latlng,{interactive:false,icon:L.divIcon({className:'',html:'<div style="min-width:18px;height:18px;border-radius:9px;background:'+(col||FL_NEUTRAL)+';border:2px solid #fff;color:#fff;font:700 10px/14px monospace;text-align:center;padding:0 3px;box-shadow:0 0 2px rgba(0,0,0,.6);">'+num+'</div>',iconSize:[18,18],iconAnchor:[9,9]})}).addTo(_drawnLayer); }catch(_){} };
+  const _placeNum=(num,latlng,col)=>{ if(!_showNums||num==null||!latlng) return; try{ L.marker(latlng,{interactive:false,icon:L.divIcon({className:'',html:'<div style="min-width:18px;height:18px;border-radius:9px;background:'+(col||FL_NEUTRAL)+';border:2px solid #fff;color:#fff;font:700 10px/14px monospace;text-align:center;padding:0 3px;box-shadow:0 0 2px rgba(0,0,0,.6);">'+num+'</div>',iconSize:[18,18],iconAnchor:[9,9]})}).addTo(_drawnLayer); }catch(_){} };
   list.forEach(t=>{
     const g=_treeGeom(t); if(!g) return;
     // Versatz-Modus: Abschnitt-Seiten einzeln, senkrecht zur Mittellinie versetzt
@@ -1916,7 +2088,7 @@ function renderDrawnGeoms(){
           const ll=_offsetLatLngs(baseLL,_sideOffsetM(s));
           const layer=L.polyline(ll,_opt(_flStyleForTree(s,true)));
           layer.on('click',()=>{ if(assignMode&&!lassoDrawing){ toggleLassoSelect(s.id); _applyFlaechenSelection(); } else if(!assignMode) selectTree(s.id,false); });
-          layer.on('contextmenu',e=>{ try{ e.originalEvent&&e.originalEvent.preventDefault(); }catch(_){} showTreeTourContextMenu(s, e); });
+          layer.on('contextmenu',e=>{ L.DomEvent.stopPropagation(e); try{ e.originalEvent&&e.originalEvent.preventDefault(); }catch(_){} showTreeTourContextMenu(s, e); });
           layer.bindTooltip((t.name||'Abschnitt')+' · '+_elemLabel(s),{sticky:true});
           layer.addTo(_drawnLayer); _drawnById[s.id]=layer;
           _placeNum(getRouteNum(s.id), ll[Math.floor(ll.length/2)], _flTourColorFor(s));
@@ -1935,7 +2107,7 @@ function renderDrawnGeoms(){
         _applyFlaechenSelection();
       } else if(!assignMode){ if(_isContainer(t)) openAbschnitt(t.id); else selectTree(t.id,false); }
     });
-    layer.on('contextmenu',e=>{ try{ e.originalEvent&&e.originalEvent.preventDefault(); }catch(_){} showTreeTourContextMenu(t, e); }); // Rechtsklick → verplante Touren anzeigen
+    layer.on('contextmenu',e=>{ L.DomEvent.stopPropagation(e); try{ e.originalEvent&&e.originalEvent.preventDefault(); }catch(_){} showTreeTourContextMenu(t, e); }); // Rechtsklick → nur Objekt-Menü (Frei-Menü unterdrückt)
     layer.bindTooltip((t.name||(t.geomType==='linie'?'Strecke':'Fläche'))+(t.menge?' · '+(t.einheit==='m'?_fmtLen(t.menge):_fmtArea(t.menge)):''),{sticky:true});
     layer.addTo(_drawnLayer); _drawnById[t.id]=layer;
     // Reihenfolge-Nummer (nur bei aktiver Route): Abschnitt = kleinste Nummer seiner Seiten, sonst eigene
@@ -2037,7 +2209,7 @@ async function renderFlaechen(){
     _flaechenLayer=L.geoJSON(bundle, {
       renderer: L.canvas({ padding:0.5 }),
       style: f=>_flStyleFor(f.properties&&f.properties.extId),
-      onEachFeature:(f,layer)=>{ const ext=f.properties&&f.properties.extId; if(ext) _flaechenByExt[ext]=layer; const t=byExt[ext]; if(t){ layer.on('click',()=>selectTree(t.id,false)); layer.on('contextmenu',e=>{ try{ e.originalEvent&&e.originalEvent.preventDefault(); }catch(_){} showTreeTourContextMenu(t, e); }); layer.bindTooltip((t.name||'Fläche')+(t.menge?' · '+t.menge+' m²':''),{sticky:true}); } }
+      onEachFeature:(f,layer)=>{ const ext=f.properties&&f.properties.extId; if(ext) _flaechenByExt[ext]=layer; const t=byExt[ext]; if(t){ layer.on('click',()=>selectTree(t.id,false)); layer.on('contextmenu',e=>{ L.DomEvent.stopPropagation(e); try{ e.originalEvent&&e.originalEvent.preventDefault(); }catch(_){} showTreeTourContextMenu(t, e); }); layer.bindTooltip((t.name||'Fläche')+(t.menge?' · '+t.menge+' m²':''),{sticky:true}); } }
     }).addTo(map);
     _flaechenLayerKey=key;
     _applyFlaechenSelection(); // bestehende Tour-Auswahl auf neue Polygone übernehmen
@@ -2875,7 +3047,7 @@ function openDetail(id){
   const statusColor=_zE?_zE.farbe:'';
   const zLabel=_zE?_zE.label:'';
   const rNum=getRouteNum(tree.id);
-  document.getElementById('panel-title').textContent=tree.name;
+  document.getElementById('panel-title').textContent=orTitel(tree,_containerByExt)||tree.name||'–';
   const _meta=document.getElementById('panel-meta');
   if(_meta) _meta.textContent=`${tree.baumnr?'Nr. '+tree.baumnr+' · ':''}${tree.art||''}${tree.stadtteil?' · '+tree.stadtteil:''}`;
   // Build tour options for inline select
@@ -2898,6 +3070,18 @@ function openDetail(id){
     ${drow(FL.pflanzjahr,tree.pflanzjahr)}
     ${drow(FL.pflanzzeitpunkt||'Pflanzzeitpunkt',tree.pflanzzeitpunkt)}
     ${customFields.filter(c=>fieldAppliesTo(c,geomTypeOf(tree))).map(c=>drow(c.label,tree[c.key])).join('')}
+
+    ${(tree.containerExtId)?(()=>{
+      const c=_containerOf(tree);
+      const rk=(c&&c.reinigungsklasse)?_rkById(c.reinigungsklasse):null;
+      const manuell=tree.haeufigkeit!=null&&tree.haeufigkeit!=='';
+      const h=orHaeuf(tree,_rkById,_containerByExt);
+      if(!rk && !manuell && h==null) return '';
+      return `<div class="form-section">Reinigung</div>`
+        +(rk?drow('Reinigungsklasse',rk.name+' · vom Abschnitt'):'')
+        +(h!=null?drow('Häufigkeit / Woche',h+'×/Woche'+(manuell?' (manuell)':' (geerbt)'))
+                 :'<div class="detail-field" style="padding:5px 0;"><span class="detail-key">Häufigkeit / Woche</span><span class="detail-val" style="color:var(--text3);">– (Element nicht abgedeckt)</span></div>');
+    })():''}
 
     ${geomTypeOf(tree)==='flaeche'?`
     <div class="form-section">Reinigungsplan</div>
@@ -2983,8 +3167,8 @@ function openDetail(id){
 }
 
 // ─── ABSCHNITTS-FENSTER (Container mit Ausstattung) ───────────────────────────
-const _ELEM_ORDER=['fahrbahn_l','fahrbahn_r','gehweg_l','gehweg_r','radweg_l','radweg_r','parkstreifen','gruenstreifen'];
-const _ELEM_LABEL={fahrbahn_l:'Fahrbahn links',fahrbahn_r:'Fahrbahn rechts',gehweg_l:'Gehweg links',gehweg_r:'Gehweg rechts',radweg_l:'Radweg links',radweg_r:'Radweg rechts',parkstreifen:'Parkstreifen',gruenstreifen:'Grünstreifen'};
+const _ELEM_ORDER=['fahrbahn_l','fahrbahn_r','gehweg_l','gehweg_r','radweg_l','radweg_r','mittelinsel','parkstreifen','gruenstreifen'];
+const _ELEM_LABEL={fahrbahn_l:'Fahrbahn links',fahrbahn_r:'Fahrbahn rechts',gehweg_l:'Gehweg links',gehweg_r:'Gehweg rechts',radweg_l:'Radweg links',radweg_r:'Radweg rechts',mittelinsel:'Mittelinsel',parkstreifen:'Parkstreifen',gruenstreifen:'Grünstreifen'};
 function _elemLabel(s){ return _ELEM_LABEL[s.element]||s.elementLabel||s.name||'Seite'; }
 function openAbschnitt(id){
   const c=trees.find(t=>t.id===id); if(!c) return;
@@ -3006,22 +3190,33 @@ function openAbschnitt(id){
     const st=_ausstStatus(s);
     const lenS=!mlS?'':st==='erbt'?`<span style="color:var(--text3);">${mlS} geerbt</span>`:st==='laenge'?`<span style="color:#92560a;">${mlS} eigen</span>`:`<span style="color:#0369a1;">${mlS} gezeichnet</span>`;
     const am=Math.round(artBewMin(s));
+    const hf=orHaeuf(s,_rkById,_containerByExt);
     return `<div onclick="selectTree('${s.id}')" style="cursor:pointer;border:1px solid var(--border);border-radius:8px;padding:9px 11px;margin-bottom:7px;">
       <div style="display:flex;align-items:center;gap:9px;">
         <span style="width:9px;height:9px;border-radius:50%;background:${sdot};flex:none;"></span>
-        <div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:600;">${dlEsc(_elemLabel(s))}</div>
+        <div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">${dlEsc(orObjektart(s)||_elemLabel(s))}${orLage(s)?`<span style="font-size:10px;font-weight:600;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:99px;padding:0 6px;" title="Lage">${dlEsc(orLage(s))}</span>`:''}</div>
           <div style="font-size:11px;color:var(--text2);">${dlEsc(s.art||'–')}${am?' · '+am+' min':''}</div></div>
         ${badge(st)}
       </div>
       <div style="display:flex;gap:14px;margin:6px 0 0 18px;font-size:11px;color:var(--text2);flex-wrap:wrap;">
         <span><span style="color:${tcol};">●</span> ${tr?dlEsc(tr.name):'keine Tour'}</span>
         ${lenS?`<span>${lenS}</span>`:''}
+        ${hf!=null?`<span title="${s.haeufigkeit!=null&&s.haeufigkeit!==''?'manuell':'aus Reinigungsklasse'}">${hf}×/Wo</span>`:''}
         <span>${done?'erledigt':'offen'}</span>
       </div>
     </div>`;
   }).join('')||'<div style="font-size:12px;color:var(--text3);padding:6px 0;">Noch keine Ausstattung.</div>';
   document.getElementById('panel-body').innerHTML=`
-    <div class="detail-field" style="padding:5px 0;"><span class="detail-key">Objekt-ID</span><span class="detail-val" style="font-family:monospace;font-weight:700;color:var(--green);">${dlEsc(c.baumId||'–')}</span></div>
+    <div class="detail-field" style="padding:5px 0;"><span class="detail-key">Abschnitts-ID</span><span class="detail-val" style="font-family:monospace;font-weight:700;color:var(--green);">${dlEsc(c.baumId||'–')}</span></div>
+    <div class="form-section">Reinigung</div>
+    <div class="detail-field" style="padding:4px 0;">
+      <span class="detail-key">Reinigungsklasse</span>
+      <select class="form-control" style="width:auto;padding:3px 8px;font-size:12px;" ${isReadonly()?'disabled':`onchange="setAbschnittRk('${c.id}',this.value)"`}>
+        <option value="">– keine –</option>
+        ${reinigungsklassen.map(r=>`<option value="${dlEsc(r.id)}"${c.reinigungsklasse===r.id?' selected':''}>${dlEsc(r.name)}</option>`).join('')}
+      </select>
+    </div>
+    ${(()=>{ const rk=c.reinigungsklasse?_rkById(c.reinigungsklasse):null; if(!rk) return ''; const fr=ELEM_GRUPPE_ORDER.filter(g=>rk.freq&&rk.freq[g]!=null).map(g=>ELEM_GRUPPE_LABEL[g]+' '+rk.freq[g]+'×').join(' · '); return fr?`<div style="font-size:11px;color:var(--text2);padding:0 0 6px;">${dlEsc(fr)} / Woche</div>`:''; })()}
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0 14px;">
       <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;"><div style="font-size:11px;color:var(--text3);">Länge</div><div style="font-size:17px;font-weight:700;">${(parseFloat(c.menge)||0).toLocaleString('de-DE')} ${eh}</div></div>
       <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;"><div style="font-size:11px;color:var(--text3);">Ausstattung</div><div style="font-size:17px;font-weight:700;">${sides.length}</div></div>
@@ -3029,7 +3224,7 @@ function openAbschnitt(id){
     </div>
     <div class="form-section" style="display:flex;justify-content:space-between;align-items:center;">Ausstattung <span style="font-size:11px;font-weight:400;color:var(--text3);">leer = erbt vom Abschnitt</span></div>
     <div style="padding:6px 0;">${rows}</div>
-    ${isReadonly()?'':`<button class="btn btn-secondary" style="width:100%;padding:7px;font-size:12px;" onclick="abschnittAddSeite('${c.id}')">+ Seite hinzufügen</button>`}
+    ${isReadonly()?'':`<button class="btn btn-secondary" style="width:100%;padding:7px;font-size:12px;" onclick="abschnittAddSeite('${c.id}')">+ Objekt hinzufügen</button>`}
   `;
   document.getElementById('panel-actions').innerHTML=isReadonly()?'':`<button class="btn btn-secondary" style="flex:1;" onclick="openEditTree('${c.id}')">Abschnitt bearbeiten</button>`;
   switchDetailTab('details');
@@ -3043,11 +3238,11 @@ function openAbschnitt(id){
 }
 async function abschnittAddSeite(containerId){
   const c=trees.find(t=>t.id===containerId); if(!c||isReadonly()) return;
-  const common=[['fahrbahn_l','Fahrbahn links'],['fahrbahn_r','Fahrbahn rechts'],['gehweg_l','Gehweg links'],['gehweg_r','Gehweg rechts'],['radweg_l','Radweg links'],['radweg_r','Radweg rechts'],['parkstreifen','Parkstreifen'],['gruenstreifen','Grünstreifen']];
+  const common=[['fahrbahn_l','Fahrbahn links'],['fahrbahn_r','Fahrbahn rechts'],['gehweg_l','Gehweg links'],['gehweg_r','Gehweg rechts'],['radweg_l','Radweg links'],['radweg_r','Radweg rechts'],['mittelinsel','Mittelinsel'],['parkstreifen','Parkstreifen'],['gruenstreifen','Grünstreifen']];
   const existing=new Set(_ausstattungOf(c.extId).map(s=>s.element).filter(Boolean));
   const m=document.createElement('div'); m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100001;display:flex;align-items:center;justify-content:center;padding:20px;';
   m.innerHTML=`<div style="background:var(--surface);border-radius:10px;width:400px;max-width:94vw;overflow:hidden;">
-    <div style="padding:13px 16px;border-bottom:1px solid var(--border);font-weight:700;font-size:14px;">+ Seite zu „${dlEsc(c.name||'Abschnitt')}"</div>
+    <div style="padding:13px 16px;border-bottom:1px solid var(--border);font-weight:700;font-size:14px;">+ Objekt zu „${dlEsc(c.name||'Abschnitt')}"</div>
     <div style="padding:14px 16px;display:flex;flex-direction:column;gap:11px;">
       <div><div style="font-size:11px;color:var(--text3);margin-bottom:5px;">Bezeichnung</div>
         <div style="display:flex;flex-wrap:wrap;gap:5px;">${common.map(([k,l])=>`<button type="button" data-k="${k}" data-l="${dlEsc(l)}" class="as-pick" ${existing.has(k)?'disabled':''} style="font-size:11px;padding:4px 9px;border:1px solid var(--border);border-radius:99px;background:var(--bg);cursor:pointer;${existing.has(k)?'opacity:.4;cursor:not-allowed;':''}">${dlEsc(l)}</button>`).join('')}</div>
@@ -3071,7 +3266,7 @@ async function abschnittAddSeite(containerId){
     try{
       const baumId=await getNextBaumId();
       await addDoc(collection(db,'projects',currentProjectId,'trees'),{ name:label, element, elementLabel:label, art, geomType:'linie', containerExtId:c.extId, baumId, aktiv:true, tourIds:[], tourId:'', history:[], createdAt:serverTimestamp() });
-      notify('✓ Seite „'+label+'" hinzugefügt'); close();
+      notify('✓ Objekt „'+label+'" hinzugefügt'); close();
       setTimeout(()=>{ if(trees.find(t=>t.id===containerId)) openAbschnitt(containerId); },300);
     }catch(e){ notify('Fehler: '+(e.message||e)); btn.disabled=false; btn.style.opacity=1; }
   };
@@ -3458,16 +3653,57 @@ function fillListSelect(fieldKey,current){
   sel.innerHTML=_listOptions(fieldKey,current);
   sel.value=(current||'').trim();
 }
+// Felder einer Objektklasse (Allowlist); null = keine/leere Klasse → alle Felder zeigen (Default)
+function _klasseFelder(tree){
+  const kl=objektklassen.find(k=>k.id===tree?.klasse);
+  return (kl && Array.isArray(kl.felder) && kl.felder.length) ? kl.felder : null;
+}
 // Kundenfelder dynamisch ins Formular rendern (je Feld ein Dropdown)
 function renderCustomFieldInputs(tree){
   const wrap=document.getElementById('f-custom-fields'); if(!wrap) return;
   const gt=geomTypeOf(tree);
-  wrap.innerHTML=customFields.filter(c=>fieldAppliesTo(c,gt)).map(c=>{
+  const kf=_klasseFelder(tree);
+  wrap.innerHTML=customFields.filter(c=>fieldAppliesTo(c,gt) && (!kf||kf.includes(c.key))).map(c=>{
     const cur=((tree?tree[c.key]:'')||'');
     return `<div class="form-group"><label class="form-label">${dlEsc(c.label)}</label><select class="form-control" id="f-${c.key}">${_listOptions(c.key,cur)}</select></div>`;
   }).join('');
 }
 
+// Klassifizierungs-Selects füllen + Sichtbarkeit (Reinigungsklasse nur Abschnitt, Häufigkeit nur Seite)
+function _fillKlasseSelects(tree){
+  const kSel=document.getElementById('f-klasse');
+  if(kSel) kSel.innerHTML='<option value="">– keine –</option>'+objektklassen.map(k=>`<option value="${dlEsc(k.id)}"${tree.klasse===k.id?' selected':''}>${dlEsc(k.name)}</option>`).join('');
+  // Container (Abschnitt) ist kein Objekt → Objektklasse-Feld ausblenden
+  if(kSel){ const kg=kSel.closest('.form-group'); if(kg) kg.style.display=_isContainer(tree)?'none':''; }
+  const isAbschnitt=_isContainer(tree);
+  const isSeite=!!tree.containerExtId;
+  const rRow=document.getElementById('row-f-reinigungsklasse');
+  if(rRow){ rRow.style.display=isAbschnitt?'':'none';
+    const rSel=document.getElementById('f-reinigungsklasse');
+    if(rSel) rSel.innerHTML='<option value="">– keine –</option>'+reinigungsklassen.map(r=>`<option value="${dlEsc(r.id)}"${tree.reinigungsklasse===r.id?' selected':''}>${dlEsc(r.name)}</option>`).join('');
+  }
+  const hRow=document.getElementById('row-f-haeufigkeit');
+  if(hRow){ hRow.style.display=isSeite?'':'none';
+    const hIn=document.getElementById('f-haeufigkeit'); if(hIn) hIn.value=(tree.haeufigkeit!=null?tree.haeufigkeit:'');
+  }
+}
+// Klassenwechsel im Formular: Felder live nachblenden (ohne f-klasse-Auswahl zurückzusetzen)
+function onKlasseChange(){
+  const tree=trees.find(t=>t.id===editingTreeId); if(!tree) return;
+  const tmp={...tree, klasse:document.getElementById('f-klasse').value};
+  renderCustomFieldInputs(tmp); _applyKlasseScope(tmp);
+  const isAbschnitt=_isContainer(tree) || objektklassen.find(k=>k.id===tmp.klasse)?.strukturart==='abschnitt';
+  const rRow=document.getElementById('row-f-reinigungsklasse'); if(rRow) rRow.style.display=isAbschnitt?'':'none';
+}
+// Stage 4: Standard-Formularfelder nach Objektklasse ein-/ausblenden (name bleibt immer)
+function _applyKlasseScope(tree){
+  const sel=_klasseFelder(tree);
+  const govern={stadtteil:'f-stadtteil',baumnr:'f-baumnr',art:'f-art',pflanzjahr:'f-pflanzjahr',pflanzzeitpunkt:'f-pflanzzeitpunkt',zustand:'f-zustand',wasser:'f-wasser',notiz:'f-notiz'};
+  Object.entries(govern).forEach(([key,id])=>{
+    const el=document.getElementById(id); const grp=el&&el.closest('.form-group');
+    if(grp) grp.style.display=(!sel||sel.includes(key))?'':'none';
+  });
+}
 async function openEditTree(id){
   const tree=trees.find(t=>t.id===id);if(!tree)return;
   editingTreeId=id;
@@ -3482,6 +3718,8 @@ async function openEditTree(id){
   fillListSelect('pflanzjahr',tree.pflanzjahr||'');
   fillListSelect('pflanzzeitpunkt',tree.pflanzzeitpunkt||'');
   renderCustomFieldInputs(tree);
+  _fillKlasseSelects(tree);
+  _applyKlasseScope(tree);
   document.getElementById('f-lat').value=tree.lat||'';
   document.getElementById('f-lng').value=tree.lng||'';
   fillRankSelect('wasser', tree.wasser||'');
@@ -3527,7 +3765,13 @@ async function saveTree(){
     tourId:document.getElementById('f-tour').value,
     tourIds:document.getElementById('f-tour').value?[document.getElementById('f-tour').value]:[],
     notiz:document.getElementById('f-notiz').value,
+    klasse:document.getElementById('f-klasse')?.value||'',
   };
+  // Reinigungsklasse/Häufigkeit nur schreiben, wenn relevant (Abschnitt bzw. Seite) — sonst Punkte nicht verunreinigen
+  const _rRow=document.getElementById('row-f-reinigungsklasse');
+  if(_rRow&&_rRow.style.display!=='none') data.reinigungsklasse=document.getElementById('f-reinigungsklasse').value||'';
+  const _hRow=document.getElementById('row-f-haeufigkeit');
+  if(_hRow&&_hRow.style.display!=='none'){ const hv=(document.getElementById('f-haeufigkeit').value||'').trim(); data.haeufigkeit=hv===''?null:(parseFloat(hv.replace(',','.'))||0); }
   // Nur tatsächlich angezeigte Kundenfelder schreiben — sonst würden für den Typ ausgeblendete Felder überschrieben
   customFields.forEach(c=>{ const el=document.getElementById('f-'+c.key); if(el) data[c.key]=el.value; });
   try{
@@ -5161,10 +5405,15 @@ async function deleteArt(id){
 // liegen kompakt unter projects/{id}.listValues[fieldKey] = [{id,label}].
 // Der Wert wird am Objekt als Label gespeichert (wie heute Freitext) →
 // keine Datenmigration nötig, „Aus Objekten aufbauen" sammelt Bestand ein.
+let objektklassen = []; // [{id,name,strukturart,felder:[fieldKeys]}] — Stage 1: Definition; Scoping folgt
+let reinigungsklassen = []; // [{id,name,freq:{fahrbahn:n,gehweg:n,…}}] — Satzungs-Klassen (Stage 2)
 function loadListValues(){
   listValues = JSON.parse(JSON.stringify(currentProjectData?.listValues || {}));
   customFields = (currentProjectData?.customFields || []).map(c=>({...c}));
+  objektklassen = (currentProjectData?.objektklassen || []).map(k=>({...k, felder:[...(k.felder||[])]}));
+  reinigungsklassen = (currentProjectData?.reinigungsklassen || []).map(r=>({...r, freq:{...(r.freq||{})}}));
 }
+function _rkById(id){ return reinigungsklassen.find(r=>r.id===id)||null; }
 function listFor(fieldKey){ return listValues[fieldKey] || []; }
 function _genId(){ return 'v'+Math.random().toString(36).slice(2,9); }
 function _treesUsing(fieldKey,label){ const l=(label||'').trim(); return trees.filter(t=>(t[fieldKey]||'').trim()===l); }
@@ -5255,6 +5504,103 @@ async function cfGeomToggle(fieldKey, gt, checked){
   if(set.size===0){ notify('Mindestens ein Typ muss aktiv bleiben'); renderFieldCatalog(); return; }
   c.geomTypes=(set.size===ALL.length)?[]:ALL.filter(t=>set.has(t)); // alle aktiv → leer (= gilt für alle)
   await saveListValues(); renderFieldCatalog();
+}
+// ─── OBJEKTKLASSEN (Stage 1: Definition; Objekt-Zuordnung + Feld-Scoping folgen) ──
+// Klasse = {id,name,strukturart,felder:[fieldKeys]}. Ohne Klassen = bisheriges Verhalten (nichts bricht).
+const KLASSE_STRUKTUR={punkt:'Punkt',flaeche:'Fläche',strecke:'Strecke',seite:'Abschnitts-Objekt'};
+function _klassePool(){ return [['stadtteil',FL.stadtteil],['baumnr',FL.baumnr],['art',FL.art],['pflanzjahr',FL.pflanzjahr],['pflanzzeitpunkt',FL.pflanzzeitpunkt],['zustand',FL.zustand],['wasser',FL.wasser],['notiz',FL.notiz],...customFields.map(c=>[c.key,c.label])]; }
+async function saveObjektklassen(){
+  if(!currentProjectId) return;
+  try{
+    await updateDoc(doc(db,'projects',currentProjectId), {objektklassen});
+    if(currentProjectData) currentProjectData.objektklassen=objektklassen;
+  }catch(e){ console.warn('saveObjektklassen',e); notify(dlErr(e)); }
+}
+async function addObjektklasse(){
+  if(isReadonly()) return;
+  const name=(prompt('Name der neuen Objektklasse (z. B. „Abfallbehälter", „Straßenabschnitt"):','')||'').trim(); if(!name) return;
+  objektklassen.push({id:_genId(),name,strukturart:'punkt',felder:[]});
+  await saveObjektklassen(); renderFieldCatalog(); notify('✓ Objektklasse angelegt');
+}
+async function renameObjektklasse(id,val){
+  if(isReadonly()) return;
+  const k=objektklassen.find(x=>x.id===id); if(!k) return;
+  const l=(val||'').trim(); if(!l||l===k.name){ renderFieldCatalog(); return; }
+  k.name=l; await saveObjektklassen(); notify('✓ Umbenannt');
+}
+async function setKlasseStruktur(id,val){
+  if(isReadonly()) return;
+  const k=objektklassen.find(x=>x.id===id); if(!k||!KLASSE_STRUKTUR[val]) return;
+  k.strukturart=val; await saveObjektklassen();
+}
+async function toggleKlasseFeld(id,key,checked){
+  if(isReadonly()) return;
+  const k=objektklassen.find(x=>x.id===id); if(!k) return;
+  k.felder=(k.felder||[]).filter(f=>f!==key);
+  if(checked) k.felder.push(key);
+  await saveObjektklassen();
+}
+async function deleteObjektklasse(id){
+  if(isReadonly()) return;
+  const k=objektklassen.find(x=>x.id===id); if(!k) return;
+  if(!confirm(`Objektklasse „${k.name}" löschen?`)) return;
+  objektklassen=objektklassen.filter(x=>x.id!==id);
+  await saveObjektklassen(); renderFieldCatalog(); notify('✓ Gelöscht');
+}
+// ─── REINIGUNGSKLASSEN-KATALOG (Stage 2) — je Klasse Häufigkeit pro Element-Gruppe ──
+async function saveReinigungsklassen(){
+  if(!currentProjectId) return;
+  try{
+    await updateDoc(doc(db,'projects',currentProjectId), {reinigungsklassen});
+    if(currentProjectData) currentProjectData.reinigungsklassen=reinigungsklassen;
+  }catch(e){ console.warn('saveReinigungsklassen',e); notify(dlErr(e)); }
+}
+const _RK_PALETTE=['#3b82f6','#ef4444','#22c55e','#f59e0b','#8b5cf6','#ec4899','#14b8a6','#64748b','#0ea5e9','#a16207'];
+async function addReinigungsklasse(){
+  if(isReadonly()) return;
+  const name=(prompt('Name der Reinigungsklasse (laut Satzung, z. B. „B2"):','')||'').trim(); if(!name) return;
+  reinigungsklassen.push({id:_genId(),name,color:_RK_PALETTE[reinigungsklassen.length%_RK_PALETTE.length],freq:{fahrbahn:1}}); // Fahrbahn immer dabei
+  await saveReinigungsklassen(); renderFieldCatalog(); notify('✓ Reinigungsklasse angelegt');
+}
+async function setRkColor(id,val){
+  if(isReadonly()) return;
+  const r=_rkById(id); if(!r) return;
+  r.color=val; await saveReinigungsklassen();
+  if(_colorMode==='rk'){ _applyFlaechenSelection(); _renderRkLegend(); } // Karte live nachfärben
+}
+// Reinigungsklasse direkt am Abschnitt setzen (aus dem Detail-Panel)
+async function setAbschnittRk(id,val){
+  if(isReadonly()) return;
+  const c=trees.find(t=>t.id===id); if(!c) return;
+  c.reinigungsklasse=val||''; // optimistisch — Seiten erben sofort
+  try{ await updateDoc(doc(db,'projects',currentProjectId,'trees',id),{reinigungsklasse:val||''}); }
+  catch(e){ console.warn('setAbschnittRk',e); notify(dlErr(e)); }
+  openAbschnitt(id);                 // Panel + abgeleitete Häufigkeiten neu
+  if(_colorMode!=='none') _applyFlaechenSelection();
+}
+async function renameReinigungsklasse(id,val){
+  if(isReadonly()) return;
+  const r=_rkById(id); if(!r) return;
+  const l=(val||'').trim(); if(!l||l===r.name){ renderFieldCatalog(); return; }
+  r.name=l; await saveReinigungsklassen(); notify('✓ Umbenannt');
+}
+// Häufigkeit je Element-Gruppe setzen; leer = Gruppe nicht abgedeckt (Fahrbahn bleibt immer)
+async function setRkFreq(id,gruppe,val){
+  if(isReadonly()) return;
+  const r=_rkById(id); if(!r) return;
+  if(!r.freq) r.freq={};
+  const v=(val||'').toString().trim();
+  if(v==='' && gruppe!=='fahrbahn'){ delete r.freq[gruppe]; }
+  else { const n=parseFloat(v.replace(',','.')); r.freq[gruppe]=isNaN(n)?0:n; }
+  await saveReinigungsklassen();
+}
+async function deleteReinigungsklasse(id){
+  if(isReadonly()) return;
+  const r=_rkById(id); if(!r) return;
+  const used=trees.filter(t=>t.reinigungsklasse===id).length;
+  if(!confirm(`Reinigungsklasse „${r.name}" löschen?${used?`\n${used} Abschnitt(e) nutzen sie — die Zuordnung wird dort leer.`:''}`)) return;
+  reinigungsklassen=reinigungsklassen.filter(x=>x.id!==id);
+  await saveReinigungsklassen(); renderFieldCatalog(); notify('✓ Gelöscht');
 }
 async function renameCustomField(key){
   if(isReadonly()) return;
@@ -5489,16 +5835,52 @@ function renderFieldOverview(el){
   const mobilCand=[['baumnr',FL.baumnr||'Objektnummer'],['art',FL.art||'Typ / Art'],['stadtteil',FL.stadtteil||'Stadtteil'],['pflanzjahr',FL.pflanzjahr||'Jahr'],['pflanzzeitpunkt',FL.pflanzzeitpunkt||'Zeitpunkt'],...customFields.map(c=>[c.key,c.label])];
   const mobilSel=Array.isArray(currentProjectData?.mobilFelder)?currentProjectData.mobilFelder:['baumnr','art','pflanzjahr','pflanzzeitpunkt',...customFields.map(c=>c.key)];
   const mobilSection = ro ? '' : `
-    <div style="font-size:13px;font-weight:700;margin:26px 0 4px;">Fahrer-App: sichtbare Felder</div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">Welche Stammdaten im Detail der Fahrer-App angezeigt werden. Koordinaten und Routen-Nr. sind immer dabei; Zustand, Priorität und Notiz erfasst der Fahrer ohnehin im oberen Bereich.</div>
+    <div style="font-size:13px;font-weight:700;margin:26px 0 4px;">Fahrer- &amp; Erfassungs-App: sichtbare Felder</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">Welche Stammdaten die Fahrer-App (Detail-Ansicht) und die Erfassungs-App (Bearbeiten-Maske) zeigen. Koordinaten und Routen-Nr. sind in der Fahrer-App immer dabei; Anlage/Straße, Zustand, Priorität/Bedarf und Notiz werden ohnehin direkt erfasst.</div>
     <div style="display:flex;flex-wrap:wrap;gap:9px 18px;">
       ${mobilCand.map(([k,l])=>`<label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" ${mobilSel.includes(k)?'checked':''} onchange="toggleMobilFeld('${k}',this.checked)" style="margin:0;cursor:pointer;">${dlEsc(l)}</label>`).join('')}
     </div>`;
+  // Objektklassen (Stage 1: nur Definition — Zuordnung & Scoping folgen)
+  const klassenSection = ro ? '' : `
+    <div style="font-size:13px;font-weight:700;margin:26px 0 4px;">Objektklassen</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">Definiere Objekttypen (z. B. „Abfallbehälter", „Baum", „Straßenabschnitt") und welche Felder zu ihnen gehören. Ohne Klassen bleibt alles wie bisher — die Zuordnung der Objekte und das Ausblenden nicht-passender Felder folgt im nächsten Schritt.</div>
+    ${objektklassen.map(k=>`
+      <div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px;background:var(--surface);">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+          <input class="form-control" value="${dlEsc(k.name)}" onchange="renameObjektklasse('${k.id}',this.value)" style="flex:1;padding:6px 9px;font-size:13px;font-weight:600;">
+          <select class="form-control" onchange="setKlasseStruktur('${k.id}',this.value)" style="padding:6px 9px;font-size:13px;width:auto;">
+            ${Object.entries(KLASSE_STRUKTUR).map(([v,l])=>`<option value="${v}"${k.strukturart===v?' selected':''}>${dlEsc(l)}</option>`).join('')}
+          </select>
+          <button class="btn btn-secondary" onclick="deleteObjektklasse('${k.id}')" style="padding:5px 10px;font-size:12px;color:#dc2626;">Löschen</button>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:7px 16px;">
+          ${_klassePool().map(([key,label])=>`<label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;"><input type="checkbox" ${(k.felder||[]).includes(key)?'checked':''} onchange="toggleKlasseFeld('${k.id}','${key}',this.checked)" style="margin:0;cursor:pointer;">${dlEsc(label)}</label>`).join('')}
+        </div>
+      </div>`).join('')}
+    <button class="btn btn-secondary" style="padding:7px 14px;font-size:12px;" onclick="addObjektklasse()">+ Objektklasse anlegen</button>`;
+  // Reinigungsklassen-Katalog (Satzung): je Klasse Häufigkeit pro Element-Gruppe
+  const rkSection = ro ? '' : `
+    <div style="font-size:13px;font-weight:700;margin:26px 0 4px;">Reinigungsklassen (Satzung)</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">Je Klasse die Reinigungs-Häufigkeit pro Element-Gruppe (× pro Woche). Fahrbahn ist immer dabei; leere Felder = Gruppe nicht abgedeckt. Wird einem Straßenabschnitt zugewiesen; die Seiten erben ihre Häufigkeit daraus.</div>
+    ${reinigungsklassen.map(r=>`
+      <div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px;background:var(--surface);">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+          <input type="color" value="${dlEsc(r.color||'#3b82f6')}" onchange="setRkColor('${r.id}',this.value)" title="Farbe (Karte: Einfärben nach Reinigungsklasse)" style="width:36px;height:32px;padding:2px;border:1px solid var(--border);border-radius:6px;cursor:pointer;flex:none;">
+          <input class="form-control" value="${dlEsc(r.name)}" onchange="renameReinigungsklasse('${r.id}',this.value)" style="flex:1;padding:6px 9px;font-size:13px;font-weight:600;">
+          <button class="btn btn-secondary" onclick="deleteReinigungsklasse('${r.id}')" style="padding:5px 10px;font-size:12px;color:#dc2626;">Löschen</button>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px 18px;">
+          ${ELEM_GRUPPE_ORDER.map(g=>`<label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;">${dlEsc(ELEM_GRUPPE_LABEL[g])}${g==='fahrbahn'?' *':''}<input type="number" min="0" step="0.5" value="${r.freq&&r.freq[g]!=null?r.freq[g]:''}" onchange="setRkFreq('${r.id}','${g}',this.value)" placeholder="–" style="width:64px;padding:4px 7px;font-size:12px;border:1px solid var(--border);border-radius:6px;"></label>`).join('')}
+        </div>
+      </div>`).join('')}
+    <button class="btn btn-secondary" style="padding:7px 14px;font-size:12px;" onclick="addReinigungsklasse()">+ Reinigungsklasse anlegen</button>`;
   el.innerHTML=`<div style="max-width:880px;margin:0 auto;">
     <div style="font-size:16px;font-weight:700;margin-bottom:4px;">Felder & Listen</div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:16px;">Wähle ein Feld, um seine Auswahlliste zu pflegen; die Bezeichnungen änderst du unten. Freitext-Felder (${dlEsc(FL.name)}, ${dlEsc(FL.baumnr)}, ${dlEsc(FL.notiz)}) haben keine Liste.</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;">${tiles}</div>
     ${!ro && customFields.length<5?`<button class="btn btn-secondary" style="padding:7px 14px;font-size:12px;margin-top:16px;" onclick="addCustomField()">+ Kundenfeld hinzufügen (${customFields.length}/5)</button>`:''}
+    ${klassenSection}
+    ${rkSection}
     ${mobilSection}
     ${labelGrid}
   </div>`;
@@ -5616,6 +5998,7 @@ function renderBaeumeTableWith(treeList){
       <span style="font-size:13px;font-weight:600;color:var(--text);">${sorted.length} Objekte${activeTourOnMap&&_atOnMap?' — <span style=color:'+_atOnMap.color+';font-weight:700>'+dlEsc(_atOnMap.name)+'</span>':''}</span>
       <span style="font-size:12px;color:var(--text3);">Klick auf Zeile → Karte</span>
       ${(currentRole==='superadmin'||currentCap==='admin')?`<button onclick="checkBaumIdDuplicates()" class="btn btn-secondary" style="margin-left:auto;padding:3px 10px;font-size:11px;white-space:nowrap;" title="Prüft alle Objekt-IDs dieses Projekts auf Dubletten">Objekt-IDs prüfen</button>`:''}
+      ${(currentRole==='superadmin'||currentCap==='admin')&&trees.some(_isContainer)?`<button onclick="deriveHaeufigkeitFromZustaendigkeit()" class="btn btn-secondary" style="padding:3px 10px;font-size:11px;white-space:nowrap;" title="Setzt je Seite die Reinigungshäufigkeit aus dem Zuständigkeits-Tag im Feld Typ/Art: (Stadt) → 1×/Woche, (Anlieger) → 0">Häufigkeit aus Zuständigkeit</button>`:''}
     </div>
     <div style="overflow:auto;flex:1;">
       <table style="width:100%;border-collapse:collapse;font-size:13px;background:var(--surface);">
@@ -6238,6 +6621,32 @@ async function toggleMobilFeld(key, on){
   }catch(e){ console.warn('toggleMobilFeld',e); notify(dlErr(e)); }
 }
 
+// Reinigungshäufigkeit je Seite aus dem Zuständigkeits-Tag in art ableiten: (Stadt)→1, (Anlieger)→0.
+// Schreibt das manuelle haeufigkeit-Feld (Override) gebündelt; Update existierender Docs (orgId bleibt).
+async function deriveHaeufigkeitFromZustaendigkeit(){
+  if(isReadonly()||!currentProjectId) return;
+  const reStadt=/\(\s*stadt\s*\)/i, reAnl=/\(\s*anlieger\s*\)/i;
+  const targets=[];
+  for(const t of trees){
+    const a=t.art||''; let h=null;
+    if(reStadt.test(a)) h=1; else if(reAnl.test(a)) h=0; else continue;
+    if(t.haeufigkeit!==h) targets.push({tree:t,h});
+  }
+  const nStadt=targets.filter(x=>x.h===1).length, nAnl=targets.filter(x=>x.h===0).length;
+  if(!targets.length){ notify('Nichts zu ändern — alle (Stadt)/(Anlieger)-Objekte sind bereits gesetzt'); return; }
+  if(!confirm(`Reinigungshäufigkeit aus Zuständigkeit ableiten?\n\n• ${nStadt} Objekt(e) → 1×/Woche (Stadt)\n• ${nAnl} Objekt(e) → 0 (Anlieger)\n\nInsgesamt ${targets.length} Objekt(e) werden geschrieben.`)) return;
+  notify('Schreibt…');
+  let done=0; const BATCH=400;
+  for(let i=0;i<targets.length;i+=BATCH){
+    const batch=db.batch();
+    targets.slice(i,i+BATCH).forEach(({tree,h})=>{
+      batch.update(db.collection('projects').doc(currentProjectId).collection('trees').doc(tree.id),{haeufigkeit:h});
+      tree.haeufigkeit=h; done++;
+    });
+    await batch.commit();
+  }
+  notify(`✓ ${done} Objekt(e) aktualisiert — ${nStadt}× Stadt (1), ${nAnl}× Anlieger (0)`);
+}
 async function migrateTourIds(){
   if(!confirm(`tourIds-Migration für alle ${trees.length} Objekte durchführen? Einmalig nötig.`)) return;
   notify('Migration läuft…');
@@ -7092,7 +7501,7 @@ function downloadObjectsExport(){
   const headers=[FL.name,FL.stadtteil,FL.baumnr,FL.art,FL.pflanzjahr,FL.pflanzzeitpunkt,FL.zustand,FL.wasser,...customFields.map(c=>c.label),FL.notiz,'Koordinate 1','Koordinate 2','Objekt-ID'];
   const list=trees.filter(isActive);
   const rows=list.map(t=>[
-    t.name||'', t.stadtteil||'', t.baumnr||'', t.art||'', t.pflanzjahr||'', t.pflanzzeitpunkt||'',
+    orTitel(t,_containerByExt)||'', t.stadtteil||'', t.baumnr||'', t.art||'', t.pflanzjahr||'', t.pflanzzeitpunkt||'',
     rankLabel('zustand',t.zustand), rankLabel('wasser',t.wasser),
     ...customFields.map(c=>t[c.key]||''),
     t.notiz||'', (t.lat==null?'':t.lat), (t.lng==null?'':t.lng), t.baumId||'',
@@ -7854,7 +8263,7 @@ function renderDetailTable(reported,skipCache){
     return `<tr style="border-top:1px solid var(--border);${rowBg}" onmouseenter="this.style.background='#f0ede6'" onmouseleave="this.style.background='${tree._fromHistory?'var(--surface2)':''}'"  >
       <td style="padding:8px 12px;font-size:11px;color:var(--text3);font-family:monospace;">${idx+1}</td>
       <td style="padding:8px 12px;font-size:11px;font-weight:600;color:var(--green);white-space:nowrap;">${dlEsc(tree._projectName||currentProjectData?.name||'–')}</td>
-      <td style="padding:8px 12px;font-size:12px;font-weight:500;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${dlEsc(tree.name||'')}">${dlEsc(tree.name||'–')}</td>
+      <td style="padding:8px 12px;font-size:12px;font-weight:500;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${dlEsc(orTitel(tree,_containerByExt)||'')}">${dlEsc(orTitel(tree,_containerByExt)||'–')}</td>
       <td style="padding:8px 12px;font-size:11px;color:var(--text2);font-family:monospace;white-space:nowrap;">${dlEsc(tree.baumnr||'–')}</td>
       <td style="padding:8px 12px;font-size:12px;color:var(--text2);white-space:nowrap;">${dlEsc(tree.stadtteil||'–')}</td>
       <td style="padding:8px 12px;font-size:12px;">${tour?`<span style="font-weight:600;color:${tour.color};">${dlEsc(tour.name)}</span>`:'–'}</td>
@@ -8124,7 +8533,7 @@ async function exportHistoryCSV(histId){
   const h=normalizeHistory(historyCache[histId]);
   const header='Tour;Datum;Fahrer;Anlage/Straße;Stadtteil;Baumart;Baumnr.;Status;Grund;Notiz;Zustand;Wasserbedarf';
   const rows=h.trees.map(t=>[
-    h.tourName,h.date,t.lastDriver||'',t.name||'',t.stadtteil||'',t.art||'',t.baumnr||'',
+    h.tourName,h.date,t.lastDriver||'',orTitel(t,_containerByExt)||'',t.stadtteil||'',t.art||'',t.baumnr||'',
     t.lastStatus||'offen',t.lastReason||'',t.lastNote||'',rankLabel('zustand',t.zustand),rankLabel('wasser',t.wasser)
   ].map(v=>`"${(v||'').replace(/"/g,'""')}"`).join(';')).join('\n');
   const blob=new Blob(['\uFEFF'+header+'\n'+rows],{type:'text/csv;charset=utf-8'});
@@ -8160,7 +8569,7 @@ function exportCtrlCSV(){
   const header='Anlage/Straße;Stadtteil;Baumart;Baumnr.;Tour;Status;Grund;Fahrer;Datum';
   const rows=reported.map(t=>{
     const tour=tours.find(x=>x.id===t.tourId);
-    return [t.name,t.stadtteil,t.art,t.baumnr,tour?.name||'',t.lastStatus,t.lastReason||'',t.lastDriver||'',t.lastReportAt?.slice(0,10)||'']
+    return [orTitel(t,_containerByExt),t.stadtteil,t.art,t.baumnr,tour?.name||'',t.lastStatus,t.lastReason||'',t.lastDriver||'',t.lastReportAt?.slice(0,10)||'']
       .map(v=>`"${(v||'').replace(/"/g,'""')}"`)
       .join(';');
   });
@@ -11071,7 +11480,9 @@ Object.assign(window,{
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
   renderRollenView,saveRole,addRole,deleteRole,toggleBenutzerRollen,toggleBenutzerTouren,changeBenutzerOrg,changeDtaProject,renderUsage,exportUsageCSV,
   startGpsPlacement,startMoveObject,saveMoveObject,cancelMoveObject,toggleFilterNoGps,updateBtnFilterNoGps,
-  saveFieldLabels, setFieldLabel, toggleMobilFeld, migrateTourIds,
+  saveFieldLabels, setFieldLabel, toggleMobilFeld, migrateTourIds, deriveHaeufigkeitFromZustaendigkeit,
+  addObjektklasse, renameObjektklasse, setKlasseStruktur, toggleKlasseFeld, deleteObjektklasse,
+  addReinigungsklasse, renameReinigungsklasse, setRkFreq, setRkColor, deleteReinigungsklasse, onKlasseChange, setColorMode, setAbschnittRk, toggleDisplayPanel, setGeomStyle, saveDisplayDefaults,
   doLogin, doLogout, toggleLoginMode,
 });
 

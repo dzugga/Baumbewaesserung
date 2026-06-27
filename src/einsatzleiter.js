@@ -3,7 +3,14 @@ import { installErrorHandler } from './errlog.js'; installErrorHandler('einsatzl
 import { BASEMAP_FARBE, BASEMAP_ATTR } from './basemaps.js';
 import { firebaseConfig } from './firebase-config.js';
 import { esc } from './esc.js';
+import { titelOf as orTitel, buildContainerIndex } from './objektrollen.js';
 import { startSession, endSession } from './session.js';
+// Lazy Container-Index für Anzeige-Rollen; baut neu, sobald sich trees ändert.
+let _elIdx = null, _elIdxRef = null;
+function _elGetContainer(extId){
+  if(_elIdxRef !== trees){ _elIdx = buildContainerIndex(trees); _elIdxRef = trees; }
+  return _elIdx.getContainer(extId);
+}
 function _onSessionKicked(){ try{ alert('Abgemeldet: Diese Kennung wurde an einem anderen Gerät angemeldet.'); }catch(_){}; try{ firebase.auth().signOut(); }catch(_){}; location.reload(); }
 // ─── FIREBASE CONFIG (zentral in firebase-config.js) ──────────
 const fbApp = firebase.initializeApp(firebaseConfig);
@@ -306,7 +313,7 @@ function renderNichtMap(nichtReports){
   withCoords.forEach(r=>{
     const d=r.lastReportAt?new Date(r.lastReportAt).toLocaleDateString('de-DE'):'–';
     const meta=[r.stadtteil,r.baumnr].filter(Boolean).join(' · ');
-    const popup=`<b>${r.name||'Objekt'}</b>`+
+    const popup=`<b>${esc(orTitel(r,_elGetContainer)||'Objekt')}</b>`+
       (meta?`<br>${meta}`:'')+
       (r.art?`<br><i>${r.art}</i>`:'')+
       `<br>Grund: <b style="color:#dc2626;">${r.lastReason||'nicht angegeben'}</b>`+
