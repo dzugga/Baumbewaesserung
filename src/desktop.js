@@ -3631,10 +3631,13 @@ function openAddTree(lat,lng){
 }
 
 // Typ/Art-Dropdown aus der projekteigenen Arten-Liste füllen (keine Freitexteingabe)
-async function fillArtSelect(current){
+async function fillArtSelect(current, klasse){
   const sel=document.getElementById('f-art'); if(!sel) return;
   if(artenList.length===0) await loadArten();
-  let names=[...new Set(artenList.map(a=>a.name).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  if(klasse===undefined) klasse=document.getElementById('f-klasse')?.value||'';
+  // Arten der gewählten Objektklasse (Arten ohne Klassen-Tag gelten für alle)
+  const list=artenList.filter(a=>!a.klasse || a.klasse===klasse);
+  let names=[...new Set(list.map(a=>a.name).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
   current=(current||'').trim();
   if(current && !names.includes(current)) names.unshift(current); // bestehenden Wert nicht verlieren
   sel.innerHTML=`<option value="">— bitte wählen —</option>`+names.map(n=>`<option value="${dlEsc(n)}"${n===current?' selected':''}>${dlEsc(n)}</option>`).join('');
@@ -3692,7 +3695,8 @@ function onKlasseChange(){
   const tree=trees.find(t=>t.id===editingTreeId); if(!tree) return;
   const tmp={...tree, klasse:document.getElementById('f-klasse').value};
   renderCustomFieldInputs(tmp); _applyKlasseScope(tmp);
-  const isAbschnitt=_isContainer(tree) || objektklassen.find(k=>k.id===tmp.klasse)?.strukturart==='abschnitt';
+  fillArtSelect(document.getElementById('f-art')?.value||'', tmp.klasse); // Typ/Art-Liste der neuen Klasse
+  const isAbschnitt=_isContainer(tree);
   const rRow=document.getElementById('row-f-reinigungsklasse'); if(rRow) rRow.style.display=isAbschnitt?'':'none';
 }
 // Stage 4: Standard-Formularfelder nach Objektklasse ein-/ausblenden (name bleibt immer)
@@ -3714,7 +3718,7 @@ async function openEditTree(id){
   document.getElementById('f-name').value=tree.name||'';
   fillListSelect('stadtteil',tree.stadtteil||'');
   document.getElementById('f-baumnr').value=tree.baumnr||'';
-  fillArtSelect(tree.art||'');
+  fillArtSelect(tree.art||'', tree.klasse||'');
   fillListSelect('pflanzjahr',tree.pflanzjahr||'');
   fillListSelect('pflanzzeitpunkt',tree.pflanzzeitpunkt||'');
   renderCustomFieldInputs(tree);
@@ -5173,6 +5177,7 @@ function renderArtenList(){
   const validIds=new Set(artenList.map(a=>a.id));
   const unmapped=trees.filter(t=>!_isContainer(t)&&(t.art||'').trim() && !(t.artId&&validIds.has(t.artId))).length;
   const ro=isReadonly();
+  const showKl=objektklassen.length>0; // Klassen-Spalte nur zeigen, wenn Objektklassen definiert sind
   // Container-Arten (z. B. „Straßenabschnitt") sind keine Tätigkeits-Arten → aus der Liste ausblenden
   const _contArtIds=new Set(trees.filter(_isContainer).map(t=>t.artId).filter(Boolean));
   const objCount=trees.filter(t=>!_isContainer(t)).length;
@@ -5184,6 +5189,7 @@ function renderArtenList(){
         <button type="button" ${ro?'disabled':`onclick="artSetIcon('${dlEsc(a.id)}')"`} title="${a.icon?'Eigenes Symbol — ändern':'Projekt-Standard — eigenes Symbol setzen'}" style="width:32px;height:32px;font-size:16px;padding:0;border:1.5px solid ${a.icon?'var(--green-mid)':'var(--border)'};border-radius:8px;background:${a.icon?'var(--green-light)':'var(--bg)'};cursor:${ro?'default':'pointer'};${a.icon?'':'opacity:.55;'}">${a.icon||projIcon()}</button>
       </td>
       <td style="padding:7px 12px;font-weight:500;">${dlEsc(a.name)}</td>
+      ${showKl?`<td style="padding:7px 12px;">${ro?dlEsc(objektklassen.find(k=>k.id===a.klasse)?.name||'alle'):`<select onchange="artSetKlasse('${dlEsc(a.id)}',this.value)" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;max-width:140px;"><option value="">alle Klassen</option>${objektklassen.map(k=>`<option value="${dlEsc(k.id)}"${a.klasse===k.id?' selected':''}>${dlEsc(k.name)}</option>`).join('')}</select>`}</td>`:''}
       <td style="padding:7px 12px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text2);">${c}</td>
       <td style="padding:4px 12px;text-align:right;white-space:nowrap;">${ro
         ?(typeof a.zeitaufwand==='number'&&a.zeitaufwand>0?a.zeitaufwand+' min':'<span style="color:var(--text3);font-size:11px;">Standard</span>')
@@ -5215,6 +5221,7 @@ function renderArtenList(){
       <thead><tr style="background:var(--surface2);">
         <th style="padding:8px 8px 8px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Symbol</th>
         <th style="padding:8px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">${FL.art}</th>
+        ${showKl?'<th style="padding:8px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Objektklasse</th>':''}
         <th style="padding:8px 12px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Häufigkeit</th>
         <th style="padding:8px 12px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);" title="Zeitaufwand je Objekt dieser Art (Minuten). Leer = Projekt-Standard.">Zeitaufwand/Obj.</th>
         <th style="padding:8px 12px;"></th>
@@ -5306,6 +5313,14 @@ async function artApplyTimeToAll(){
     try{ renderTourenGrid(); }catch(e){}
     notify('✓ '+n+' min/Objekt für alle '+artenList.length+' Arten übernommen');
   }catch(e){ notify(dlErr(e)); }
+}
+// Art einer Objektklasse zuordnen (leer = alle Klassen) — steuert die Typ/Art-Auswahl im Formular
+async function artSetKlasse(id, klasseId){
+  if(isReadonly()) return;
+  try{
+    await updateDoc(doc(db,'projects',currentProjectId,'arten',id), klasseId?{klasse:klasseId}:{klasse:firebase.firestore.FieldValue.delete()});
+    await loadArten(); renderArtenList();
+  }catch(e){ console.warn('artSetKlasse',e); notify(dlErr(e)); }
 }
 async function addArt(){
   if(isReadonly()) return;
@@ -7444,11 +7459,13 @@ function buildImportMapping(headerRow){
   };
   const coordAliases=['lat','lng','latitude','longitude','breite','breitengrad','lange','langengrad','koordinate1','koordinate2','koordinate','rechtswert','hochwert','ostwert','nordwert','easting','northing','east','north','utm','gps','x','y','e','n'];
   const baumIdAliases=['objektid','baumid','interneid'];
+  const klasseAliases=['objektklasse','klasse'];
   const heads=(headerRow||[]).map((h,i)=>({n:_normH(h),i})).filter(x=>x.n);
   // 1) EXAKTE Treffer zuerst (Feld-Anzeigename ODER Kundenfeld-Label) — schlägt generische Aliasse,
   //    damit z. B. ein Kundenfeld „Ortsteil" nicht vom Stadtteil-Alias „ortsteil" geschluckt wird.
   for(const {n,i} of heads){
     if(baumIdAliases.includes(n)){ if(map.baumId==null) map.baumId=i; continue; }
+    if(klasseAliases.includes(n)){ if(map.klasse==null) map.klasse=i; continue; }
     let hit=false;
     for(const k of Object.keys(labelFor)){ if(n===_normH(labelFor[k])){ if(map[k]==null) map[k]=i; hit=true; break; } }
     if(hit) continue;
@@ -7489,8 +7506,8 @@ function detectNewListValues(parsed){
 // Importvorlage (Excel) mit aktuellen Überschriften + Beispielzeile
 function downloadImportTemplate(){
   const XLSX=window.XLSX; if(!XLSX){ notify('SheetJS nicht geladen'); return; }
-  const headers=[FL.name,FL.stadtteil,FL.baumnr,FL.art,FL.pflanzjahr,FL.pflanzzeitpunkt,FL.zustand,FL.wasser,...customFields.map(c=>c.label),FL.notiz,'Koordinate 1','Koordinate 2'];
-  const ex=['Berliner Platz 23','Innenstadt','118-0044','Ahorn','2020','Frühjahr',(rankList('zustand')[0]?.label||'Gut'),(rankList('wasser')[0]?.label||'Gering'),...customFields.map(()=>''),'Beispiel-Notiz','49.4830','8.4450'];
+  const headers=[FL.name,FL.stadtteil,FL.baumnr,FL.art,FL.pflanzjahr,FL.pflanzzeitpunkt,FL.zustand,FL.wasser,...customFields.map(c=>c.label),FL.notiz,'Objektklasse','Koordinate 1','Koordinate 2'];
+  const ex=['Berliner Platz 23','Innenstadt','118-0044','Ahorn','2020','Frühjahr',(rankList('zustand')[0]?.label||'Gut'),(rankList('wasser')[0]?.label||'Gering'),...customFields.map(()=>''),'Beispiel-Notiz',(objektklassen[0]?.name||''),'49.4830','8.4450'];
   const ws=XLSX.utils.aoa_to_sheet([headers,ex]);
   const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Objekte');
   XLSX.writeFile(wb,'Importvorlage.xlsx');
@@ -7498,14 +7515,20 @@ function downloadImportTemplate(){
 // Voll-Export aller (aktiven) Objekte — spiegelbildlich zur Vorlage; Objekt-ID ermöglicht Re-Import als Update
 function downloadObjectsExport(){
   const XLSX=window.XLSX; if(!XLSX){ notify('SheetJS nicht geladen'); return; }
-  const headers=[FL.name,FL.stadtteil,FL.baumnr,FL.art,FL.pflanzjahr,FL.pflanzzeitpunkt,FL.zustand,FL.wasser,...customFields.map(c=>c.label),FL.notiz,'Koordinate 1','Koordinate 2','Objekt-ID'];
+  const headers=[FL.name,FL.stadtteil,FL.baumnr,FL.art,FL.pflanzjahr,FL.pflanzzeitpunkt,FL.zustand,FL.wasser,...customFields.map(c=>c.label),FL.notiz,'Objektklasse','Koordinate 1','Koordinate 2','Objekt-ID'];
   const list=trees.filter(isActive);
-  const rows=list.map(t=>[
-    orTitel(t,_containerByExt)||'', t.stadtteil||'', t.baumnr||'', t.art||'', t.pflanzjahr||'', t.pflanzzeitpunkt||'',
-    rankLabel('zustand',t.zustand), rankLabel('wasser',t.wasser),
-    ...customFields.map(c=>t[c.key]||''),
-    t.notiz||'', (t.lat==null?'':t.lat), (t.lng==null?'':t.lng), t.baumId||'',
-  ]);
+  const _klName=t=>{ const k=objektklassen.find(x=>x.id===t.klasse); return k?k.name:''; };
+  const rows=list.map(t=>{
+    const kf=_klasseFelder(t), ok=key=>!kf||kf.includes(key), gt=geomTypeOf(t); // nur Felder der Objektklasse exportieren
+    return [
+      orTitel(t,_containerByExt)||'',
+      ok('stadtteil')?(t.stadtteil||''):'', ok('baumnr')?(t.baumnr||''):'', ok('art')?(t.art||''):'',
+      ok('pflanzjahr')?(t.pflanzjahr||''):'', ok('pflanzzeitpunkt')?(t.pflanzzeitpunkt||''):'',
+      ok('zustand')?rankLabel('zustand',t.zustand):'', ok('wasser')?rankLabel('wasser',t.wasser):'',
+      ...customFields.map(c=>(ok(c.key)&&fieldAppliesTo(c,gt))?(t[c.key]||''):''),
+      ok('notiz')?(t.notiz||''):'', _klName(t), (t.lat==null?'':t.lat), (t.lng==null?'':t.lng), t.baumId||'',
+    ];
+  });
   const ws=XLSX.utils.aoa_to_sheet([headers,...rows]);
   const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Objekte');
   XLSX.writeFile(wb, ((currentProjectData?.name||'Objekte').replace(/[^\w-]+/g,'_'))+'_Export.xlsx');
@@ -7582,10 +7605,12 @@ async function importExcel(input){
   (rows[0]||[]).forEach((h,i)=>{ if(_used.has(i)) return; const n=_normH(h); if(!n) return; const t=tours.find(x=>!x.uebersicht && _normH(x.name)===n); if(t) tourCols.push({i,id:t.id,name:t.name}); });
   _importTourCols=tourCols.map(c=>c.name);
   const parsed=[];
+  const _klByName=new Map(objektklassen.map(k=>[_normH(k.name),k])); // Objektklasse-Spalte (Name) → Klasse
   for(let i=1;i<rows.length;i++){
     const row=rows[i]; if(!row||!row.length) continue;
     if(row.every(c=>c==null||String(c).trim()==='')) continue; // Leerzeile
     const {lat,lng}=(c0!=null&&c1!=null)?impCoords(impNum(row[c0]),impNum(row[c1])):{lat:null,lng:null};
+    const _klRaw=String(get(row,'klasse')??'').trim(); const _kl=_klRaw?_klByName.get(_normH(_klRaw)):null;
     const o={
       name:(get(row,'name')??'')||'Unbekannt',
       stadtteil:String(get(row,'stadtteil')??'').trim(),
@@ -7599,7 +7624,10 @@ async function importExcel(input){
       baumId:String(get(row,'baumId')??'').trim(),
       lat, lng,
     };
-    customFields.forEach(c=>{ if(map[c.key]!=null) o[c.key]=String(row[map[c.key]]??'').trim(); });
+    if(map.klasse!=null) o.klasse=_kl?_kl.id:''; // nur bei vorhandener Spalte (sonst bestehende Klasse beim Upsert nicht überschreiben)
+    // Kundenfelder nur schreiben, wenn sie zur Objektklasse gehören (Klassen-Scope)
+    const _kf=(_kl&&Array.isArray(_kl.felder)&&_kl.felder.length)?_kl.felder:null;
+    customFields.forEach(c=>{ if(map[c.key]!=null && (!_kf||_kf.includes(c.key))) o[c.key]=String(row[map[c.key]]??'').trim(); });
     if(tourCols.length){ const tids=[]; for(const tc of tourCols){ if(_truthyImport(row[tc.i])) tids.push(tc.id); } o.tourIds=tids; }
     parsed.push(o);
   }
@@ -11469,7 +11497,7 @@ Object.assign(window,{
   startPlacement,cancelMode,setDepotOnMap,startDraw,finishDraw,cancelDraw,
   startAssignMode,setAssignTour,cancelAssign,assignTreeToTour,
   openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,
-  pickProjIcon,artSetIcon,artSetTime,artSetRate,setArtDefaultTime,artApplyTimeToAll,
+  pickProjIcon,artSetIcon,artSetTime,artSetRate,setArtDefaultTime,artApplyTimeToAll,artSetKlasse,
   renderReinigungssysteme,rsAdd,rsUpdate,rsDelete,
   renderMandanten,createOrgUi,moveProjectUi,setOrgNaviUi,checkBaumIdDuplicates,flaechenImportOpen,flaechenImportRun,geomDocsImportOpen,geomDocsImportRun,strMigOpen,flaechenTourGenOpen,flaechenTourGenRun,
   addWmsLayer,deleteWmsLayer,editWmsLayer,cancelWmsEdit,renderWmsList,
