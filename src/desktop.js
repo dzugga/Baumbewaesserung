@@ -131,7 +131,7 @@ function getTreeTourIds(tree){
   if(tree.tourId) return [tree.tourId];
   return [];
 }
-// Übersichtstouren (z.B. Stadtteil-Touren) sind keine „echten" Touren: kein Marker-Zähler,
+// Übersichten (z.B. Stadtteil-Touren) sind keine „echten" Touren: kein Marker-Zähler,
 // keine Routenberechnung, auf der Karte standardmäßig ausgeblendet.
 function isOverviewTour(tourId){ const t=tours.find(x=>x.id===tourId); return !!(t&&t.uebersicht); }
 // ── Tour-Rhythmus: läuft die Tour an einem Datum? ──
@@ -148,15 +148,15 @@ function tourDueOn(t,date){
   const d=_daysBetween(t.startDate,date);
   return iv==='woechentlich'?d%7===0:iv==='14taeglich'?d%14===0:iv==='4woechentlich'?d%28===0:true;
 }
-function realTourIds(tree){ return getTreeTourIds(tree).filter(id=>!isOverviewTour(id)); } // ohne Übersichtstouren
+function realTourIds(tree){ return getTreeTourIds(tree).filter(id=>!isOverviewTour(id)); } // ohne Übersichten
 function treeInTour(tree, tourId){
   return getTreeTourIds(tree).includes(tourId);
 }
 // Archiv: tree.aktiv===false → inaktiv (gefällt/abgegangen). Default = aktiv.
 function isActive(tree){ return !tree || tree.aktiv!==false; }
 function primaryTour(tree){
-  // Übersichtstouren bestimmen NICHT die Standardfarbe — sonst erschiene ein nur einer
-  // Stadtteil-Übersichtstour zugeordnetes (real unverplantes) Objekt eingefärbt statt grau.
+  // Übersichten bestimmen NICHT die Standardfarbe — sonst erschiene ein nur einer
+  // Stadtteil-Übersicht zugeordnetes (real unverplantes) Objekt eingefärbt statt grau.
   const ids = realTourIds(tree);
   return ids.length>0 ? tours.find(t=>t.id===ids[0]) : null;
 }
@@ -280,7 +280,7 @@ let showUnplanned = false;            // zusätzlich unverplante Objekte einblen
 let activeTourOnMap = null;           // abgeleitet: nur gesetzt, wenn GENAU eine Tour gewählt ist (für Detail-Ansicht/Nummern)
 function syncActiveTour(){ activeTourOnMap = activeTours.size===1 ? [...activeTours][0] : null; }
 function treeInAnyActiveTour(t){ for(const tid of activeTours){ if(treeInTour(t,tid)) return true; } return false; }
-// „Nicht verplant" = in keiner ECHTEN Tour (Übersichtstouren zählen nicht als Verplanung)
+// „Nicht verplant" = in keiner ECHTEN Tour (Übersichten zählen nicht als Verplanung)
 function treeIsUnplanned(t){ return isActive(t) && !_isContainer(t) && realTourIds(t).length===0; } // Abschnitt-Container sind nicht tour-planbar → zählen nicht als „nicht verplant"
 // Sichtbarkeit nach aktueller Auswahl: nichts gewählt = alles; sonst Tour-Objekte ODER (optional) unverplante
 function treeVisibleSel(t){
@@ -1374,7 +1374,7 @@ async function loadSavedRoutes(force=false){
 async function calculateAndSaveRoute(tourId){
   if(isReadonly()){ notify('Nur Lesezugriff'); return; }
   if(!getRoutePlanningEnabled()){ notify('Reihenfolgeplanung ist deaktiviert'); return; }
-  if(isOverviewTour(tourId)){ notify('Übersichtstouren erhalten keine Route'); return; }
+  if(isOverviewTour(tourId)){ notify('Übersichten erhalten keine Route'); return; }
   const tour=tours.find(t=>t.id===tourId);if(!tour)return;
   const trs=_routableTrees(tourId); // Punkte + Flächen/Linien (Stellvertreter-Koordinate)
   if(trs.length<1){notify('Keine Objekte in dieser Tour');return;}
@@ -1446,7 +1446,7 @@ async function calculateAllRoutes(){
   if(isReadonly()){ notify('Nur Lesezugriff'); return; }
   if(!getRoutePlanningEnabled()){ notify('Reihenfolgeplanung ist deaktiviert'); return; }
   for(const tour of tours){
-    if(tour.uebersicht) continue; // Übersichtstouren überspringen
+    if(tour.uebersicht) continue; // Übersichten überspringen
     await calculateAndSaveRoute(tour.id);
   }
 }
@@ -1586,9 +1586,9 @@ function getRouteNum(treeId){
 
 function makeMarker(tree){
   const treeTourIds=getTreeTourIds(tree);
-  const realIds=realTourIds(tree);                            // Übersichtstouren zählen nicht mit
+  const realIds=realTourIds(tree);                            // Übersichten zählen nicht mit
   const isMulti=realIds.length>1;                             // mehrere ECHTE Tourzuordnungen → Zähler
-  const activeForTree=treeTourIds.filter(id=>activeTours.has(id) && !isOverviewTour(id)); // Übersichtstouren zählen nicht
+  const activeForTree=treeTourIds.filter(id=>activeTours.has(id) && !isOverviewTour(id)); // Übersichten zählen nicht
   const multiActive=activeForTree.length>=2;                  // mehrere gleichzeitig eingeblendete ECHTE Touren → gelb
   // Farbe: mehrere gleichzeitig aktive Touren → gelb; sonst aktive/Primär-Tourfarbe
   let color;
@@ -1779,13 +1779,13 @@ function _flTourColorFor(t){
   if(_isContainer(t)){ // Abschnitt: aktive Touren ALLER Seiten sammeln — ≥2 = Überschneidung → gelb (wie Punkte)
     const set=new Set();
     for(const s of _ausstattungOf(t.extId)){ for(const id of getTreeTourIds(s)){ if(activeTours.has(id)) set.add(id); } }
-    const realSet=[...set].filter(id=>!isOverviewTour(id)); // Übersichtstouren zählen nicht für „gelb"
+    const realSet=[...set].filter(id=>!isOverviewTour(id)); // Übersichten zählen nicht für „gelb"
     if(realSet.length>=2) return FL_MULTI;
     if(set.size>=1) return (tours.find(x=>x.id===(realSet[0]||[...set][0]))||{}).color||null; // bevorzugt echte Tour
     return null;
   }
   const act=getTreeTourIds(t).filter(id=>activeTours.has(id));
-  const realAct=act.filter(id=>!isOverviewTour(id)); // Übersichtstouren zählen nicht für „gelb"
+  const realAct=act.filter(id=>!isOverviewTour(id)); // Übersichten zählen nicht für „gelb"
   if(realAct.length>=2) return FL_MULTI;
   if(act.length>=1){
     const pick=(activeTourOnMap && act.includes(activeTourOnMap)) ? activeTourOnMap : (realAct[0]||act[0]);
@@ -2409,9 +2409,9 @@ function showTourLegendMenu(tid,x,y){
 }
 let tourLegendQuery='';
 let legendExpanded=new Set(); // je Tour aufgeklappte Detail-Zeile (Session)
-let showOverviewInLegend=false; // Übersichtstouren in der Legende eingeblendet? (Session, Standard: aus)
-let showOverviewInGrid=false;   // Übersichtstouren im Touren-Reiter eingeblendet? (Session, Standard: aus)
-let showOverviewInAssign=false; // Übersichtstouren in der Ziel-Tour-Auswahl (Planen) eingeblendet?
+let showOverviewInLegend=false; // Übersichten in der Legende eingeblendet? (Session, Standard: aus)
+let showOverviewInGrid=false;   // Übersichten im Touren-Reiter eingeblendet? (Session, Standard: aus)
+let showOverviewInAssign=false; // Übersichten in der Ziel-Tour-Auswahl (Planen) eingeblendet?
 // Mehrwort-UND-Suche: alle durch Leerzeichen getrennten Begriffe müssen vorkommen
 // (Reihenfolge/Zwischenzeichen egal) — z.B. "Nord Mi" findet "Nord/Team/Mi/1/3". Überall genutzt.
 function matchTerms(text,query){
@@ -2479,7 +2479,7 @@ function renderLegend(){
     const total=_tm?fmtTotalTime(_tm.durationSec,members,tourZusatzMin(t)):'';
     const isSel=activeTours.has(t.id);
     const isExp=legendExpanded.has(t.id);
-    // Übersichtstouren: kein Aufklapp-Pfeil (keine Route/Zeiten), nur Objektzahl
+    // Übersichten: kein Aufklapp-Pfeil (keine Route/Zeiten), nur Objektzahl
     const ov=!!t.uebersicht;
     let r=`<div class="legend-item${isSel?' active-tour':''}" data-tourid="${t.id}" data-tourname="${(t.name||'').toLowerCase().replace(/"/g,'&quot;')}" style="padding:3px 6px;margin-bottom:1px;">
       <input type="checkbox" class="tour-check"${isSel?' checked':''} style="margin:0 4px 0 0;cursor:pointer;flex-shrink:0;accent-color:${t.color};">
@@ -2520,12 +2520,12 @@ function renderLegend(){
   if(_tourScroll) html+=`<div style="max-height:440px;overflow-y:auto;">`;
   echteTouren.forEach(t=>{ html+=tourRow(t); });
   if(_tourScroll) html+=`</div>`;
-  // Übersichtstouren (z.B. Stadtteile): standardmäßig eingeklappt, per Klick einblendbar
+  // Übersichten (z.B. Stadtteile): standardmäßig eingeklappt, per Klick einblendbar
   if(overviewTouren.length){
     html+=`<div data-action="toggle-overview" style="display:flex;align-items:center;gap:6px;padding:5px 6px;margin-top:3px;border-top:1px solid var(--border);cursor:pointer;">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text2)" stroke-width="2.5" style="flex-shrink:0;transition:transform .15s;transform:rotate(${showOverviewInLegend?90:0}deg);"><path d="M9 18l6-6-6-6"/></svg>
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-      <span style="font-size:11px;font-weight:600;color:var(--text2);flex:1;">Übersichtstouren</span>
+      <span style="font-size:11px;font-weight:600;color:var(--text2);flex:1;">Übersichten</span>
       <span style="font-size:10px;color:var(--text3);">${overviewTouren.length}</span>
     </div>`;
     if(showOverviewInLegend) overviewTouren.forEach(t=>{ html+=tourRow(t); });
@@ -2575,7 +2575,7 @@ function renderLegend(){
       if(svg)svg.style.transform=`rotate(${open?180:0}deg)`;
       return;
     }
-    if(e.target.closest('[data-action="toggle-overview"]')){ // Übersichtstouren ein-/ausklappen
+    if(e.target.closest('[data-action="toggle-overview"]')){ // Übersichten ein-/ausklappen
       showOverviewInLegend=!showOverviewInLegend; renderLegend(); return;
     }
     const exp=e.target.closest('[data-expand]');
@@ -3523,7 +3523,7 @@ async function docDelete(treeId,idx){
   }catch(e){ notify('Fehler: '+(e.message||e.code)); }
 }
 
-// Inline-Tour-Mehrfachauswahl im Objekt-Detail: echte Touren immer, Übersichtstouren ein-/ausblendbar
+// Inline-Tour-Mehrfachauswahl im Objekt-Detail: echte Touren immer, Übersichten ein-/ausblendbar
 let showOverviewInDetail=false;
 function toggleOverviewInDetail(){ showOverviewInDetail=!showOverviewInDetail; renderInlineTourChips(); }
 function renderInlineTourChips(){
@@ -3547,13 +3547,13 @@ function renderInlineTourChips(){
   const _selCount=visible.filter(t=>cur.includes(t.id)).length;
   const chips = tours.length===0
     ? '<div style="padding:10px;font-size:12px;color:var(--text3);">Keine Touren angelegt</div>'
-    : (visible.map((t,i)=>rowHtml(t, i===_selCount && _selCount>0)).join('') || '<div style="padding:10px;font-size:12px;color:var(--text3);">Keine echten Touren — über „Übersichtstouren einblenden" anzeigen.</div>');
+    : (visible.map((t,i)=>rowHtml(t, i===_selCount && _selCount>0)).join('') || '<div style="padding:10px;font-size:12px;color:var(--text3);">Keine echten Touren — über „Übersichten einblenden" anzeigen.</div>');
   // Suchfeld erst ab vielen Touren einblenden
   const search = visible0.length>6
     ? `<input id="inline-tour-search" type="text" placeholder="Tour suchen…" oninput="filterInlineTours(this.value)" autocomplete="off" style="width:100%;padding:6px 9px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;font-family:inherit;margin-bottom:5px;box-sizing:border-box;outline:none;">`
     : '';
   const toggle = ueb.length
-    ? `<div onclick="toggleOverviewInDetail()" style="cursor:pointer;font-size:12px;font-weight:600;color:var(--green);padding:5px 2px;">${showOverviewInDetail?'− Übersichtstouren ausblenden':`+ Übersichtstouren einblenden (${ueb.length})`}</div>`
+    ? `<div onclick="toggleOverviewInDetail()" style="cursor:pointer;font-size:12px;font-weight:600;color:var(--green);padding:5px 2px;">${showOverviewInDetail?'− Übersichten ausblenden':`+ Übersichten einblenden (${ueb.length})`}</div>`
     : '';
   wrap.innerHTML=`${search}<div id="inline-tour-chips" style="max-height:170px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:6px;">${chips}</div><div id="inline-tour-empty" style="display:none;padding:10px;font-size:12px;color:var(--text3);">Keine Tour gefunden.</div>${toggle}
     <button class="btn btn-primary" style="padding:5px 12px;font-size:12px;width:100%;${ro?'opacity:.45;cursor:not-allowed;':''}" ${ro?'disabled title="Nur Lesezugriff"':`onclick="saveInlineFields('${selectedTreeId}')"`}>Touren speichern</button>`;
@@ -4168,11 +4168,11 @@ function rebuildAssignPills(){
   const ueb=tours.filter(t=>t.uebersicht);
   const opt=t=>`<option value="${t.id}" style="color:#111;background:#fff;">${dlEsc(t.name)}</option>`;
   let html=echte.map(opt).join('');
-  // Übersichtstouren nur nach Bedarf (eigene Gruppe), per Umschalt-Eintrag ein-/ausblendbar
-  if(showOverviewInAssign && ueb.length) html+=`<optgroup label="Übersichtstouren" style="color:#111;">${ueb.map(opt).join('')}</optgroup>`;
-  if(ueb.length) html+=`<option value="__toggle_overview__" style="color:#2d6a4f;background:#fff;">${showOverviewInAssign?'− Übersichtstouren ausblenden':'+ Übersichtstouren einblenden…'}</option>`;
+  // Übersichten nur nach Bedarf (eigene Gruppe), per Umschalt-Eintrag ein-/ausblendbar
+  if(showOverviewInAssign && ueb.length) html+=`<optgroup label="Übersichten" style="color:#111;">${ueb.map(opt).join('')}</optgroup>`;
+  if(ueb.length) html+=`<option value="__toggle_overview__" style="color:#2d6a4f;background:#fff;">${showOverviewInAssign?'− Übersichten ausblenden':'+ Übersichten einblenden…'}</option>`;
   sel.innerHTML=html;
-  // Gültige Auswahl sicherstellen (keine ausgeblendete Übersichtstour aktiv lassen)
+  // Gültige Auswahl sicherstellen (keine ausgeblendete Übersicht aktiv lassen)
   const valid=tours.some(t=>t.id===assignTourId) && (showOverviewInAssign || !isOverviewTour(assignTourId));
   if(!valid) assignTourId=(echte[0]||ueb[0])?.id||null;
   lassoTourId=assignTourId;
@@ -4181,7 +4181,7 @@ function rebuildAssignPills(){
 }
 
 function setAssignTour(id){
-  if(id==='__toggle_overview__'){ // Umschalt-Eintrag: Übersichtstouren ein-/ausblenden, Auswahl behalten
+  if(id==='__toggle_overview__'){ // Umschalt-Eintrag: Übersichten ein-/ausblenden, Auswahl behalten
     showOverviewInAssign=!showOverviewInAssign;
     rebuildAssignPills(); renderLassoActions();
     return;
@@ -4441,10 +4441,10 @@ function tourRenderPreview(){
   el.innerHTML='Nächste Einsätze: '+(out.length?out.map(d=>{ const [,m,da]=d.split('-'); return _wdName(d).slice(0,2)+' '+da+'.'+m+'.'; }).join(' · '):'<span style="color:#b45309;">keine im Gültigkeitszeitraum</span>');
 }
 
-// Übersichtstouren im Touren-Reiter ein-/ausblenden
+// Übersichten im Touren-Reiter ein-/ausblenden
 function toggleOverviewInGrid(){ showOverviewInGrid=!showOverviewInGrid; renderTourenGrid(); }
 
-// Übersichtstour-Markierung umschalten (Inline-Checkbox im Touren-Reiter)
+// Übersicht-Markierung umschalten (Inline-Checkbox im Touren-Reiter)
 async function toggleTourUebersicht(id,checked){
   const t=tours.find(x=>x.id===id); if(t) t.uebersicht=!!checked; // sofort lokal wirksam
   refreshMarkers(); renderLegend(); if(currentView==='touren') renderTourenGrid();
@@ -6056,24 +6056,24 @@ function renderTourenGrid(){
   }
 
   const ovCount=tours.filter(t=>t.uebersicht).length, echtCount=tours.length-ovCount;
-  // Standardmäßig nur echte Touren; Übersichtstouren erst nach Klick auf den Umschalter
+  // Standardmäßig nur echte Touren; Übersichten erst nach Klick auf den Umschalter
   const base=showOverviewInGrid ? tours : tours.filter(t=>!t.uebersicht);
   const q=(_tourenSearch||'').trim().toLowerCase();
   const list=q ? base.filter(t=>matchTerms((t.name||'')+' '+(t.desc||''), q)) : base;
   if(countEl)countEl.textContent=q?`${list.length} von ${tours.length} Touren`:`${echtCount} Touren${ovCount?` · ${ovCount} Übersicht`:''}`;
-  // Umschalter nur zeigen, wenn es überhaupt Übersichtstouren gibt
+  // Umschalter nur zeigen, wenn es überhaupt Übersichten gibt
   const ovBtn=document.getElementById('btn-toggle-overview-grid');
   if(ovBtn){
     ovBtn.style.display=ovCount?'':'none';
     const lbl=document.getElementById('toggle-overview-grid-label');
-    if(lbl) lbl.textContent=showOverviewInGrid?'Übersichtstouren ausblenden':`Übersichtstouren anzeigen (${ovCount})`;
+    if(lbl) lbl.textContent=showOverviewInGrid?'Übersichten ausblenden':`Übersichten anzeigen (${ovCount})`;
     ovBtn.style.background=showOverviewInGrid?'var(--green-light)':'';
     ovBtn.style.color=showOverviewInGrid?'var(--green)':'';
   }
 
   if(list.length===0){
     const msg=q ? `Keine Tour gefunden für „${_tourenSearch}"`
-                : 'Nur Übersichtstouren vorhanden — über „Übersichtstouren anzeigen" oben rechts einblenden.';
+                : 'Nur Übersichten vorhanden — über „Übersichten anzeigen" oben rechts einblenden.';
     grid.innerHTML=`<tr><td colspan="8" style="padding:40px;text-align:center;color:var(--text3);">${msg}</td></tr>`;
     return;
   }
@@ -6107,7 +6107,7 @@ function renderTourenGrid(){
       <td style="padding:10px 16px;"><div style="width:14px;height:14px;border-radius:3px;background:${tour.color};flex-shrink:0;"></div></td>
       <td style="padding:10px 16px;font-weight:600;white-space:nowrap;">${tour.name}${tour.uebersicht?' <span style="font-size:10px;font-weight:600;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Übersicht</span>':''}${_violCnt?` <span onclick="showTourViolations('${tour.id}')" title="Anzeigen: welche Objekte die Zuordnungsregeln verletzen" style="cursor:pointer;font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⚠ ${_violCnt} Regelverstoß</span>`:(_rulesActive?' <span title="Zuordnungsregeln aktiv" style="font-size:10px;font-weight:600;color:var(--text3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Regeln</span>':'')}</td>
       <td style="padding:10px 16px;color:var(--text2);font-size:12px;">${tour.desc||'–'}</td>
-      <td style="padding:10px 16px;text-align:center;"><input type="checkbox" ${tour.uebersicht?'checked':''} onchange="toggleTourUebersicht('${tour.id}',this.checked)" style="cursor:pointer;width:16px;height:16px;" title="Als Übersichtstour markieren (keine echte Tour)"></td>
+      <td style="padding:10px 16px;text-align:center;"><input type="checkbox" ${tour.uebersicht?'checked':''} onchange="toggleTourUebersicht('${tour.id}',this.checked)" style="cursor:pointer;width:16px;height:16px;" title="Als Übersicht markieren (keine echte Tour)"></td>
       <td style="padding:10px 16px;text-align:right;font-weight:600;">${cnt}</td>
       <td style="padding:10px 16px;text-align:right;color:var(--text2);font-size:12px;">${km}</td>
       <td style="padding:10px 16px;text-align:right;font-size:12px;">
@@ -7280,7 +7280,7 @@ async function renderDriverMgmt(){
   }
   // Touren des gewählten Projekts + Personen des Mandanten laden
   let tlist=[],persons=[];
-  try{ const ts=await db.collection('projects').doc(dtaProjectId).collection('tours').get(); tlist=ts.docs.map(d=>({id:d.id,...d.data()})).filter(t=>!t.uebersicht); }catch(e){} // Übersichtstouren nicht zuweisbar
+  try{ const ts=await db.collection('projects').doc(dtaProjectId).collection('tours').get(); tlist=ts.docs.map(d=>({id:d.id,...d.data()})).filter(t=>!t.uebersicht); }catch(e){} // Übersichten nicht zuweisbar
   try{ if(org){ const qs=await db.collection('drivers').where('orgId','==',org).get(); qs.forEach(d=>{ if(d.data().active!==false) persons.push(d.data().name); }); } }catch(e){}
   persons=[...new Set(persons.filter(Boolean))].sort((a,b)=>a.localeCompare(b));
   if(tlist.length===0){
@@ -8939,7 +8939,7 @@ function showTreeTourContextMenu(tree, e){
   `;
   const _ttitle=_isContainer(tree)?((tree.name||'Abschnitt')):(tree.name||'–');
   const _rc=treeTourList.filter(t=>!t.ueb).length, _uc=treeTourList.length-_rc; // echte vs. Übersicht
-  const _uebTag=`<span title="Übersichtstour — keine echte Tour, zählt nicht für die Planung" style="display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:99px;padding:0 6px;vertical-align:middle;margin-left:4px;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>Übersicht</span>`;
+  const _uebTag=`<span title="Übersicht — keine echte Tour, zählt nicht für die Planung" style="display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:99px;padding:0 6px;vertical-align:middle;margin-left:4px;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>Übersicht</span>`;
   popup.innerHTML=`
     <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin-bottom:8px;">
       ${dlEsc(_ttitle)} — Touren
@@ -9116,7 +9116,7 @@ function renderDashboard(){
 }
 
 // Pro-Tour-Statistik (geteilte Quelle für KPI "Offen" und "Fortschritt je Tour")
-// Übersichtstouren sind nur Gruppierung (keine echten Touren) → ausgeschlossen, sonst Doppelzählung.
+// Übersichten sind nur Gruppierung (keine echten Touren) → ausgeschlossen, sonst Doppelzählung.
 function dashTourStats(reported){
   return tours.filter(t=>!t.uebersicht).map(t=>{
     // Nur Meldungen zu aktuell AKTIVEN Tour-Objekten zählen -> Fortschritt nie >100%

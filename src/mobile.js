@@ -251,7 +251,7 @@ async function pickTour(orgId, name){
     projSnap.docs.forEach((p,i)=>{
       tourSnaps[i].forEach(t=>{
         const td=t.data();
-        if(td.uebersicht) return; // Übersichtstouren sind keine echten Touren → nicht in der Fahrer-App
+        if(td.uebersicht) return; // Übersichten sind keine echten Touren → nicht in der Fahrer-App
         const drivers=td.drivers||(td.assignedDriver?[td.assignedDriver]:[]);
         _tourCandidates.push({pid:p.id, tid:t.id, projectName:p.data().name||'', tourName:td.name||'', assigned:drivers.includes(name)});
       });

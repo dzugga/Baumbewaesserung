@@ -403,7 +403,7 @@ function subscribe(){
                 e=>console.warn('trees:',e));
   unsubTours=db.collection('projects').doc(currentProjectId).collection('tours')
     .onSnapshot(snap=>{
-      // Übersichtstouren sind keine echten Touren → nicht im Einsatzleiter anzeigen
+      // Übersichten sind keine echten Touren → nicht im Einsatzleiter anzeigen
       tours=snap.docs.filter(d=>!d.data().uebersicht).map((d,i)=>({id:d.id,color:TOUR_COLORS[i%TOUR_COLORS.length],...d.data()}));
       render();
     }, e=>console.warn('tours:',e));
