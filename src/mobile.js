@@ -1895,8 +1895,9 @@ async function saveReport(id){
   // Sonst wird z.B. bei einem Abschnitt ohne Notiz das Feld notiz:'' NEU angelegt → die
   // Sicherheitsregeln (Fahrer darf nur Status-Felder ändern) lehnen den ganzen Schreibvorgang ab.
   if(zustand!==undefined && zustand!==tree.zustand) updates.zustand=zustand;
-  if(wasser!==undefined && wasser!==tree.wasser) updates.wasser=wasser;
-  if((notiz||'')!==(tree.notiz||'')) updates.notiz=notiz;
+  // wasser/notiz bewusst NICHT vom Fahrer schreiben — sie stehen nicht in der Regel-Allowlist
+  // (onlyStatusFields). Ein vorausgefülltes Default-Feld würde sonst als "geändert" gelten und
+  // den ganzen Schreibvorgang ablehnen lassen.
   // Snapshot der betroffenen Felder — fürs Rollback bei hartem Schreibfehler (Server-Ablehnung)
   const _prevVals={}; ['zustand','wasser','notiz','lastStatus','lastReason','lastNote','lastDriver','lastReportAt','datum','lastFuellgrad'].forEach(k=>{ _prevVals[k]=tree[k]; });
 
@@ -1941,10 +1942,10 @@ async function saveReport(id){
       if(code==='permission-denied' || code==='invalid-argument' || code==='not-found'){
         // KEIN Offline-Fall: der Server hat abgelehnt → nicht in die Queue (würde ewig erfolglos
         // erneut versucht). Optimistische Anzeige zurücknehmen und echten Fehler zeigen.
-        console.error('saveReport abgelehnt:', code, e);
+        console.error('saveReport abgelehnt:', code, 'Felder:', Object.keys(firestoreUpdates), 'orgId:', tree.orgId, 'cap-Doc-Tour:', tree.tourId, e);
         Object.keys(_prevVals).forEach(k=>{ if(_prevVals[k]===undefined) delete tree[k]; else tree[k]=_prevVals[k]; });
         renderMarkers(); renderList(''); updateProgress();
-        toast('⚠ Nicht gespeichert — Server hat abgelehnt ('+(code||'Fehler')+')');
+        toast('⚠ Abgelehnt ('+(code||'?')+') · Felder: '+Object.keys(firestoreUpdates).join(',')+' · orgId '+(tree.orgId?'ok':'FEHLT'), 6000);
       } else {
         // echtes Netzproblem (unavailable/timeout) → offline puffern
         addToOfflineQueue(id, offlineUpdates);
@@ -1966,10 +1967,11 @@ function switchTab(t){
 }
 
 // ─── TOAST ────────────────────────────────────────────────────
-function toast(msg){
+function toast(msg, ms){
   const el=document.getElementById('toast');
   el.textContent=msg;el.classList.add('show');
-  setTimeout(()=>el.classList.remove('show'),2500);
+  clearTimeout(toast._t);
+  toast._t=setTimeout(()=>el.classList.remove('show'), ms||2500);
 }
 
 // ─── GLOBALS ──────────────────────────────────────────────────
