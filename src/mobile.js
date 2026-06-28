@@ -295,31 +295,48 @@ async function startBewässerungLogin(name, pid, tid) {
   if(btn){ btn.disabled=true; btn.textContent='Lädt…'; }
 
   try{
-    // Load all data in parallel (incl. route)
-    const [projSnap, tourSnap, treesSnap, reasonsSnap, routeSnap] = await Promise.all([
-      getDoc(doc(db,'projects',pid)),
-      getDoc(doc(db,'projects',pid,'tours',tid)),
-      getDocs(collection(db,'projects',pid,'trees')),
-      getDocs(collection(db,'projects',pid,'reasons')),
-      getDoc(doc(db,'projects',pid,'routes',tid))
-    ]);
-    if(!projSnap.exists){ throw new Error('Projekt nicht gefunden'); }
-    currentProjectData = {id:pid,...projSnap.data()};
-    currentProjectId = pid;
-    currentTourId = tid;
-    currentDriver = name;
-    currentTour = tourSnap.exists ? {id:tid,...tourSnap.data()} : null;
-    trees = treesSnap.docs.map(d=>({id:d.id,...d.data()})).filter(t=>(t.tourIds||[t.tourId]).includes(tid) && t.aktiv!==false);
-    routeOrder = trees.map(t=>t.id);
-    reasons = reasonsSnap.docs.map(d=>({id:d.id,...d.data()}));
-
-    // Cache route snap so drawRoute doesn't re-fetch
-    _cachedRouteSnap = routeSnap;
+    let _offlineStart=false;
+    try{
+      // Load all data in parallel (incl. route)
+      const [projSnap, tourSnap, treesSnap, reasonsSnap, routeSnap] = await Promise.all([
+        getDoc(doc(db,'projects',pid)),
+        getDoc(doc(db,'projects',pid,'tours',tid)),
+        getDocs(collection(db,'projects',pid,'trees')),
+        getDocs(collection(db,'projects',pid,'reasons')),
+        getDoc(doc(db,'projects',pid,'routes',tid))
+      ]);
+      if(!projSnap.exists){ throw new Error('Projekt nicht gefunden'); }
+      currentProjectData = {id:pid,...projSnap.data()};
+      currentProjectId = pid;
+      currentTourId = tid;
+      currentDriver = name;
+      currentTour = tourSnap.exists ? {id:tid,...tourSnap.data()} : null;
+      trees = treesSnap.docs.map(d=>({id:d.id,...d.data()})).filter(t=>(t.tourIds||[t.tourId]).includes(tid) && t.aktiv!==false);
+      routeOrder = trees.map(t=>t.id);
+      reasons = reasonsSnap.docs.map(d=>({id:d.id,...d.data()}));
+      _cachedRouteSnap = routeSnap; // Cache route snap so drawRoute doesn't re-fetch
+      _routeForCache = routeSnap.exists ? routeSnap.data() : null;
+    }catch(loadErr){
+      // Offline: aus dem gecachten Tour-Bündel öffnen (von letzter Online-Sitzung)
+      const cached = await loadCachedBundle(pid, tid);
+      if(!cached) throw loadErr; // kein Cache → echter Fehler (Login-Fehler anzeigen)
+      currentProjectData = cached.project || {id:pid};
+      currentProjectId = pid;
+      currentTourId = tid;
+      currentDriver = name;
+      currentTour = cached.tour || null;
+      trees = cached.trees || [];
+      routeOrder = trees.map(t=>t.id);
+      reasons = cached.reasons || [];
+      _cachedRouteSnap = cached.route ? {exists:true, data:()=>cached.route} : {exists:false};
+      _routeForCache = cached.route || null;
+      _offlineStart = true;
+    }
 
     // Save session
-    localStorage.setItem('bwt_mobile_session', JSON.stringify({
+    try{ localStorage.setItem('bwt_mobile_session', JSON.stringify({
       driver:name, projectId:pid, tourId:tid, mode:'bewaesserung', savedAt:Date.now()
-    }));
+    })); }catch(_){}
 
     // Show app
     document.getElementById('screen-login').classList.remove('active');
@@ -349,6 +366,7 @@ async function startBewässerungLogin(name, pid, tid) {
     renderList('');
     updateProgress();
     updateNetworkBadge();
+    if(_offlineStart) toast('📦 Offline — gespeicherte Tour geladen');
     // Karte zuerst messen, DANN auf die ganze Tour einpassen — sonst hat der Container beim
     // Einpassen noch die falsche Größe (Tab gerade erst sichtbar) → falscher Zoom/Ausschnitt.
     setTimeout(()=>{
@@ -1026,6 +1044,7 @@ async function drawRoute(){
   try{
     const routeSnap = _cachedRouteSnap || await getDoc(doc(db,'projects',currentProjectId,'routes',currentTourId));
     _cachedRouteSnap = null; // use once
+    if(routeSnap && routeSnap.exists) _routeForCache = routeSnap.data(); // fürs Offline-Bündel frisch halten
     if(routeSnap.exists){
       const data=routeSnap.data();
       // Restore route order from saved data
@@ -1913,6 +1932,7 @@ function toast(msg){
 let _loginProjects = [];
 let _loginTours = {};
 let _cachedRouteSnap = null;
+let _routeForCache = null; // Route-Daten fürs Offline-Bündel (von _cachedRouteSnap getrennt, da dieses nach drawRoute genullt wird)
 
 async function loadLoginProjects(){
   try{
@@ -2049,18 +2069,35 @@ function updateNetworkBadge(){
 }
 
 // ── Local tree cache ──────────────────────────────────────────
+// Volles Tour-Bündel cachen (Objekte + Projekt/Tour/Route/Gründe) → Offline-Öffnen möglich
 async function cacheTreesLocally(projectId, tourId, treesData){
   try {
-    await idbSet(CACHE_KEY, { projectId, tourId, trees: treesData, cachedAt: new Date().toISOString() });
+    await idbSet(CACHE_KEY, {
+      projectId, tourId,
+      driver: currentDriver || null,
+      trees: treesData,
+      project: currentProjectData || null,
+      tour: currentTour || null,
+      reasons: reasons || [],
+      route: _routeForCache || null,
+      cachedAt: new Date().toISOString()
+    });
   } catch(e){ console.warn('Cache write failed:', e); }
 }
 
 async function loadCachedTrees(projectId, tourId){
+  const b = await loadCachedBundle(projectId, tourId);
+  return b ? b.trees : null;
+}
+async function loadCachedBundle(projectId, tourId){
   try {
     const data = await idbGet(CACHE_KEY);
-    if(data && data.projectId === projectId && data.tourId === tourId) return data.trees;
+    if(data && data.projectId === projectId && data.tourId === tourId) return data;
   } catch(e){}
   return null;
+}
+async function loadAnyCachedBundle(){
+  try { return await idbGet(CACHE_KEY); } catch(e){ return null; }
 }
 
 // ── Offline queue ─────────────────────────────────────────────
@@ -2129,7 +2166,18 @@ async function tryResumeSession() {
     try{ const oc=localStorage.getItem('bwt_mobile_orgcode'); if(oc){ const e=document.getElementById('login-orgcode'); if(e) e.value=oc; } const nm=localStorage.getItem('bwt_mobile_name'); if(nm){ const e=document.getElementById('login-name'); if(e) e.value=nm; } }catch(_){}
   }
 
-  // Always show login — session resume disabled (localStorage blocked by Edge Tracking Prevention)
+  // Offline: in die zuletzt gecachte Tour zurückkehren (Login bräuchte Netz für die Projekt-/Tourliste).
+  // Online wird normal der Login gezeigt (Tourwahl bleibt möglich).
+  if(!navigator.onLine){
+    try{
+      const b = await loadAnyCachedBundle();
+      if(b && b.driver && b.projectId && b.tourId){
+        if(loadingEl) loadingEl.style.display='none';
+        startBewässerungLogin(b.driver, b.projectId, b.tourId); // nutzt den Offline-Fallback
+        return;
+      }
+    }catch(_){}
+  }
   showLogin();
 }
 
