@@ -1005,7 +1005,19 @@ function renderMarkers() {
 
 // Gezeichnete Geometrie (Flächen/Strecken am Doc, geomStr) der Tour auf der Karte zeigen
 let geomLayers={};
-function _mGeom(t){ if(!t||!t.geomStr) return null; try{ return JSON.parse(t.geomStr); }catch(_){ return null; } }
+function _geomOf(o){
+  if(!o) return null;
+  if(o.geom && o.geom.coordinates) return o.geom;          // Alt-Feld (GeoJSON-Objekt)
+  if(o.geomStr){ try{ return JSON.parse(o.geomStr); }catch(_){ } }
+  return null;
+}
+// Geometrie eines Objekts: eigene ODER (Abschnitts-Seite) vom Container geerbt — wie im Desktop (_treeGeom)
+function _mGeom(t){
+  if(!t) return null;
+  const own=_geomOf(t); if(own) return own;
+  if(t.containerExtId){ const c=_getContainer(t.containerExtId); if(c) return _geomOf(c); }
+  return null;
+}
 // Navigations-/Stopp-Punkt eines Objekts: Punkt=Koordinate, Fläche=Zentroid, Linie=Mittelpunkt (stabil).
 function navPoint(t){
   if(!t) return null;
