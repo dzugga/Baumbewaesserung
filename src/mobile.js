@@ -1883,7 +1883,6 @@ async function saveReport(id){
   }
 
   const updates={
-    zustand,wasser,notiz,
     lastStatus:status||null,
     lastReason:reason||null,
     lastNote:note||null,
@@ -1892,6 +1891,14 @@ async function saveReport(id){
   };
   if(status==='bewaessert') updates.datum=new Date().toISOString().slice(0,10);
   if(fuellgrad!=null) updates.lastFuellgrad=fuellgrad;
+  // Eigenschaften (zustand/wasser/notiz) NUR schreiben, wenn der Fahrer sie wirklich geändert hat.
+  // Sonst wird z.B. bei einem Abschnitt ohne Notiz das Feld notiz:'' NEU angelegt → die
+  // Sicherheitsregeln (Fahrer darf nur Status-Felder ändern) lehnen den ganzen Schreibvorgang ab.
+  if(zustand!==undefined && zustand!==tree.zustand) updates.zustand=zustand;
+  if(wasser!==undefined && wasser!==tree.wasser) updates.wasser=wasser;
+  if((notiz||'')!==(tree.notiz||'')) updates.notiz=notiz;
+  // Snapshot der betroffenen Felder — fürs Rollback bei hartem Schreibfehler (Server-Ablehnung)
+  const _prevVals={}; ['zustand','wasser','notiz','lastStatus','lastReason','lastNote','lastDriver','lastReportAt','datum','lastFuellgrad'].forEach(k=>{ _prevVals[k]=tree[k]; });
 
   const histEntry={
     date:new Date().toISOString().slice(0,10),
@@ -1930,8 +1937,19 @@ async function saveReport(id){
         }
       },800);
     }).catch(e=>{
-      addToOfflineQueue(id, offlineUpdates);
-      toast('📦 Offline gespeichert — wird später synchronisiert');
+      const code=e&&e.code;
+      if(code==='permission-denied' || code==='invalid-argument' || code==='not-found'){
+        // KEIN Offline-Fall: der Server hat abgelehnt → nicht in die Queue (würde ewig erfolglos
+        // erneut versucht). Optimistische Anzeige zurücknehmen und echten Fehler zeigen.
+        console.error('saveReport abgelehnt:', code, e);
+        Object.keys(_prevVals).forEach(k=>{ if(_prevVals[k]===undefined) delete tree[k]; else tree[k]=_prevVals[k]; });
+        renderMarkers(); renderList(''); updateProgress();
+        toast('⚠ Nicht gespeichert — Server hat abgelehnt ('+(code||'Fehler')+')');
+      } else {
+        // echtes Netzproblem (unavailable/timeout) → offline puffern
+        addToOfflineQueue(id, offlineUpdates);
+        toast('📦 Offline gespeichert — wird später synchronisiert');
+      }
     });
   }
 }
