@@ -578,7 +578,7 @@ function closeBulkSheet(){
   document.getElementById('bulk-sheet').style.display = 'none';
 }
 
-function confirmMarkAllDone(){
+async function confirmMarkAllDone(){
   closeBulkSheet();
   const now = new Date().toISOString();
   const open = trees.filter(t => !t.lastStatus);
@@ -599,15 +599,25 @@ function confirmMarkAllDone(){
   renderMarkers();
   renderList('');
   updateProgress();
-  toast(`✓ ${open.length} Bäume als bewässert markiert`);
 
+  if(!isOnline){
+    // Offline: über die Offline-Queue (Zähler steigt, Replay bei Reconnect) — NICHT direkt schreiben
+    await addManyToOfflineQueue(open.map(t=>t.id), updates);
+    toast(`📦 ${open.length} offline gespeichert — wird synchronisiert wenn Netz verfügbar`);
+    setTimeout(()=>{ pauseSnapshot = false; }, 500);
+    return;
+  }
+
+  toast(`✓ ${open.length} Objekte als erledigt markiert`);
   // Firestore writes in background
   Promise.all(
     open.map(tree =>
       updateDoc(doc(db,'projects',currentProjectId,'trees',tree.id), updates)
     )
   ).catch(e => {
-    toast('Sync-Fehler: ' + e.message);
+    // Netz mittendrin weg → alles in die Queue, damit nichts verloren geht
+    addManyToOfflineQueue(open.map(t=>t.id), updates);
+    toast('📦 Offline gespeichert — wird später synchronisiert');
     console.error('confirmMarkAllDone error:', e);
   }).finally(()=>{
     setTimeout(()=>{ pauseSnapshot = false; }, 500);
@@ -2118,6 +2128,21 @@ async function addToOfflineQueue(treeId, updates){
   const entry = { treeId, updates, projectId: currentProjectId, queuedAt: new Date().toISOString() };
   if(idx>=0) q[idx] = entry;
   else q.push(entry);
+  await idbSet(QUEUE_KEY, q);
+  _queueLen = q.length;
+  updateNetworkBadge();
+}
+
+// Mehrere Meldungen mit denselben Updates in EINEM Schreibvorgang einreihen (latest-wins je Objekt).
+// Wichtig: nicht addToOfflineQueue in einer Schleife rufen — das wäre ein Race auf die Queue.
+async function addManyToOfflineQueue(treeIds, updates){
+  const q = await getOfflineQueue();
+  const now = new Date().toISOString();
+  treeIds.forEach(treeId=>{
+    const entry = { treeId, updates, projectId: currentProjectId, queuedAt: now };
+    const idx = q.findIndex(e=>e.treeId===treeId);
+    if(idx>=0) q[idx] = entry; else q.push(entry);
+  });
   await idbSet(QUEUE_KEY, q);
   _queueLen = q.length;
   updateNetworkBadge();
