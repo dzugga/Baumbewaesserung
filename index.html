@@ -1591,7 +1591,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline;vertical-align:middle;margin-right:3px;"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/></svg>
       Inaktive zeigen
     </button>
-    <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px;" onclick="document.getElementById('baeume-search').value='';_baeumeNoGpsFilter=false;updateBtnFilterNoGps();filterBaeumeTable('')">✕</button>
+    <button id="btn-show-all" class="btn btn-secondary" style="padding:5px 10px;font-size:12px;white-space:nowrap;" onclick="toggleShowAll()" title="Alle Objekte in der Tabelle auflisten (kann bei sehr vielen Objekten langsamer sein)">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline;vertical-align:middle;margin-right:3px;"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+      Alle anzeigen
+    </button>
+    <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px;" onclick="clearBaeumeFilters()">✕</button>
     <div id="baeume-bulk" style="display:none;align-items:center;gap:6px;margin-left:auto;padding-left:10px;border-left:1px solid var(--border);">
       <span title="Wirkt auf alle aktuell angezeigten/gefilterten Objekte" style="font-size:10px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;">Sammelaktion ⚡</span>
       <button id="bulk-inactive" class="btn btn-secondary" style="padding:5px 10px;font-size:12px;white-space:nowrap;" onclick="bulkSetInactive()">inaktiv</button>

@@ -5039,6 +5039,21 @@ function toggleBenutzerTouren(){
 let _baeumeAllTrees = []; // cache for search
 let _baeumeNoGpsFilter = false;
 let _baeumeShowInactive = false;
+let _baeumeShowAll = false; // alle Objekte trotz Übersichts-Schwelle anzeigen
+function toggleShowAll(){
+  _baeumeShowAll = !_baeumeShowAll;
+  const btn=document.getElementById('btn-show-all');
+  if(btn){ btn.style.background=_baeumeShowAll?'var(--green)':''; btn.style.color=_baeumeShowAll?'#fff':''; btn.style.borderColor=_baeumeShowAll?'var(--green)':''; }
+  filterBaeumeTable(document.getElementById('baeume-search')?.value||'');
+}
+// Alle Filter der Objekt-Tabelle zurücksetzen (✕-Button)
+function clearBaeumeFilters(){
+  const s=document.getElementById('baeume-search'); if(s) s.value='';
+  _baeumeNoGpsFilter=false; _baeumeShowAll=false;
+  updateBtnFilterNoGps();
+  const b=document.getElementById('btn-show-all'); if(b){ b.style.background=''; b.style.color=''; b.style.borderColor=''; }
+  filterBaeumeTable('');
+}
 
 function toggleFilterNoGps(btn){
   _baeumeNoGpsFilter = !_baeumeNoGpsFilter;
@@ -5965,11 +5980,12 @@ function renderBaeumeTableWith(treeList){
   }
   // Lazy: ohne Suche/Filter und bei vielen Objekten nicht alle Zeilen rendern — erst Hinweis (Übersicht/Performance)
   const _q=(document.getElementById('baeume-search')?.value||'').trim();
-  if(!_q && !_baeumeNoGpsFilter && (treeList||[]).length>600){
+  if(!_q && !_baeumeNoGpsFilter && !_baeumeShowAll && (treeList||[]).length>600){
     wrap.innerHTML=`<div class="empty-state" style="margin-top:40px;text-align:center;">
       <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
       <p style="font-weight:600;margin:8px 0 2px;">${treeList.length.toLocaleString('de-DE')} Objekte</p>
-      <p style="font-size:12px;color:var(--text3);line-height:1.55;max-width:380px;margin:0 auto;">Für die Übersicht nicht alle aufgelistet. Oben <b>suchen</b> (Name, Stadtteil, Objekt-ID …) oder „Ohne GPS" filtern — dann erscheinen die Treffer.</p></div>`;
+      <p style="font-size:12px;color:var(--text3);line-height:1.55;max-width:380px;margin:0 auto;">Für die Übersicht nicht alle aufgelistet. Oben <b>suchen</b> (Name, Stadtteil, Objekt-ID …) oder „Ohne GPS" filtern — dann erscheinen die Treffer.</p>
+      <button class="btn btn-primary" style="margin-top:14px;padding:7px 16px;font-size:12px;" onclick="toggleShowAll()">Alle ${treeList.length.toLocaleString('de-DE')} Objekte anzeigen</button></div>`;
     return;
   }
 
@@ -11545,7 +11561,7 @@ Object.assign(window,{
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
   renderRollenView,saveRole,addRole,deleteRole,toggleBenutzerRollen,toggleBenutzerTouren,changeBenutzerOrg,changeDtaProject,renderUsage,exportUsageCSV,
-  startGpsPlacement,startMoveObject,saveMoveObject,cancelMoveObject,toggleFilterNoGps,updateBtnFilterNoGps,
+  startGpsPlacement,startMoveObject,saveMoveObject,cancelMoveObject,toggleFilterNoGps,updateBtnFilterNoGps,toggleShowAll,clearBaeumeFilters,
   saveFieldLabels, setFieldLabel, toggleMobilFeld, migrateTourIds, deriveHaeufigkeitFromZustaendigkeit,
   addObjektklasse, renameObjektklasse, setKlasseStruktur, toggleKlasseFeld, deleteObjektklasse,
   addReinigungsklasse, renameReinigungsklasse, setRkFreq, setRkColor, deleteReinigungsklasse, onKlasseChange, setColorMode, setAbschnittRk, toggleDisplayPanel, setGeomStyle, saveDisplayDefaults, setRouteLineStyle,
