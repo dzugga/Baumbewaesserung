@@ -178,6 +178,7 @@ function startGPS() {
       naviLastHeading=pos.coords.heading; naviLastSpeed=pos.coords.speed;
       naviUpdate(gpsLatLng);
     }
+    if(followMode) _followUpdate(gpsLatLng);
   }, err => {}, {enableHighAccuracy: true, maximumAge: 5000});
 }
 
@@ -1044,17 +1045,20 @@ function _distToTreeM(latlng,t){
 function _mGeomBounds(){ let b=null; for(const id in geomLayers){ const lb=geomLayers[id].getBounds&&geomLayers[id].getBounds(); if(lb&&lb.isValid()) b=b?b.extend(lb):L.latLngBounds(lb.getSouthWest(),lb.getNorthEast()); } return b; }
 function renderTourGeoms(){
   Object.values(geomLayers).forEach(l=>{ try{ map.removeLayer(l); }catch(_){} }); geomLayers={};
+  let _hasLine=false;
   trees.forEach(t=>{
     const g=_mGeom(t); if(!g) return;
     const st=t.lastStatus;
-    const col = st==='bewaessert'?'#16a34a':st==='nicht'?'#991b1b':(currentTour?.color||'#2d6a4f');
+    const ready = followMode && _followReady.has(t.id) && !st;   // befahren, noch nicht bestätigt
+    const col = st==='bewaessert'?'#16a34a':st==='nicht'?'#991b1b':(ready?'#f59e0b':(currentTour?.color||'#2d6a4f'));
     let layer;
     if(g.type==='Polygon'){ const ll=(g.coordinates[0]||[]).map(c=>[c[1],c[0]]); if(ll.length<3) return; layer=L.polygon(ll,{color:col,weight:2,fillColor:col,fillOpacity:st?0.45:0.25}); }
-    else if(g.type==='LineString'){ const ll=(g.coordinates||[]).map(c=>[c[1],c[0]]); if(ll.length<2) return; layer=L.polyline(ll,{color:col,weight:5,opacity:.9}); }
+    else if(g.type==='LineString'){ const ll=(g.coordinates||[]).map(c=>[c[1],c[0]]); if(ll.length<2) return; _hasLine=true; layer=L.polyline(ll,{color:col,weight:ready?8:5,opacity:.9}); }
     if(!layer) return;
     layer.on('click',()=>openSheet(t.id));
     layer.addTo(map); geomLayers[t.id]=layer;
   });
+  const fb=document.getElementById('btn-follow'); if(fb) fb.style.display=_hasLine?'':'none';
 }
 
 async function drawRoute(){
@@ -1956,6 +1960,116 @@ async function saveReport(id){
 }
 
 
+// ─── FOLGEN-MODUS (GPS-gestütztes Abhaken von Abschnitten) ───────────────────
+// Bestätigen-Variante: die App erkennt befahrene Linien-Abschnitte (GPS-Korridor) und
+// markiert sie als „befahren" (gelb); der Fahrer bestätigt mit einem Tipp → erledigt.
+let followMode=false;
+let _followDense={};            // treeId -> verdichtete Stützpunkte [[lat,lng],…]
+let _followCov={};              // treeId -> {visited:Set, total:N}
+let _followReady=new Set();     // treeIds: befahren, noch nicht bestätigt
+const _FOLLOW_BUF=20;           // m Korridor um die Linie
+const _FOLLOW_COV=0.6;          // Anteil abgedeckter Stützpunkte zum Auslösen
+
+function _densifyLL(pts, stepM){
+  const out=[];
+  for(let i=0;i<pts.length-1;i++){
+    const a=pts[i], b=pts[i+1]; out.push(a);
+    const d=haversine(a[0],a[1],b[0],b[1])*1000, n=Math.floor(d/stepM);
+    for(let k=1;k<n;k++){ const f=k/n; out.push([a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f]); }
+  }
+  if(pts.length) out.push(pts[pts.length-1]);
+  return out;
+}
+function _followLineOf(t){
+  const g=_mGeom(t); if(!g||g.type!=='LineString') return null;
+  return (g.coordinates||[]).map(c=>[c[1],c[0]]);
+}
+function _followInit(){
+  _followDense={}; _followCov={}; _followReady.clear();
+  trees.forEach(t=>{
+    if(t.lastStatus) return;                       // schon gemeldet → ignorieren
+    const ll=_followLineOf(t); if(!ll||ll.length<2) return;
+    const dense=_densifyLL(ll, 10);
+    _followDense[t.id]=dense; _followCov[t.id]={visited:new Set(), total:dense.length};
+  });
+}
+function toggleFollow(){
+  followMode=!followMode;
+  const btn=document.getElementById('btn-follow');
+  if(btn){ btn.style.background=followMode?'var(--green)':'var(--surface)'; btn.style.color=followMode?'#fff':'var(--green)'; }
+  if(followMode){
+    _followInit();
+    toast('🧭 Folgen-Modus an — Abschnitte werden beim Befahren erkannt');
+    if(gpsLatLng){ map.panTo(gpsLatLng,{animate:true}); _followUpdate(gpsLatLng); }
+  } else {
+    _followReady.clear(); _updateFollowBar(); renderTourGeoms();
+    toast('Folgen-Modus aus');
+  }
+}
+function _followUpdate(latlng){
+  if(!followMode || !latlng) return;
+  if(currentTab==='map') map.panTo(latlng,{animate:true,duration:0.5});  // Karte mitziehen
+  let changed=false;
+  for(const id in _followCov){
+    const t=trees.find(x=>x.id===id); if(!t||t.lastStatus||_followReady.has(id)) continue;
+    const dense=_followDense[id], cov=_followCov[id];
+    const mid=dense[Math.floor(dense.length/2)];
+    if(haversine(latlng[0],latlng[1],mid[0],mid[1])*1000 > 1200) continue;  // grobe Vorprüfung
+    for(let i=0;i<dense.length;i++){
+      if(cov.visited.has(i)) continue;
+      if(haversine(latlng[0],latlng[1],dense[i][0],dense[i][1])*1000 <= _FOLLOW_BUF) cov.visited.add(i);
+    }
+    if(cov.visited.size/cov.total >= _FOLLOW_COV){ _followReady.add(id); changed=true; }
+  }
+  if(changed){ renderTourGeoms(); _updateFollowBar(); try{ navigator.vibrate&&navigator.vibrate(80); }catch(_){} }
+}
+function _readyOpenIds(){ return [..._followReady].filter(id=>{ const t=trees.find(x=>x.id===id); return t&&!t.lastStatus; }); }
+function _updateFollowBar(){
+  const bar=document.getElementById('follow-confirm-bar'), pill=document.getElementById('map-progress-pill');
+  if(!bar) return;
+  const ids=_readyOpenIds();
+  if(followMode && ids.length){
+    bar.style.display='flex'; if(pill) pill.style.display='none';
+    const lbl=document.getElementById('follow-confirm-label');
+    if(lbl){ const first=trees.find(x=>x.id===ids[0]); lbl.textContent = ids.length===1 ? ((titelOf(first,_getContainer)||'Abschnitt')+' befahren') : (ids.length+' Abschnitte befahren'); }
+    const cnt=document.getElementById('follow-confirm-count'); if(cnt) cnt.textContent='Erledigt'+(ids.length>1?' ('+ids.length+')':'');
+  } else {
+    bar.style.display='none'; if(pill) pill.style.display='flex';
+  }
+}
+async function confirmFollowDone(){
+  const ids=_readyOpenIds();
+  for(const id of ids){ const t=trees.find(x=>x.id===id); if(t) await markTreeDone(t); }
+  _followReady.clear(); _updateFollowBar(); renderTourGeoms();
+  if(ids.length) toast('✓ '+ids.length+' Abschnitt'+(ids.length>1?'e':'')+' erledigt');
+}
+
+// Programmatisches „erledigt" ohne Detail-Sheet — schreibt NUR erlaubte Status-Felder (siehe Rules,
+// onlyStatusFields). Spiegelt die Fehlerbehandlung von saveReport (Server-Ablehnung ≠ offline).
+async function markTreeDone(tree){
+  if(!tree || tree.lastStatus==='bewaessert') return;
+  const id=tree.id, now=new Date().toISOString();
+  const updates={ lastStatus:'bewaessert', lastReason:null, lastNote:null, lastDriver:currentDriver, lastReportAt:now, datum:now.slice(0,10) };
+  const histEntry={ date:now.slice(0,10), note:'Bewässert', driver:currentDriver };
+  const firestoreUpdates={...updates, history:firebase.firestore.FieldValue.arrayUnion(histEntry)};
+  const offlineUpdates={...updates, history:[...(tree.history||[]),histEntry]};
+  const _prev={}; Object.keys(updates).forEach(k=>_prev[k]=tree[k]);
+  Object.assign(tree, updates);
+  renderMarkers(); renderList(''); updateProgress();
+  if(!isOnline){ await addToOfflineQueue(id, offlineUpdates); return; }
+  updateDoc(doc(db,'projects',currentProjectId,'trees',id), firestoreUpdates).catch(e=>{
+    const code=e&&e.code;
+    if(code==='permission-denied' || code==='invalid-argument' || code==='not-found'){
+      console.error('markTreeDone abgelehnt:', code, e);
+      Object.keys(_prev).forEach(k=>{ if(_prev[k]===undefined) delete tree[k]; else tree[k]=_prev[k]; });
+      renderMarkers(); renderList(''); updateProgress();
+      toast('⚠ Nicht gespeichert ('+(code||'?')+')');
+    } else {
+      addToOfflineQueue(id, offlineUpdates);
+    }
+  });
+}
+
 // ─── TABS ─────────────────────────────────────────────────────
 function switchTab(t){
   currentTab=t;
@@ -2333,6 +2447,7 @@ Object.assign(window, {
   showFinishConfirm, markAllDone,
   switchTab,
   confirmMarkAllDone, closeBulkSheet,
+  toggleFollow, confirmFollowDone,
   renderList,
   doLogin, doLogout,
   onLoginProjectChange, onLoginTourChange,

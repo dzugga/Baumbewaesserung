@@ -239,6 +239,10 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline;vertical-align:middle;margin-right:4px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
         Route
       </button>
+      <button class="recalc-btn" id="btn-follow" onclick="toggleFollow()" style="display:none;background:var(--surface);color:var(--green);border:1.5px solid var(--green);" title="Beim Fahren werden befahrene Abschnitte erkannt — du bestätigst nur noch">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline;vertical-align:middle;margin-right:4px;"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>
+        Folgen
+      </button>
     </div>
     <!-- Elegant floating bottom bar on map -->
     <div id="map-bottom-bar" style="position:absolute;bottom:16px;left:12px;right:12px;z-index:1000;display:flex;gap:8px;align-items:flex-end;">
@@ -251,6 +255,14 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
         <div style="width:36px;height:36px;border-radius:50%;background:var(--green);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
         </div>
+      </div>
+      <!-- Folgen-Modus: Bestätigen-Balken (ersetzt die Pille, wenn Abschnitte befahren wurden) -->
+      <div id="follow-confirm-bar" style="display:none;background:var(--green);border-radius:20px;padding:9px 14px;box-shadow:var(--shadow-md);flex:1;align-items:center;gap:10px;cursor:pointer;" onclick="confirmFollowDone()">
+        <div style="flex:1;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:rgba(255,255,255,.8);margin-bottom:3px;">Befahren</div>
+          <div id="follow-confirm-label" style="font-size:13px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">–</div>
+        </div>
+        <div id="follow-confirm-count" style="background:#fff;color:var(--green);border-radius:14px;padding:8px 14px;font-size:14px;font-weight:700;flex-shrink:0;">Erledigt</div>
       </div>
 
     </div>
