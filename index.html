@@ -1570,6 +1570,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
   <!-- Tab-Leiste: Objekte / Arten -->
   <div style="background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;flex-shrink:0;display:flex;gap:18px;">
     <button id="tab-objekte" onclick="switchBaeumeTab('objekte')" style="background:none;border:none;border-bottom:2px solid var(--green);color:var(--green);font-weight:700;font-size:13px;font-family:inherit;padding:10px 2px;cursor:pointer;">Objekte</button>
+    <button id="tab-abschnitte" onclick="switchBaeumeTab('abschnitte')" style="display:none;background:none;border:none;border-bottom:2px solid transparent;color:var(--text3);font-weight:600;font-size:13px;font-family:inherit;padding:10px 2px;cursor:pointer;">Abschnitte</button>
     <button id="tab-arten" onclick="switchBaeumeTab('arten')" style="background:none;border:none;border-bottom:2px solid transparent;color:var(--text3);font-weight:600;font-size:13px;font-family:inherit;padding:10px 2px;cursor:pointer;">Felder & Listen</button>
   </div>
   <!-- Tab-Inhalt: Objekte -->
@@ -1603,6 +1604,28 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     </div>
   </div>
   <div id="baeume-table-wrap" style="flex:1;overflow:auto;display:flex;flex-direction:column;"></div>
+  </div>
+  <!-- Tab-Inhalt: Abschnitte -->
+  <div id="baeume-abschnitte" style="display:none;flex:1;flex-direction:column;overflow:hidden;">
+    <div style="background:var(--surface);border-bottom:1px solid var(--border);padding:8px 20px;flex-shrink:0;display:flex;align-items:center;gap:10px;">
+      <div data-sx style="position:relative;flex:1;max-width:420px;">
+        <svg style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text3);" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input id="abschnitte-search" type="text" placeholder="Suche nach Straße, Abschnitts-ID, Stadtteil…" oninput="filterAbschnitteTableDebounced(this.value);_sx(this)"
+          style="width:100%;padding:7px 28px 7px 32px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:13px;font-family:inherit;background:var(--bg);outline:none;"
+          onfocus="this.style.borderColor='var(--green-mid)'" onblur="this.style.borderColor='var(--border)'">
+        <button type="button" class="s-x" aria-label="Suche aufheben" onclick="_sxClear(this)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+      <span id="abschnitte-search-count" style="font-size:12px;color:var(--text3);white-space:nowrap;"></span>
+      <button id="btn-abschn-show-all" class="btn btn-secondary" style="padding:5px 10px;font-size:12px;white-space:nowrap;" onclick="toggleAbschnShowAll()" title="Alle Abschnitte auflisten (kann bei sehr vielen Abschnitten langsamer sein)">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline;vertical-align:middle;margin-right:3px;"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+        Alle anzeigen
+      </button>
+      <button class="btn btn-secondary" style="margin-left:auto;padding:5px 12px;font-size:12px;white-space:nowrap;" onclick="downloadAbschnitteExport()" title="Abschnitte als Excel exportieren – inkl. ursprünglicher Abschnitts-ID">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline;vertical-align:middle;margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+        Export
+      </button>
+    </div>
+    <div id="abschnitte-table-wrap" style="flex:1;overflow:auto;display:flex;flex-direction:column;"></div>
   </div>
   <!-- Tab-Inhalt: Arten -->
   <div id="baeume-arten" style="display:none;flex:1;overflow:auto;padding:16px 20px;"></div>

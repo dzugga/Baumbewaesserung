@@ -5205,15 +5205,103 @@ function artCountById(){
   const m={}; trees.forEach(t=>{ if(_isContainer(t)) return; if(t.artId) m[t.artId]=(m[t.artId]||0)+1; }); return m; // Container sind keine Objekte → nicht mitzählen
 }
 function switchBaeumeTab(tab){
-  const o=document.getElementById('baeume-objekte'), a=document.getElementById('baeume-arten');
-  const to=document.getElementById('tab-objekte'), ta=document.getElementById('tab-arten');
-  const isArten=tab==='arten';
-  if(o) o.style.display=isArten?'none':'flex';
-  if(a) a.style.display=isArten?'block':'none';
-  [to,ta].forEach(b=>{ if(!b) return; b.style.borderBottomColor='transparent'; b.style.color='var(--text3)'; b.style.fontWeight='600'; });
-  const act=isArten?ta:to; if(act){ act.style.borderBottomColor='var(--green)'; act.style.color='var(--green)'; act.style.fontWeight='700'; }
-  if(isArten) renderFieldCatalogView();
+  const o=document.getElementById('baeume-objekte'), a=document.getElementById('baeume-arten'), ab=document.getElementById('baeume-abschnitte');
+  const to=document.getElementById('tab-objekte'), ta=document.getElementById('tab-arten'), ts=document.getElementById('tab-abschnitte');
+  if(ts) ts.style.display=trees.some(_isContainer)?'':'none';   // Reiter nur bei Abschnitts-Projekten
+  if(o) o.style.display=tab==='objekte'?'flex':'none';
+  if(ab) ab.style.display=tab==='abschnitte'?'flex':'none';
+  if(a) a.style.display=tab==='arten'?'block':'none';
+  [to,ta,ts].forEach(b=>{ if(!b) return; b.style.borderBottomColor='transparent'; b.style.color='var(--text3)'; b.style.fontWeight='600'; });
+  const act=tab==='arten'?ta:tab==='abschnitte'?ts:to; if(act){ act.style.borderBottomColor='var(--green)'; act.style.color='var(--green)'; act.style.fontWeight='700'; }
+  if(tab==='arten') renderFieldCatalogView();
+  else if(tab==='abschnitte') renderAbschnitteTable();
   else renderBaeumeTable();
+}
+
+// ─── ABSCHNITTE-TABELLE (Verwaltung): Übersicht der Straßenabschnitte ──────────
+let _abschnAllTrees=[], _abschnShowAll=false, _abschnSearchT=null;
+function renderAbschnitteTable(){
+  _abschnAllTrees = trees.filter(_isContainer);
+  filterAbschnitteTable(document.getElementById('abschnitte-search')?.value||'');
+}
+function filterAbschnitteTableDebounced(q){ clearTimeout(_abschnSearchT); _abschnSearchT=setTimeout(()=>filterAbschnitteTable(q),180); }
+function filterAbschnitteTable(q){
+  const ql=(q||'').trim();
+  let list=_abschnAllTrees;
+  if(ql) list=list.filter(c=>matchTerms([c.name,c.extId,c.baumId,c.stadtteil].join(' '), ql));
+  const sc=document.getElementById('abschnitte-search-count'); if(sc) sc.textContent=ql?`${list.length} Ergebnisse`:'';
+  renderAbschnitteTableWith(list, !!ql);
+}
+function toggleAbschnShowAll(){
+  _abschnShowAll=!_abschnShowAll;
+  const b=document.getElementById('btn-abschn-show-all'); if(b){ b.style.background=_abschnShowAll?'var(--green)':''; b.style.color=_abschnShowAll?'#fff':''; b.style.borderColor=_abschnShowAll?'var(--green)':''; }
+  filterAbschnitteTable(document.getElementById('abschnitte-search')?.value||'');
+}
+function renderAbschnitteTableWith(list, hasFilter){
+  const wrap=document.getElementById('abschnitte-table-wrap'); if(!wrap) return;
+  if(!_abschnAllTrees.length){
+    wrap.innerHTML=`<div class="empty-state" style="margin-top:50px;text-align:center;"><p style="font-weight:600;margin-bottom:4px;">Keine Straßenabschnitte</p><p style="font-size:12px;color:var(--text3);">Dieses Projekt enthält keine Abschnitte.</p></div>`;
+    return;
+  }
+  if(!hasFilter && !_abschnShowAll && list.length>600){
+    wrap.innerHTML=`<div class="empty-state" style="margin-top:40px;text-align:center;">
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <p style="font-weight:600;margin:8px 0 2px;">${list.length.toLocaleString('de-DE')} Abschnitte</p>
+      <p style="font-size:12px;color:var(--text3);line-height:1.55;max-width:380px;margin:0 auto;">Für die Übersicht nicht alle aufgelistet. Oben <b>suchen</b> (Straße, Abschnitts-ID, Stadtteil …) — dann erscheinen die Treffer.</p>
+      <button class="btn btn-primary" style="margin-top:14px;padding:7px 16px;font-size:12px;" onclick="toggleAbschnShowAll()">Alle ${list.length.toLocaleString('de-DE')} Abschnitte anzeigen</button></div>`;
+    return;
+  }
+  const tourMap=new Map(tours.map(t=>[t.id,t]));
+  const sorted=[...list].sort((a,b)=>(a.name||'').localeCompare(b.name||'','de'));
+  const th=lbl=>`<th style="position:sticky;top:0;background:var(--surface2);padding:9px 12px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);white-space:nowrap;">${lbl}</th>`;
+  let rows='';
+  sorted.forEach(c=>{
+    const sides=_ausstattungOf(c.extId);
+    const eh={m2:'m²',m:'m',Stk:'Stk'}[c.einheit]||c.einheit||'';
+    const menge=parseFloat(c.menge); const len=menge?menge.toLocaleString('de-DE')+(eh?' '+eh:''):'<span style="color:var(--text3)">–</span>';
+    const rk=c.reinigungsklasse?_rkById(c.reinigungsklasse):null;
+    const tids=new Set(); sides.forEach(s=>getTreeTourIds(s).forEach(id=>{ if(!isOverviewTour(id)) tids.add(id); }));
+    const tNames=[...tids].map(id=>tourMap.get(id)).filter(Boolean);
+    rows+=`<tr style="border-top:1px solid var(--border);transition:background .1s;cursor:pointer;" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''" data-abschnid="${c.id}">
+      <td style="padding:8px 12px;font-family:'DM Mono',monospace;font-size:11px;font-weight:600;color:var(--green);white-space:nowrap;">${dlEsc(c.extId||c.baumId||'–')}</td>
+      <td style="padding:8px 12px;font-weight:500;">${dlEsc(c.name||'–')}</td>
+      <td style="padding:8px 12px;color:var(--text2);">${dlEsc(c.stadtteil||'–')}</td>
+      <td style="padding:8px 12px;color:var(--text2);white-space:nowrap;">${len}</td>
+      <td style="padding:8px 12px;">${rk?`<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:2px;background:${rk.color||'#bbb'};flex-shrink:0;"></span>${dlEsc(rk.name)}</span>`:'<span style="color:var(--text3)">–</span>'}</td>
+      <td style="padding:8px 12px;text-align:right;color:var(--text2);">${sides.length}</td>
+      <td style="padding:8px 12px;white-space:nowrap;">${tNames.length?tNames.map(t=>`<span style="display:inline-block;font-size:11px;font-weight:600;color:${t.color||'var(--text2)'};">${dlEsc(t.name)}</span>`).join(' · '):'<span style="color:var(--text3);font-size:12px;">–</span>'}</td>
+      <td style="padding:8px 12px;"><button class="btn btn-secondary" style="padding:3px 10px;font-size:11px;white-space:nowrap;" data-editabschn="${c.id}">Bearbeiten</button></td>
+    </tr>`;
+  });
+  wrap.innerHTML=`<div style="padding:10px 16px;display:flex;align-items:center;gap:14px;flex-shrink:0;border-bottom:1px solid var(--border);background:var(--surface);">
+      <span style="font-size:13px;font-weight:600;">${sorted.length.toLocaleString('de-DE')} Abschnitte</span>
+      <span style="font-size:12px;color:var(--text3);">Klick auf Zeile → Detail mit zugehörigen Objekten</span>
+    </div>
+    <div style="overflow:auto;flex:1;"><table style="width:100%;border-collapse:collapse;font-size:13px;background:var(--surface);">
+      <thead><tr>${th('Abschnitts-ID')}${th('Straße')}${th('Stadtteil')}${th('Länge')}${th('Reinigungsklasse')}<th style="position:sticky;top:0;background:var(--surface2);padding:9px 12px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Objekte</th>${th('Touren')}${th('')}</tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+  wrap.onclick=e=>{
+    const editBtn=e.target.closest('[data-editabschn]');
+    if(editBtn){ e.stopPropagation(); openEditTree(editBtn.dataset.editabschn); return; }
+    const row=e.target.closest('[data-abschnid]');
+    if(row){ const id=row.dataset.abschnid; switchView('karte'); setTimeout(()=>openAbschnitt(id),160); }
+  };
+}
+// Abschnitte als Excel exportieren — inkl. ursprünglicher Abschnitts-ID für Re-Import/Abgleich
+function downloadAbschnitteExport(){
+  const XLSX=window.XLSX; if(!XLSX){ notify('SheetJS nicht geladen'); return; }
+  const list=trees.filter(_isContainer);
+  if(!list.length){ notify('Keine Abschnitte vorhanden'); return; }
+  const headers=['Abschnitts-ID','Straße','Stadtteil','Länge','Einheit','Reinigungsklasse','Objekte','Objekt-ID'];
+  const aoa=[headers];
+  list.forEach(c=>{
+    const rk=c.reinigungsklasse?_rkById(c.reinigungsklasse):null;
+    aoa.push([c.extId||'', c.name||'', c.stadtteil||'', (parseFloat(c.menge)||''), c.einheit||'', rk?rk.name:'', _ausstattungOf(c.extId).length, c.baumId||'']);
+  });
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Abschnitte');
+  XLSX.writeFile(wb, ((currentProjectData&&currentProjectData.name||'Projekt').replace(/[^\wäöüÄÖÜß-]+/g,'_'))+'_Abschnitte.xlsx');
+  notify(`✓ ${list.length} Abschnitte exportiert`);
 }
 async function renderArtenView(){
   const el=document.getElementById('baeume-arten'); if(!el) return;
@@ -11532,6 +11620,7 @@ Object.assign(window,{
   epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,epWeekShift,epWeekThis,epWeekToggleEmpty,epWeekFilter,epDayFilter,epTourCtx,epEditTour,_epCloseCtx,epPersonOpenCard,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterInlineTours,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
+  filterAbschnitteTable,filterAbschnitteTableDebounced,toggleAbschnShowAll,downloadAbschnitteExport,
   renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,_fillMerge,cfGeomToggle,
   rankAdd,rankRename,rankSetColor,rankSetZahl,rankMove,rankMerge,rankDelete,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
