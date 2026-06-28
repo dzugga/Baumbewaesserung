@@ -728,6 +728,11 @@ function closeFinishSheet() {
 }
 
 async function finishTour() {
+  // Offline NICHT abschließen: der Abschluss muss serverseitig gespeichert werden (Tour-Snapshot/Auswertung)
+  if(!navigator.onLine){
+    alert('⚠️ Keine Internetverbindung\n\nDie Tour kann offline nicht abgeschlossen werden – der Abschluss muss gespeichert werden.\n\nDeine bereits erfassten Meldungen bleiben gesichert. Bitte abschließen, sobald wieder Netz besteht.');
+    return;
+  }
   const btn = document.getElementById('btn-finish-confirm');
   if(btn){ if(btn.disabled) return; btn.disabled = true; }
 
