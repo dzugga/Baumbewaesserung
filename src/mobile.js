@@ -200,6 +200,12 @@ function setBasemap(variant){
   if(baseLayer){ try{ map.removeLayer(baseLayer); }catch(_){} }
   baseLayer=_buildBase(variant).addTo(map);
   try{ baseLayer.bringToBack(); }catch(_){}
+  if(variant==='luftbild' && _wmsBaseCfg){
+    let _terr=false;
+    baseLayer.on('tileerror', ()=>{ if(!_terr){ _terr=true; toast('⚠ Luftbild: Kacheln laden nicht (Server/CRS?)', 6000); } });
+    const _bid=(typeof __BUILD_ID__!=='undefined'?String(__BUILD_ID__):'?').split('-')[0];
+    try{ const u=new URL(_wmsBaseCfg.url); toast('Luftbild ▸ '+u.hostname+' · '+_wmsBaseCfg.layers+' · v'+(_wmsBaseCfg.version||'1.3.0')+' · build '+_bid, 7000); }catch(_){ toast('Luftbild ▸ '+_wmsBaseCfg.layers+' · build '+_bid, 7000); }
+  }
   _basemapVariant=variant;
   try{ localStorage.setItem('bwt_mobile_basemap', variant); }catch(_){}
   document.querySelectorAll('#basemap-menu .bm-opt').forEach(b=>{ const on=b.dataset.bm===variant; b.style.fontWeight=on?'700':'400'; b.style.color=on?'var(--green)':'var(--text)'; });
