@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  build-test-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # volle Git-Historie für den Changelog (scripts/gen-changelog.mjs)
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Abhängigkeiten installieren
+        run: npm ci
+
+      - name: Rules-Vertrag prüfen (Fahrer-Schreibfelder ↔ firestore.rules)
+        run: npm test
+
+      - name: Build (alle 4 Apps)
+        run: npm run build
+
+      - name: Smoke-Test gegen die gebaute App (Vite-Preview)
+        run: |
+          CHROME_PATH=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium-browser || command -v chromium || true)
+          echo "Chrome: ${CHROME_PATH:-NICHT GEFUNDEN}"
+          export CHROME_PATH
+          npm run preview -- --port 3001 &
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3001/index.html >/dev/null 2>&1; then echo "Server bereit"; break; fi
+            sleep 1
+          done
+          SMOKE_URL=http://localhost:3001 npm run smoke

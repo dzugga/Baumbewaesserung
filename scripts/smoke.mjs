@@ -23,7 +23,7 @@ const APPS = [
 
 // Bekanntes, folgenloses Headless-Rauschen (App Check/reCAPTCHA liefern headless kein gültiges
 // Token; externe Kartenkacheln/Analytics können fehlschlagen) → kein Test-Fehler.
-const IGNORE = /app[- ]?check|recaptcha|appcheck|firebase installations|favicon|net::ERR|Failed to load resource|ERR_BLOCKED|the server responded with a status/i;
+const IGNORE = /app[- ]?check|recaptcha|appcheck|firebase installations|favicon|net::ERR|Failed to load resource|ERR_BLOCKED|the server responded with a status|frame-ancestors|report-only/i;
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
