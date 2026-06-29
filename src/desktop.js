@@ -9,6 +9,8 @@ import { basemapLayer, BASEMAP_FARBE, BASEMAP_GRAU, BASEMAP_ATTR } from './basem
 import { firebaseConfig } from './firebase-config.js';
 import { esc as dlEsc } from './esc.js'; // dlEsc = projektweites HTML-Escape (zentral in esc.js)
 import { titelOf as orTitel, ELEM_GRUPPE_ORDER, ELEM_GRUPPE_LABEL, haeufigkeitOf as orHaeuf, objektartOf as orObjektart, lageOf as orLage } from './objektrollen.js'; // zentrale Rollen (Objekt + Lage, Reinigungs-Häufigkeit)
+import { initVersionCheck } from './version-check.js';
+initVersionCheck();   // erkennt neue Deploys während die App offen ist → „Neu laden"-Banner
 
 function initializeApp(cfg){ return firebase.initializeApp(cfg); }
 function getFirestore(app){ return firebase.firestore(app); }

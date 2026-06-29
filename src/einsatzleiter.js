@@ -5,6 +5,8 @@ import { firebaseConfig } from './firebase-config.js';
 import { esc } from './esc.js';
 import { titelOf as orTitel, buildContainerIndex } from './objektrollen.js';
 import { startSession, endSession } from './session.js';
+import { initVersionCheck } from './version-check.js';
+initVersionCheck();   // erkennt neue Deploys während die App offen ist → „Neu laden"-Banner
 // Lazy Container-Index für Anzeige-Rollen; baut neu, sobald sich trees ändert.
 let _elIdx = null, _elIdxRef = null;
 function _elGetContainer(extId){

@@ -5,6 +5,8 @@ import { firebaseConfig } from './firebase-config.js';
 import { esc } from './esc.js';
 import { titelOf, typOf, buildContainerIndex, klasseFelderOf } from './objektrollen.js';
 import { startSession, endSession } from './session.js';
+import { initVersionCheck } from './version-check.js';
+initVersionCheck();   // erkennt neue Deploys während die App offen ist → „Neu laden"-Banner
 // Container-Index (extId→Abschnitt) für die Anzeige-Rollen; aus dem vollen Projekt-Snapshot gebaut.
 let _objIndex = null;
 function _setObjIndex(objs){ _objIndex = buildContainerIndex(objs); }
