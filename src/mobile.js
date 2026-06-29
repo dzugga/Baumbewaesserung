@@ -191,7 +191,7 @@ function _wmsTileLayerClass(){
 function _buildBase(variant){
   if(variant==='luftbild' && _wmsBaseCfg){
     const Cls=_wmsTileLayerClass();
-    return new Cls('', {maxZoom:20, maxNativeZoom:20, opacity:1, keepBuffer:8, updateWhenIdle:false, updateWhenZooming:false, attribution:_wmsBaseCfg.attribution||'', _cfg:_wmsBaseCfg});
+    return new Cls('', {maxZoom:20, maxNativeZoom:20, attribution:_wmsBaseCfg.attribution||'', _cfg:_wmsBaseCfg});
   }
   return L.tileLayer(variant==='grau'?BASEMAP_GRAU:BASEMAP_FARBE, _BASE_OPTS);
 }
@@ -199,17 +199,10 @@ function setBasemap(variant){
   if(variant==='luftbild' && !_wmsBaseCfg){ toast('Für dieses Projekt ist kein Luftbild hinterlegt'); return; }
   if(baseLayer){ try{ map.removeLayer(baseLayer); }catch(_){} }
   baseLayer=_buildBase(variant).addTo(map);
-  // leaflet-rotate positioniert frisch hinzugefügte Tile-Ebenen nicht zuverlässig: die Kacheln laden,
-  // bleiben aber unsichtbar/falsch platziert. Ein Mini-Pan (1px hin/zurück) erzwingt den Neuaufbau.
-  try{ map.panBy([0,1],{animate:false}); map.panBy([0,-1],{animate:false}); }catch(_){}
-  setTimeout(()=>{ try{ map.invalidateSize({pan:false}); }catch(_){} }, 250);
-  if(variant==='luftbild' && _wmsBaseCfg){
-    let _tl=0,_te=0;
-    // Fix: geladene WMS-Kacheln bleiben unter leaflet-rotate auf Opazität 0 hängen → hart auf 1 setzen.
-    baseLayer.on('tileload',(e)=>{ _tl++; if(e&&e.tile){ e.tile.style.opacity='1'; } });
-    baseLayer.on('tileerror',()=>{ _te++; });
-    setTimeout(()=>{ toast('Luftbild: '+_tl+' geladen · '+_te+' Fehler', 6000); }, 4500);
-  }
+  try{ baseLayer.bringToBack(); }catch(_){}
+  // Der Luftbild-WMS (DOP20) liefert erst ab Detailzoom (~z16) Bildinhalt — bei der Tour-Übersicht
+  // weiße Kacheln. Hinweis, damit der weiße Hintergrund nicht als Fehler missverstanden wird.
+  if(variant==='luftbild' && _wmsBaseCfg && map.getZoom()<16){ toast('Luftbild erscheint beim Hineinzoomen (Detailansicht)', 5000); }
   _basemapVariant=variant;
   try{ localStorage.setItem('bwt_mobile_basemap', variant); }catch(_){}
   document.querySelectorAll('#basemap-menu .bm-opt').forEach(b=>{ const on=b.dataset.bm===variant; b.style.fontWeight=on?'700':'400'; b.style.color=on?'var(--green)':'var(--text)'; });
