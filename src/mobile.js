@@ -169,11 +169,29 @@ let _basemapVariant='farbe';
 let _basemapProj=null;              // Init je Projekt einmal
 const _BASE_OPTS={maxZoom:20,maxNativeZoom:18,keepBuffer:8,updateWhenZooming:false,updateWhenIdle:false,crossOrigin:true,attribution:BASEMAP_ATTR};
 
+let _WmsTL=null;
+function _wmsTileLayerClass(){
+  if(_WmsTL) return _WmsTL;
+  // Per-Kachel-WMS: jede Kachel rechnet ihre eigene EPSG:3857-BBOX aus {z,x,y} (wie eine XYZ-Kachel).
+  // Nötig, weil das leaflet-rotate-Plugin der Fahrer-App L.tileLayer.wms (eine Viewport-BBOX) kaputt
+  // macht → weiße Karte. KEIN crossOrigin (Landes-WMS senden oft keine CORS-Header).
+  _WmsTL = L.TileLayer.extend({
+    getTileUrl(coords){
+      const c=this.options._cfg, R=20037508.342789244, n=Math.pow(2,coords.z), span=(2*R)/n;
+      const minX=-R+coords.x*span, maxX=minX+span, maxY=R-coords.y*span, minY=maxY-span;
+      const ver=c.version||'1.3.0';
+      const p=new URLSearchParams({SERVICE:'WMS',REQUEST:'GetMap',VERSION:ver,LAYERS:c.layers,STYLES:'',FORMAT:c.format||'image/png',TRANSPARENT:String(!!c.transparent),WIDTH:'256',HEIGHT:'256'});
+      p.set(ver==='1.3.0'?'CRS':'SRS','EPSG:3857');
+      p.set('BBOX',[minX,minY,maxX,maxY].join(','));
+      return c.url+(c.url.includes('?')?'&':'?')+p.toString();
+    }
+  });
+  return _WmsTL;
+}
 function _buildBase(variant){
   if(variant==='luftbild' && _wmsBaseCfg){
-    // Exakt wie Desktop (buildWmsLayer): KEIN crossOrigin — viele Landes-WMS senden keine
-    // CORS-Header, mit crossOrigin würde der Browser die Kacheln blockieren (weiße Karte).
-    return L.tileLayer.wms(_wmsBaseCfg.url, {layers:_wmsBaseCfg.layers, format:_wmsBaseCfg.format||'image/png', version:_wmsBaseCfg.version||'1.3.0', transparent:!!_wmsBaseCfg.transparent, maxZoom:_wmsBaseCfg.maxZoom||20, attribution:_wmsBaseCfg.attribution||''});
+    const Cls=_wmsTileLayerClass();
+    return new Cls('', {maxZoom:20, maxNativeZoom:20, attribution:_wmsBaseCfg.attribution||''  , _cfg:_wmsBaseCfg});
   }
   return L.tileLayer(variant==='grau'?BASEMAP_GRAU:BASEMAP_FARBE, _BASE_OPTS);
 }
