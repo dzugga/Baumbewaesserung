@@ -2520,6 +2520,7 @@ function toggleRouteVisibility(){
 // ─── POSTFACH (Push-/Info-/Aufgaben-Nachrichten) ────────────────────────────
 let _messages = [];                       // recipient-Docs des Fahrers (denormalisiert), neueste zuerst
 let _msgUnsub = null;
+let _msgLastErr = '';                      // Diagnose: letzter Listener-Fehlercode
 const MSG_QUEUE_KEY = 'bwt_msg_queue';     // ausstehende Quittungen (offline)
 
 function startPostfachListener(){
@@ -2533,7 +2534,7 @@ function startPostfachListener(){
       _markDelivered();
       renderPostfachBadge();
       if(document.getElementById('postfach-overlay')?.style.display==='flex') renderPostfachList();
-    }, err=>{ console.warn('Postfach-Listener', err); toast('Postfach-Fehler: '+(err&&err.code||err&&err.message||'?'), 7000); });
+    }, err=>{ console.warn('Postfach-Listener', err); _msgLastErr=(err&&err.code)||(err&&err.message)||'?'; if(document.getElementById('postfach-overlay')?.style.display==='flex') renderPostfachList(); toast('Postfach-Fehler: '+_msgLastErr, 7000); });
   }catch(e){ console.warn('Postfach-Listener Start', e); }
 }
 
@@ -2554,8 +2555,10 @@ function closePostfach(){ const o=document.getElementById('postfach-overlay'); i
 
 function renderPostfachList(){
   const el=document.getElementById('postfach-list'); if(!el) return;
-  if(!_messages.length){ el.innerHTML='<div style="text-align:center;color:var(--text3);padding:44px 20px;font-size:14px;">Keine Nachrichten</div>'; return; }
-  el.innerHTML=_messages.map((m,i)=>{
+  let _uid=''; try{ _uid=(firebase.auth().currentUser&&firebase.auth().currentUser.uid)||''; }catch(_){}
+  const diag='<div style="padding:7px 14px;font-size:11px;color:var(--text3);background:var(--bg);border-bottom:1px solid var(--border);word-break:break-all;">Diagnose · uid: '+esc(_uid||'–')+' · drv: '+esc(_driverAuth&&_driverAuth.driverId||'–')+' · '+_messages.length+' Nachr. · Fehler: '+esc(_msgLastErr||'–')+'</div>';
+  if(!_messages.length){ el.innerHTML=diag+'<div style="text-align:center;color:var(--text3);padding:44px 20px;font-size:14px;">Keine Nachrichten</div>'; return; }
+  el.innerHTML=diag+_messages.map((m,i)=>{
     const isTask=m.type==='task', done=!!m.doneAt, seen=!!m.seenAt;
     const statusLine = isTask ? (done?('erledigt '+_msgTime(m.doneAt)):seen?('gesehen '+_msgTime(m.seenAt)):'offen')
                               : (seen?('gesehen '+_msgTime(m.seenAt)):'neu');
