@@ -37,8 +37,9 @@ service cloud.firestore {
     }
     function orgUnchanged() { return request.resource.data.orgId == resource.data.orgId; }
 
-    // Fahrer-Identitaet (Custom-Claim aus functions/auth.js: createCustomToken('drv_'+id, {driverId,...}))
-    function myDriverId() { return signedIn() ? request.auth.token.driverId : ''; }
+    // Fahrer-Identitaet ueber die Auth-UID (functions/auth.js: createCustomToken('drv_'+driverId,…)).
+    // Robuster als der Custom-Claim driverId (der in aelteren Tokens fehlen kann).
+    function isMyDriverDoc(did) { return signedIn() && request.auth.uid == 'drv_' + did; }
     // Fahrer duerfen an einer Postfach-Empfangsquittung NUR diese Felder setzen:
     function onlyMessageStatusFields() {
       return request.resource.data.diff(resource.data).affectedKeys()
@@ -126,17 +127,19 @@ service cloud.firestore {
 
       match /recipients/{did} {
         allow read:   if canPlan(resource.data.orgId)
-                      || (cap() == 'driver' && resource.data.driverId == myDriverId());
+                      || (cap() == 'driver' && isMyDriverDoc(resource.data.driverId));
         allow create: if canPlan(request.resource.data.orgId);          // Anlegen beim Senden (Desktop-Batch)
         allow update: if (canPlan(resource.data.orgId) && orgUnchanged())
-                      || (cap() == 'driver' && resource.data.driverId == myDriverId()
+                      || (cap() == 'driver' && isMyDriverDoc(resource.data.driverId)
                           && resource.data.orgId == myOrg() && orgUnchanged() && onlyMessageStatusFields());
         allow delete: if canManage(resource.data.orgId);
       }
     }
-    // Fahrer-Postfach: collectionGroup-Query ueber die EIGENEN recipient-Docs (braucht Wildcard-Match)
+    // Fahrer-Postfach: collectionGroup-Query ueber die EIGENEN recipient-Docs (braucht Wildcard-Match).
+    // canPlan zusaetzlich, damit Planer-Listen-Reads nicht an diesem Match scheitern.
     match /{path=**}/recipients/{did} {
-      allow read: if cap() == 'driver' && resource.data.driverId == myDriverId() && inOrg(resource.data.orgId);
+      allow read: if canPlan(resource.data.orgId)
+                  || (cap() == 'driver' && isMyDriverDoc(resource.data.driverId) && inOrg(resource.data.orgId));
     }
 
     // ----- Projekte + Unterkollektionen -----
