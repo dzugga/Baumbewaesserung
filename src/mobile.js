@@ -2555,10 +2555,8 @@ function closePostfach(){ const o=document.getElementById('postfach-overlay'); i
 
 function renderPostfachList(){
   const el=document.getElementById('postfach-list'); if(!el) return;
-  let _uid=''; try{ _uid=(firebase.auth().currentUser&&firebase.auth().currentUser.uid)||''; }catch(_){}
-  const diag='<div style="padding:7px 14px;font-size:11px;color:var(--text3);background:var(--bg);border-bottom:1px solid var(--border);word-break:break-all;">Diagnose · uid: '+esc(_uid||'–')+' · drv: '+esc(_driverAuth&&_driverAuth.driverId||'–')+' · '+_messages.length+' Nachr. · Fehler: '+esc(_msgLastErr||'–')+'</div>';
-  if(!_messages.length){ el.innerHTML=diag+'<div style="text-align:center;color:var(--text3);padding:44px 20px;font-size:14px;">Keine Nachrichten</div>'; return; }
-  el.innerHTML=diag+_messages.map((m,i)=>{
+  if(!_messages.length){ el.innerHTML='<div style="text-align:center;color:var(--text3);padding:44px 20px;font-size:14px;">Keine Nachrichten</div>'; return; }
+  el.innerHTML=_messages.map((m,i)=>{
     const isTask=m.type==='task', done=!!m.doneAt, seen=!!m.seenAt;
     const statusLine = isTask ? (done?('erledigt '+_msgTime(m.doneAt)):seen?('gesehen '+_msgTime(m.seenAt)):'offen')
                               : (seen?('gesehen '+_msgTime(m.seenAt)):'neu');
