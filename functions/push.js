@@ -29,21 +29,24 @@ exports.onMessageRecipientCreated = onDocumentCreated(
     if (!snap) return;
     const rec = snap.data() || {};
     const orgId = rec.orgId, driverId = rec.driverId;
-    if (!orgId || !driverId) return;
+    if (!orgId || !driverId) { console.log('push: kein orgId/driverId'); return; }
+    console.log('push: recipient angelegt', { orgId, driverId, msgId: rec.msgId });
 
     const db = admin.firestore();
 
     // Mandanten-Schalter: nur senden, wenn pushEnabled aktiv ist
     try {
       const org = await db.collection('orgs').doc(orgId).get();
-      if (!org.exists || org.data().pushEnabled !== true) return;
-    } catch (e) { return; }
+      const pe = org.exists ? org.data().pushEnabled : '(orgs-Doc fehlt)';
+      if (pe !== true) { console.log('push: SKIP — pushEnabled =', pe); return; }
+    } catch (e) { console.log('push: SKIP — orgs lesen fehlgeschlagen', e && e.message); return; }
 
     // Tokens des Fahrers laden
     const tokSnap = await db.collection('drivers').doc(driverId).collection('tokens').get();
     const docs = tokSnap.docs.filter(d => d.data() && d.data().token);
     const tokens = docs.map(d => d.data().token);
-    if (!tokens.length) return;
+    console.log('push: Tokens des Fahrers =', tokens.length);
+    if (!tokens.length) { console.log('push: SKIP — keine Tokens (Fahrer hat „Aktivieren" nicht getippt?)'); return; }
 
     const title = rec.title || 'Neue Nachricht';
     const body = rec.body || (rec.type === 'task' ? 'Neue Aufgabe' : 'Neue Information');
@@ -59,6 +62,8 @@ exports.onMessageRecipientCreated = onDocumentCreated(
 
     try {
       const resp = await admin.messaging().sendEachForMulticast(message);
+      console.log('push: FCM-Ergebnis success=' + resp.successCount + ' failure=' + resp.failureCount);
+      resp.responses.forEach((r, i) => { if (!r.success) console.log('push: Token-Fehler', r.error && r.error.code); });
       // Ungültige Tokens aufräumen
       const stale = [];
       resp.responses.forEach((r, i) => {
