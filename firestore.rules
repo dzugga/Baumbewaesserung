@@ -37,6 +37,14 @@ service cloud.firestore {
     }
     function orgUnchanged() { return request.resource.data.orgId == resource.data.orgId; }
 
+    // Fahrer-Identitaet (Custom-Claim aus functions/auth.js: createCustomToken('drv_'+id, {driverId,...}))
+    function myDriverId() { return signedIn() ? request.auth.token.driverId : ''; }
+    // Fahrer duerfen an einer Postfach-Empfangsquittung NUR diese Felder setzen:
+    function onlyMessageStatusFields() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['deliveredAt','seenAt','doneAt']);
+    }
+
     // ----- Globale Rollen-Definitionen -----
     match /roles/{rid} {
       allow read:  if signedIn();   // jeder Eingeloggte liest die Modul-Config
@@ -108,6 +116,27 @@ service cloud.firestore {
       allow read:           if inOrg(resource.data.orgId);
       allow create:         if canPlan(request.resource.data.orgId);
       allow update, delete: if canPlan(resource.data.orgId);
+    }
+
+    // ----- Push-/Postfach-Nachrichten (mandantenrein; Fahrer sehen/erledigen NUR ihr eigenes) -----
+    match /messages/{msgId} {
+      allow read:           if canPlan(resource.data.orgId);            // Desktop: Planer/Admin der Org
+      allow create:         if canPlan(request.resource.data.orgId);    // inOrg in canPlan -> mandantenrein
+      allow update, delete: if canManage(resource.data.orgId);          // bearbeiten/archivieren
+
+      match /recipients/{did} {
+        allow read:   if canPlan(resource.data.orgId)
+                      || (cap() == 'driver' && resource.data.driverId == myDriverId());
+        allow create: if canPlan(request.resource.data.orgId);          // Anlegen beim Senden (Desktop-Batch)
+        allow update: if (canPlan(resource.data.orgId) && orgUnchanged())
+                      || (cap() == 'driver' && resource.data.driverId == myDriverId()
+                          && resource.data.orgId == myOrg() && orgUnchanged() && onlyMessageStatusFields());
+        allow delete: if canManage(resource.data.orgId);
+      }
+    }
+    // Fahrer-Postfach: collectionGroup-Query ueber die EIGENEN recipient-Docs (braucht Wildcard-Match)
+    match /{path=**}/recipients/{did} {
+      allow read: if cap() == 'driver' && resource.data.driverId == myDriverId() && inOrg(resource.data.orgId);
     }
 
     // ----- Projekte + Unterkollektionen -----

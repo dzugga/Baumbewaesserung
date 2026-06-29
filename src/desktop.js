@@ -4955,6 +4955,7 @@ function switchView(v){
   const einsatzplaner=document.getElementById('view-einsatzplaner'); if(einsatzplaner) einsatzplaner.style.display=v==='einsatzplaner'?'flex':'none';
   if(verwaltung) verwaltung.style.display=v==='verwaltung'?'block':'none';
   const vReinig=document.getElementById('view-reinigungssysteme'); if(vReinig) vReinig.style.display=v==='reinigungssysteme'?'block':'none';
+  const vNachr=document.getElementById('view-nachrichten'); if(vNachr) vNachr.style.display=v==='nachrichten'?'flex':'none';
   // „Planen“-Button nur im manuellen Planungs-Modus (Karte) zeigen
   const planenBtn=document.getElementById('btn-planen');
   if(planenBtn) planenBtn.style.display=v==='karte'?'flex':'none';
@@ -4984,6 +4985,7 @@ function switchView(v){
   if(v==='einsatzplaner') initEinsatzplaner();
   if(v==='verwaltung') initVerwaltung();
   if(v==='reinigungssysteme') renderReinigungssysteme();
+  if(v==='nachrichten') initNachrichten();
   if(v==='feldbezeichnungen') initFeldbezeichnungen();
   if(v==='usage') initUsage();
   if(v==='benutzer') initBenutzer();
@@ -4998,6 +5000,159 @@ async function initBenutzer(){
   renderUserMgmt();       // Schritt 3
   renderDriverMgmt();     // Schritt 4: Tour-Zuweisung
 }
+// ─── NACHRICHTEN (Push-/Postfach an Fahrer) ─────────────────────────────────
+let _nmDrivers=[];                 // login-fähige Fahrer der Org [{id,name,nameLower}]
+let _nmType='info';                // 'info'|'task'
+let _nmAudience='all';             // 'all'|'tour'|'toursOfDay'|'drivers'
+let _nmTourId='';
+let _nmSel=new Set();              // ausgewählte driverIds (audience 'drivers')
+let _nmUnsub=null;
+let _nmMessages=[];
+let _nmExpanded=null;              // aktuell aufgeklappte msgId
+let _nmRecips={};                  // msgId -> recipient-Docs (Aggregat)
+
+function _nmCanPlan(){ return currentRole==='superadmin' || currentCap==='admin' || currentCap==='editor'; }
+function _nmTime(iso){ if(!iso) return '–'; try{ const d=new Date(iso); return ('0'+d.getDate()).slice(-2)+'.'+('0'+(d.getMonth()+1)).slice(-2)+'. '+('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2); }catch(_){ return '–'; } }
+
+async function initNachrichten(){
+  const body=document.getElementById('nachrichten-body'); if(!body) return;
+  const org=currentProjectData?.orgId||currentOrg;
+  if(!_nmCanPlan()){ body.innerHTML='<div style="color:var(--text3);padding:30px;">Nur für Planer/Administratoren.</div>'; return; }
+  if(!org){ body.innerHTML='<div style="color:var(--text3);padding:30px;">Bitte zuerst ein Projekt/einen Mandanten öffnen.</div>'; return; }
+  // Fahrer der Org laden (nur login-fähige)
+  _nmDrivers=[];
+  try{ const qs=await db.collection('drivers').where('orgId','==',org).get();
+    qs.forEach(d=>{ const x=d.data(); if(x.active!==false && x.noLogin!==true) _nmDrivers.push({id:d.id, name:x.name||'', nameLower:(x.nameLower||x.name||'').toLowerCase()}); });
+  }catch(e){ console.warn('Nachrichten: Fahrer laden', e); }
+  _nmDrivers.sort((a,b)=>a.name.localeCompare(b.name));
+  // Verlauf-Listener (Org)
+  if(_nmUnsub){ try{ _nmUnsub(); }catch(_){} _nmUnsub=null; }
+  _nmUnsub = db.collection('messages').where('orgId','==',org).onSnapshot(snap=>{
+    _nmMessages = snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+    if(currentView==='nachrichten') renderNachrichten();
+  }, err=>console.warn('Nachrichten-Listener', err));
+  renderNachrichten();
+}
+
+function nmSetType(t){ _nmType=t; renderNachrichten(); }
+function nmSetAudience(a){ _nmAudience=a; renderNachrichten(); }
+function nmToggleSel(id){ if(_nmSel.has(id)) _nmSel.delete(id); else _nmSel.add(id); }
+
+function _nmAudienceDetail(){
+  if(_nmAudience==='tour'){
+    const opts=tours.filter(t=>!t.uebersicht).map(t=>`<option value="${dlEsc(t.id)}"${t.id===_nmTourId?' selected':''}>${dlEsc(t.name||t.id)}</option>`).join('');
+    return `<select onchange="_nmSetTour(this.value)" style="margin-top:8px;padding:7px;border:1px solid var(--border);border-radius:6px;font-family:inherit;min-width:240px;"><option value="">– Tour wählen –</option>${opts}</select>`;
+  }
+  if(_nmAudience==='drivers'){
+    if(!_nmDrivers.length) return '<div style="margin-top:8px;font-size:12px;color:var(--text3);">Keine login-fähigen Fahrer in diesem Mandanten.</div>';
+    return '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;max-width:520px;">'+_nmDrivers.map(d=>`<label style="display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border);border-radius:20px;padding:4px 10px;font-size:12px;cursor:pointer;"><input type="checkbox" ${_nmSel.has(d.id)?'checked':''} onchange="nmToggleSel('${dlEsc(d.id)}')" style="margin:0;">${dlEsc(d.name)}</label>`).join('')+'</div>';
+  }
+  if(_nmAudience==='toursOfDay'){
+    const due=tours.filter(t=>!t.uebersicht && tourDueOn(t,_todayStr()));
+    return `<div style="margin-top:8px;font-size:12px;color:var(--text2);">Heute fällige Touren: ${due.length?due.map(t=>dlEsc(t.name||t.id)).join(', '):'<span style="color:#b45309;">keine</span>'}</div>`;
+  }
+  return `<div style="margin-top:8px;font-size:12px;color:var(--text3);">${_nmDrivers.length} login-fähige Fahrer im Mandanten.</div>`;
+}
+
+function renderNachrichten(){
+  const body=document.getElementById('nachrichten-body'); if(!body) return;
+  const seg=(val,lbl)=>`<button onclick="nmSetType('${val}')" class="btn ${_nmType===val?'btn-primary':'btn-secondary'}" style="padding:6px 14px;font-size:13px;">${lbl}</button>`;
+  const compose=`
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px;max-width:760px;">
+      <div style="font-size:14px;font-weight:700;margin-bottom:12px;">Neue Nachricht</div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;">${seg('info','Information')}${seg('task','Aufgabe (mit Erledigung)')}</div>
+      <input id="nm-title" placeholder="Titel" class="form-control" style="width:100%;padding:9px 11px;margin-bottom:8px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:14px;">
+      <textarea id="nm-body" placeholder="Nachrichtentext (optional)" style="width:100%;min-height:80px;padding:9px 11px;margin-bottom:12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:14px;resize:vertical;"></textarea>
+      <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:5px;">Empfänger</div>
+      <select onchange="nmSetAudience(this.value)" style="padding:7px;border:1px solid var(--border);border-radius:6px;font-family:inherit;">
+        <option value="all"${_nmAudience==='all'?' selected':''}>Alle Fahrer (Mandant)</option>
+        <option value="tour"${_nmAudience==='tour'?' selected':''}>Eine Tour</option>
+        <option value="toursOfDay"${_nmAudience==='toursOfDay'?' selected':''}>Alle heute fälligen Touren</option>
+        <option value="drivers"${_nmAudience==='drivers'?' selected':''}>Einzelne Fahrer</option>
+      </select>
+      ${_nmAudienceDetail()}
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);margin:12px 0;cursor:pointer;"><input type="checkbox" id="nm-link-tour" style="margin:0;">Mit ${_nmAudience==='tour'?'gewählter Tour':'aktuellem Projekt'} verknüpfen</label>
+      <button class="btn btn-primary" onclick="nmSend()" style="padding:9px 18px;font-size:14px;">Senden</button>
+    </div>`;
+  // Verlauf
+  const list = _nmMessages.length ? _nmMessages.map(m=>{
+    const isTask=m.type==='task', exp=_nmExpanded===m.id;
+    const aud = m.audience?.kind==='tour'?'Tour':m.audience?.kind==='toursOfDay'?'Fällige Touren':m.audience?.kind==='drivers'?'Einzelne':'Alle';
+    return `<div style="border:1px solid var(--border);border-radius:10px;margin-bottom:8px;background:var(--surface);">
+      <div onclick="nmToggle('${dlEsc(m.id)}')" style="padding:11px 14px;cursor:pointer;display:flex;align-items:center;gap:10px;">
+        <span style="font-size:11px;font-weight:600;color:${isTask?'#16a34a':'var(--text3)'};border:1px solid var(--border);border-radius:20px;padding:2px 8px;">${isTask?'Aufgabe':'Info'}</span>
+        <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14px;">${dlEsc(m.title||'(ohne Titel)')}</div><div style="font-size:11px;color:var(--text3);">${_nmTime(m.sentAt||m.createdAt)} · ${aud} · ${m.recipientCount||0} Empfänger${m.status==='archived'?' · archiviert':''}</div></div>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="transform:rotate(${exp?180:0}deg);"><path d="M6 9l6 6 6-6"/></svg>
+      </div>
+      ${exp?`<div id="nm-agg-${dlEsc(m.id)}" style="border-top:1px solid var(--border);padding:10px 14px;">Lade Status…</div>`:''}
+    </div>`;
+  }).join('') : '<div style="color:var(--text3);font-size:13px;">Noch keine Nachrichten.</div>';
+  body.innerHTML = `<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;">
+    <div style="flex:1;min-width:340px;">${compose}</div>
+    <div style="flex:1;min-width:340px;"><div style="font-size:14px;font-weight:700;margin-bottom:10px;">Verlauf</div>${list}</div>
+  </div>`;
+}
+function _nmSetTour(id){ _nmTourId=id; }
+function nmToggle(msgId){ if(_nmExpanded===msgId){ _nmExpanded=null; renderNachrichten(); return; } _nmExpanded=msgId; renderNachrichten(); _nmLoadAgg(msgId); }
+async function _nmLoadAgg(msgId){
+  const el=document.getElementById('nm-agg-'+msgId); if(!el) return;
+  try{
+    const qs=await db.collection('messages').doc(msgId).collection('recipients').get();
+    const r=qs.docs.map(d=>d.data());
+    const m=_nmMessages.find(x=>x.id===msgId); const isTask=m&&m.type==='task';
+    const seen=r.filter(x=>x.seenAt).length, done=r.filter(x=>x.doneAt).length;
+    const rows=r.sort((a,b)=>(a.driverName||'').localeCompare(b.driverName||'')).map(x=>`<tr style="border-top:1px solid var(--border);">
+      <td style="padding:4px 8px;">${dlEsc(x.driverName||x.driverId)}</td>
+      <td style="padding:4px 8px;color:var(--text3);">${_nmTime(x.deliveredAt)}</td>
+      <td style="padding:4px 8px;color:${x.seenAt?'#16a34a':'var(--text3)'};">${_nmTime(x.seenAt)}</td>
+      ${isTask?`<td style="padding:4px 8px;color:${x.doneAt?'#16a34a':'var(--text3)'};">${_nmTime(x.doneAt)}</td>`:''}
+    </tr>`).join('');
+    el.innerHTML=`<div style="font-size:12px;color:var(--text2);margin-bottom:6px;">${r.length} erhalten · ${seen} gesehen${isTask?` · ${done} erledigt`:''}</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="color:var(--text3);text-align:left;"><th style="padding:4px 8px;">Fahrer</th><th style="padding:4px 8px;">Zugestellt</th><th style="padding:4px 8px;">Gesehen</th>${isTask?'<th style="padding:4px 8px;">Erledigt</th>':''}</tr></thead><tbody>${rows||'<tr><td style="padding:6px 8px;color:var(--text3);">Keine Empfänger</td></tr>'}</tbody></table>`;
+  }catch(e){ el.innerHTML='<span style="color:#b45309;font-size:12px;">Status nicht ladbar.</span>'; }
+}
+
+function _nmResolveRecipients(){
+  const byName=new Map(); _nmDrivers.forEach(d=>{ if(!byName.has(d.nameLower)) byName.set(d.nameLower,d); });
+  const ids=new Set();
+  if(_nmAudience==='all') _nmDrivers.forEach(d=>ids.add(d.id));
+  else if(_nmAudience==='drivers') _nmSel.forEach(id=>{ if(_nmDrivers.find(d=>d.id===id)) ids.add(id); });
+  else if(_nmAudience==='tour'){ const t=tours.find(x=>x.id===_nmTourId); (t&&t.drivers||[]).forEach(n=>{ const d=byName.get(String(n).toLowerCase()); if(d) ids.add(d.id); }); }
+  else if(_nmAudience==='toursOfDay'){ tours.filter(t=>!t.uebersicht && tourDueOn(t,_todayStr())).forEach(t=>(t.drivers||[]).forEach(n=>{ const d=byName.get(String(n).toLowerCase()); if(d) ids.add(d.id); })); }
+  return [...ids].map(id=>_nmDrivers.find(d=>d.id===id)).filter(Boolean);
+}
+
+async function nmSend(){
+  const org=currentProjectData?.orgId||currentOrg; if(!org){ notify('Kein Mandant/Projekt offen'); return; }
+  const title=(document.getElementById('nm-title')?.value||'').trim();
+  const text=(document.getElementById('nm-body')?.value||'').trim();
+  if(!title){ notify('Bitte einen Titel eingeben'); return; }
+  if(_nmAudience==='tour' && !_nmTourId){ notify('Bitte eine Tour wählen'); return; }
+  const recips=_nmResolveRecipients();
+  if(!recips.length){ notify('Keine login-fähigen Empfänger für diese Auswahl'); return; }
+  const now=new Date().toISOString();
+  const uid=(firebase.auth().currentUser&&firebase.auth().currentUser.uid)||null;
+  const linkOn=document.getElementById('nm-link-tour')?.checked;
+  const link = linkOn ? (_nmAudience==='tour'?{projectId:currentProjectId,tourId:_nmTourId}:{projectId:currentProjectId}) : {};
+  const msgRef=db.collection('messages').doc();
+  const msgData={ orgId:org, type:_nmType, title, body:text, createdBy:uid, createdByName:currentName||'', createdAt:now, sentAt:now,
+    audience:{kind:_nmAudience, tourId:_nmAudience==='tour'?_nmTourId:null}, link, status:'sent', recipientCount:recips.length };
+  try{
+    let batch=db.batch(); batch.set(msgRef,msgData); let n=1;
+    for(const d of recips){
+      batch.set(msgRef.collection('recipients').doc(d.id), { orgId:org, msgId:msgRef.id, driverId:d.id, driverName:d.name, type:_nmType, title, body:text, link, sentAt:now, deliveredAt:null, seenAt:null, doneAt:null });
+      if(++n>=450){ await batch.commit(); batch=db.batch(); n=0; }
+    }
+    if(n>0) await batch.commit();
+    notify('✓ Nachricht an '+recips.length+' Fahrer gesendet');
+    const t=document.getElementById('nm-title'); if(t) t.value=''; const b=document.getElementById('nm-body'); if(b) b.value='';
+  }catch(e){ console.error('nmSend', e); notify(dlErr(e)); }
+}
+async function nmArchive(msgId){
+  if(!(currentRole==='superadmin'||currentCap==='admin')){ notify('Nur Administratoren'); return; }
+  try{ await db.collection('messages').doc(msgId).update({status:'archived'}); }catch(e){ notify(dlErr(e)); }
+}
+
 // Zentraler Mandanten-Umschalter: füllt #benutzer-org, setzt benutzerOrg + die Schritt-Orgs
 async function initBenutzerOrgSelector(){
   const sel=document.getElementById('benutzer-org');
@@ -11623,6 +11778,7 @@ Object.assign(window,{
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterInlineTours,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
   filterAbschnitteTable,filterAbschnitteTableDebounced,toggleAbschnShowAll,downloadAbschnitteExport,
+  nmSetType,nmSetAudience,nmToggleSel,nmToggle,_nmSetTour,nmSend,nmArchive,
   renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,_fillMerge,cfGeomToggle,
   rankAdd,rankRename,rankSetColor,rankSetZahl,rankMove,rankMerge,rankDelete,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,

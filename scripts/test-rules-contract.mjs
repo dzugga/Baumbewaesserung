@@ -3,7 +3,7 @@
 // „offline gespeichert"-Bug führte (Client schrieb wasser/notiz, Rules lehnten ab).
 // Aufruf: npm test   (Exit 1 bei Abweichung)
 import { readFileSync } from 'node:fs';
-import { TREE_STATUS_FIELDS, TOUR_STATUS_FIELDS } from '../src/driver-fields.js';
+import { TREE_STATUS_FIELDS, TOUR_STATUS_FIELDS, MESSAGE_STATUS_FIELDS } from '../src/driver-fields.js';
 
 const rules = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
 
@@ -18,8 +18,9 @@ function extractHasOnly(fnName){
 const sameSet = (a, b) => { const x=[...a].sort(), y=[...b].sort(); return x.length===y.length && x.every((v,i)=>v===y[i]); };
 
 const checks = [
-  { fn: 'onlyStatusFields',     konst: TREE_STATUS_FIELDS, name: 'TREE_STATUS_FIELDS' },
-  { fn: 'onlyTourStatusFields', konst: TOUR_STATUS_FIELDS, name: 'TOUR_STATUS_FIELDS' },
+  { fn: 'onlyStatusFields',        konst: TREE_STATUS_FIELDS,    name: 'TREE_STATUS_FIELDS' },
+  { fn: 'onlyTourStatusFields',    konst: TOUR_STATUS_FIELDS,    name: 'TOUR_STATUS_FIELDS' },
+  { fn: 'onlyMessageStatusFields', konst: MESSAGE_STATUS_FIELDS, name: 'MESSAGE_STATUS_FIELDS' },
 ];
 
 let ok = true;

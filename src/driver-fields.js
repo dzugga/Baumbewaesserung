@@ -7,6 +7,9 @@
 // fälschlich als „offline". Der Client filtert seine Fahrer-Schreibvorgänge jetzt auf diese Liste.
 export const TREE_STATUS_FIELDS = ['lastStatus','lastReason','lastNote','lastDriver','lastReportAt','history','datum','zustand','lastFuellgrad'];
 export const TOUR_STATUS_FIELDS = ['status','closedAt','closedBy','lastClosedDate','reopenedAt','reopenedBy'];
+// Felder, die ein Fahrer an seiner eigenen Postfach-Empfangsquittung setzen darf
+// (firestore.rules: onlyMessageStatusFields()).
+export const MESSAGE_STATUS_FIELDS = ['deliveredAt','seenAt','doneAt'];
 
 // Filtert ein Update-Objekt auf die erlaubten Baum-Status-Felder (Defense-in-Depth).
 export function onlyTreeStatusFields(obj){

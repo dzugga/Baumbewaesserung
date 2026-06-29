@@ -451,6 +451,7 @@ async function startBewässerungLogin(name, pid, tid) {
 
     startGPS();
     drawRoute();
+    startPostfachListener();   // Push-/Postfach-Nachrichten (mandantenweit je Fahrer)
 
     // Subscribe to live updates
     // Lädt alle Bäume des Projekts, filtert client-seitig (kompatibel mit tourId und tourIds)
@@ -2286,6 +2287,7 @@ window.addEventListener('online', ()=>{
   isOnline = true;
   updateNetworkBadge();
   syncOfflineQueue();
+  syncMsgQueue();   // ausstehende Postfach-Quittungen (gesehen/erledigt) nachschreiben
 });
 window.addEventListener('offline', ()=>{
   isOnline = false;
@@ -2515,6 +2517,119 @@ function toggleRouteVisibility(){
   }
 }
 
+// ─── POSTFACH (Push-/Info-/Aufgaben-Nachrichten) ────────────────────────────
+let _messages = [];                       // recipient-Docs des Fahrers (denormalisiert), neueste zuerst
+let _msgUnsub = null;
+const MSG_QUEUE_KEY = 'bwt_msg_queue';     // ausstehende Quittungen (offline)
+
+function startPostfachListener(){
+  if(_msgUnsub){ try{ _msgUnsub(); }catch(_){} _msgUnsub=null; }
+  const did = _driverAuth && _driverAuth.driverId;
+  if(!did) return;
+  try{
+    _msgUnsub = db.collectionGroup('recipients').where('driverId','==',did).onSnapshot(snap=>{
+      _messages = snap.docs.map(d=>({ _ref:d.ref, ...d.data() }))
+        .sort((a,b)=> String(b.sentAt||'').localeCompare(String(a.sentAt||'')));
+      _markDelivered();
+      renderPostfachBadge();
+      if(document.getElementById('postfach-overlay')?.style.display==='flex') renderPostfachList();
+    }, err=>{ console.warn('Postfach-Listener', err); });
+  }catch(e){ console.warn('Postfach-Listener Start', e); }
+}
+
+function _msgUnseen(){ return _messages.filter(m=>!m.seenAt).length; }
+function renderPostfachBadge(){
+  const b=document.getElementById('postfach-badge'); if(!b) return;
+  const n=_msgUnseen(); b.textContent=n>9?'9+':String(n); b.style.display=n?'block':'none';
+}
+// Zustellung quittieren, sobald die App die Nachricht empfängt (nur online, einmalig)
+async function _markDelivered(){
+  if(!isOnline) return;
+  for(const m of _messages){ if(!m.deliveredAt){ try{ await m._ref.update({ deliveredAt:new Date().toISOString() }); }catch(_){} } }
+}
+function _msgTime(iso){ if(!iso) return ''; try{ const d=new Date(iso); return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2); }catch(_){ return ''; } }
+
+function openPostfach(){ const o=document.getElementById('postfach-overlay'); if(!o) return; o.style.display='flex'; renderPostfachList(); }
+function closePostfach(){ const o=document.getElementById('postfach-overlay'); if(o) o.style.display='none'; }
+
+function renderPostfachList(){
+  const el=document.getElementById('postfach-list'); if(!el) return;
+  if(!_messages.length){ el.innerHTML='<div style="text-align:center;color:var(--text3);padding:44px 20px;font-size:14px;">Keine Nachrichten</div>'; return; }
+  el.innerHTML=_messages.map((m,i)=>{
+    const isTask=m.type==='task', done=!!m.doneAt, seen=!!m.seenAt;
+    const statusLine = isTask ? (done?('erledigt '+_msgTime(m.doneAt)):seen?('gesehen '+_msgTime(m.seenAt)):'offen')
+                              : (seen?('gesehen '+_msgTime(m.seenAt)):'neu');
+    const ic = isTask
+      ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="'+(done?'#16a34a':'var(--green)')+'" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 12l3 3 5-6"/></svg>'
+      : '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>';
+    return '<div onclick="openMsg('+i+')" style="display:flex;gap:11px;align-items:flex-start;padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;'+(seen?'':'background:var(--green-light);')+'">'
+      + '<div style="margin-top:1px;">'+ic+'</div>'
+      + '<div style="flex:1;min-width:0;">'
+      +   '<div style="font-size:14px;font-weight:'+(seen?'500':'700')+';">'+esc(m.title||'(ohne Titel)')+'</div>'
+      +   '<div style="font-size:12px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(m.body||'')+'</div>'
+      +   '<div style="font-size:11px;color:var(--text3);margin-top:3px;">'+(isTask?'Aufgabe':'Info')+' · '+_msgTime(m.sentAt)+' · '+statusLine+'</div>'
+      + '</div>'
+      + (done?'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>':'')
+      + '</div>';
+  }).join('');
+}
+
+let _openMsgIdx=null;
+function openMsg(i){
+  const m=_messages[i]; if(!m) return; _openMsgIdx=i;
+  const isTask=m.type==='task';
+  document.getElementById('msg-sheet-body').innerHTML =
+    '<span style="display:inline-block;font-size:11px;color:var(--green);background:var(--green-light);padding:3px 10px;border-radius:99px;">'+(isTask?'Aufgabe':'Info')+'</span>'
+    + '<div style="font-size:18px;font-weight:700;margin:12px 0 8px;">'+esc(m.title||'(ohne Titel)')+'</div>'
+    + '<div style="font-size:14px;color:var(--text2);line-height:1.6;white-space:pre-wrap;">'+esc(m.body||'')+'</div>'
+    + (m.link&&m.link.tourId?'<div style="margin:12px 0;padding:8px 11px;background:var(--bg);border-radius:8px;font-size:12px;color:var(--text3);">Verknüpft mit dieser Tour</div>':'')
+    + '<div style="font-size:12px;color:var(--text3);margin:12px 0;">Gesendet '+_msgTime(m.sentAt)+(m.seenAt?(' · Gesehen '+_msgTime(m.seenAt)):'')+(m.doneAt?(' · Erledigt '+_msgTime(m.doneAt)):'')+'</div>'
+    + '<div style="display:flex;gap:9px;margin-top:6px;">'
+    +   (isTask
+        ? '<button onclick="msgMarkDone('+i+')" '+(m.doneAt?'disabled':'')+' style="flex:1;padding:13px;border:none;border-radius:12px;font-size:15px;font-weight:600;color:#fff;background:'+(m.doneAt?'#9ca3af':'#16a34a')+';">'+(m.doneAt?'✓ Erledigt':'Erledigt')+'</button>'
+        : '<button onclick="msgMarkSeen('+i+')" '+(m.seenAt?'disabled':'')+' style="flex:1;padding:13px;border:none;border-radius:12px;font-size:15px;font-weight:600;color:#fff;background:'+(m.seenAt?'#9ca3af':'#2d6a4f')+';">'+(m.seenAt?'✓ Gesehen':'Gesehen')+'</button>')
+    + '</div>';
+  document.getElementById('msg-backdrop').style.display='block';
+  document.getElementById('msg-sheet').style.display='block';
+  if(!m.seenAt) msgMarkSeen(i, true);   // Öffnen zählt als gesehen
+}
+function closeMsg(){ document.getElementById('msg-backdrop').style.display='none'; document.getElementById('msg-sheet').style.display='none'; _openMsgIdx=null; }
+
+function msgMarkSeen(i, silent){ _msgWrite(i, { seenAt:new Date().toISOString() }, silent?null:'✓ Als gesehen markiert'); }
+function msgMarkDone(i){ const m=_messages[i]; if(!m) return; const now=new Date().toISOString(); const patch={doneAt:now}; if(!m.seenAt) patch.seenAt=now; _msgWrite(i, patch, '✓ Als erledigt gemeldet'); if(_openMsgIdx===i) setTimeout(closeMsg,400); }
+
+// Optimistisch lokal + Online-Write; offline → Queue + Replay bei Reconnect. Schreibt NUR eigene Status-Felder.
+async function _msgWrite(i, patch, toastMsg){
+  const m=_messages[i]; if(!m) return;
+  Object.assign(m, patch);
+  renderPostfachBadge(); renderPostfachList(); if(_openMsgIdx===i) openMsg(i);
+  if(toastMsg) toast(toastMsg);
+  if(!isOnline){ await _queueMsg(m.msgId, patch); return; }
+  try{ await m._ref.update(patch); }
+  catch(e){ const c=e&&e.code;
+    if(c==='permission-denied'||c==='invalid-argument'||c==='not-found') console.error('Postfach-Quittung abgelehnt', c, e);
+    else await _queueMsg(m.msgId, patch); }
+}
+async function _queueMsg(msgId, patch){
+  if(!msgId || !_driverAuth?.driverId) return;
+  let q=[]; try{ q=(await idbGet(MSG_QUEUE_KEY))||[]; }catch(_){}
+  const idx=q.findIndex(e=>e.msgId===msgId);
+  const entry={ msgId, driverId:_driverAuth.driverId, patch:{...(idx>=0?q[idx].patch:{}), ...patch} };
+  if(idx>=0) q[idx]=entry; else q.push(entry);
+  try{ await idbSet(MSG_QUEUE_KEY, q); }catch(_){}
+}
+async function syncMsgQueue(){
+  if(!isOnline || !_driverAuth?.driverId) return;
+  let q=[]; try{ q=(await idbGet(MSG_QUEUE_KEY))||[]; }catch(_){ return; }
+  if(!q.length) return;
+  const failed=[];
+  for(const e of q){
+    try{ await db.collection('messages').doc(e.msgId).collection('recipients').doc(e.driverId).update(e.patch); }
+    catch(err){ const c=err&&err.code; if(!(c==='permission-denied'||c==='invalid-argument'||c==='not-found')) failed.push(e); else console.warn('Postfach-Quittung verworfen', c); }
+  }
+  try{ await idbSet(MSG_QUEUE_KEY, failed); }catch(_){}
+}
+
 // Expose functions used in inline onclick handlers (static + dynamically generated)
 Object.assign(window, {
   selectStatus, closeSheet, saveReport,
@@ -2524,6 +2639,7 @@ Object.assign(window, {
   confirmMarkAllDone, closeBulkSheet,
   toggleFollow, confirmFollowDone,
   setBasemap, toggleBasemapMenu,
+  openPostfach, closePostfach, openMsg, closeMsg, msgMarkSeen, msgMarkDone,
   renderList,
   doLogin, doLogout,
   onLoginProjectChange, onLoginTourChange,
