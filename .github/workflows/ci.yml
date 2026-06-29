@@ -19,7 +19,7 @@ jobs:
           cache: npm
 
       - name: Abhängigkeiten installieren
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       - name: Rules-Vertrag prüfen (Fahrer-Schreibfelder ↔ firestore.rules)
         run: npm test
