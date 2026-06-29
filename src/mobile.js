@@ -1,6 +1,6 @@
 import { initAppCheck } from './appcheck.js';
 import { installErrorHandler } from './errlog.js'; installErrorHandler('mobil');
-import { BASEMAP_FARBE, BASEMAP_ATTR } from './basemaps.js';
+import { BASEMAP_FARBE, BASEMAP_GRAU, BASEMAP_ATTR } from './basemaps.js';
 import { firebaseConfig } from './firebase-config.js';
 import { esc } from './esc.js';
 import { titelOf, typOf, buildContainerIndex, klasseFelderOf } from './objektrollen.js';
@@ -149,7 +149,7 @@ function initMap(){
   try{ map = L.map('map', opts); }
   catch(e){ map = L.map('map', {zoomControl:false}); }
   map.setView([51.05, 13.73], 14);
-  L.tileLayer(NAVI_TILE_URL, {
+  baseLayer = L.tileLayer(NAVI_TILE_URL, {
     attribution: BASEMAP_ATTR,
     maxZoom: 20,
     maxNativeZoom: 18,
@@ -158,7 +158,52 @@ function initMap(){
     updateWhenIdle: false,
     crossOrigin: true,
   }).addTo(map);
+  _basemapVariant = 'farbe';
   L.control.zoom({position: 'topright'}).addTo(map);
+}
+
+// ─── KARTENANSICHT (Hintergrundkarte: Karte / Karte grau / Luftbild) ─────────
+let baseLayer=null;                 // aktuelle Hintergrund-Ebene
+let _wmsBaseCfg=null;               // konfiguriertes Luftbild (WMS, Typ 'base') oder null
+let _basemapVariant='farbe';
+let _basemapProj=null;              // Init je Projekt einmal
+const _BASE_OPTS={maxZoom:20,maxNativeZoom:18,keepBuffer:8,updateWhenZooming:false,updateWhenIdle:false,crossOrigin:true,attribution:BASEMAP_ATTR};
+
+function _buildBase(variant){
+  if(variant==='luftbild' && _wmsBaseCfg){
+    return L.tileLayer.wms(_wmsBaseCfg.url, {layers:_wmsBaseCfg.layers, format:_wmsBaseCfg.format||'image/png', version:_wmsBaseCfg.version||'1.3.0', transparent:false, maxZoom:20, crossOrigin:true, attribution:_wmsBaseCfg.attribution||BASEMAP_ATTR});
+  }
+  return L.tileLayer(variant==='grau'?BASEMAP_GRAU:BASEMAP_FARBE, _BASE_OPTS);
+}
+function setBasemap(variant){
+  if(variant==='luftbild' && !_wmsBaseCfg){ toast('Für dieses Projekt ist kein Luftbild hinterlegt'); return; }
+  if(baseLayer){ try{ map.removeLayer(baseLayer); }catch(_){} }
+  baseLayer=_buildBase(variant).addTo(map);
+  try{ baseLayer.bringToBack(); }catch(_){}
+  _basemapVariant=variant;
+  try{ localStorage.setItem('bwt_mobile_basemap', variant); }catch(_){}
+  document.querySelectorAll('#basemap-menu .bm-opt').forEach(b=>{ const on=b.dataset.bm===variant; b.style.fontWeight=on?'700':'400'; b.style.color=on?'var(--green)':'var(--text)'; });
+  const menu=document.getElementById('basemap-menu'); if(menu) menu.style.display='none';
+}
+function toggleBasemapMenu(){
+  const menu=document.getElementById('basemap-menu'); if(!menu) return;
+  menu.style.display = (menu.style.display==='none'||!menu.style.display) ? 'block' : 'none';
+}
+async function _initBasemapPrefs(){
+  const findBase=arr=>Array.isArray(arr)?arr.find(l=>l&&l.type==='base'&&l.layers&&l.url):null;
+  let cfg=findBase(currentProjectData?.wmsLayers);
+  if(!cfg && currentProjectData?.orgId && navigator.onLine){
+    try{ const d=await db.collection('orgs').doc(currentProjectData.orgId).get(); if(d.exists) cfg=findBase(d.data()?.wmsDefaults); }catch(_){}
+  }
+  _wmsBaseCfg=cfg||null;
+  const lo=document.getElementById('bm-opt-luftbild'); if(lo) lo.style.display=_wmsBaseCfg?'block':'none';
+  // Vorgabe: persönliche Wahl (Gerät) → sonst Projekt-Standard → sonst Karte
+  let pref=null; try{ pref=localStorage.getItem('bwt_mobile_basemap'); }catch(_){}
+  let initial=pref;
+  if(!initial){ const dn=(currentProjectData?.defaultBasemap||'').toLowerCase(); initial=dn.includes('luft')?'luftbild':dn.includes('grau')?'grau':'farbe'; }
+  if(initial==='luftbild' && !_wmsBaseCfg) initial='farbe';
+  if(initial!==_basemapVariant) setBasemap(initial);
+  else document.querySelectorAll('#basemap-menu .bm-opt').forEach(b=>{ const on=b.dataset.bm===initial; b.style.fontWeight=on?'700':'400'; b.style.color=on?'var(--green)':'var(--text)'; });
 }
 
 // GPS tracking
@@ -993,6 +1038,7 @@ function makeTreeIcon(tree, idx) {
 }
 
 function renderMarkers() {
+  if(currentProjectId && _basemapProj!==currentProjectId){ _basemapProj=currentProjectId; _initBasemapPrefs(); }  // Karten-Vorgabe je Projekt einmal
   Object.values(mapMarkers).forEach(m=>map.removeLayer(m));
   mapMarkers={};
   renderTourGeoms(); // Flächen/Strecken (geomStr) zuerst zeichnen, Marker liegen darüber
@@ -2450,6 +2496,7 @@ Object.assign(window, {
   switchTab,
   confirmMarkAllDone, closeBulkSheet,
   toggleFollow, confirmFollowDone,
+  setBasemap, toggleBasemapMenu,
   renderList,
   doLogin, doLogout,
   onLoginProjectChange, onLoginTourChange,

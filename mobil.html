@@ -230,6 +230,17 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
   <!-- Map tab -->
   <div class="tab-content active" id="tab-map" style="position:relative;">
     <div id="map"></div>
+    <!-- Kartenansicht-Umschalter (Karte / Karte grau / Luftbild) -->
+    <div id="basemap-control" style="position:absolute;top:84px;right:10px;z-index:1000;">
+      <button id="basemap-btn" onclick="toggleBasemapMenu()" title="Kartenansicht wählen" style="width:40px;height:40px;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow-md);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+      </button>
+      <div id="basemap-menu" style="display:none;position:absolute;top:46px;right:0;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-md);overflow:hidden;min-width:140px;">
+        <button class="bm-opt" data-bm="farbe" onclick="setBasemap('farbe')" style="display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;border-bottom:1px solid var(--border);font-size:14px;color:var(--green);font-weight:700;cursor:pointer;">Karte</button>
+        <button class="bm-opt" data-bm="grau" onclick="setBasemap('grau')" style="display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;border-bottom:1px solid var(--border);font-size:14px;color:var(--text);cursor:pointer;">Karte grau</button>
+        <button class="bm-opt" data-bm="luftbild" id="bm-opt-luftbild" onclick="setBasemap('luftbild')" style="display:none;width:100%;text-align:left;padding:10px 14px;background:none;border:none;font-size:14px;color:var(--text);cursor:pointer;">Luftbild</button>
+      </div>
+    </div>
     <div class="map-overlay-top">
       <button class="recalc-btn" id="btn-recalc">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline;vertical-align:middle;margin-right:4px;"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
