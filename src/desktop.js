@@ -5010,6 +5010,11 @@ let _nmUnsub=null;
 let _nmMessages=[];
 let _nmExpanded=null;              // aktuell aufgeklappte msgId
 let _nmRecips={};                  // msgId -> recipient-Docs (Aggregat)
+let _nmDelArm=null;                // msgId, fuer den die Loesch-Bestaetigung offen ist
+let _nmShowArchived=false;
+function _nmIsAdmin(){ return currentRole==='superadmin' || currentCap==='admin'; }
+function _nmPill(txt,bg,fg){ return '<span style="font-size:11px;font-weight:600;padding:2px 9px;border-radius:99px;background:'+bg+';color:'+fg+';white-space:nowrap;">'+txt+'</span>'; }
+function _nmStatusPill(x,isTask){ return x.doneAt?_nmPill('Erledigt','#dcfce7','#166534'):x.seenAt?_nmPill('Gesehen','#dbeafe','#1e40af'):_nmPill(isTask?'Offen':'Neu','#f3f4f6','#374151'); }
 
 function _nmCanPlan(){ return currentRole==='superadmin' || currentCap==='admin' || currentCap==='editor'; }
 function _nmTime(iso){ if(!iso) return '–'; try{ const d=new Date(iso); return ('0'+d.getDate()).slice(-2)+'.'+('0'+(d.getMonth()+1)).slice(-2)+'. '+('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2); }catch(_){ return '–'; } }
@@ -5075,21 +5080,36 @@ function renderNachrichten(){
       <button class="btn btn-primary" onclick="nmSend()" style="padding:9px 18px;font-size:14px;">Senden</button>
     </div>`;
   // Verlauf
-  const list = _nmMessages.length ? _nmMessages.map(m=>{
-    const isTask=m.type==='task', exp=_nmExpanded===m.id;
+  const isAdmin=_nmIsAdmin();
+  const msgs=_nmMessages.filter(m=>_nmShowArchived || m.status!=='archived');
+  const list = msgs.length ? msgs.map(m=>{
+    const isTask=m.type==='task', exp=_nmExpanded===m.id, id=dlEsc(m.id), armed=_nmDelArm===m.id;
     const aud = m.audience?.kind==='tour'?'Tour':m.audience?.kind==='toursOfDay'?'Fällige Touren':m.audience?.kind==='drivers'?'Einzelne':'Alle';
-    return `<div style="border:1px solid var(--border);border-radius:10px;margin-bottom:8px;background:var(--surface);">
-      <div onclick="nmToggle('${dlEsc(m.id)}')" style="padding:11px 14px;cursor:pointer;display:flex;align-items:center;gap:10px;">
+    const actions = isAdmin ? `<div style="border-top:1px solid var(--border);padding:7px 12px;display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap;">`
+      + (armed
+          ? `<span style="font-size:12px;color:#991b1b;margin-right:auto;">Endgültig löschen? Zum Bestätigen „LÖSCHEN" eintippen.</span>
+             <input id="nm-del-${id}" placeholder="LÖSCHEN" style="padding:5px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;width:110px;">
+             <button onclick="nmDeleteDo('${id}')" style="padding:5px 11px;font-size:12px;background:#991b1b;color:#fff;border:none;border-radius:6px;cursor:pointer;">Löschen</button>
+             <button onclick="nmDelCancel()" class="btn btn-secondary" style="padding:5px 10px;font-size:12px;">Abbrechen</button>`
+          : `${m.status==='archived'
+                ? `<button onclick="nmUnarchive('${id}')" class="btn btn-secondary" style="padding:5px 10px;font-size:12px;">Aus Archiv holen</button>`
+                : `<button onclick="nmArchive('${id}')" class="btn btn-secondary" style="padding:5px 10px;font-size:12px;">Archivieren</button>`}
+             <button onclick="nmDelArm('${id}')" class="btn btn-secondary" style="padding:5px 10px;font-size:12px;color:#991b1b;">Löschen…</button>`)
+      + `</div>` : '';
+    return `<div style="border:1px solid var(--border);border-radius:10px;margin-bottom:8px;background:var(--surface);${m.status==='archived'?'opacity:.65;':''}">
+      <div onclick="nmToggle('${id}')" style="padding:11px 14px;cursor:pointer;display:flex;align-items:center;gap:10px;">
         <span style="font-size:11px;font-weight:600;color:${isTask?'#16a34a':'var(--text3)'};border:1px solid var(--border);border-radius:20px;padding:2px 8px;">${isTask?'Aufgabe':'Info'}</span>
         <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14px;">${dlEsc(m.title||'(ohne Titel)')}</div><div style="font-size:11px;color:var(--text3);">${_nmTime(m.sentAt||m.createdAt)} · ${aud} · ${m.recipientCount||0} Empfänger${m.status==='archived'?' · archiviert':''}</div></div>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="transform:rotate(${exp?180:0}deg);"><path d="M6 9l6 6 6-6"/></svg>
       </div>
-      ${exp?`<div id="nm-agg-${dlEsc(m.id)}" style="border-top:1px solid var(--border);padding:10px 14px;">Lade Status…</div>`:''}
+      ${exp?`<div id="nm-agg-${id}" style="border-top:1px solid var(--border);padding:10px 14px;">Lade Status…</div>`:''}
+      ${actions}
     </div>`;
   }).join('') : '<div style="color:var(--text3);font-size:13px;">Noch keine Nachrichten.</div>';
+  const archToggle = `<label style="font-size:12px;color:var(--text2);display:inline-flex;align-items:center;gap:5px;cursor:pointer;margin-left:auto;"><input type="checkbox" ${_nmShowArchived?'checked':''} onchange="nmToggleArchived()" style="margin:0;">Archiv anzeigen</label>`;
   body.innerHTML = `<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;">
     <div style="flex:1;min-width:340px;">${compose}</div>
-    <div style="flex:1;min-width:340px;"><div style="font-size:14px;font-weight:700;margin-bottom:10px;">Verlauf</div>${list}</div>
+    <div style="flex:1;min-width:340px;"><div style="display:flex;align-items:center;margin-bottom:10px;"><span style="font-size:14px;font-weight:700;">Verlauf</span>${archToggle}</div>${list}</div>
   </div>`;
 }
 function _nmSetTour(id){ _nmTourId=id; }
@@ -5104,13 +5124,14 @@ async function _nmLoadAgg(msgId){
     const isTask=m&&m.type==='task';
     const seen=r.filter(x=>x.seenAt).length, done=r.filter(x=>x.doneAt).length;
     const rows=r.sort((a,b)=>(a.driverName||'').localeCompare(b.driverName||'')).map(x=>`<tr style="border-top:1px solid var(--border);">
-      <td style="padding:4px 8px;">${dlEsc(x.driverName||x.driverId)}</td>
-      <td style="padding:4px 8px;color:var(--text3);">${_nmTime(x.deliveredAt)}</td>
-      <td style="padding:4px 8px;color:${x.seenAt?'#16a34a':'var(--text3)'};">${_nmTime(x.seenAt)}</td>
-      ${isTask?`<td style="padding:4px 8px;color:${x.doneAt?'#16a34a':'var(--text3)'};">${_nmTime(x.doneAt)}</td>`:''}
+      <td style="padding:5px 8px;">${dlEsc(x.driverName||x.driverId)}</td>
+      <td style="padding:5px 8px;">${_nmStatusPill(x,isTask)}</td>
+      <td style="padding:5px 8px;color:var(--text3);">${_nmTime(x.deliveredAt)}</td>
+      <td style="padding:5px 8px;color:${x.seenAt?'#166534':'var(--text3)'};">${_nmTime(x.seenAt)}</td>
+      ${isTask?`<td style="padding:5px 8px;color:${x.doneAt?'#166534':'var(--text3)'};">${_nmTime(x.doneAt)}</td>`:''}
     </tr>`).join('');
-    el.innerHTML=`<div style="font-size:12px;color:var(--text2);margin-bottom:6px;">${r.length} erhalten · ${seen} gesehen${isTask?` · ${done} erledigt`:''}</div>
-      <table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="color:var(--text3);text-align:left;"><th style="padding:4px 8px;">Fahrer</th><th style="padding:4px 8px;">Zugestellt</th><th style="padding:4px 8px;">Gesehen</th>${isTask?'<th style="padding:4px 8px;">Erledigt</th>':''}</tr></thead><tbody>${rows||'<tr><td style="padding:6px 8px;color:var(--text3);">Keine Empfänger</td></tr>'}</tbody></table>`;
+    el.innerHTML=`<div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;">${_nmPill(r.length+' erhalten','#f3f4f6','#374151')}${_nmPill(seen+' gesehen','#dbeafe','#1e40af')}${isTask?_nmPill(done+' erledigt','#dcfce7','#166534'):''}</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="color:var(--text3);text-align:left;"><th style="padding:4px 8px;">Fahrer</th><th style="padding:4px 8px;">Status</th><th style="padding:4px 8px;">Zugestellt</th><th style="padding:4px 8px;">Gesehen</th>${isTask?'<th style="padding:4px 8px;">Erledigt</th>':''}</tr></thead><tbody>${rows||'<tr><td style="padding:6px 8px;color:var(--text3);">Keine Empfänger</td></tr>'}</tbody></table>`;
   }catch(e){ console.error('nmLoadAgg', e); el.innerHTML='<span style="color:#b45309;font-size:12px;">Status nicht ladbar ('+(e&&e.code||e&&e.message||'Fehler')+')</span>'; }
 }
 
@@ -5151,8 +5172,28 @@ async function nmSend(){
   }catch(e){ console.error('nmSend', e); notify(dlErr(e)); }
 }
 async function nmArchive(msgId){
-  if(!(currentRole==='superadmin'||currentCap==='admin')){ notify('Nur Administratoren'); return; }
+  if(!_nmIsAdmin()){ notify('Nur Administratoren'); return; }
   try{ await db.collection('messages').doc(msgId).update({status:'archived'}); }catch(e){ notify(dlErr(e)); }
+}
+async function nmUnarchive(msgId){
+  if(!_nmIsAdmin()){ notify('Nur Administratoren'); return; }
+  try{ await db.collection('messages').doc(msgId).update({status:'sent'}); }catch(e){ notify(dlErr(e)); }
+}
+function nmToggleArchived(){ _nmShowArchived=!_nmShowArchived; renderNachrichten(); }
+function nmDelArm(msgId){ _nmDelArm=msgId; renderNachrichten(); }
+function nmDelCancel(){ _nmDelArm=null; renderNachrichten(); }
+// Endgültig löschen — bewusst erschwert: Admin + getipptes „LÖSCHEN". Entfernt Nachricht + alle Empfänger-Quittungen.
+async function nmDeleteDo(msgId){
+  if(!_nmIsAdmin()){ notify('Nur Administratoren'); return; }
+  const v=(document.getElementById('nm-del-'+msgId)?.value||'').trim();
+  if(v!=='LÖSCHEN'){ notify('Bitte „LÖSCHEN" eintippen'); return; }
+  const m=_nmMessages.find(x=>x.id===msgId);
+  try{
+    const qs=await db.collection('messages').doc(msgId).collection('recipients').where('orgId','==', m&&m.orgId).get();
+    const refs=qs.docs.map(d=>d.ref); refs.push(db.collection('messages').doc(msgId));
+    for(let i=0;i<refs.length;i+=400){ const b=db.batch(); refs.slice(i,i+400).forEach(r=>b.delete(r)); await b.commit(); }
+    _nmDelArm=null; notify('Nachricht gelöscht');
+  }catch(e){ console.error('nmDeleteDo', e); notify(dlErr(e)); }
 }
 
 // Zentraler Mandanten-Umschalter: füllt #benutzer-org, setzt benutzerOrg + die Schritt-Orgs
@@ -11781,6 +11822,7 @@ Object.assign(window,{
   saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterInlineTours,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
   filterAbschnitteTable,filterAbschnitteTableDebounced,toggleAbschnShowAll,downloadAbschnitteExport,
   nmSetType,nmSetAudience,nmToggleSel,nmToggle,_nmSetTour,nmSend,nmArchive,
+  nmUnarchive,nmToggleArchived,nmDelArm,nmDelCancel,nmDeleteDo,
   renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,_fillMerge,cfGeomToggle,
   rankAdd,rankRename,rankSetColor,rankSetZahl,rankMove,rankMerge,rankDelete,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,

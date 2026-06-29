@@ -2549,6 +2549,12 @@ async function _markDelivered(){
   for(const m of _messages){ if(!m.deliveredAt){ try{ await m._ref.update({ deliveredAt:new Date().toISOString() }); }catch(_){} } }
 }
 function _msgTime(iso){ if(!iso) return ''; try{ const d=new Date(iso); return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2); }catch(_){ return ''; } }
+function _msgStatusPill(m){
+  const s='font-size:11px;font-weight:600;padding:3px 10px;border-radius:99px;white-space:nowrap;';
+  if(m.doneAt) return '<span style="'+s+'background:#dcfce7;color:#166534;">✓ Erledigt</span>';
+  if(m.seenAt) return '<span style="'+s+'background:#dbeafe;color:#1e40af;">Gesehen</span>';
+  return '<span style="'+s+'background:#f3f4f6;color:#374151;">'+(m.type==='task'?'Offen':'Neu')+'</span>';
+}
 
 function openPostfach(){ const o=document.getElementById('postfach-overlay'); if(!o) return; o.style.display='flex'; renderPostfachList(); }
 function closePostfach(){ const o=document.getElementById('postfach-overlay'); if(o) o.style.display='none'; }
@@ -2558,19 +2564,18 @@ function renderPostfachList(){
   if(!_messages.length){ el.innerHTML='<div style="text-align:center;color:var(--text3);padding:44px 20px;font-size:14px;">Keine Nachrichten</div>'; return; }
   el.innerHTML=_messages.map((m,i)=>{
     const isTask=m.type==='task', done=!!m.doneAt, seen=!!m.seenAt;
-    const statusLine = isTask ? (done?('erledigt '+_msgTime(m.doneAt)):seen?('gesehen '+_msgTime(m.seenAt)):'offen')
-                              : (seen?('gesehen '+_msgTime(m.seenAt)):'neu');
+    const stripe = done?'#16a34a':seen?'#3b82f6':'#9ca3af';
     const ic = isTask
       ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="'+(done?'#16a34a':'var(--green)')+'" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 12l3 3 5-6"/></svg>'
       : '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>';
-    return '<div onclick="openMsg('+i+')" style="display:flex;gap:11px;align-items:flex-start;padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;'+(seen?'':'background:var(--green-light);')+'">'
-      + '<div style="margin-top:1px;">'+ic+'</div>'
+    return '<div onclick="openMsg('+i+')" style="display:flex;gap:11px;align-items:center;padding:12px 16px 12px 13px;border-bottom:1px solid var(--border);border-left:4px solid '+stripe+';cursor:pointer;'+(seen?'':'background:var(--green-light);')+'">'
+      + '<div style="flex-shrink:0;">'+ic+'</div>'
       + '<div style="flex:1;min-width:0;">'
       +   '<div style="font-size:14px;font-weight:'+(seen?'500':'700')+';">'+esc(m.title||'(ohne Titel)')+'</div>'
       +   '<div style="font-size:12px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(m.body||'')+'</div>'
-      +   '<div style="font-size:11px;color:var(--text3);margin-top:3px;">'+(isTask?'Aufgabe':'Info')+' · '+_msgTime(m.sentAt)+' · '+statusLine+'</div>'
+      +   '<div style="font-size:11px;color:var(--text3);margin-top:3px;">'+(isTask?'Aufgabe':'Info')+' · '+_msgTime(m.sentAt)+'</div>'
       + '</div>'
-      + (done?'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>':'')
+      + '<div style="flex-shrink:0;">'+_msgStatusPill(m)+'</div>'
       + '</div>';
   }).join('');
 }
@@ -2580,7 +2585,9 @@ function openMsg(i){
   const m=_messages[i]; if(!m) return; _openMsgIdx=i;
   const isTask=m.type==='task';
   document.getElementById('msg-sheet-body').innerHTML =
-    '<span style="display:inline-block;font-size:11px;color:var(--green);background:var(--green-light);padding:3px 10px;border-radius:99px;">'+(isTask?'Aufgabe':'Info')+'</span>'
+    '<div style="display:flex;align-items:center;gap:8px;">'
+    + '<span style="font-size:11px;color:var(--green);background:var(--green-light);padding:3px 10px;border-radius:99px;">'+(isTask?'Aufgabe':'Info')+'</span>'
+    + _msgStatusPill(m) + '</div>'
     + '<div style="font-size:18px;font-weight:700;margin:12px 0 8px;">'+esc(m.title||'(ohne Titel)')+'</div>'
     + '<div style="font-size:14px;color:var(--text2);line-height:1.6;white-space:pre-wrap;">'+esc(m.body||'')+'</div>'
     + (m.link&&m.link.tourId?'<div style="margin:12px 0;padding:8px 11px;background:var(--bg);border-radius:8px;font-size:12px;color:var(--text3);">Verknüpft mit dieser Tour</div>':'')
