@@ -37,9 +37,6 @@ service cloud.firestore {
     }
     function orgUnchanged() { return request.resource.data.orgId == resource.data.orgId; }
 
-    // Fahrer-Identitaet ueber die Auth-UID (functions/auth.js: createCustomToken('drv_'+driverId,…)).
-    // Robuster als der Custom-Claim driverId (der in aelteren Tokens fehlen kann).
-    function isMyDriverDoc(did) { return signedIn() && request.auth.uid == 'drv_' + did; }
     // Fahrer duerfen an einer Postfach-Empfangsquittung NUR diese Felder setzen:
     function onlyMessageStatusFields() {
       return request.resource.data.diff(resource.data).affectedKeys()
@@ -126,20 +123,20 @@ service cloud.firestore {
       allow update, delete: if canManage(resource.data.orgId);          // bearbeiten/archivieren
 
       match /recipients/{did} {
+        // Owner-Muster: ownerUid == 'drv_'+driverId (= Auth-UID des Fahrers). Direkter Vergleich mit
+        // request.auth.uid — nur DER laesst sich gegen where('ownerUid','==',uid) garantieren (Rules sind keine Filter).
         allow read:   if canPlan(resource.data.orgId)
-                      || (cap() == 'driver' && isMyDriverDoc(resource.data.driverId));
+                      || request.auth.uid == resource.data.ownerUid;
         allow create: if canPlan(request.resource.data.orgId);          // Anlegen beim Senden (Desktop-Batch)
         allow update: if (canPlan(resource.data.orgId) && orgUnchanged())
-                      || (cap() == 'driver' && isMyDriverDoc(resource.data.driverId)
-                          && resource.data.orgId == myOrg() && orgUnchanged() && onlyMessageStatusFields());
+                      || (request.auth.uid == resource.data.ownerUid && orgUnchanged() && onlyMessageStatusFields());
         allow delete: if canManage(resource.data.orgId);
       }
     }
-    // Fahrer-Postfach: collectionGroup-Query ueber die EIGENEN recipient-Docs (braucht Wildcard-Match).
-    // canPlan zusaetzlich, damit Planer-Listen-Reads nicht an diesem Match scheitern.
+    // Fahrer-Postfach: collectionGroup-Query ueber die EIGENEN recipient-Docs (Wildcard-Match noetig).
+    // Nur das Owner-Praedikat — Firestore kann es gegen where('ownerUid','==',request.auth.uid) beweisen.
     match /{path=**}/recipients/{did} {
-      allow read: if canPlan(resource.data.orgId)
-                  || (cap() == 'driver' && isMyDriverDoc(resource.data.driverId) && inOrg(resource.data.orgId));
+      allow read: if request.auth.uid == resource.data.ownerUid;
     }
 
     // ----- Projekte + Unterkollektionen -----

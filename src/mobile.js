@@ -2525,10 +2525,10 @@ const MSG_QUEUE_KEY = 'bwt_msg_queue';     // ausstehende Quittungen (offline)
 
 function startPostfachListener(){
   if(_msgUnsub){ try{ _msgUnsub(); }catch(_){} _msgUnsub=null; }
-  const did = _driverAuth && _driverAuth.driverId;
-  if(!did) return;
+  const uid = (firebase.auth().currentUser && firebase.auth().currentUser.uid) || '';  // 'drv_<driverId>'
+  if(!uid) return;
   try{
-    _msgUnsub = db.collectionGroup('recipients').where('driverId','==',did).onSnapshot(snap=>{
+    _msgUnsub = db.collectionGroup('recipients').where('ownerUid','==',uid).onSnapshot(snap=>{
       _messages = snap.docs.map(d=>({ _ref:d.ref, ...d.data() }))
         .sort((a,b)=> String(b.sentAt||'').localeCompare(String(a.sentAt||'')));
       _markDelivered();

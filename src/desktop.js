@@ -5096,10 +5096,12 @@ function _nmSetTour(id){ _nmTourId=id; }
 function nmToggle(msgId){ if(_nmExpanded===msgId){ _nmExpanded=null; renderNachrichten(); return; } _nmExpanded=msgId; renderNachrichten(); _nmLoadAgg(msgId); }
 async function _nmLoadAgg(msgId){
   const el=document.getElementById('nm-agg-'+msgId); if(!el) return;
+  const m=_nmMessages.find(x=>x.id===msgId);
   try{
-    const qs=await db.collection('messages').doc(msgId).collection('recipients').get();
+    // orgId-Filter, damit die Regel (canPlan(orgId)) gegen die Query garantierbar ist (Rules sind keine Filter)
+    const qs=await db.collection('messages').doc(msgId).collection('recipients').where('orgId','==', m&&m.orgId).get();
     const r=qs.docs.map(d=>d.data());
-    const m=_nmMessages.find(x=>x.id===msgId); const isTask=m&&m.type==='task';
+    const isTask=m&&m.type==='task';
     const seen=r.filter(x=>x.seenAt).length, done=r.filter(x=>x.doneAt).length;
     const rows=r.sort((a,b)=>(a.driverName||'').localeCompare(b.driverName||'')).map(x=>`<tr style="border-top:1px solid var(--border);">
       <td style="padding:4px 8px;">${dlEsc(x.driverName||x.driverId)}</td>
@@ -5140,7 +5142,7 @@ async function nmSend(){
   try{
     let batch=db.batch(); batch.set(msgRef,msgData); let n=1;
     for(const d of recips){
-      batch.set(msgRef.collection('recipients').doc(d.id), { orgId:org, msgId:msgRef.id, driverId:d.id, driverName:d.name, type:_nmType, title, body:text, link, sentAt:now, deliveredAt:null, seenAt:null, doneAt:null });
+      batch.set(msgRef.collection('recipients').doc(d.id), { orgId:org, msgId:msgRef.id, driverId:d.id, ownerUid:'drv_'+d.id, driverName:d.name, type:_nmType, title, body:text, link, sentAt:now, deliveredAt:null, seenAt:null, doneAt:null });
       if(++n>=450){ await batch.commit(); batch=db.batch(); n=0; }
     }
     if(n>0) await batch.commit();
