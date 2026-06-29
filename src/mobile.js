@@ -199,7 +199,10 @@ function setBasemap(variant){
   if(variant==='luftbild' && !_wmsBaseCfg){ toast('Für dieses Projekt ist kein Luftbild hinterlegt'); return; }
   if(baseLayer){ try{ map.removeLayer(baseLayer); }catch(_){} }
   baseLayer=_buildBase(variant).addTo(map);
-  try{ baseLayer.bringToBack(); }catch(_){}
+  // leaflet-rotate positioniert frisch hinzugefügte Tile-Ebenen nicht zuverlässig: die Kacheln laden,
+  // bleiben aber unsichtbar/falsch platziert. Ein Mini-Pan (1px hin/zurück) erzwingt den Neuaufbau.
+  try{ map.panBy([0,1],{animate:false}); map.panBy([0,-1],{animate:false}); }catch(_){}
+  setTimeout(()=>{ try{ map.invalidateSize({pan:false}); }catch(_){} }, 250);
   if(variant==='luftbild' && _wmsBaseCfg){
     let _tl=0,_te=0;
     // Fix: geladene WMS-Kacheln bleiben unter leaflet-rotate auf Opazität 0 hängen → hart auf 1 setzen.
