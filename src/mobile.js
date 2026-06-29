@@ -2533,7 +2533,7 @@ function startPostfachListener(){
       _markDelivered();
       renderPostfachBadge();
       if(document.getElementById('postfach-overlay')?.style.display==='flex') renderPostfachList();
-    }, err=>{ console.warn('Postfach-Listener', err); });
+    }, err=>{ console.warn('Postfach-Listener', err); toast('Postfach-Fehler: '+(err&&err.code||err&&err.message||'?'), 7000); });
   }catch(e){ console.warn('Postfach-Listener Start', e); }
 }
 

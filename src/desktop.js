@@ -5109,7 +5109,7 @@ async function _nmLoadAgg(msgId){
     </tr>`).join('');
     el.innerHTML=`<div style="font-size:12px;color:var(--text2);margin-bottom:6px;">${r.length} erhalten · ${seen} gesehen${isTask?` · ${done} erledigt`:''}</div>
       <table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="color:var(--text3);text-align:left;"><th style="padding:4px 8px;">Fahrer</th><th style="padding:4px 8px;">Zugestellt</th><th style="padding:4px 8px;">Gesehen</th>${isTask?'<th style="padding:4px 8px;">Erledigt</th>':''}</tr></thead><tbody>${rows||'<tr><td style="padding:6px 8px;color:var(--text3);">Keine Empfänger</td></tr>'}</tbody></table>`;
-  }catch(e){ el.innerHTML='<span style="color:#b45309;font-size:12px;">Status nicht ladbar.</span>'; }
+  }catch(e){ console.error('nmLoadAgg', e); el.innerHTML='<span style="color:#b45309;font-size:12px;">Status nicht ladbar ('+(e&&e.code||e&&e.message||'Fehler')+')</span>'; }
 }
 
 function _nmResolveRecipients(){
