@@ -191,7 +191,7 @@ function _wmsTileLayerClass(){
 function _buildBase(variant){
   if(variant==='luftbild' && _wmsBaseCfg){
     const Cls=_wmsTileLayerClass();
-    return new Cls('', {maxZoom:20, maxNativeZoom:20, attribution:_wmsBaseCfg.attribution||''  , _cfg:_wmsBaseCfg});
+    return new Cls('', {maxZoom:20, maxNativeZoom:20, opacity:1, keepBuffer:8, updateWhenIdle:false, updateWhenZooming:false, attribution:_wmsBaseCfg.attribution||'', _cfg:_wmsBaseCfg});
   }
   return L.tileLayer(variant==='grau'?BASEMAP_GRAU:BASEMAP_FARBE, _BASE_OPTS);
 }
@@ -201,10 +201,11 @@ function setBasemap(variant){
   baseLayer=_buildBase(variant).addTo(map);
   try{ baseLayer.bringToBack(); }catch(_){}
   if(variant==='luftbild' && _wmsBaseCfg){
-    let _tl=0,_te=0,_first='';
-    baseLayer.on('tileload',()=>{ _tl++; });
-    baseLayer.on('tileerror',(e)=>{ _te++; if(!_first){ try{ _first=e&&e.tile&&e.tile.src||''; }catch(_){} } });
-    setTimeout(()=>{ toast('Luftbild: '+_tl+' geladen · '+_te+' Fehler'+(_te&&_first?(' · '+_first.slice(0,60)):''), 9000); }, 4500);
+    let _tl=0,_te=0;
+    // Fix: geladene WMS-Kacheln bleiben unter leaflet-rotate auf Opazität 0 hängen → hart auf 1 setzen.
+    baseLayer.on('tileload',(e)=>{ _tl++; if(e&&e.tile){ e.tile.style.opacity='1'; } });
+    baseLayer.on('tileerror',()=>{ _te++; });
+    setTimeout(()=>{ toast('Luftbild: '+_tl+' geladen · '+_te+' Fehler', 6000); }, 4500);
   }
   _basemapVariant=variant;
   try{ localStorage.setItem('bwt_mobile_basemap', variant); }catch(_){}
