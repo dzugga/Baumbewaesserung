@@ -171,7 +171,9 @@ const _BASE_OPTS={maxZoom:20,maxNativeZoom:18,keepBuffer:8,updateWhenZooming:fal
 
 function _buildBase(variant){
   if(variant==='luftbild' && _wmsBaseCfg){
-    return L.tileLayer.wms(_wmsBaseCfg.url, {layers:_wmsBaseCfg.layers, format:_wmsBaseCfg.format||'image/png', version:_wmsBaseCfg.version||'1.3.0', transparent:false, maxZoom:20, crossOrigin:true, attribution:_wmsBaseCfg.attribution||BASEMAP_ATTR});
+    // Exakt wie Desktop (buildWmsLayer): KEIN crossOrigin — viele Landes-WMS senden keine
+    // CORS-Header, mit crossOrigin würde der Browser die Kacheln blockieren (weiße Karte).
+    return L.tileLayer.wms(_wmsBaseCfg.url, {layers:_wmsBaseCfg.layers, format:_wmsBaseCfg.format||'image/png', version:_wmsBaseCfg.version||'1.3.0', transparent:!!_wmsBaseCfg.transparent, maxZoom:_wmsBaseCfg.maxZoom||20, attribution:_wmsBaseCfg.attribution||''});
   }
   return L.tileLayer(variant==='grau'?BASEMAP_GRAU:BASEMAP_FARBE, _BASE_OPTS);
 }
