@@ -6,6 +6,7 @@ import { esc } from './esc.js';
 import { titelOf, typOf, buildContainerIndex, klasseFelderOf } from './objektrollen.js';
 import { startSession, endSession } from './session.js';
 import { initVersionCheck } from './version-check.js';
+import { onlyTreeStatusFields } from './driver-fields.js';
 initVersionCheck();   // erkennt neue Deploys während die App offen ist → „Neu laden"-Banner
 // Container-Index (extId→Abschnitt) für die Anzeige-Rollen; aus dem vollen Projekt-Snapshot gebaut.
 let _objIndex = null;
@@ -655,14 +656,14 @@ async function confirmMarkAllDone(){
   const open = trees.filter(t => !t.lastStatus);
   if(open.length === 0){ toast('Keine offenen Bäume'); return; }
 
-  const updates = {
+  const updates = onlyTreeStatusFields({
     lastStatus: 'bewaessert',
     lastDriver: currentDriver,
     lastReportAt: now,
     lastReason: null,
     lastNote: null,
     datum: now.slice(0,10),
-  };
+  });   // nur erlaubte Fahrer-Felder (Rules onlyStatusFields)
 
   // Update local state + UI immediately
   pauseSnapshot = true;
@@ -1982,9 +1983,11 @@ async function saveReport(id){
     driver:currentDriver
   };
   if(fuellgrad!=null) histEntry.fuellgrad=fuellgrad;
-  // Use arrayUnion — no need to read existing history first
-  const firestoreUpdates={...updates, history: firebase.firestore.FieldValue.arrayUnion(histEntry)};
-  const offlineUpdates={...updates, history:[...(tree.history||[]),histEntry]};
+  // Use arrayUnion — no need to read existing history first.
+  // Schreib-Payload hart auf erlaubte Fahrer-Felder filtern (Rules onlyStatusFields) — Defense-in-Depth.
+  const _u=onlyTreeStatusFields(updates);
+  const firestoreUpdates={..._u, history: firebase.firestore.FieldValue.arrayUnion(histEntry)};
+  const offlineUpdates={..._u, history:[...(tree.history||[]),histEntry]};
 
   // Update local state + close sheet immediately (optimistic UI)
   Object.assign(tree, updates);
@@ -2122,8 +2125,9 @@ async function markTreeDone(tree){
   const id=tree.id, now=new Date().toISOString();
   const updates={ lastStatus:'bewaessert', lastReason:null, lastNote:null, lastDriver:currentDriver, lastReportAt:now, datum:now.slice(0,10) };
   const histEntry={ date:now.slice(0,10), note:'Bewässert', driver:currentDriver };
-  const firestoreUpdates={...updates, history:firebase.firestore.FieldValue.arrayUnion(histEntry)};
-  const offlineUpdates={...updates, history:[...(tree.history||[]),histEntry]};
+  const _u=onlyTreeStatusFields(updates);   // nur erlaubte Fahrer-Felder (Rules onlyStatusFields)
+  const firestoreUpdates={..._u, history:firebase.firestore.FieldValue.arrayUnion(histEntry)};
+  const offlineUpdates={..._u, history:[...(tree.history||[]),histEntry]};
   const _prev={}; Object.keys(updates).forEach(k=>_prev[k]=tree[k]);
   Object.assign(tree, updates);
   renderMarkers(); renderList(''); updateProgress();
