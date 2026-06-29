@@ -107,6 +107,12 @@ service cloud.firestore {
       allow delete: if canManage(resource.data.orgId)
                     || (canPlan(resource.data.orgId) && resource.data.noLogin == true
                         && !('pinHash' in resource.data) && !('pinSalt' in resource.data));
+
+      // FCM-Geräte-Token: Fahrer schreibt/liest NUR die eigenen (Owner ueber Auth-UID 'drv_'+did).
+      // Die Cloud Function liest sie per Admin-SDK (umgeht Rules).
+      match /tokens/{tid} {
+        allow read, write: if request.auth.uid == 'drv_' + did;
+      }
     }
 
     // ----- Verfügbarkeit Personal & Fahrzeuge je Mandant/Tag (Einsatzplaner) -----

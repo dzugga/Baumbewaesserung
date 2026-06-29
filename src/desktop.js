@@ -5012,6 +5012,7 @@ let _nmExpanded=null;              // aktuell aufgeklappte msgId
 let _nmRecips={};                  // msgId -> recipient-Docs (Aggregat)
 let _nmDelArm=null;                // msgId, fuer den die Loesch-Bestaetigung offen ist
 let _nmShowArchived=false;
+let _nmPushEnabled=null;           // orgs/{org}.pushEnabled (nur Superadmin sichtbar/änderbar)
 function _nmIsAdmin(){ return currentRole==='superadmin' || currentCap==='admin'; }
 function _nmPill(txt,bg,fg){ return '<span style="font-size:11px;font-weight:600;padding:2px 9px;border-radius:99px;background:'+bg+';color:'+fg+';white-space:nowrap;">'+txt+'</span>'; }
 function _nmStatusPill(x,isTask){ return x.doneAt?_nmPill('Erledigt','#dcfce7','#166534'):x.seenAt?_nmPill('Gesehen','#dbeafe','#1e40af'):_nmPill(isTask?'Offen':'Neu','#f3f4f6','#374151'); }
@@ -5030,6 +5031,8 @@ async function initNachrichten(){
     qs.forEach(d=>{ const x=d.data(); if(x.active!==false && x.noLogin!==true) _nmDrivers.push({id:d.id, name:x.name||'', nameLower:(x.nameLower||x.name||'').toLowerCase()}); });
   }catch(e){ console.warn('Nachrichten: Fahrer laden', e); }
   _nmDrivers.sort((a,b)=>a.name.localeCompare(b.name));
+  _nmPushEnabled=null;
+  if(currentRole==='superadmin'){ try{ const o=await db.collection('orgs').doc(org).get(); _nmPushEnabled=o.exists?(o.data().pushEnabled===true):false; }catch(_){ _nmPushEnabled=false; } }
   // Verlauf-Listener (Org)
   if(_nmUnsub){ try{ _nmUnsub(); }catch(_){} _nmUnsub=null; }
   _nmUnsub = db.collection('messages').where('orgId','==',org).onSnapshot(snap=>{
@@ -5107,7 +5110,10 @@ function renderNachrichten(){
     </div>`;
   }).join('') : '<div style="color:var(--text3);font-size:13px;">Noch keine Nachrichten.</div>';
   const archToggle = `<label style="font-size:12px;color:var(--text2);display:inline-flex;align-items:center;gap:5px;cursor:pointer;margin-left:auto;"><input type="checkbox" ${_nmShowArchived?'checked':''} onchange="nmToggleArchived()" style="margin:0;">Archiv anzeigen</label>`;
-  body.innerHTML = `<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;">
+  const pushRow = currentRole==='superadmin'
+    ? `<div style="margin-bottom:14px;padding:9px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:8px;max-width:760px;"><label style="display:flex;align-items:center;gap:7px;font-size:13px;cursor:pointer;"><input type="checkbox" ${_nmPushEnabled?'checked':''} onchange="setPushEnabled(this.checked)" style="margin:0;cursor:pointer;">Geräte-Push (FCM) für diesen Mandanten aktiv</label><span style="font-size:11px;color:var(--text3);margin-left:auto;">nur Superadmin</span></div>`
+    : '';
+  body.innerHTML = pushRow + `<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;">
     <div style="flex:1;min-width:340px;">${compose}</div>
     <div style="flex:1;min-width:340px;"><div style="display:flex;align-items:center;margin-bottom:10px;"><span style="font-size:14px;font-weight:700;">Verlauf</span>${archToggle}</div>${list}</div>
   </div>`;
@@ -5180,6 +5186,12 @@ async function nmUnarchive(msgId){
   try{ await db.collection('messages').doc(msgId).update({status:'sent'}); }catch(e){ notify(dlErr(e)); }
 }
 function nmToggleArchived(){ _nmShowArchived=!_nmShowArchived; renderNachrichten(); }
+async function setPushEnabled(on){
+  if(currentRole!=='superadmin'){ notify('Nur Superadmin'); return; }
+  const org=currentProjectData?.orgId||currentOrg; if(!org){ notify('Kein Mandant'); return; }
+  try{ await db.collection('orgs').doc(org).set({pushEnabled:!!on},{merge:true}); _nmPushEnabled=!!on; notify(on?'✓ Geräte-Push aktiviert':'Geräte-Push deaktiviert'); }
+  catch(e){ notify(dlErr(e)); }
+}
 function nmDelArm(msgId){ _nmDelArm=msgId; renderNachrichten(); }
 function nmDelCancel(){ _nmDelArm=null; renderNachrichten(); }
 // Endgültig löschen — bewusst erschwert: Admin + getipptes „LÖSCHEN". Entfernt Nachricht + alle Empfänger-Quittungen.
@@ -11822,7 +11834,7 @@ Object.assign(window,{
   saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterInlineTours,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
   filterAbschnitteTable,filterAbschnitteTableDebounced,toggleAbschnShowAll,downloadAbschnitteExport,
   nmSetType,nmSetAudience,nmToggleSel,nmToggle,_nmSetTour,nmSend,nmArchive,
-  nmUnarchive,nmToggleArchived,nmDelArm,nmDelCancel,nmDeleteDo,
+  nmUnarchive,nmToggleArchived,nmDelArm,nmDelCancel,nmDeleteDo,setPushEnabled,
   renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,_fillMerge,cfGeomToggle,
   rankAdd,rankRename,rankSetColor,rankSetZahl,rankMove,rankMerge,rankDelete,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,

@@ -6,6 +6,8 @@ const admin = require('firebase-admin');
 
 // Auth-/Mandanten-Funktionen (driverLogin, setDriverPin, setUserRole) — initialisiert auch admin
 Object.assign(exports, require('./auth'));
+// Geräte-Push (FCM) beim Anlegen einer Postfach-Empfangsquittung
+Object.assign(exports, require('./push'));
 
 const PROJECT = 'baumbewaesserung';
 const FUNC_REGION = 'europe-west3';    // Function läuft in Frankfurt (wie Firestore/Storage)

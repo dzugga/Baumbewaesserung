@@ -2536,6 +2536,7 @@ function startPostfachListener(){
       if(document.getElementById('postfach-overlay')?.style.display==='flex') renderPostfachList();
     }, err=>{ console.warn('Postfach-Listener', err); _msgLastErr=(err&&err.code)||(err&&err.message)||'?'; if(document.getElementById('postfach-overlay')?.style.display==='flex') renderPostfachList(); toast('Postfach-Fehler: '+_msgLastErr, 7000); });
   }catch(e){ console.warn('Postfach-Listener Start', e); }
+  if(_pushSupported() && Notification.permission==='granted') enablePush(true);   // Token still erneuern
 }
 
 function _msgUnseen(){ return _messages.filter(m=>!m.seenAt).length; }
@@ -2561,8 +2562,11 @@ function closePostfach(){ const o=document.getElementById('postfach-overlay'); i
 
 function renderPostfachList(){
   const el=document.getElementById('postfach-list'); if(!el) return;
-  if(!_messages.length){ el.innerHTML='<div style="text-align:center;color:var(--text3);padding:44px 20px;font-size:14px;">Keine Nachrichten</div>'; return; }
-  el.innerHTML=_messages.map((m,i)=>{
+  const banner = (_pushSupported() && Notification.permission!=='granted')
+    ? '<div style="padding:10px 16px;background:var(--green-light);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;"><span style="flex:1;font-size:12px;color:var(--text2);">Benachrichtigungen aus — aktiviere sie, um auch bei geschlossener App informiert zu werden.</span><button onclick="enablePush()" style="background:var(--green);color:#fff;border:none;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:600;flex-shrink:0;">Aktivieren</button></div>'
+    : '';
+  if(!_messages.length){ el.innerHTML=banner+'<div style="text-align:center;color:var(--text3);padding:44px 20px;font-size:14px;">Keine Nachrichten</div>'; return; }
+  el.innerHTML=banner+_messages.map((m,i)=>{
     const isTask=m.type==='task', done=!!m.doneAt, seen=!!m.seenAt;
     const stripe = done?'#16a34a':seen?'#3b82f6':'#9ca3af';
     const ic = isTask
@@ -2638,6 +2642,32 @@ async function syncMsgQueue(){
   try{ await idbSet(MSG_QUEUE_KEY, failed); }catch(_){}
 }
 
+// ─── GERÄTE-PUSH (FCM) ──────────────────────────────────────────────────────
+const VAPID_KEY = 'BPtN194du7kVks4V4yp_sTI2niqU48kBgP1UEXIYkcFyfNPaTmOM6tYGjisrjtQ4T375Sj5WvTXVsMxbAilp5s8';
+let _fcmOnMsg=false;
+function _pushSupported(){ try{ return !!firebase.messaging && 'serviceWorker' in navigator && 'Notification' in window; }catch(_){ return false; } }
+function _hashStr(s){ let h=0; for(let i=0;i<s.length;i++){ h=(h*31+s.charCodeAt(i))|0; } return 't'+(h>>>0).toString(36); }
+async function _saveFcmToken(token){
+  const did=_driverAuth&&_driverAuth.driverId; if(!did||!token) return;
+  try{ await db.collection('drivers').doc(did).collection('tokens').doc(_hashStr(token)).set({ token, platform:(navigator.platform||''), updatedAt:new Date().toISOString() }, {merge:true}); }catch(e){ console.warn('saveFcmToken', e); }
+}
+// Berechtigung anfragen (per Nutzer-Tipp → iOS-tauglich) + Token speichern. silent=true: nur wenn schon erlaubt.
+async function enablePush(silent){
+  if(!_pushSupported()){ if(!silent) toast('Push wird auf diesem Gerät/Browser nicht unterstützt'); return; }
+  try{
+    let perm=Notification.permission;
+    if(perm!=='granted') perm=await Notification.requestPermission();
+    if(perm!=='granted'){ if(!silent) toast('Benachrichtigungen nicht erlaubt'); if(document.getElementById('postfach-overlay')?.style.display==='flex') renderPostfachList(); return; }
+    const reg=await navigator.serviceWorker.register('/firebase-messaging-sw.js', {scope:'/fcm/'});
+    const token=await firebase.messaging().getToken({ vapidKey:VAPID_KEY, serviceWorkerRegistration:reg });
+    if(!token){ if(!silent) toast('Kein Push-Token erhalten'); return; }
+    await _saveFcmToken(token);
+    if(!_fcmOnMsg){ _fcmOnMsg=true; try{ firebase.messaging().onMessage(p=>{ toast('📩 '+((p.notification&&p.notification.title)||'Neue Nachricht')); }); }catch(_){} }
+    if(!silent) toast('🔔 Benachrichtigungen aktiviert');
+    if(document.getElementById('postfach-overlay')?.style.display==='flex') renderPostfachList();
+  }catch(e){ console.warn('enablePush', e); if(!silent) toast('Aktivierung fehlgeschlagen'); }
+}
+
 // Expose functions used in inline onclick handlers (static + dynamically generated)
 Object.assign(window, {
   selectStatus, closeSheet, saveReport,
@@ -2647,7 +2677,7 @@ Object.assign(window, {
   confirmMarkAllDone, closeBulkSheet,
   toggleFollow, confirmFollowDone,
   setBasemap, toggleBasemapMenu,
-  openPostfach, closePostfach, openMsg, closeMsg, msgMarkSeen, msgMarkDone,
+  openPostfach, closePostfach, openMsg, closeMsg, msgMarkSeen, msgMarkDone, enablePush,
   renderList,
   doLogin, doLogout,
   onLoginProjectChange, onLoginTourChange,
