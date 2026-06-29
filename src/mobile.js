@@ -201,10 +201,10 @@ function setBasemap(variant){
   baseLayer=_buildBase(variant).addTo(map);
   try{ baseLayer.bringToBack(); }catch(_){}
   if(variant==='luftbild' && _wmsBaseCfg){
-    let _terr=false;
-    baseLayer.on('tileerror', ()=>{ if(!_terr){ _terr=true; toast('⚠ Luftbild: Kacheln laden nicht (Server/CRS?)', 6000); } });
-    const _bid=(typeof __BUILD_ID__!=='undefined'?String(__BUILD_ID__):'?').split('-')[0];
-    try{ const u=new URL(_wmsBaseCfg.url); toast('Luftbild ▸ '+u.hostname+' · '+_wmsBaseCfg.layers+' · v'+(_wmsBaseCfg.version||'1.3.0')+' · build '+_bid, 7000); }catch(_){ toast('Luftbild ▸ '+_wmsBaseCfg.layers+' · build '+_bid, 7000); }
+    let _tl=0,_te=0,_first='';
+    baseLayer.on('tileload',()=>{ _tl++; });
+    baseLayer.on('tileerror',(e)=>{ _te++; if(!_first){ try{ _first=e&&e.tile&&e.tile.src||''; }catch(_){} } });
+    setTimeout(()=>{ toast('Luftbild: '+_tl+' geladen · '+_te+' Fehler'+(_te&&_first?(' · '+_first.slice(0,60)):''), 9000); }, 4500);
   }
   _basemapVariant=variant;
   try{ localStorage.setItem('bwt_mobile_basemap', variant); }catch(_){}
