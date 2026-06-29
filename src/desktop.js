@@ -5088,6 +5088,11 @@ function renderNachrichten(){
   const list = msgs.length ? msgs.map(m=>{
     const isTask=m.type==='task', exp=_nmExpanded===m.id, id=dlEsc(m.id), armed=_nmDelArm===m.id;
     const aud = m.audience?.kind==='tour'?'Tour':m.audience?.kind==='toursOfDay'?'Fällige Touren':m.audience?.kind==='drivers'?'Einzelne':'Alle';
+    const total=m.recipientCount||0, cs=(m.counts&&m.counts.seen)||0, cd=(m.counts&&m.counts.done)||0;
+    const allSeen=total>0&&cs>=total, allDone=total>0&&cd>=total;
+    const statusPills = (isTask
+      ? _nmPill(cs+'/'+total+' gesehen', allSeen?'#dbeafe':'#f3f4f6', allSeen?'#1e40af':'#6b7280')+_nmPill(cd+'/'+total+' erledigt', allDone?'#dcfce7':'#f3f4f6', allDone?'#166534':'#6b7280')
+      : _nmPill(cs+'/'+total+' gesehen', allSeen?'#dbeafe':'#f3f4f6', allSeen?'#1e40af':'#6b7280'));
     const actions = isAdmin ? `<div style="border-top:1px solid var(--border);padding:7px 12px;display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap;">`
       + (armed
           ? `<span style="font-size:12px;color:#991b1b;margin-right:auto;">Endgültig löschen? Zum Bestätigen „LÖSCHEN" eintippen.</span>
@@ -5102,7 +5107,8 @@ function renderNachrichten(){
     return `<div style="border:1px solid var(--border);border-radius:10px;margin-bottom:8px;background:var(--surface);${m.status==='archived'?'opacity:.65;':''}">
       <div onclick="nmToggle('${id}')" style="padding:11px 14px;cursor:pointer;display:flex;align-items:center;gap:10px;">
         <span style="font-size:11px;font-weight:600;color:${isTask?'#16a34a':'var(--text3)'};border:1px solid var(--border);border-radius:20px;padding:2px 8px;">${isTask?'Aufgabe':'Info'}</span>
-        <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14px;">${dlEsc(m.title||'(ohne Titel)')}</div><div style="font-size:11px;color:var(--text3);">${_nmTime(m.sentAt||m.createdAt)} · ${aud} · ${m.recipientCount||0} Empfänger${m.status==='archived'?' · archiviert':''}</div></div>
+        <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14px;">${dlEsc(m.title||'(ohne Titel)')}</div><div style="font-size:11px;color:var(--text3);">${_nmTime(m.sentAt||m.createdAt)} · ${aud} · ${total} Empfänger${m.status==='archived'?' · archiviert':''}</div></div>
+        <div style="display:flex;gap:4px;flex-shrink:0;">${statusPills}</div>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="transform:rotate(${exp?180:0}deg);"><path d="M6 9l6 6 6-6"/></svg>
       </div>
       ${exp?`<div id="nm-agg-${id}" style="border-top:1px solid var(--border);padding:10px 14px;">Lade Status…</div>`:''}
@@ -5165,7 +5171,7 @@ async function nmSend(){
   const link = linkOn ? (_nmAudience==='tour'?{projectId:currentProjectId,tourId:_nmTourId}:{projectId:currentProjectId}) : {};
   const msgRef=db.collection('messages').doc();
   const msgData={ orgId:org, type:_nmType, title, body:text, createdBy:uid, createdByName:currentName||'', createdAt:now, sentAt:now,
-    audience:{kind:_nmAudience, tourId:_nmAudience==='tour'?_nmTourId:null}, link, status:'sent', recipientCount:recips.length };
+    audience:{kind:_nmAudience, tourId:_nmAudience==='tour'?_nmTourId:null}, link, status:'sent', recipientCount:recips.length, counts:{seen:0,done:0} };
   try{
     let batch=db.batch(); batch.set(msgRef,msgData); let n=1;
     for(const d of recips){

@@ -1,9 +1,26 @@
 // Geräte-Push (FCM) beim Anlegen einer Postfach-Empfangsquittung.
 // Trigger je recipient-Doc (deckt auch gechunkte Batches ab). admin ist via index.js/auth.js initialisiert.
-const { onDocumentCreated } = require('firebase-functions/v2/firestore');
+const { onDocumentCreated, onDocumentUpdated } = require('firebase-functions/v2/firestore');
 const admin = require('firebase-admin');
 
 const REGION = 'europe-west3';
+
+// Denormalisierte Zähler am Nachrichten-Doc fortschreiben, sobald ein Fahrer „gesehen"/„erledigt"
+// setzt — damit der Desktop-Verlauf den Status OHNE Aufklappen/Extra-Reads anzeigen kann.
+exports.onMessageRecipientUpdated = onDocumentUpdated(
+  { region: REGION, document: 'messages/{msgId}/recipients/{driverId}', maxInstances: 10 },
+  async (event) => {
+    if (!event.data) return;
+    const before = event.data.before.data() || {};
+    const after = event.data.after.data() || {};
+    const inc = {};
+    if (!before.seenAt && after.seenAt) inc['counts.seen'] = admin.firestore.FieldValue.increment(1);
+    if (!before.doneAt && after.doneAt) inc['counts.done'] = admin.firestore.FieldValue.increment(1);
+    if (Object.keys(inc).length === 0) return;
+    try { await admin.firestore().collection('messages').doc(event.params.msgId).update(inc); }
+    catch (e) { console.error('counts-Update', e); }
+  }
+);
 
 exports.onMessageRecipientCreated = onDocumentCreated(
   { region: REGION, document: 'messages/{msgId}/recipients/{driverId}', maxInstances: 10 },
