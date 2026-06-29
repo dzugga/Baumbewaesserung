@@ -40,7 +40,8 @@ export const SI_STACK = [
     { name: 'Cloud Firestore', zweck: 'Echtzeit-Datenbank für alle Projekt- und Bewegungsdaten', versionKey: 'firebase' },
     { name: 'Firebase Authentication', zweck: 'Anmeldung per Custom Token nach Name + PIN' },
     { name: 'Cloud Storage', zweck: 'Fotos und Dokumente an Objekten' },
-    { name: 'Cloud Functions (Node 22)', zweck: 'Geschützte Server-Funktionen (Anmeldung, Benutzerverwaltung, Mandanten, KI)' },
+    { name: 'Cloud Functions (Node 22)', zweck: 'Geschützte Server-Funktionen (Anmeldung, Benutzerverwaltung, Mandanten, KI, Push-Versand)' },
+    { name: 'Firebase Cloud Messaging (FCM)', zweck: 'Geräte-Benachrichtigungen für Nachrichten an Fahrer (pro Mandant aktivierbar); Token gerätegebunden' },
     { name: 'Firebase Hosting', zweck: 'Auslieferung aller Apps über HTTPS' },
   ]},
   { gruppe: 'Externe Dienste', items: [
