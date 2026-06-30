@@ -16,6 +16,10 @@ export const APP_CHECK_SITE_KEY = "6Le_3RktAAAAALLHmpGKCKiqj8s0JPdQJYDUcfG6"; //
 export function initAppCheck() {
   try {
     if (APP_CHECK_SITE_KEY && typeof firebase !== 'undefined' && firebase.appCheck) {
+      // Nur auf localhost: Debug-Token erzeugen, damit Dev/CI nach dem "Erzwingen" nicht ausgesperrt
+      // werden. Der einmalig in der Browser-Konsole geloggte Token muss in der Firebase-Konsole unter
+      // App Check → Apps → „Debug-Tokens verwalten" registriert werden. In Produktion passiert das NICHT.
+      try { if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') self.FIREBASE_APPCHECK_DEBUG_TOKEN = true; } catch (_) {}
       firebase.appCheck().activate(APP_CHECK_SITE_KEY, /* autoRefresh */ true);
     }
   } catch (e) {
