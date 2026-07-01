@@ -6652,10 +6652,68 @@ function renderBaeumeTableWith(treeList){
 let _tourenSearch='';
 function filterTourenGrid(q){ _tourenSearch=q||''; renderTourenGrid(); }
 
+// ── Tour-Plausibilität (F): sind die Touren fahrbar, aktuell, gut geschnitten? ──
+function _tourChecks(){
+  const real=tours.filter(t=>!t.uebersicht && !isOverviewTour(t.id));
+  const rp=getRoutePlanningEnabled();
+  const leer=[],ohneFahrer=[],ohneRoute=[],veraltet=[],ueberbucht=[],regel=[],ausreisser=[];
+  real.forEach(t=>{
+    const members=trees.filter(x=>isActive(x)&&treeInTour(x,t.id));
+    if(members.length===0){ leer.push(t); return; }        // leere Tour → restliche Checks überspringen
+    const drivers=(t.drivers||(t.assignedDriver?[t.assignedDriver]:[])).filter(Boolean);
+    if(!drivers.length) ohneFahrer.push(t);
+    const rt=tourRoutes[t.id];
+    const hasRoute=!!rt||typeof t.routeKm==='number';
+    if(rp){
+      if(!hasRoute) ohneRoute.push(t);
+      else if(rt&&Array.isArray(rt.orderIds)){                // veraltet: Route-Menge ≠ aktuelle Mitglieder
+        const setO=new Set(rt.orderIds), setM=new Set(members.map(m=>m.id));
+        let diff=setO.size!==setM.size; if(!diff){ for(const id of setM){ if(!setO.has(id)){ diff=true; break; } } }
+        if(diff) veraltet.push(t);
+      }
+    }
+    const driveVal=rt?rt.durationSec:(typeof t.routeDriveSec==='number'?t.routeDriveSec:null);
+    const rz=tourRestzeit(t,members,driveVal);
+    if(rz&&rz.restMin<0) ueberbucht.push(t);
+    if(tourViolatingTrees(t).length) regel.push(t);
+    const pts=members.filter(m=>m.lat&&m.lng);
+    if(pts.length>=4){                                       // Ausreißer: weit vom Tour-Schwerpunkt
+      const cy=pts.reduce((a,m)=>a+m.lat,0)/pts.length, cx=pts.reduce((a,m)=>a+m.lng,0)/pts.length;
+      const d=pts.map(m=>haversine(m.lat,m.lng,cy,cx));
+      const mean=d.reduce((a,b)=>a+b,0)/d.length;
+      if(d.some(x=>x>Math.max(1.5,mean*3))) ausreisser.push(t);
+    }
+  });
+  return {leer,ohneFahrer,ohneRoute,veraltet,ueberbucht,regel,ausreisser};
+}
+function renderTourKontrolle(){
+  const el=document.getElementById('tour-kontrolle'); if(!el) return;
+  const c=_tourChecks();
+  const cats=[
+    {label:'Leere Tour',            items:c.leer,      act:'öffnen',        fn:t=>`openTourModal('${t.id}')`},
+    {label:'Ohne Fahrer',           items:c.ohneFahrer,act:'Fahrer zuweisen',fn:t=>`openTourModal('${t.id}')`},
+    {label:'Ohne Route',            items:c.ohneRoute, act:'Route berechnen',fn:t=>`calculateAndSaveRoute('${t.id}')`},
+    {label:'Route veraltet',        items:c.veraltet,  act:'neu berechnen', fn:t=>`calculateAndSaveRoute('${t.id}')`},
+    {label:'Überbucht (Restzeit < 0)',items:c.ueberbucht,act:'öffnen',      fn:t=>`openTourModal('${t.id}')`},
+    {label:'Regelverstöße',         items:c.regel,     act:'anzeigen',      fn:t=>`showTourViolations('${t.id}')`},
+    {label:'Ausreißer-Objekt (weit weg)',items:c.ausreisser,act:'auf Karte',fn:t=>`focusTourAndSwitch('${t.id}')`},
+  ].filter(k=>k.items.length);
+  const total=cats.reduce((a,k)=>a+k.items.length,0);
+  if(!cats.length){ el.innerHTML=`<div style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--green);padding:2px 0 12px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6 9 17l-5-5"/></svg>Tour-Kontrolle: alle Touren plausibel.</div>`; return; }
+  el.innerHTML=`<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:10px;padding:10px 14px;margin-bottom:14px;">
+    <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:6px;">⚠ Tour-Kontrolle — ${total} Auffälligkeit(en)</div>
+    ${cats.map(k=>`<div style="display:flex;align-items:baseline;gap:8px;padding:5px 0;flex-wrap:wrap;border-top:1px solid #f8d377;">
+      <span style="font-size:12px;font-weight:600;color:#92400e;min-width:170px;flex:none;">${dlEsc(k.label)} · ${k.items.length}</span>
+      <span style="display:flex;gap:5px;flex-wrap:wrap;">${k.items.slice(0,40).map(t=>`<button onclick="${k.fn(t)}" title="${dlEsc(k.act)}" style="font-size:11px;border:1px solid #f59e0b;background:#fff;color:#92400e;border-radius:5px;padding:1px 7px;cursor:pointer;font-family:inherit;white-space:nowrap;">${dlEsc(t.name||'Tour')} ›</button>`).join('')}${k.items.length>40?`<span style="font-size:11px;color:#92400e;align-self:center;">+${k.items.length-40}</span>`:''}</span>
+    </div>`).join('')}
+  </div>`;
+}
+
 function renderTourenGrid(){
   const grid=document.getElementById('touren-grid');
   const countEl=document.getElementById('touren-count');
   if(!grid)return;
+  renderTourKontrolle();
   const genBtn=document.getElementById('btn-flaechen-tourgen');
   if(genBtn) genBtn.style.display=((currentRole==='superadmin'||currentCap==='admin') && _geomActive() && trees.some(t=>geomTypeOf(t)==='flaeche'&&(t.fahrzeug||'').trim()))?'':'none';
 
