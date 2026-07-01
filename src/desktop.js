@@ -6116,6 +6116,14 @@ async function rankSetZahl(fieldKey,id,val){
   if(v===''||isNaN(n)) delete e.zahl; else e.zahl=n;
   await saveListValues(); _afterRankChange();
 }
+// Zweite Zahl je Wert: Winter-Häufigkeit (leer = Rückfall auf Sommer/Standard-Zahl)
+async function rankSetZahlWinter(fieldKey,id,val){
+  if(isReadonly()) return; _materializeRank(fieldKey);
+  const e=listValues[fieldKey].find(x=>x.id===id); if(!e) return;
+  const v=String(val??'').trim().replace(',','.'); const n=parseFloat(v);
+  if(v===''||isNaN(n)) delete e.zahlWinter; else e.zahlWinter=n;
+  await saveListValues(); _afterRankChange();
+}
 async function rankMove(fieldKey,id,dir){
   if(isReadonly()) return; _materializeRank(fieldKey);
   const arr=[...listValues[fieldKey]].sort((a,b)=>(a.rang||0)-(b.rang||0));
@@ -6160,7 +6168,8 @@ function _rankFieldCard(fieldKey,title){
       </td>
       <td style="padding:6px 8px;"><input type="color" value="${e.farbe||'#9ca3af'}" ${ro?'disabled':''} onchange="rankSetColor('${fieldKey}','${e.id}',this.value)" style="width:34px;height:24px;border:1px solid var(--border);border-radius:5px;padding:0;background:none;cursor:${ro?'default':'pointer'};"></td>
       <td style="padding:6px 12px;"><span style="display:inline-block;padding:2px 9px;border-radius:6px;background:${e.farbe||'#9ca3af'}22;color:${e.farbe||'#777'};font-size:12px;font-weight:600;">${dlEsc(e.label)}</span></td>
-      <td style="padding:6px 8px;text-align:right;">${ro?(e.zahl??'<span style="color:var(--text3);">–</span>'):`<input type="number" step="0.5" value="${e.zahl??''}" onchange="rankSetZahl('${fieldKey}','${e.id}',this.value)" style="width:58px;padding:3px 6px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;" title="Zahlenwert für Auswertung/Soll-Ist (z. B. wöchentlich = 1, 2× wöchentlich = 2)">`}</td>
+      <td style="padding:6px 8px;text-align:right;">${ro?(e.zahl??'<span style="color:var(--text3);">–</span>'):`<input type="number" step="0.5" value="${e.zahl??''}" onchange="rankSetZahl('${fieldKey}','${e.id}',this.value)" style="width:58px;padding:3px 6px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;" title="Häufigkeit im Sommer (×/Woche) — Grundlage Soll-Ist">`}</td>
+      <td style="padding:6px 8px;text-align:right;">${ro?(e.zahlWinter??'<span style="color:var(--text3);">–</span>'):`<input type="number" step="0.5" value="${e.zahlWinter??''}" onchange="rankSetZahlWinter('${fieldKey}','${e.id}',this.value)" placeholder="=Sommer" style="width:64px;padding:3px 6px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;" title="Häufigkeit im Winter (×/Woche). Leer = wie Sommer. 0 = im Winter nicht fällig.">`}</td>
       <td style="padding:6px 12px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text2);">${c}</td>
       <td style="padding:6px 12px;white-space:nowrap;text-align:right;">${ro?'':`
         <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" onclick="rankRename('${fieldKey}','${e.id}')">Umbenennen</button>
@@ -6170,9 +6179,9 @@ function _rankFieldCard(fieldKey,title){
   }).join('');
   return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;"><div style="font-size:14px;font-weight:700;">${dlEsc(title)}</div><span style="font-size:11px;color:var(--text3);background:var(--surface2);padding:2px 7px;border-radius:5px;">Geordnete Liste · ${vals.length}</span></div>
-    <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">Mit ▲▼ die Reihenfolge (Rang) festlegen — bestimmt Sortierung und Auswertung. Die Farbe färbt die Anzeige in Tabelle und Detail. Spalte „Zahl": optionaler Zahlenwert je Eintrag (z. B. wöchentlich = 1) — Grundlage für spätere Soll-Ist-Kontrolle.</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">Mit ▲▼ die Reihenfolge (Rang) festlegen — bestimmt Sortierung und Auswertung. Die Farbe färbt die Anzeige in Tabelle und Detail. Spalten „Sommer"/„Winter": Häufigkeit je Woche (×) für den Soll-Ist-Abgleich (z. B. Sommer 2, Winter 1). Winter leer = wie Sommer; Winter 0 = im Winter nicht fällig. Sommer/Winter-Zeitraum unter Einstellungen.</div>
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
-      <thead><tr style="background:var(--surface2);"><th style="padding:6px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Rang</th><th style="padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Farbe</th><th style="padding:6px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Wert</th><th style="padding:6px 8px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);" title="Zahlenwert für Auswertung/Soll-Ist (z. B. wöchentlich = 1)">Zahl</th><th style="padding:6px 12px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Häufigkeit</th><th></th></tr></thead>
+      <thead><tr style="background:var(--surface2);"><th style="padding:6px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Rang</th><th style="padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Farbe</th><th style="padding:6px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Wert</th><th style="padding:6px 8px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);" title="Häufigkeit im Sommer (×/Woche)">Sommer</th><th style="padding:6px 8px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);" title="Häufigkeit im Winter (×/Woche); leer = wie Sommer">Winter</th><th style="padding:6px 12px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Häufigkeit</th><th></th></tr></thead>
       <tbody>${rows}</tbody></table>
     ${ro?'':`<div style="display:flex;gap:6px;margin-top:8px;"><input id="lv-new-${fieldKey}" class="form-control" placeholder="Neuer Wert…" style="flex:1;padding:6px 10px;font-size:13px;" onkeydown="if(event.key==='Enter')rankAdd('${fieldKey}')"><button class="btn btn-primary" style="padding:6px 12px;font-size:12px;white-space:nowrap;" onclick="rankAdd('${fieldKey}')">+ Hinzufügen</button></div>`}
   </div>`;
@@ -8490,12 +8499,15 @@ function _objTypBucket(tree){
 }
 // „Zahl" eines gespeicherten Listenwerts holen — robust gegen ID- ODER Label-Speicherung
 // (Rang-Felder speichern die ID, einfache Custom-Felder das Label).
-function _zahlFor(fieldKey, stored){
+function _zahlFor(fieldKey, stored, saison){
   if(stored==null||stored==='') return null;
   const list=rankList(fieldKey);
   const e=list.find(x=>x.id===stored) || list.find(x=>x.label===String(stored).trim());
-  if(e && e.zahl!=null && e.zahl!==''){ const n=parseFloat(e.zahl); return n>0?n:null; }
-  return null;
+  if(!e) return null;
+  // Winter nutzt zahlWinter, wenn gepflegt (auch 0 = im Winter nicht fällig); sonst Rückfall auf Sommer-Zahl
+  let raw = (saison==='winter' && e.zahlWinter!=null && e.zahlWinter!=='') ? e.zahlWinter : e.zahl;
+  if(raw==null||raw==='') return null;
+  const n=parseFloat(raw); return n>0?n:null;
 }
 // Kandidaten für das Soll-Feld: Listenfelder, deren Werte eine „Zahl" tragen
 function _sollCandidateFields(){
@@ -8514,7 +8526,7 @@ async function setSollFeld(key){
 function sollFreqProWoche(tree, saison){
   if(!tree || _isContainer(tree)) return null;
   const sf=currentProjectData&&currentProjectData.sollFeld;
-  if(sf) return _zahlFor(sf, tree[sf]);   // EIN projektweit designiertes Feld — für alle Objekttypen
+  if(sf) return _zahlFor(sf, tree[sf], saison);   // EIN projektweit designiertes Feld — für alle Objekttypen
   if(_objTypBucket(tree)==='flaeche'){
     const s=parseFloat(tree.haeufigkeitS), w=parseFloat(tree.haeufigkeitW);
     const v = saison==='winter' ? w : s;
@@ -8581,7 +8593,7 @@ function renderSollDatenlage(){
     : '';
   const sf=_sollFeldLabel();
   const srcBanner = sf
-    ? `<div style="font-size:12px;color:var(--text2);margin-bottom:10px;">Soll-Quelle: Feld <b>${dlEsc(sf)}</b> (die „Zahl" des gewählten Werts = ×/Woche) — projektweit für alle Objekttypen.</div>`
+    ? `<div style="font-size:12px;color:var(--text2);margin-bottom:10px;">Soll-Quelle: Feld <b>${dlEsc(sf)}</b> — Häufigkeit (×/Woche) je Wert, saisonabhängig (aktuell <b>${saison==='winter'?'Winter':'Sommer'}</b>). Projektweit für alle Objekttypen.</div>`
     : `<div style="font-size:12px;color:#92400e;background:#fef3c7;border-radius:8px;padding:8px 12px;margin-bottom:10px;">Kein Soll-Feld festgelegt. Unter Verwaltung → Felder &amp; Listen ein Feld als „Soll-Häufigkeit" wählen. Solange greift die typweise Ersatzlogik (Häufigkeit / Reinigungsklasse / Sommer-Winter).</div>`;
   el.innerHTML=srcBanner+kpi+legend+rows+warn;
 }
@@ -12175,7 +12187,7 @@ Object.assign(window,{
   nmSetType,nmSetAudience,nmToggleSel,nmToggle,_nmSetTour,nmSend,nmArchive,
   nmUnarchive,nmToggleArchived,nmDelArm,nmDelCancel,nmDeleteDo,setPushEnabled,
   renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,_fillMerge,cfGeomToggle,
-  rankAdd,rankRename,rankSetColor,rankSetZahl,rankMove,rankMerge,rankDelete,
+  rankAdd,rankRename,rankSetColor,rankSetZahl,rankSetZahlWinter,rankMove,rankMerge,rankDelete,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,clearLassoSelection,
