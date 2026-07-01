@@ -2288,7 +2288,7 @@ function renderDrawnGeoms(){
           const layer=L.polyline(ll,_opt(_vst));
           layer.on('click',()=>{ if(assignMode&&!lassoDrawing){ toggleLassoSelect(s.id); _applyFlaechenSelection(); } else if(!assignMode) selectTree(s.id,false); });
           layer.on('contextmenu',e=>{ L.DomEvent.stopPropagation(e); try{ e.originalEvent&&e.originalEvent.preventDefault(); }catch(_){} showTreeTourContextMenu(s, e); });
-          layer.bindTooltip((t.name||'Abschnitt')+' · '+_elemLabel(s),{sticky:true});
+          layer.bindTooltip(dlEsc((t.name||'Abschnitt')+' · '+_elemLabel(s)),{sticky:true});
           layer.addTo(_drawnLayer); _drawnById[s.id]=layer;
           _placeNum(getRouteNum(s.id), ll[Math.floor(ll.length/2)], _flTourColorFor(s));
         });
@@ -2307,7 +2307,7 @@ function renderDrawnGeoms(){
       } else if(!assignMode){ if(_isContainer(t)) openAbschnitt(t.id); else selectTree(t.id,false); }
     });
     layer.on('contextmenu',e=>{ L.DomEvent.stopPropagation(e); try{ e.originalEvent&&e.originalEvent.preventDefault(); }catch(_){} showTreeTourContextMenu(t, e); }); // Rechtsklick → nur Objekt-Menü (Frei-Menü unterdrückt)
-    layer.bindTooltip((t.name||(t.geomType==='linie'?'Strecke':'Fläche'))+(t.menge?' · '+(t.einheit==='m'?_fmtLen(t.menge):_fmtArea(t.menge)):''),{sticky:true});
+    layer.bindTooltip(dlEsc((t.name||(t.geomType==='linie'?'Strecke':'Fläche'))+(t.menge?' · '+(t.einheit==='m'?_fmtLen(t.menge):_fmtArea(t.menge)):'')),{sticky:true});
     layer.addTo(_drawnLayer); _drawnById[t.id]=layer;
     // Reihenfolge-Nummer (nur bei aktiver Route): Abschnitt = kleinste Nummer seiner Seiten, sonst eigene
     const num=_isContainer(t)?_containerRouteNum(t):getRouteNum(t.id);
@@ -2414,7 +2414,7 @@ async function renderFlaechen(){
         const _t=()=>trees.find(x=>x.extId===ext);
         layer.on('click',()=>{ const t=_t(); if(t) selectTree(t.id,false); });
         layer.on('contextmenu',e=>{ L.DomEvent.stopPropagation(e); try{ e.originalEvent&&e.originalEvent.preventDefault(); }catch(_){} const t=_t(); if(t) showTreeTourContextMenu(t, e); });
-        layer.bindTooltip(()=>{ const t=_t(); return t?((t.name||'Fläche')+(t.menge?' · '+t.menge+' m²':'')):'Fläche'; },{sticky:true});
+        layer.bindTooltip(()=>{ const t=_t(); return dlEsc(t?((t.name||'Fläche')+(t.menge?' · '+t.menge+' m²':'')):'Fläche'); },{sticky:true});
       }
     }).addTo(map);
     _flaechenLayerKey=key;
