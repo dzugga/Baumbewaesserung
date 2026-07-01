@@ -8622,7 +8622,20 @@ function _seasonDayCounts(from,to){
   return {s,w};
 }
 const _siState={period:'month',from:'',to:'',gebiet:'',typ:'',q:'',planStatus:'',istStatus:'',aggDim:'gebiet'};
-function siSet(field,val){ _siState[field]=val; if(field==='period'){ const cf=document.getElementById('si-custom'); if(cf) cf.style.display=(val==='custom')?'flex':'none'; } renderSollIstView(); }
+function siSet(field,val){
+  _siState[field]=val;
+  if(field==='period'){
+    const cf=document.getElementById('si-custom'); if(cf) cf.style.display=(val==='custom')?'flex':'none';
+    if(val==='custom'){   // Datumsfelder sinnvoll vorbelegen (letzte 30 Tage), falls leer
+      const day=d=>d.toISOString().slice(0,10), today=new Date();
+      if(!_siState.from){ const f=new Date(today); f.setDate(f.getDate()-29); _siState.from=day(f); }
+      if(!_siState.to) _siState.to=day(today);
+      const fi=document.getElementById('si-from'), ti=document.getElementById('si-to');
+      if(fi) fi.value=_siState.from; if(ti) ti.value=_siState.to;
+    }
+  }
+  renderSollIstView();
+}
 function siSearch(v){ _siState.q=v||''; renderSollIstView(); }
 // KPI-Schnellfilter (Karte anklicken → toggelt den Status-Filter)
 function siQuickFilter(field,val){
@@ -8672,6 +8685,8 @@ function initSollIstView(){
   const psSel=document.getElementById('si-planstatus'); if(psSel) psSel.value=_siState.planStatus;
   const isSel=document.getElementById('si-iststatus'); if(isSel) isSel.value=_siState.istStatus;
   const cf=document.getElementById('si-custom'); if(cf) cf.style.display=(_siState.period==='custom')?'flex':'none';
+  const fi=document.getElementById('si-from'); if(fi) fi.value=_siState.from||'';
+  const ti=document.getElementById('si-to'); if(ti) ti.value=_siState.to||'';
   renderSollIstView();
 }
 function renderSollIstView(){
