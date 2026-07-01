@@ -8621,9 +8621,16 @@ function _seasonDayCounts(from,to){
   }
   return {s,w};
 }
-const _siState={period:'month',from:'',to:'',gebiet:'',typ:'',q:'',aggDim:'gebiet'};
+const _siState={period:'month',from:'',to:'',gebiet:'',typ:'',q:'',planStatus:'',istStatus:'',aggDim:'gebiet'};
 function siSet(field,val){ _siState[field]=val; if(field==='period'){ const cf=document.getElementById('si-custom'); if(cf) cf.style.display=(val==='custom')?'flex':'none'; } renderSollIstView(); }
 function siSearch(v){ _siState.q=v||''; renderSollIstView(); }
+// KPI-Schnellfilter (Karte anklicken → toggelt den Status-Filter)
+function siQuickFilter(field,val){
+  _siState[field]=(_siState[field]===val?'':val);
+  const sel=document.getElementById(field==='planStatus'?'si-planstatus':'si-iststatus'); if(sel) sel.value=_siState[field];
+  renderSollIstView();
+}
+function _siApplyStatus(list){ return list.filter(r=>(!_siState.planStatus||r.planStatus===_siState.planStatus)&&(!_siState.istStatus||r.istStatus===_siState.istStatus)); }
 function _siObjName(t){ const c=t.containerExtId?_containerOf(t):null; return c?((c.name||'–')+' · '+_elemLabel(t)):(t.name||'–'); }
 function _siBaseList(){
   const q=(_siState.q||'').trim().toLowerCase();
@@ -8662,6 +8669,8 @@ function initSollIstView(){
   const gSel=document.getElementById('si-gebiet'); if(gSel) gSel.innerHTML=`<option value="">Alle ${dlEsc(FL.stadtteil)}</option>`+geb.map(g=>`<option value="${dlEsc(g)}"${_siState.gebiet===g?' selected':''}>${dlEsc(g)}</option>`).join('');
   const pSel=document.getElementById('si-period'); if(pSel) pSel.value=_siState.period;
   const tSel=document.getElementById('si-typ'); if(tSel) tSel.value=_siState.typ;
+  const psSel=document.getElementById('si-planstatus'); if(psSel) psSel.value=_siState.planStatus;
+  const isSel=document.getElementById('si-iststatus'); if(isSel) isSel.value=_siState.istStatus;
   const cf=document.getElementById('si-custom'); if(cf) cf.style.display=(_siState.period==='custom')?'flex':'none';
   renderSollIstView();
 }
@@ -8677,11 +8686,22 @@ function renderSollIstView(){
   const sumIst=istEval.reduce((a,r)=>a+r.istN,0), sumSoll=istEval.reduce((a,r)=>a+r.sollP,0);
   const istPct=sumSoll>0?Math.round(sumIst/sumSoll*100):0, unterIst=istEval.filter(r=>r.istStatus==='unter').length;
   const kpiEl=document.getElementById('si-kpis');
-  if(kpiEl) kpiEl.innerHTML=[['Objekte mit Soll',withSoll.length.toLocaleString('de-DE'),'var(--text)'],['Plan erfüllt',planPct+' %','var(--green)'],['Ø Ist-Erfüllung',istPct+' %','var(--text)'],['unterplant',unterplant.toLocaleString('de-DE'),'var(--amber)'],['unter Ist',unterIst.toLocaleString('de-DE'),'var(--red)']]
-    .map(k=>`<div style="background:var(--surface2);border-radius:8px;padding:9px 11px;"><div style="font-size:11px;color:var(--text3);">${k[0]}</div><div style="font-size:19px;font-weight:700;color:${k[2]};">${k[1]}</div></div>`).join('');
+  const kpiDefs=[
+    {l:'Objekte mit Soll',v:withSoll.length.toLocaleString('de-DE'),c:'var(--text)'},
+    {l:'Plan erfüllt',v:planPct+' %',c:'var(--green)'},
+    {l:'Ø Ist-Erfüllung',v:istPct+' %',c:'var(--text)'},
+    {l:'unterplant',v:unterplant.toLocaleString('de-DE'),c:'var(--amber)',qf:['planStatus','unter']},
+    {l:'unter Ist',v:unterIst.toLocaleString('de-DE'),c:'var(--red)',qf:['istStatus','unter']},
+  ];
+  if(kpiEl) kpiEl.innerHTML=kpiDefs.map(k=>{
+    const active=k.qf && _siState[k.qf[0]]===k.qf[1];
+    return `<div ${k.qf?`onclick="siQuickFilter('${k.qf[0]}','${k.qf[1]}')" title="Auf ${k.l} filtern" style="cursor:pointer;`:'style="'}background:var(--surface2);border-radius:8px;padding:9px 11px;${active?`box-shadow:inset 0 0 0 2px ${k.c};`:''}"><div style="font-size:11px;color:var(--text3);">${k.l}${active?' ✓':''}</div><div style="font-size:19px;font-weight:700;color:${k.c};">${k.v}</div></div>`;
+  }).join('');
   const chip=(s,type)=>{ if(!s) return '<span style="color:var(--text3);">–</span>'; const c=(type==='plan'?{ok:'var(--green)',unter:'var(--amber)',ueber:'var(--blue)'}:{ok:'var(--green)',unter:'var(--red)',ueber:'var(--blue)'})[s]; const lbl={ok:'ok',unter:'unter',ueber:'über'}[s]; return `<span style="display:inline-block;padding:1px 7px;border-radius:6px;font-size:11px;font-weight:600;background:${c}22;color:${c};">${lbl}</span>`; };
-  const sorted=[...withSoll].sort((a,b)=>{ const ga=a.grad==null?9:a.grad, gb=b.grad==null?9:b.grad; if(ga!==gb) return ga-gb; return (a.planStatus==='unter'?0:1)-(b.planStatus==='unter'?0:1); });
+  const tableSet=_siApplyStatus(withSoll);
+  const sorted=[...tableSet].sort((a,b)=>{ const ga=a.grad==null?9:a.grad, gb=b.grad==null?9:b.grad; if(ga!==gb) return ga-gb; return (a.planStatus==='unter'?0:1)-(b.planStatus==='unter'?0:1); });
   const cap=600, shown=sorted.slice(0,cap);
+  const statusActive=_siState.planStatus||_siState.istStatus;
   const trows=shown.map(r=>`<tr data-treeid="${r.t.id}" style="border-top:1px solid var(--border);cursor:pointer;" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''">
     <td style="padding:7px 10px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${dlEsc(r.name)}">${dlEsc(r.name)}</td>
     <td style="padding:7px 10px;color:var(--text2);white-space:nowrap;">${dlEsc(r.gebiet)}</td>
@@ -8692,7 +8712,7 @@ function renderSollIstView(){
   </tr>`).join('');
   const tableEl=document.getElementById('si-table');
   if(tableEl){
-    tableEl.innerHTML=`<div style="font-size:12px;color:var(--text3);margin:2px 0 6px;">${withSoll.length.toLocaleString('de-DE')} Objekte mit Soll${kein?` · ${kein.toLocaleString('de-DE')} ohne Soll (nicht gelistet)`:''}${shown.length<sorted.length?` · Anzeige auf ${cap} begrenzt`:''} — Zeitraum ${nS+nW} Tage (${nS} Sommer/${nW} Winter). Klick → Karte.</div>
+    tableEl.innerHTML=`<div style="font-size:12px;color:var(--text3);margin:2px 0 6px;">${statusActive?`${sorted.length.toLocaleString('de-DE')} von ${withSoll.length.toLocaleString('de-DE')} (Status-Filter aktiv)`:`${withSoll.length.toLocaleString('de-DE')} Objekte mit Soll`}${kein?` · ${kein.toLocaleString('de-DE')} ohne Soll`:''}${shown.length<sorted.length?` · Anzeige auf ${cap} begrenzt`:''} — Zeitraum ${nS+nW} Tage (${nS} Sommer/${nW} Winter). Klick → Karte.</div>
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead><tr style="background:var(--surface2);">${['Objekt',FL.stadtteil,'Typ','Soll/Wo','Plan (Touren)','Ist / Soll'].map((h,i)=>`<th style="padding:7px 10px;text-align:${i>=3?'right':'left'};font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);white-space:nowrap;">${dlEsc(h)}</th>`).join('')}</tr></thead>
         <tbody>${trows||`<tr><td colspan="6" style="padding:16px;color:var(--text3);">Keine Objekte mit Soll im Filter.</td></tr>`}</tbody>
@@ -8720,8 +8740,8 @@ function renderSollIstView(){
   renderSollDatenlage('si-datenlage', _siBaseList(), refSaison);
 }
 function siExportCsv(){
-  const {rows}=_siCompute(); const withSoll=rows.filter(r=>r.hasSoll);
-  if(!withSoll.length){ notify('Keine Objekte mit Soll zum Export'); return; }
+  const {rows}=_siCompute(); const withSoll=_siApplyStatus(rows.filter(r=>r.hasSoll));
+  if(!withSoll.length){ notify('Keine Objekte im aktuellen Filter zum Export'); return; }
   const TL={punkt:'Punkt',seite:'Seite',flaeche:'Fläche',strecke:'Strecke'};
   const cell=v=>{ const s=''+(v==null?'':v); return /[";\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
   const line=a=>a.map(cell).join(';');
@@ -12323,7 +12343,7 @@ Object.assign(window,{
   renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,_fillMerge,cfGeomToggle,
   rankAdd,rankRename,rankSetColor,rankSetZahl,rankSetZahlWinter,rankMove,rankMerge,rankDelete,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
-  openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
+  openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,clearLassoSelection,
   createProject,openProject,showProjectScreen,psSetOrgFilter,setSiTab,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
