@@ -9033,8 +9033,17 @@ function _dqChecks(){
   const idCount={}, coordCount={};
   act.forEach(t=>{ const k=(t.baumId||'').trim(); if(k) idCount[k]=(idCount[k]||0)+1; if(t.lat&&t.lng){ const c=(+t.lat).toFixed(5)+','+(+t.lng).toFixed(5); coordCount[c]=(coordCount[c]||0)+1; } });
   const hasSoll=t=>sollFreqProWoche(t,'sommer')!=null||sollFreqProWoche(t,'winter')!=null;
+  // Unplausible Koordinaten: weit vom Schwerpunkt aller Objekte (Import-/Tippfehler, anderer Ort, 0/0)
+  const geo=act.filter(t=>t.lat&&t.lng); let cy=0,cx=0,outSet=new Set();
+  if(geo.length>=8){
+    cy=geo.reduce((a,m)=>a+m.lat,0)/geo.length; cx=geo.reduce((a,m)=>a+m.lng,0)/geo.length;
+    const dists=geo.map(m=>haversine(m.lat,m.lng,cy,cx));
+    const med=[...dists].sort((a,b)=>a-b)[Math.floor(dists.length/2)]||0;
+    geo.forEach((m,i)=>{ if(dists[i]>Math.max(10, med*8)) outSet.add(m.id); });   // >10 km UND >8× Median
+  }
   return [
     {key:'gps',      label:'Ohne Koordinaten',      items:act.filter(t=>!t.lat||!t.lng)},
+    {key:'coordbad', label:'Unplausible Koordinaten',items:act.filter(t=>outSet.has(t.id)), detail:t=>Math.round(haversine(t.lat,t.lng,cy,cx))+' km vom Zentrum'},
     {key:'id',       label:'Ohne Objekt-ID',        items:act.filter(t=>!(t.baumId||'').trim())},
     {key:'iddup',    label:'Doppelte Objekt-ID',    items:act.filter(t=>{const k=(t.baumId||'').trim();return k&&idCount[k]>1;}), detail:t=>'ID '+(t.baumId||'')},
     {key:'dupcoord', label:'Gleiche Koordinaten',   items:act.filter(t=>{if(!t.lat||!t.lng)return false;const c=(+t.lat).toFixed(5)+','+(+t.lng).toFixed(5);return coordCount[c]>1;})},
@@ -9091,21 +9100,24 @@ function _gCompute(){
   const inR=d=>d&&(!from||d>=from)&&(!to||d<=to);
   const per=[], reasonAgg={}, driverAgg={};
   trees.filter(t=>isActive(t)&&!_isContainer(t)).forEach(t=>{
-    let bew=0,nicht=0; const reasons={};
+    let bew=0,nicht=0; const reasons={}; const fills=[];
     (t.history||[]).forEach(h=>{
       if(!h.date||!inR((''+h.date).slice(0,10))) return;
       const done=h.status==='bewaessert'||(!h.status&&h.note), no=h.status==='nicht';
+      if(typeof h.fuellgrad==='number') fills.push(h.fuellgrad);
       if(!done&&!no) return;
       if(done) bew++; else { nicht++; if(h.reason){ reasons[h.reason]=(reasons[h.reason]||0)+1; reasonAgg[h.reason]=(reasonAgg[h.reason]||0)+1; } }
       if(h.driver){ const da=driverAgg[h.driver]=driverAgg[h.driver]||{tot:0,n:0}; da.tot++; if(no) da.n++; }
     });
-    if(bew||nicht){ const tr=Object.entries(reasons).sort((a,b)=>b[1]-a[1])[0]; per.push({t,bew,nicht,topReason:tr?tr[0]:''}); }
+    if(bew||nicht||fills.length){ const tr=Object.entries(reasons).sort((a,b)=>b[1]-a[1])[0]; per.push({t,bew,nicht,topReason:tr?tr[0]:'',fillN:fills.length,avgFill:fills.length?Math.round(fills.reduce((a,b)=>a+b,0)/fills.length):null}); }
   });
   const chronisch=per.filter(x=>x.nicht>=_gState.minN).sort((a,b)=>b.nicht-a.nicht);
   const nieErfolg=per.filter(x=>x.bew===0&&x.nicht>0).sort((a,b)=>b.nicht-a.nicht);
   const reasons=Object.entries(reasonAgg).sort((a,b)=>b[1]-a[1]).slice(0,12);
   const drivers=Object.entries(driverAgg).filter(([n,d])=>d.tot>=5).map(([n,d])=>({name:n,tot:d.tot,n:d.n,rate:d.n/d.tot})).sort((a,b)=>b.rate-a.rate);
-  return {chronisch,nieErfolg,reasons,drivers,maxReason:reasons[0]?reasons[0][1]:0};
+  const fuellAktiv=!!(currentProjectData&&currentProjectData.fuellgradAktiv);
+  const rightsize=fuellAktiv?per.filter(x=>x.fillN>=3&&(x.avgFill>=90||x.avgFill<=30)).map(x=>({...x,rec:x.avgFill>=90?'häufiger leeren':'seltener möglich'})).sort((a,b)=>b.avgFill-a.avgFill):[];
+  return {chronisch,nieErfolg,reasons,drivers,rightsize,fuellAktiv,maxReason:reasons[0]?reasons[0][1]:0};
 }
 function initAusfaelle(){
   if(!currentProjectId){ const b=document.getElementById('g-body'); if(b) b.innerHTML='<div style="padding:24px;color:var(--text3);">Bitte zuerst ein Projekt öffnen.</div>'; return; }
@@ -9125,9 +9137,13 @@ function renderAusfaelle(){
   };
   const reasonList=d.reasons.length?d.reasons.map(([r,n])=>`<div style="display:flex;align-items:center;gap:10px;padding:4px 0;"><div style="width:170px;flex:none;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${dlEsc(r)}">${dlEsc(r)}</div><div style="flex:1;height:9px;border-radius:5px;background:#e5e1d8;overflow:hidden;"><div style="width:${d.maxReason?Math.round(n/d.maxReason*100):0}%;height:100%;background:var(--amber);"></div></div><div style="width:44px;text-align:right;font-weight:600;font-size:13px;">${n}</div></div>`).join(''):'<div style="color:var(--text3);font-size:13px;">Keine „nicht erledigt"-Gründe im Zeitraum.</div>';
   const fahrer=!_gState.showFahrer?'':card('Fahrer — zum Nachfragen (keine Bewertung)', d.drivers.length?`<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="background:var(--surface2);">${['Fahrer','Nicht','Meldungen','Anteil'].map(h=>`<th style="padding:6px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">${h}</th>`).join('')}</tr></thead><tbody>${d.drivers.map(x=>`<tr style="border-top:1px solid var(--border);"><td style="padding:6px 10px;">${dlEsc(x.name)}</td><td style="padding:6px 10px;">${x.n}</td><td style="padding:6px 10px;color:var(--text2);">${x.tot}</td><td style="padding:6px 10px;font-weight:600;">${Math.round(x.rate*100)} %</td></tr>`).join('')}</tbody></table>`:'<div style="color:var(--text3);font-size:13px;">Zu wenige Meldungen je Fahrer (ab 5).</div>','Anteil „nicht erledigt" je Fahrer (ab 5 Meldungen). Bewusst neutral — für die Rückfrage, nicht zur Leistungsbewertung.');
+  const rightsizeCard=!d.fuellAktiv?'':card(`Füllgrad-Rightsizing · ${d.rightsize.length}`,
+    d.rightsize.length?`<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="background:var(--surface2);">${['Objekt',FL.stadtteil,'Ø Füllgrad','Meldungen','Empfehlung'].map(h=>`<th style="padding:6px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);white-space:nowrap;">${dlEsc(h)}</th>`).join('')}</tr></thead><tbody>${d.rightsize.slice(0,400).map(x=>{ const c=x.avgFill>=90?'var(--red)':'var(--blue)'; return `<tr data-treeid="${x.t.id}" style="border-top:1px solid var(--border);cursor:pointer;" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''"><td style="padding:6px 10px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(_dqName(x.t))}</td><td style="padding:6px 10px;color:var(--text2);white-space:nowrap;">${dlEsc(x.t.stadtteil||'–')}</td><td style="padding:6px 10px;font-weight:600;">${x.avgFill} %</td><td style="padding:6px 10px;color:var(--text2);">${x.fillN}</td><td style="padding:6px 10px;"><span style="padding:1px 8px;border-radius:6px;font-size:11px;font-weight:600;background:${c}22;color:${c};">${x.rec}</span></td></tr>`; }).join('')}</tbody></table>`:'<div style="color:var(--green);font-size:13px;">✓ Keine Auffälligkeiten — Häufigkeit passt zum Füllstand.</div>',
+    'Passt die Leerungshäufigkeit zum echten Füllstand? Ø ab 90 % → unterversorgt (häufiger leeren), ≤ 30 % → überversorgt (seltener möglich). Nur Objekte mit ≥ 3 Füllgrad-Meldungen — Empfehlung, keine Automatik.');
   el.innerHTML=
     card(`Chronisch „nicht erledigt" (ab ${_gState.minN} Fällen) · ${d.chronisch.length}`, objTable(d.chronisch), 'Objekte, die wiederholt „nicht erledigt" gemeldet werden — Ursache statt Symptom prüfen (Reparatur, Zufahrt, Turnus).')+
     card(`Nie erfolgreich im Zeitraum · ${d.nieErfolg.length}`, objTable(d.nieErfolg), 'Objekte mit Meldungen, aber keiner einzigen „erledigt".')+
+    rightsizeCard+
     card('Häufigste Gründe', reasonList)+
     fahrer;
   el.onclick=e=>{ const tr=e.target.closest('[data-treeid]'); if(tr){ selectTree(tr.dataset.treeid); switchView('karte'); } };

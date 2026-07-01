@@ -27,9 +27,16 @@ jobs:
       - name: Build (alle 4 Apps)
         run: npm run build
 
+      - name: Chrome für den Smoke-Test bereitstellen
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
       - name: Smoke-Test gegen die gebaute App (Vite-Preview)
         run: |
-          CHROME_PATH=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium-browser || command -v chromium || true)
+          CHROME_PATH="${{ steps.setup-chrome.outputs.chrome-path }}"
+          [ -z "$CHROME_PATH" ] && CHROME_PATH=$(command -v chrome || command -v google-chrome || command -v google-chrome-stable || command -v chromium-browser || command -v chromium || true)
           echo "Chrome: ${CHROME_PATH:-NICHT GEFUNDEN}"
           export CHROME_PATH
           npm run preview -- --port 3001 &
