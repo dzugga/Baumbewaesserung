@@ -585,6 +585,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         style="position:absolute;top:204px;left:14px;z-index:450;display:flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);color:var(--text2);cursor:pointer;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
       </button>
+      <!-- Fälligkeits-Check: Objekte nach Überfälligkeit einfärben -->
+      <button id="btn-overdue" onclick="toggleOverdueCheck()" title="Fälligkeits-Check: überfällige Objekte einfärben (aus Soll-Häufigkeit vs. letzter Erledigung)"
+        style="position:absolute;top:242px;left:14px;z-index:450;display:flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);color:var(--text2);cursor:pointer;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+      </button>
       <div id="rk-legend" style="display:none;position:absolute;bottom:26px;right:12px;z-index:451;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);padding:9px 12px;max-width:220px;max-height:42vh;overflow:auto;pointer-events:all;"></div>
       <!-- Tour simulieren (nur bei 1 Tour mit Route) -->
       <button id="btn-sim-tour" onclick="simulateActiveTour()" title="Tour simulieren"

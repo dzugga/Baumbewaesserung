@@ -338,7 +338,7 @@ function applyClusterMode(on, rebuild){
 }
 // Cluster nur, wenn der Projekt-Schalter an ist UND keine Tour ausgewählt ist
 // (in der Touransicht stören Cluster die Reihenfolge/Übersicht).
-function _effectiveCluster(){ return !!(currentProjectData&&currentProjectData.clusterAktiv) && activeTours.size===0 && _colorMode!=='plan'; }
+function _effectiveCluster(){ return !!(currentProjectData&&currentProjectData.clusterAktiv) && activeTours.size===0 && !_isCheckMode(_colorMode); }
 
 // ── WMS-Kartenebenen (vom Nutzer verwaltbar, stadtscharf am Mandanten) ──
 const WMS_DEFAULTS=[
@@ -1614,7 +1614,7 @@ function makeMarker(tree){
     if(!tour && assignMode && assignTourId && treeTourIds.includes(assignTourId)) tour=tours.find(t=>t.id===assignTourId); // Planen: Ziel-Tour einfärben (Rest bleibt sichtbar/neutral)
     color=tour?tour.color:'#6b6760';
   }
-  if(_colorMode==='plan'){ const ps=planStatusOf(tree); if(ps) color=planStatusColor(ps); }  // Planungs-Check überschreibt Tourfarbe
+  if(_isCheckMode(_colorMode)){ const b=_checkBucket(tree); if(b) color=_checkColor(_colorMode,b); }  // Plan-/Fälligkeits-Check überschreibt Tourfarbe
   const num=getRouteNum(tree.id);
   const isHighlighted=selectedTreeId===tree.id;
   const isPreselected=lassoSelection.size>0 && lassoSelection.has(tree.id); // Lasso-Vorauswahl
@@ -1662,8 +1662,8 @@ function setMarkerVisibility(){
     let show=treeVisibleSel(tree) && _typeShown(tree);
     // Optional: Eigenschaften-Filter auch auf der Karte anwenden
     if(show && objFilterOnMap && !objMatchesPropFilter(tree)) show=false;
-    // Planungs-Check: nach Status filtern (z. B. nur nicht erfüllte)
-    if(show && _colorMode==='plan'){ const b=_planBucket(tree); if(b && !_planShow.has(b)) show=false; }
+    // Plan-/Fälligkeits-Check: nach Status filtern (z. B. nur Problemfälle)
+    if(show && _isCheckMode(_colorMode)){ const b=_checkBucket(tree); if(b && !_checkShow.has(b)) show=false; }
     if(show) _mAdd(m); else _mDel(m);
   });
 }
@@ -1676,7 +1676,7 @@ function _applyFlaechenFilterVisibility(){
     const l=_flaechenByExt[ext]; if(!l) continue;
     const t=trees.find(x=>x.extId===ext);
     let show = !(filt && t && !objMatchesPropFilter(t));
-    if(show && _colorMode==='plan' && t){ const b=_planBucket(t); if(b && !_planShow.has(b)) show=false; }
+    if(show && _isCheckMode(_colorMode) && t){ const b=_checkBucket(t); if(b && !_checkShow.has(b)) show=false; }
     const on=_flaechenLayer.hasLayer(l);
     if(show && !on){ try{ _flaechenLayer.addLayer(l); }catch(_){} }
     else if(!show && on){ try{ _flaechenLayer.removeLayer(l); }catch(_){} }
@@ -1885,14 +1885,52 @@ function planStatusColor(ps){
   return ps.plan===0?'#ef4444':'#f59e0b';   // gar nicht verplant vs. unterplant
 }
 function planStatusLabel(ps){ if(!ps||ps.status==='kein') return 'kein Soll'; return ps.status==='ok'?'Planung passt':ps.status==='ueber'?'überplant':(ps.plan===0?'nicht verplant':'unterplant'); }
-// Planungs-Check-Filter: welche Status auf der Karte sichtbar sind (nur im Modus 'plan')
-const _PLAN_BUCKETS=['ok','unter','stark','ueber','kein'];
-let _planShow=new Set(_PLAN_BUCKETS);
 function _planBucket(tree){ const ps=planStatusOf(tree); if(!ps) return null; if(ps.status==='unter') return ps.plan===0?'stark':'unter'; return ps.status; }
-function _planFilterApply(){ setMarkerVisibility(); _applyFlaechenFilterVisibility(); _renderRkLegend(); }
-function planToggleStatus(s){ if(_planShow.has(s)) _planShow.delete(s); else _planShow.add(s); _planFilterApply(); }
-function planShowProblems(){ _planShow=new Set(['unter','stark','ueber','kein']); _planFilterApply(); }   // alles außer „passt"
-function planShowAll(){ _planShow=new Set(_PLAN_BUCKETS); _planFilterApply(); }
+// ── Fälligkeit / Überfälligkeit: erwarteter Abstand (7/Soll Tage) vs. letzte ERLEDIGUNG ──
+function _lastDoneDate(tree){   // letztes Datum, an dem tatsächlich erledigt wurde (nicht „nicht erledigt")
+  let d=null;
+  (tree.history||[]).forEach(h=>{ if(!h.date) return; if(h.status==='bewaessert'||(!h.status&&h.note)){ const x=(''+h.date).slice(0,10); if(!d||x>d) d=x; } });
+  if(tree.lastStatus==='bewaessert'&&tree.lastReportAt){ const x=(''+tree.lastReportAt).slice(0,10); if(!d||x>d) d=x; }
+  return d;
+}
+function _overdueTol(){ const v=currentProjectData&&currentProjectData.overdueTolerance; return (typeof v==='number'&&v>=0)?v:1; }
+function overdueInfoOf(tree){
+  if(!tree||_isContainer(tree)) return null;
+  const saison=(typeof saisonFor==='function')?saisonFor(new Date().toISOString().slice(0,10)):'sommer';
+  const soll=sollFreqProWoche(tree,saison);
+  if(soll==null||soll<=0) return {status:'kein',soll:null,interval:null,last:null,overdue:null};
+  const interval=7/soll;                       // erwarteter Abstand in Tagen
+  const last=_lastDoneDate(tree);
+  if(!last) return {status:'nie',soll,interval,last:null,overdue:null};
+  const today=new Date().toISOString().slice(0,10);
+  const days=Math.floor((new Date(today+'T00:00:00')-new Date(last+'T00:00:00'))/86400000);
+  const overdue=days-interval;
+  const status = overdue<0 ? 'ok' : (overdue<=_overdueTol() ? 'faellig' : 'ueber');
+  return {status,soll,interval,last,days,overdue};
+}
+function _overdueBucket(tree){ const o=overdueInfoOf(tree); return o?o.status:null; }
+function overdueLabel(o){ if(!o) return ''; return {kein:'kein Soll',nie:'nie erledigt',ok:'im Plan',faellig:'jetzt fällig',ueber:'überfällig'}[o.status]||o.status; }
+async function setOverdueTol(v){
+  const n=parseFloat(v); if(isReadonly()||!currentProjectId||!(n>=0)) return;
+  if(currentProjectData) currentProjectData.overdueTolerance=n;
+  rebuildMarkersWithNumbers(); setMarkerVisibility(); _applyFlaechenSelection(); _renderRkLegend();
+  try{ await updateDoc(doc(db,'projects',currentProjectId),{overdueTolerance:n}); }catch(e){ console.warn('overdueTolerance',e); }
+}
+// ── Karten-„Check"-Modi (Plan / Fälligkeit): gemeinsame Farb-/Legenden-/Filter-Logik ──
+const CHECK_MODES={
+  plan:{ title:'Planungs-Check', note:'Plan = Wochen-Einsätze der Touren',
+    buckets:[['ok','#22c55e','passt'],['unter','#f59e0b','unterplant'],['stark','#ef4444','nicht verplant'],['ueber','#3b82f6','überplant'],['kein','#d1d5db','kein Soll']], bucketOf:_planBucket },
+  overdue:{ title:'Fälligkeit', note:'fällig alle 7/Soll Tage · Toleranz einstellbar',
+    buckets:[['ok','#22c55e','im Plan'],['faellig','#f59e0b','jetzt fällig'],['ueber','#ef4444','überfällig'],['nie','#991b1b','nie erledigt'],['kein','#d1d5db','kein Soll']], bucketOf:_overdueBucket },
+};
+function _isCheckMode(m){ return m==='plan'||m==='overdue'; }
+function _checkColor(mode,b){ const cm=CHECK_MODES[mode]; const d=cm&&cm.buckets.find(x=>x[0]===b); return d?d[1]:'#d1d5db'; }
+function _checkBucket(tree){ const cm=CHECK_MODES[_colorMode]; return cm?cm.bucketOf(tree):null; }
+let _checkShow=new Set();
+function _checkFilterApply(){ setMarkerVisibility(); _applyFlaechenFilterVisibility(); _renderRkLegend(); }
+function checkToggleStatus(s){ if(_checkShow.has(s)) _checkShow.delete(s); else _checkShow.add(s); _checkFilterApply(); }
+function checkShowProblems(){ const cm=CHECK_MODES[_colorMode]; if(!cm) return; _checkShow=new Set(cm.buckets.map(b=>b[0]).filter(b=>b!=='ok')); _checkFilterApply(); }   // alles außer „passt/im Plan"
+function checkShowAll(){ const cm=CHECK_MODES[_colorMode]; if(!cm) return; _checkShow=new Set(cm.buckets.map(b=>b[0])); _checkFilterApply(); }
 // Repräsentative Häufigkeit eines Abschnitts = höchste Häufigkeit seiner Seiten (sonst eigene)
 function _haeufOf(t){
   if(_isContainer(t)){ const vals=_ausstattungOf(t.extId).map(s=>orHaeuf(s,_rkById,_containerByExt)).filter(v=>v!=null); return vals.length?Math.max(...vals):null; }
@@ -1918,9 +1956,9 @@ function _flStyleForTree(t, isLine){
     const c2=h==null?'#e5e7eb':_haeufColor(h);
     return isLine?{ color:c2, weight:6, opacity:0.95 }:{ color:c2, weight:2, fillColor:c2, fillOpacity:0.5 };
   }
-  // Modus „Planungs-Check": nach Soll/Plan-Status
-  if(_colorMode==='plan'){
-    const c2=planStatusColor(planStatusOf(t));
+  // Modus „Plan-/Fälligkeits-Check": nach Status einfärben
+  if(_isCheckMode(_colorMode)){
+    const c2=_checkColor(_colorMode,_checkBucket(t));
     return isLine?{ color:c2, weight:6, opacity:0.95 }:{ color:c2, weight:2, fillColor:c2, fillOpacity:0.5 };
   }
   const col=_flTourColorFor(t);
@@ -1943,16 +1981,18 @@ function _updateColorBtns(){
 }
 function toggleColorMenu(){ const m=document.getElementById('color-mode-menu'); if(m) m.style.display=m.style.display==='none'?'block':'none'; }
 function togglePlanCheck(){ setColorMode(_colorMode==='plan'?'none':'plan'); }
-function _updatePlanCheckBtn(){ const b=document.getElementById('btn-plancheck'); if(b){ const on=_colorMode==='plan'; b.style.background=on?'var(--green)':'var(--surface)'; b.style.color=on?'#fff':'var(--text2)'; b.style.borderColor=on?'var(--green)':'var(--border)'; } }
+function toggleOverdueCheck(){ setColorMode(_colorMode==='overdue'?'none':'overdue'); }
+function _checkBtnState(id,on){ const b=document.getElementById(id); if(b){ b.style.background=on?'var(--green)':'var(--surface)'; b.style.color=on?'#fff':'var(--text2)'; b.style.borderColor=on?'var(--green)':'var(--border)'; } }
+function _updateCheckBtns(){ _checkBtnState('btn-plancheck',_colorMode==='plan'); _checkBtnState('btn-overdue',_colorMode==='overdue'); }
 function setColorMode(mode){
   const prev=_colorMode;
-  if(mode==='plan' && prev!=='plan') _planShow=new Set(_PLAN_BUCKETS);   // beim Einschalten: alle Status sichtbar
+  if(_isCheckMode(mode) && mode!==prev) _checkShow=new Set(CHECK_MODES[mode].buckets.map(b=>b[0]));   // beim Einschalten: alle Status sichtbar
   _colorMode=mode; _updateColorBtns();
   const m=document.getElementById('color-mode-menu'); if(m) m.style.display='none';
-  // Plan-Modus: Clustering aus (Cluster würde die Status-Farbe verdecken); zurück: Projekt-Standard wiederherstellen.
+  // Check-Modus: Clustering aus (Cluster würde die Status-Farbe verdecken); zurück: Projekt-Standard wiederherstellen.
   // applyClusterMode(...,true) schaltet die Ebene um UND zeichnet die Marker neu (einfärben).
-  if(mode==='plan'||prev==='plan') applyClusterMode(_effectiveCluster(), true);
-  _applyFlaechenSelection(); _renderRkLegend(); _updatePlanCheckBtn();
+  if(_isCheckMode(mode)||_isCheckMode(prev)) applyClusterMode(_effectiveCluster(), true);
+  _applyFlaechenSelection(); _renderRkLegend(); _updateCheckBtns();
 }
 // ── „Darstellung"-Panel: Sichtbarkeit, Einfärben, Standard-Stile gebündelt ──
 const _CAT_LABEL={punkt:'Punkte',linie:'Strecken',flaeche:'Flächen',abschnitt:'Abschnitte'};
@@ -2002,7 +2042,7 @@ function renderDisplayPanel(){
   if(hasCont || currentProjectData?.sollFeld){
     h+=`<div style="font-size:12px;font-weight:600;margin:10px 0 2px;border-top:1px solid var(--border);padding-top:8px;">Einfärben nach</div>`;
     const rad=(val,label)=>`<label style="display:flex;align-items:center;gap:8px;font-size:13px;padding:3px 0;cursor:pointer;"><input type="radio" name="dp-cm" ${_colorMode===val?'checked':''} onchange="setColorMode('${val}')" style="margin:0;cursor:pointer;"><span>${label}</span></label>`;
-    h+=rad('none','aus (Tourfarbe)')+(hasCont?rad('rk','Reinigungsklasse')+rad('haeuf','Reinigungshäufigkeit'):'')+rad('plan','Planungs-Check (Soll/Plan)');
+    h+=rad('none','aus (Tourfarbe)')+(hasCont?rad('rk','Reinigungsklasse')+rad('haeuf','Reinigungshäufigkeit'):'')+rad('plan','Planungs-Check (Soll/Plan)')+rad('overdue','Fälligkeit (überfällig)');
   }
   if(!ro){
     const rls=currentProjectData?.routeLineStyle==='solid'?'solid':'dashed';
@@ -2054,18 +2094,19 @@ function _renderRkLegend(){
     el.innerHTML=`<div style="font-size:11px;font-weight:700;margin-bottom:6px;">Häufigkeit / Woche</div>`+
       (vals.length?vals.map(v=>`<div style="display:flex;align-items:center;gap:7px;font-size:12px;margin-bottom:3px;"><span style="width:14px;height:4px;border-radius:2px;background:${_haeufColor(v)};flex:none;"></span>${v===0?'0 (keine Reinigung)':v+'×'}</div>`).join('')
         :`<div style="font-size:12px;color:var(--text3);">noch keine Häufigkeiten gesetzt</div>`);
-  } else if(_colorMode==='plan'){
-    const counts={ok:0,unter:0,stark:0,ueber:0,kein:0};
-    (trees||[]).forEach(t=>{ if(!isActive(t)) return; const b=_planBucket(t); if(b) counts[b]++; });
-    const rows=[['ok','#22c55e','passt'],['unter','#f59e0b','unterplant'],['stark','#ef4444','nicht verplant'],['ueber','#3b82f6','überplant'],['kein','#d1d5db','kein Soll']];
-    const allShown=rows.every(r=>_planShow.has(r[0]));
+  } else if(_isCheckMode(_colorMode)){
+    const cm=CHECK_MODES[_colorMode];
+    const counts={}; cm.buckets.forEach(b=>counts[b[0]]=0);
+    (trees||[]).forEach(t=>{ if(!isActive(t)) return; const b=cm.bucketOf(t); if(b!=null&&counts[b]!=null) counts[b]++; });
+    const allShown=cm.buckets.every(b=>_checkShow.has(b[0]));
+    const tolCtl=_colorMode==='overdue'?`<div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);margin:0 0 6px;">Toleranz <input type="number" min="0" step="1" value="${_overdueTol()}" onchange="setOverdueTol(this.value)" style="width:44px;padding:2px 5px;border:1px solid var(--border);border-radius:5px;font-size:11px;font-family:inherit;"> Tage</div>`:'';
     el.style.display='block';
     el.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
-        <span style="font-size:11px;font-weight:700;">Planungs-Check</span>
-        <button onclick="${allShown?'planShowProblems()':'planShowAll()'}" style="font-size:10px;border:1px solid var(--border);border-radius:5px;background:var(--bg);color:var(--text2);cursor:pointer;padding:1px 6px;white-space:nowrap;">${allShown?'nur Problemfälle':'alle zeigen'}</button>
-      </div>`+
-      rows.map(r=>{ const on=_planShow.has(r[0]); return `<div onclick="planToggleStatus('${r[0]}')" title="Ein-/ausblenden" style="display:flex;align-items:center;gap:7px;font-size:12px;margin-bottom:3px;cursor:pointer;opacity:${on?1:0.38};"><span style="width:12px;height:12px;border-radius:3px;background:${r[1]};flex:none;"></span>${r[2]} · <b>${counts[r[0]]}</b></div>`; }).join('')+
-      `<div style="font-size:10px;color:var(--text3);margin-top:4px;">Zeile klicken = aus-/einblenden · Plan = Wochen-Einsätze der Touren</div>`;
+        <span style="font-size:11px;font-weight:700;">${cm.title}</span>
+        <button onclick="${allShown?'checkShowProblems()':'checkShowAll()'}" style="font-size:10px;border:1px solid var(--border);border-radius:5px;background:var(--bg);color:var(--text2);cursor:pointer;padding:1px 6px;white-space:nowrap;">${allShown?'nur Problemfälle':'alle zeigen'}</button>
+      </div>`+tolCtl+
+      cm.buckets.map(b=>{ const on=_checkShow.has(b[0]); return `<div onclick="checkToggleStatus('${b[0]}')" title="Ein-/ausblenden" style="display:flex;align-items:center;gap:7px;font-size:12px;margin-bottom:3px;cursor:pointer;opacity:${on?1:0.38};"><span style="width:12px;height:12px;border-radius:3px;background:${b[1]};flex:none;"></span>${b[2]} · <b>${counts[b[0]]}</b></div>`; }).join('')+
+      `<div style="font-size:10px;color:var(--text3);margin-top:4px;">Zeile klicken = aus-/einblenden · ${cm.note}</div>`;
   } else { el.style.display='none'; el.innerHTML=''; }
 }
 // Bounds aller Flächen der aktuell ausgewählten Touren (für „einpassen")
@@ -3273,6 +3314,11 @@ function openDetail(id){
       const col=planStatusColor(ps);
       return `<div class="form-section">Planung</div>
       <div class="detail-field" style="padding:5px 0;align-items:center;"><span class="detail-key">Soll / Plan</span><span class="detail-val"><b>${+ps.soll.toFixed(2)}</b>×/Wo · Plan <b>${+ps.plan.toFixed(2)}</b> <span style="color:var(--text3);font-size:11px;">(${ps.tours} Tour${ps.tours===1?'':'en'})</span> <span style="display:inline-block;margin-left:4px;padding:1px 8px;border-radius:6px;font-size:11px;font-weight:600;background:${col}22;color:${col};">${planStatusLabel(ps)}</span></span></div>`;
+    })()}
+    ${(()=>{ const o=overdueInfoOf(tree); if(!o||o.status==='kein') return ''; const col=_checkColor('overdue',o.status);
+      const zuletzt = o.status==='nie' ? 'noch nie erledigt' : (o.last?('zuletzt '+o.last.split('-').reverse().join('.')):'');
+      const extra = o.status==='ueber'&&o.overdue!=null ? (' · '+Math.round(o.overdue)+' Tage über') : (o.interval?(' · fällig alle '+(o.interval<1?o.interval.toFixed(1):Math.round(o.interval))+' Tage'):'');
+      return `<div class="detail-field" style="padding:5px 0;align-items:center;"><span class="detail-key">Fälligkeit</span><span class="detail-val"><span style="display:inline-block;padding:1px 8px;border-radius:6px;font-size:11px;font-weight:600;background:${col}22;color:${col};">${overdueLabel(o)}</span> <span style="color:var(--text3);font-size:11px;">${zuletzt}${extra}</span></span></div>`;
     })()}
 
     <div class="form-section">Touren (Mehrfachauswahl)</div>
@@ -9853,7 +9899,9 @@ function showTreeTourContextMenu(tree, e){
   }
   rows.sort((a,b)=>(a.ueb?1:0)-(b.ueb?1:0)); // echte Touren zuerst, Übersicht unten
   const _ps=planStatusOf(tree);
-  if(rows.length===0 && !(_ps && _ps.status!=='kein')) return; // kein Popup, wenn weder Tour noch aussagekräftiger Plan-Status
+  const _ovd=overdueInfoOf(tree);
+  const _ovdProblem = _ovd && (_ovd.status==='faellig'||_ovd.status==='ueber'||_ovd.status==='nie');
+  if(rows.length===0 && !(_ps && _ps.status!=='kein') && !_ovdProblem) return; // kein Popup, wenn weder Tour noch aussagekräftiger Status
   const treeTourList=rows; // (Variablenname unten beibehalten)
 
   // Position aus Leaflet-Event
@@ -9885,6 +9933,8 @@ function showTreeTourContextMenu(tree, e){
     </div>
     ${(()=>{ if(!_ps||_ps.status==='kein') return ''; const col=planStatusColor(_ps);
       return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;padding:5px 8px;border-radius:6px;background:${col}1f;"><span style="width:9px;height:9px;border-radius:50%;background:${col};flex:none;"></span><span style="font-size:12px;"><b style="color:${col};">${planStatusLabel(_ps)}</b> · Soll ${+_ps.soll.toFixed(2)} · Plan ${+_ps.plan.toFixed(2)}</span></div>`; })()}
+    ${(()=>{ if(!_ovdProblem) return ''; const col=_checkColor('overdue',_ovd.status);
+      return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;padding:5px 8px;border-radius:6px;background:${col}1f;"><span style="width:9px;height:9px;border-radius:50%;background:${col};flex:none;"></span><span style="font-size:12px;"><b style="color:${col};">${overdueLabel(_ovd)}</b>${_ovd.status==='ueber'&&_ovd.overdue!=null?' · '+Math.round(_ovd.overdue)+' Tage über':(_ovd.last?' · zuletzt '+_ovd.last.split('-').reverse().join('.'):'')}</span></div>`; })()}
     ${treeTourList.map(t=>`
       <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);${t.ueb?'opacity:.75;':''}">
         <div style="width:10px;height:10px;border-radius:50%;background:${t.color};flex-shrink:0;margin-top:2px;align-self:flex-start;"></div>
@@ -12527,7 +12577,7 @@ Object.assign(window,{
   openBaeumeColMenu,toggleBaeumeCol,resetBaeumeCols,
   saveFieldLabels, setFieldLabel, toggleMobilFeld, migrateTourIds, deriveHaeufigkeitFromZustaendigkeit,
   addObjektklasse, renameObjektklasse, setKlasseStruktur, toggleKlasseFeld, deleteObjektklasse,
-  addReinigungsklasse, renameReinigungsklasse, setRkFreq, setRkColor, deleteReinigungsklasse, onKlasseChange, setColorMode, togglePlanCheck, planToggleStatus, planShowProblems, planShowAll, setAbschnittRk, toggleDisplayPanel, setGeomStyle, saveDisplayDefaults, setRouteLineStyle, setSollFeld,
+  addReinigungsklasse, renameReinigungsklasse, setRkFreq, setRkColor, deleteReinigungsklasse, onKlasseChange, setColorMode, togglePlanCheck, toggleOverdueCheck, checkToggleStatus, checkShowProblems, checkShowAll, setOverdueTol, setAbschnittRk, toggleDisplayPanel, setGeomStyle, saveDisplayDefaults, setRouteLineStyle, setSollFeld,
   doLogin, doLogout, toggleLoginMode,
 });
 
