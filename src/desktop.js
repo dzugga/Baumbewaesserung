@@ -8621,6 +8621,27 @@ function _seasonDayCounts(from,to){
   }
   return {s,w};
 }
+// Ist je Objekt = Anzahl „Erledigt"-Meldungen im Zeitraum — GENAU wie der Verlauf-Tab zählt:
+// status==='bewaessert' ODER Notiz-Eintrag ohne Status ({date,note}). Mehrfach am selben Tag zählt einzeln.
+function _siIstCount(from,to){
+  const inR=d=>d&&(!from||d>=from)&&(!to||d<=to), ist={};
+  trees.forEach(t=>{
+    if(!isActive(t)) return;
+    let n=0; const seenDays=new Set();
+    (t.history||[]).forEach(h=>{
+      if(!h.date) return;
+      if(!(h.status==='bewaessert' || (!h.status && h.note))) return;   // erledigt (inkl. Notiz-Alt-Einträge)
+      const d=(''+h.date).slice(0,10);
+      if(inR(d)){ n++; seenDays.add(d); }
+    });
+    if(t.lastStatus==='bewaessert' && t.lastReportAt){                   // Live-Status, falls noch nicht in history
+      const d=(''+t.lastReportAt).slice(0,10);
+      if(inR(d) && !seenDays.has(d)) n++;
+    }
+    if(n) ist[t.id]=n;
+  });
+  return ist;
+}
 const _siState={period:'month',from:'',to:'',gebiet:'',typ:'',q:'',planStatus:'',istStatus:'',aggDim:'gebiet'};
 function siSet(field,val){
   _siState[field]=val;
@@ -8659,7 +8680,7 @@ function _siCompute(){
   if(!from||!to){ const m=kiComputeRange('month'); from=m.from; to=m.to; }   // „Gesamt" nicht sinnvoll → Monat
   const dc=_seasonDayCounts(from,to), nS=dc.s, nW=dc.w;
   const refSaison=nW>nS?'winter':'sommer';
-  const ist={}; kiReports(from,to).forEach(x=>{ if(x.status==='bewaessert') ist[x.t.id]=(ist[x.t.id]||0)+1; });
+  const ist=_siIstCount(from,to);
   const rows=_siBaseList().map(t=>{
     const sS=sollFreqProWoche(t,'sommer'), sW=sollFreqProWoche(t,'winter');
     const hasSoll=sS!=null||sW!=null;
@@ -8723,7 +8744,7 @@ function renderSollIstView(){
     <td style="padding:7px 10px;color:var(--text2);">${TL[r.typ]||r.typ}</td>
     <td style="padding:7px 10px;text-align:right;font-weight:600;">${+r.sollWo.toFixed(2)}</td>
     <td style="padding:7px 10px;text-align:right;white-space:nowrap;">${+r.plan.toFixed(2)} ${chip(r.planStatus,'plan')}</td>
-    <td style="padding:7px 10px;text-align:right;white-space:nowrap;">${r.istN} / ${Math.round(r.sollP)} ${chip(r.istStatus,'ist')}</td>
+    <td style="padding:7px 10px;text-align:right;white-space:nowrap;" title="Ist: ${r.istN} Erledigt-Meldungen im Zeitraum · Soll: ${r.sollP.toFixed(2)} (= ${+r.sollWo.toFixed(2)}×/Woche × Wochen im Zeitraum)">${r.istN} / ${Math.round(r.sollP)} ${chip(r.istStatus,'ist')}</td>
   </tr>`).join('');
   const tableEl=document.getElementById('si-table');
   if(tableEl){
