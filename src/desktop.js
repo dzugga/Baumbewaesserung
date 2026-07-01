@@ -8669,6 +8669,12 @@ function siQuickFilter(field,val){
   renderSollIstView();
 }
 function _siApplyStatus(list){ return list.filter(r=>(!_siState.planStatus||r.planStatus===_siState.planStatus)&&(!_siState.istStatus||r.istStatus===_siState.istStatus)); }
+function siResetFilters(){
+  _siState.gebiet=''; _siState.typ=''; _siState.planStatus=''; _siState.istStatus=''; _siState.q='';
+  ['si-gebiet','si-typ','si-planstatus','si-iststatus'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  const s=document.getElementById('si-search'); if(s) s.value='';
+  renderSollIstView();
+}
 function _siObjName(t){ const c=t.containerExtId?_containerOf(t):null; return c?((c.name||'–')+' · '+_elemLabel(t)):(t.name||'–'); }
 function _siBaseList(){
   const q=(_siState.q||'').trim().toLowerCase();
@@ -8718,6 +8724,7 @@ function initSollIstView(){
 function renderSollIstView(){
   const hintEl=document.getElementById('si-hint');
   if(hintEl) hintEl.innerHTML=_sollFeldLabel()?`Soll-Feld: <b>${dlEsc(_sollFeldLabel())}</b>`:`<span style="color:#b45309;">Kein Soll-Feld gewählt — Verwaltung → Felder &amp; Listen</span>`;
+  const clrEl=document.getElementById('si-clear'); if(clrEl) clrEl.style.display=(_siState.gebiet||_siState.typ||_siState.planStatus||_siState.istStatus||_siState.q)?'':'none';
   const {rows,nS,nW,refSaison}=_siCompute();
   const withSoll=rows.filter(r=>r.hasSoll), kein=rows.length-withSoll.length;
   const TL={punkt:'Punkt',seite:'Seite',flaeche:'Fläche',strecke:'Strecke'};
@@ -12384,7 +12391,7 @@ Object.assign(window,{
   renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,_fillMerge,cfGeomToggle,
   rankAdd,rankRename,rankSetColor,rankSetZahl,rankSetZahlWinter,rankMove,rankMerge,rankDelete,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
-  openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
+  openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,clearLassoSelection,
   createProject,openProject,showProjectScreen,psSetOrgFilter,setSiTab,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,

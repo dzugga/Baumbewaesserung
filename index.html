@@ -1197,6 +1197,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       <option value="ueber">Ist: über</option>
     </select>
     <input id="si-search" type="text" placeholder="Suchen…" oninput="siSearch(this.value)" style="padding:5px 10px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;min-width:150px;">
+    <button id="si-clear" onclick="siResetFilters()" title="Filter aufheben" style="display:none;padding:4px 9px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text2);cursor:pointer;font-family:inherit;white-space:nowrap;">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:-1px;"><path d="M18 6 6 18M6 6l12 12"/></svg> Filter
+    </button>
     <span id="si-hint" style="font-size:11px;color:var(--text3);"></span>
     <button class="btn btn-secondary" style="margin-left:auto;padding:4px 12px;font-size:12px;" onclick="siExportCsv()">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:-2px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
