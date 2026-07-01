@@ -374,6 +374,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       <div class="nav-dropdown">
         <button data-module="controlling" onclick="switchView('controlling')">Controlling</button>
         <button data-module="sollist" onclick="switchView('sollist')">Soll-Ist</button>
+        <button data-module="datenqualitaet" onclick="switchView('datenqualitaet')">Datenqualität</button>
         <button data-module="ki" onclick="switchView('ki')">KI-Analysen</button>
       </div>
     </div>
@@ -580,16 +581,19 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         style="position:absolute;top:166px;left:14px;z-index:450;display:flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);color:var(--text2);cursor:pointer;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/><circle cx="12" cy="12" r="2.5"/></svg>
       </button>
-      <!-- Planungs-Check: Objekte nach Soll/Plan einfärben (unter-/überplant) -->
-      <button id="btn-plancheck" onclick="togglePlanCheck()" title="Planungs-Check: Objekte nach Soll/Plan einfärben (unter-/überplant)"
+      <!-- Kontrolle: bündelt Planungs-Check, Fälligkeits-Check und Datenqualität -->
+      <button id="btn-check" onclick="toggleCheckMenu(event)" title="Kontrolle (Planung, Fälligkeit, Datenqualität)"
         style="position:absolute;top:204px;left:14px;z-index:450;display:flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);color:var(--text2);cursor:pointer;">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
       </button>
-      <!-- Fälligkeits-Check: Objekte nach Überfälligkeit einfärben -->
-      <button id="btn-overdue" onclick="toggleOverdueCheck()" title="Fälligkeits-Check: überfällige Objekte einfärben (aus Soll-Häufigkeit vs. letzter Erledigung)"
-        style="position:absolute;top:242px;left:14px;z-index:450;display:flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);color:var(--text2);cursor:pointer;">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-      </button>
+      <div id="check-menu" style="display:none;position:absolute;top:204px;left:54px;z-index:460;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);padding:6px;width:210px;pointer-events:all;">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);padding:4px 8px 6px;">Kontrolle</div>
+        <button data-cm="plan" onclick="checkMenuPick('plan')" style="display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:none;background:none;font-size:13px;padding:6px 8px;border-radius:6px;cursor:pointer;font-family:inherit;color:var(--text);">⚡ Planungs-Check</button>
+        <button data-cm="overdue" onclick="checkMenuPick('overdue')" style="display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:none;background:none;font-size:13px;padding:6px 8px;border-radius:6px;cursor:pointer;font-family:inherit;color:var(--text);">🕐 Fälligkeits-Check</button>
+        <button data-cm="none" onclick="checkMenuPick('none')" style="display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:none;background:none;font-size:13px;padding:6px 8px;border-radius:6px;cursor:pointer;font-family:inherit;color:var(--text);">✕ Karte normal</button>
+        <div style="border-top:1px solid var(--border);margin:5px 0 4px;"></div>
+        <button onclick="checkMenuGoDq()" style="display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:none;background:none;font-size:13px;padding:6px 8px;border-radius:6px;cursor:pointer;font-family:inherit;color:var(--text);">🔎 Datenqualität öffnen</button>
+      </div>
       <div id="rk-legend" style="display:none;position:absolute;bottom:26px;right:12px;z-index:451;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);padding:9px 12px;max-width:220px;max-height:42vh;overflow:auto;pointer-events:all;"></div>
       <!-- Tour simulieren (nur bei 1 Tour mit Route) -->
       <button id="btn-sim-tour" onclick="simulateActiveTour()" title="Tour simulieren"
@@ -1230,6 +1234,24 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Soll-Datenlage</div>
         <div id="si-datenlage"></div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- DATENQUALITÄT fullscreen overlay (Auswertung → Datenqualität) -->
+<div id="view-datenqualitaet" style="display:none;position:fixed;top:54px;left:0;right:0;bottom:0;z-index:1500;background:var(--bg);flex-direction:column;overflow:hidden;">
+  <div style="background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;gap:12px;flex-shrink:0;">
+    <span style="font-size:13px;font-weight:600;color:var(--text);">Datenqualität</span>
+    <span style="font-size:11px;color:var(--text3);">Lücken &amp; Dubletten prüfen — Klick auf ein Objekt öffnet die Karte</span>
+    <button class="btn btn-secondary" style="margin-left:auto;padding:4px 12px;font-size:12px;" onclick="dqExportCsv()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:-2px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      CSV
+    </button>
+  </div>
+  <div id="dq-body" style="flex:1;overflow-y:auto;padding:20px;">
+    <div id="dq-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin-bottom:16px;"></div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;">
+      <div id="dq-list"></div>
     </div>
   </div>
 </div>

@@ -1983,7 +1983,15 @@ function toggleColorMenu(){ const m=document.getElementById('color-mode-menu'); 
 function togglePlanCheck(){ setColorMode(_colorMode==='plan'?'none':'plan'); }
 function toggleOverdueCheck(){ setColorMode(_colorMode==='overdue'?'none':'overdue'); }
 function _checkBtnState(id,on){ const b=document.getElementById(id); if(b){ b.style.background=on?'var(--green)':'var(--surface)'; b.style.color=on?'#fff':'var(--text2)'; b.style.borderColor=on?'var(--green)':'var(--border)'; } }
-function _updateCheckBtns(){ _checkBtnState('btn-plancheck',_colorMode==='plan'); _checkBtnState('btn-overdue',_colorMode==='overdue'); }
+function _updateCheckBtns(){
+  _checkBtnState('btn-check', _isCheckMode(_colorMode));
+  document.querySelectorAll('#check-menu [data-cm]').forEach(el=>{ const on=el.dataset.cm===_colorMode; el.style.background=on?'var(--green-light)':''; el.style.color=on?'var(--green)':'var(--text)'; el.style.fontWeight=on?'700':'400'; });
+}
+// „Kontrolle"-Menü (bündelt Planungs-Check, Fälligkeits-Check, Datenqualität)
+function _closeCheckMenu(ev){ const m=document.getElementById('check-menu'); const b=document.getElementById('btn-check'); if(m&&!m.contains(ev.target)&&ev.target!==b&&!(b&&b.contains(ev.target))){ m.style.display='none'; document.removeEventListener('mousedown',_closeCheckMenu); } }
+function toggleCheckMenu(e){ if(e&&e.stopPropagation) e.stopPropagation(); const m=document.getElementById('check-menu'); if(!m) return; const open=(m.style.display==='none'||!m.style.display); m.style.display=open?'block':'none'; if(open){ _updateCheckBtns(); setTimeout(()=>document.addEventListener('mousedown',_closeCheckMenu),0); } }
+function checkMenuPick(mode){ const m=document.getElementById('check-menu'); if(m) m.style.display='none'; setColorMode(mode); }
+function checkMenuGoDq(){ const m=document.getElementById('check-menu'); if(m) m.style.display='none'; switchView('datenqualitaet'); }
 function setColorMode(mode){
   const prev=_colorMode;
   if(_isCheckMode(mode) && mode!==prev) _checkShow=new Set(CHECK_MODES[mode].buckets.map(b=>b[0]));   // beim Einschalten: alle Status sichtbar
@@ -5102,6 +5110,7 @@ function switchView(v){
   const dashboard=document.getElementById('view-dashboard');
   const ki=document.getElementById('view-ki');
   const sollist=document.getElementById('view-sollist'); if(sollist) sollist.style.display=v==='sollist'?'flex':'none';
+  const datenq=document.getElementById('view-datenqualitaet'); if(datenq) datenq.style.display=v==='datenqualitaet'?'flex':'none';
   const kiconfig=document.getElementById('view-kiconfig');
   const handbuch=document.getElementById('view-handbuch'); if(handbuch) handbuch.style.display=v==='handbuch'?'flex':'none';
   const wmskarten=document.getElementById('view-wmskarten'); if(wmskarten) wmskarten.style.display=v==='wmskarten'?'flex':'none';
@@ -5146,6 +5155,7 @@ function switchView(v){
   if(v==='dashboard'){ _dataViewProject=currentProjectId; initDashboard(); } // einmaliges Laden; danach nur per Refresh-Button
   if(v==='ki') renderKi();
   if(v==='sollist') initSollIstView();
+  if(v==='datenqualitaet') initDatenqualitaet();
   if(v==='kiconfig') renderKiConfig();
   if(v==='handbuch') renderHandbuch();
   if(v==='wmskarten') renderWmsList();
@@ -8949,6 +8959,63 @@ function siExportCsv(){
   a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
 }
 
+// ── Datenqualität (Auswertung → Datenqualität): Lücken & Dubletten prüfen ──
+let _dqCat=null;
+function _dqChecks(){
+  const act=trees.filter(t=>isActive(t)&&!_isContainer(t));
+  const all=trees.filter(t=>!_isContainer(t));
+  const idCount={}, coordCount={};
+  act.forEach(t=>{ const k=(t.baumId||'').trim(); if(k) idCount[k]=(idCount[k]||0)+1; if(t.lat&&t.lng){ const c=(+t.lat).toFixed(5)+','+(+t.lng).toFixed(5); coordCount[c]=(coordCount[c]||0)+1; } });
+  const hasSoll=t=>sollFreqProWoche(t,'sommer')!=null||sollFreqProWoche(t,'winter')!=null;
+  return [
+    {key:'gps',      label:'Ohne Koordinaten',      items:act.filter(t=>!t.lat||!t.lng)},
+    {key:'id',       label:'Ohne Objekt-ID',        items:act.filter(t=>!(t.baumId||'').trim())},
+    {key:'iddup',    label:'Doppelte Objekt-ID',    items:act.filter(t=>{const k=(t.baumId||'').trim();return k&&idCount[k]>1;}), detail:t=>'ID '+(t.baumId||'')},
+    {key:'dupcoord', label:'Gleiche Koordinaten',   items:act.filter(t=>{if(!t.lat||!t.lng)return false;const c=(+t.lat).toFixed(5)+','+(+t.lng).toFixed(5);return coordCount[c]>1;})},
+    {key:'soll',     label:'Ohne Soll-Häufigkeit',  items:act.filter(t=>!hasSoll(t))},
+    {key:'tour',     label:'Keiner Tour zugeordnet',items:act.filter(t=>realTourIds(t).length===0)},
+    {key:'art',      label:'Ohne '+FL.art,          items:act.filter(t=>!(t.art||'').trim())},
+    {key:'stadtteil',label:'Ohne '+FL.stadtteil,    items:act.filter(t=>!(t.stadtteil||'').trim())},
+    {key:'inaktivInTour',label:'Inaktiv, aber in Tour',items:all.filter(t=>!isActive(t)&&realTourIds(t).length>0)},
+  ];
+}
+function _dqName(t){ const c=t.containerExtId?_containerOf(t):null; return c?((c.name||'–')+' · '+_elemLabel(t)):(t.name||'–'); }
+function dqPick(key){ _dqCat=key; renderDatenqualitaet(); }
+function initDatenqualitaet(){ if(!currentProjectId){ const b=document.getElementById('dq-body'); if(b) b.innerHTML='<div style="padding:24px;color:var(--text3);">Bitte zuerst ein Projekt öffnen.</div>'; return; } renderDatenqualitaet(); }
+function renderDatenqualitaet(){
+  const cardsEl=document.getElementById('dq-cards'), listEl=document.getElementById('dq-list'); if(!cardsEl||!listEl) return;
+  const checks=_dqChecks();
+  if(!_dqCat || !checks.find(c=>c.key===_dqCat)) _dqCat=(checks.find(c=>c.items.length>0)||checks[0]).key;
+  cardsEl.innerHTML=checks.map(c=>{ const sel=c.key===_dqCat, n=c.items.length, col=n>0?'var(--amber)':'var(--green)';
+    return `<div onclick="dqPick('${c.key}')" style="cursor:pointer;background:var(--surface2);border:1px solid ${sel?'var(--green)':'transparent'};border-radius:10px;padding:9px 11px;">
+      <div style="font-size:12px;color:var(--text3);line-height:1.3;">${dlEsc(c.label)}</div>
+      <div style="font-size:20px;font-weight:700;color:${col};">${n.toLocaleString('de-DE')}</div></div>`; }).join('');
+  const cat=checks.find(c=>c.key===_dqCat), items=cat?cat.items:[];
+  const cap=500, shown=items.slice(0,cap);
+  const rows=shown.map(t=>`<tr data-treeid="${t.id}" style="border-top:1px solid var(--border);cursor:pointer;" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''">
+    <td style="padding:7px 10px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(_dqName(t))}</td>
+    <td style="padding:7px 10px;color:var(--text2);white-space:nowrap;font-family:'DM Mono',monospace;font-size:11px;">${dlEsc(t.baumId||'–')}</td>
+    <td style="padding:7px 10px;color:var(--text2);white-space:nowrap;">${dlEsc(t.stadtteil||'–')}</td>
+    <td style="padding:7px 10px;color:var(--text2);white-space:nowrap;">${cat&&cat.detail?dlEsc(cat.detail(t)):''}</td>
+  </tr>`).join('');
+  listEl.innerHTML=`<div style="font-size:13px;font-weight:600;margin-bottom:4px;">${dlEsc(cat?cat.label:'')}</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:8px;">${items.length.toLocaleString('de-DE')} Objekt(e)${shown.length<items.length?` · Anzeige auf ${cap} begrenzt`:''} — Klick öffnet die Karte.</div>
+    ${items.length?`<table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr style="background:var(--surface2);">${['Objekt','Objekt-ID',FL.stadtteil,'Detail'].map(h=>`<th style="padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);white-space:nowrap;">${dlEsc(h)}</th>`).join('')}</tr></thead>
+      <tbody>${rows}</tbody></table>`:'<div style="color:var(--green);font-size:13px;padding:8px 0;">✓ Keine Probleme in dieser Kategorie.</div>'}`;
+  listEl.onclick=e=>{ const tr=e.target.closest('[data-treeid]'); if(tr){ selectTree(tr.dataset.treeid); switchView('karte'); } };
+}
+function dqExportCsv(){
+  const cat=_dqChecks().find(c=>c.key===_dqCat); if(!cat||!cat.items.length){ notify('Keine Objekte zum Export'); return; }
+  const cell=v=>{ const s=''+(v==null?'':v); return /[";\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
+  const line=a=>a.map(cell).join(';');
+  const head=['Kategorie','Objekt','Objekt-ID',FL.stadtteil,FL.art];
+  const body=cat.items.map(t=>line([cat.label,_dqName(t),t.baumId||'',t.stadtteil||'',t.art||'']));
+  const csv='﻿'+[line(head),...body].join('\r\n');
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+  a.download='Datenqualitaet_'+cat.key+'_'+new Date().toISOString().slice(0,10)+'.csv'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+}
+
 function renderControlling(){
   if(!currentProjectId){ document.getElementById('ctrl-kpis').innerHTML='<div style="padding:20px;color:var(--text3);">Bitte zuerst ein Projekt öffnen.</div>'; return; }
   _applyCtrlWidgetVis();
@@ -12577,7 +12644,7 @@ Object.assign(window,{
   openBaeumeColMenu,toggleBaeumeCol,resetBaeumeCols,
   saveFieldLabels, setFieldLabel, toggleMobilFeld, migrateTourIds, deriveHaeufigkeitFromZustaendigkeit,
   addObjektklasse, renameObjektklasse, setKlasseStruktur, toggleKlasseFeld, deleteObjektklasse,
-  addReinigungsklasse, renameReinigungsklasse, setRkFreq, setRkColor, deleteReinigungsklasse, onKlasseChange, setColorMode, togglePlanCheck, toggleOverdueCheck, checkToggleStatus, checkShowProblems, checkShowAll, setOverdueTol, setAbschnittRk, toggleDisplayPanel, setGeomStyle, saveDisplayDefaults, setRouteLineStyle, setSollFeld,
+  addReinigungsklasse, renameReinigungsklasse, setRkFreq, setRkColor, deleteReinigungsklasse, onKlasseChange, setColorMode, togglePlanCheck, toggleOverdueCheck, checkToggleStatus, checkShowProblems, checkShowAll, setOverdueTol, toggleCheckMenu, checkMenuPick, checkMenuGoDq, dqPick, dqExportCsv, setAbschnittRk, toggleDisplayPanel, setGeomStyle, saveDisplayDefaults, setRouteLineStyle, setSollFeld,
   doLogin, doLogout, toggleLoginMode,
 });
 
