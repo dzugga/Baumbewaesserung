@@ -1075,6 +1075,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     </button>
     <div style="display:flex;align-items:center;gap:8px;margin-left:auto;">
       <span id="ctrl-last-updated" style="font-size:11px;color:var(--text3);white-space:nowrap;"></span>
+      <button id="ctrl-widget-btn" class="btn btn-secondary" style="padding:4px 10px;font-size:12px;display:none;" onclick="openCtrlWidgetMenu(this)" title="Auswertungen ein-/ausblenden (projektweit)">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="vertical-align:-2px;"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+        Auswertung
+      </button>
       <button class="btn btn-secondary" style="padding:4px 10px;font-size:12px;" onclick="refreshControlling()" title="Daten aktualisieren">
         <svg id="ctrl-refresh-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
       </button>
@@ -1097,35 +1101,33 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <!-- KPI Cards -->
     <div id="ctrl-kpis" style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px;position:sticky;top:0;z-index:10;background:var(--bg);padding:10px 0 6px;margin-top:-8px;"></div>
 
-    <!-- Charts: kompakt 2x2 -->
+    <!-- Charts: kompakt, ausgeblendete Karten ruecken nach -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px;">
+      <div data-widget="chart_pie" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px;">
         <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Status-Verteilung</div>
         <canvas id="ctrl-pie" height="180"></canvas>
       </div>
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px;">
+      <div data-widget="chart_tour" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px;">
         <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Status pro Tour</div>
         <canvas id="ctrl-bar" height="180"></canvas>
       </div>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px;">
+      <div data-widget="chart_zeit" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px;">
         <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Zeitverlauf</div>
         <canvas id="ctrl-timeline" height="160"></canvas>
       </div>
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px;">
+      <div data-widget="chart_stadtteil" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px;">
         <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Status pro Stadtteil</div>
         <canvas id="ctrl-stadtteil" height="160"></canvas>
       </div>
     </div>
     <!-- Gründe kompakt -->
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:12px;">
+    <div data-widget="gruende" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:12px;">
       <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Gründe: Nicht erledigt</div>
       <div id="ctrl-reasons"></div>
     </div>
 
     <!-- Detail table -->
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:20px;">
+    <div data-widget="einzelmeldungen" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:20px;">
       <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
         <span style="font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;">Einzelmeldungen</span>
         <span id="ctrl-table-count" style="font-size:12px;color:var(--text3);white-space:nowrap;"></span>
@@ -1145,7 +1147,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     </div>
 
     <!-- Tour Historie -->
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+    <div data-widget="historie" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
       <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
         <span style="font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;">Abgeschlossene Touren (Historie)</span>
         <button class="btn btn-secondary" style="padding:3px 10px;font-size:12px;" onclick="loadTourHistory()">Laden</button>

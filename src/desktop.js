@@ -8407,8 +8407,69 @@ function getCtrlFilteredTrees(){
   });
 }
 
+// ── Controlling: welche Auswertungen sichtbar sind (projektweit, am Projekt-Doc) ──
+const CTRL_WIDGETS=[
+  {id:'kpi_gesamt',    label:'Gesamt',                 group:'Kennzahlen'},
+  {id:'kpi_erledigt',  label:'Erledigt',               group:'Kennzahlen'},
+  {id:'kpi_nicht',     label:'Nicht erledigt',         group:'Kennzahlen'},
+  {id:'kpi_meldungen', label:'Meldungen gesamt',       group:'Kennzahlen'},
+  {id:'kpi_fahrer',    label:'Aktive Fahrer',          group:'Kennzahlen'},
+  {id:'chart_pie',     label:'Status-Verteilung',      group:'Diagramme'},
+  {id:'chart_tour',    label:'Status pro Tour',        group:'Diagramme'},
+  {id:'chart_zeit',    label:'Zeitverlauf',            group:'Diagramme'},
+  {id:'chart_stadtteil',label:'Status pro Stadtteil',  group:'Diagramme'},
+  {id:'gruende',       label:'Gründe: Nicht erledigt', group:'Tabellen'},
+  {id:'einzelmeldungen',label:'Einzelmeldungen',       group:'Tabellen'},
+  {id:'historie',      label:'Abgeschlossene Touren (Historie)', group:'Tabellen'},
+];
+// Standard: alles an, wenn nichts konfiguriert ist (rückwärtskompatibel)
+function _ctrlWidgetOn(id){ const w=currentProjectData&&currentProjectData.controllingWidgets; if(!w||typeof w!=='object') return true; return w[id]!==false; }
+function _applyCtrlWidgetVis(){
+  document.querySelectorAll('#view-controlling [data-widget]').forEach(el=>{
+    el.style.display=_ctrlWidgetOn(el.getAttribute('data-widget'))?'':'none';
+  });
+  const btn=document.getElementById('ctrl-widget-btn'); if(btn) btn.style.display=(currentProjectId&&!isReadonly())?'':'none';
+}
+async function toggleCtrlWidget(id,on){
+  if(isReadonly()||!currentProjectId) return;
+  const w=Object.assign({},(currentProjectData&&currentProjectData.controllingWidgets)||{});
+  w[id]=!!on;
+  if(currentProjectData) currentProjectData.controllingWidgets=w;   // sofort lokal wirksam
+  _applyCtrlWidgetVis(); renderControlling();
+  try{ await updateDoc(doc(db,'projects',currentProjectId),{controllingWidgets:w}); }
+  catch(e){ console.warn('controllingWidgets speichern',e); notify(dlErr(e)); }
+}
+async function resetCtrlWidgets(){
+  if(isReadonly()||!currentProjectId) return;
+  if(currentProjectData) currentProjectData.controllingWidgets={};
+  _applyCtrlWidgetVis(); renderControlling();
+  const m=document.getElementById('ctrl-widget-menu'); if(m) m.querySelectorAll('input[type=checkbox]').forEach(c=>c.checked=true);
+  try{ await updateDoc(doc(db,'projects',currentProjectId),{controllingWidgets:{}}); }
+  catch(e){ console.warn('controllingWidgets reset',e); notify(dlErr(e)); }
+}
+function openCtrlWidgetMenu(btn){
+  const ex=document.getElementById('ctrl-widget-menu'); if(ex){ ex.remove(); return; }
+  if(isReadonly()) return;
+  const r=btn.getBoundingClientRect();
+  const m=document.createElement('div'); m.id='ctrl-widget-menu';
+  m.style.cssText=`position:fixed;top:${Math.round(r.bottom+4)}px;left:${Math.round(Math.max(8,r.right-270))}px;z-index:9999;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.2);padding:8px;width:270px;max-height:74vh;overflow:auto;`;
+  let html=`<div style="font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);padding:4px 6px 4px;">Auswertungen (projektweit)</div>`;
+  let lastGroup='';
+  CTRL_WIDGETS.forEach(w=>{
+    if(w.group!==lastGroup){ html+=`<div style="font-size:10px;font-weight:700;color:var(--text3);padding:8px 6px 3px;text-transform:uppercase;letter-spacing:.04em;">${w.group}</div>`; lastGroup=w.group; }
+    html+=`<label style="display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:6px;cursor:pointer;font-size:13px;" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''">
+      <input type="checkbox" ${_ctrlWidgetOn(w.id)?'checked':''} onchange="toggleCtrlWidget('${w.id}',this.checked)" style="width:15px;height:15px;cursor:pointer;">
+      <span>${dlEsc(w.label)}</span></label>`;
+  });
+  html+=`<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px;"><button class="btn btn-secondary" style="width:100%;padding:5px;font-size:11px;" onclick="resetCtrlWidgets()">Alle einblenden</button></div>`;
+  m.innerHTML=html;
+  document.body.appendChild(m);
+  setTimeout(()=>{ const close=ev=>{ if(!m.contains(ev.target)&&ev.target!==btn&&!btn.contains(ev.target)){ m.remove(); document.removeEventListener('mousedown',close); } }; document.addEventListener('mousedown',close); },0);
+}
+
 function renderControlling(){
   if(!currentProjectId){ document.getElementById('ctrl-kpis').innerHTML='<div style="padding:20px;color:var(--text3);">Bitte zuerst ein Projekt öffnen.</div>'; return; }
+  _applyCtrlWidgetVis();
   const filtered=getCtrlFilteredTrees();
   const {from,to}=getCtrlDateRange();
 
@@ -8525,13 +8586,15 @@ function renderControlling(){
   // ── KPI Cards ─────────────────────────────────────────────────
   const activeFahrer=[...new Set(allReported.map(r=>r.lastDriver).filter(Boolean))].length;
   const kpiEl=document.getElementById('ctrl-kpis');
-  if(kpiEl) kpiEl.innerHTML=[
-    {val:filtered.length,lbl:'Gesamt',sub:'Objekte im Projekt',color:'var(--text)'},
-    {val:bewaessert.length,lbl:'Erledigt',sub:`${pct}% der Meldungen`,color:'#16a34a'},
-    {val:nicht.length,lbl:'Nicht erledigt',sub:'Einzelmeldungen',color:'var(--red)'},
-    {val:totalReported,lbl:'Meldungen gesamt',sub:'im Zeitraum',color:'var(--text2)'},
-    {val:activeFahrer,lbl:'Aktive Fahrer',sub:'im Zeitraum',color:'var(--blue)'},
-  ].map(k=>`<div class="kpi-card">
+  const _kpis=[
+    {id:'kpi_gesamt',val:filtered.length,lbl:'Gesamt',sub:'Objekte im Projekt',color:'var(--text)'},
+    {id:'kpi_erledigt',val:bewaessert.length,lbl:'Erledigt',sub:`${pct}% der Meldungen`,color:'#16a34a'},
+    {id:'kpi_nicht',val:nicht.length,lbl:'Nicht erledigt',sub:'Einzelmeldungen',color:'var(--red)'},
+    {id:'kpi_meldungen',val:totalReported,lbl:'Meldungen gesamt',sub:'im Zeitraum',color:'var(--text2)'},
+    {id:'kpi_fahrer',val:activeFahrer,lbl:'Aktive Fahrer',sub:'im Zeitraum',color:'var(--blue)'},
+  ].filter(k=>_ctrlWidgetOn(k.id));
+  if(kpiEl){ kpiEl.style.display=_kpis.length?'grid':'none'; kpiEl.style.gridTemplateColumns=`repeat(${_kpis.length||1},1fr)`; }
+  if(kpiEl) kpiEl.innerHTML=_kpis.map(k=>`<div class="kpi-card">
     <div class="kpi-val" style="color:${k.color};">${k.val}</div>
     <div class="kpi-info">
       <div class="kpi-lbl">${k.lbl}</div>
@@ -8546,12 +8609,12 @@ function renderControlling(){
   // Charts: use unique tree counts for pie, all reports for bar/timeline
   const finalBewCount=finalReported.filter(r=>r.lastStatus==='bewaessert').length;
   const finalNichtCount=finalReported.filter(r=>r.lastStatus==='nicht').length;
-  renderPieChart(finalBewCount,finalNichtCount);
-  renderBarChart(filtered,finalReported);
-  renderTimelineChart(finalReported,from,to);
-  renderStadtteilChart(filtered,finalReported);
-  renderReasonsBar(finalReported.filter(r=>r.lastStatus==='nicht'));
-  renderDetailTable(finalReported);
+  if(_ctrlWidgetOn('chart_pie')) renderPieChart(finalBewCount,finalNichtCount); else destroyChart('pie');
+  if(_ctrlWidgetOn('chart_tour')) renderBarChart(filtered,finalReported); else destroyChart('bar');
+  if(_ctrlWidgetOn('chart_zeit')) renderTimelineChart(finalReported,from,to); else destroyChart('timeline');
+  if(_ctrlWidgetOn('chart_stadtteil')) renderStadtteilChart(filtered,finalReported); else destroyChart('stadtteil');
+  if(_ctrlWidgetOn('gruende')) renderReasonsBar(finalReported.filter(r=>r.lastStatus==='nicht'));
+  if(_ctrlWidgetOn('einzelmeldungen')) renderDetailTable(finalReported);
   updateCtrlLastUpdated();
 }
 
@@ -11927,7 +11990,8 @@ Object.assign(window,{
   nmUnarchive,nmToggleArchived,nmDelArm,nmDelCancel,nmDeleteDo,setPushEnabled,
   renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,_fillMerge,cfGeomToggle,
   rankAdd,rankRename,rankSetColor,rankSetZahl,rankMove,rankMerge,rankDelete,
-  saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
+  saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
+  openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,clearLassoSelection,
   createProject,openProject,showProjectScreen,psSetOrgFilter,setSiTab,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
