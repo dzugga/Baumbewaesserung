@@ -5117,6 +5117,7 @@ function switchView(v){
   const ki=document.getElementById('view-ki');
   const sollist=document.getElementById('view-sollist'); if(sollist) sollist.style.display=v==='sollist'?'flex':'none';
   const datenq=document.getElementById('view-datenqualitaet'); if(datenq) datenq.style.display=v==='datenqualitaet'?'flex':'none';
+  const ausf=document.getElementById('view-ausfaelle'); if(ausf) ausf.style.display=v==='ausfaelle'?'flex':'none';
   const kiconfig=document.getElementById('view-kiconfig');
   const handbuch=document.getElementById('view-handbuch'); if(handbuch) handbuch.style.display=v==='handbuch'?'flex':'none';
   const wmskarten=document.getElementById('view-wmskarten'); if(wmskarten) wmskarten.style.display=v==='wmskarten'?'flex':'none';
@@ -5162,6 +5163,7 @@ function switchView(v){
   if(v==='ki') renderKi();
   if(v==='sollist') initSollIstView();
   if(v==='datenqualitaet') initDatenqualitaet();
+  if(v==='ausfaelle') initAusfaelle();
   if(v==='kiconfig') renderKiConfig();
   if(v==='handbuch') renderHandbuch();
   if(v==='wmskarten') renderWmsList();
@@ -9080,6 +9082,65 @@ function dqExportCsv(){
   a.download='Datenqualitaet_'+cat.key+'_'+new Date().toISOString().slice(0,10)+'.csv'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
 }
 
+// ── Chronische Ausfälle (G): systematische statt einmalige Probleme ──
+const _gState={period:'30',minN:3,showFahrer:false};
+function gSet(f,v){ _gState[f]=(f==='minN')?(parseInt(v)||1):(f==='showFahrer'?!!v:v); renderAusfaelle(); }
+function _gCompute(){
+  const r=kiComputeRange(_gState.period); let from=r.from,to=r.to;
+  if(!from||!to){ const m=kiComputeRange('30'); from=m.from; to=m.to; }
+  const inR=d=>d&&(!from||d>=from)&&(!to||d<=to);
+  const per=[], reasonAgg={}, driverAgg={};
+  trees.filter(t=>isActive(t)&&!_isContainer(t)).forEach(t=>{
+    let bew=0,nicht=0; const reasons={};
+    (t.history||[]).forEach(h=>{
+      if(!h.date||!inR((''+h.date).slice(0,10))) return;
+      const done=h.status==='bewaessert'||(!h.status&&h.note), no=h.status==='nicht';
+      if(!done&&!no) return;
+      if(done) bew++; else { nicht++; if(h.reason){ reasons[h.reason]=(reasons[h.reason]||0)+1; reasonAgg[h.reason]=(reasonAgg[h.reason]||0)+1; } }
+      if(h.driver){ const da=driverAgg[h.driver]=driverAgg[h.driver]||{tot:0,n:0}; da.tot++; if(no) da.n++; }
+    });
+    if(bew||nicht){ const tr=Object.entries(reasons).sort((a,b)=>b[1]-a[1])[0]; per.push({t,bew,nicht,topReason:tr?tr[0]:''}); }
+  });
+  const chronisch=per.filter(x=>x.nicht>=_gState.minN).sort((a,b)=>b.nicht-a.nicht);
+  const nieErfolg=per.filter(x=>x.bew===0&&x.nicht>0).sort((a,b)=>b.nicht-a.nicht);
+  const reasons=Object.entries(reasonAgg).sort((a,b)=>b[1]-a[1]).slice(0,12);
+  const drivers=Object.entries(driverAgg).filter(([n,d])=>d.tot>=5).map(([n,d])=>({name:n,tot:d.tot,n:d.n,rate:d.n/d.tot})).sort((a,b)=>b.rate-a.rate);
+  return {chronisch,nieErfolg,reasons,drivers,maxReason:reasons[0]?reasons[0][1]:0};
+}
+function initAusfaelle(){
+  if(!currentProjectId){ const b=document.getElementById('g-body'); if(b) b.innerHTML='<div style="padding:24px;color:var(--text3);">Bitte zuerst ein Projekt öffnen.</div>'; return; }
+  const p=document.getElementById('g-period'); if(p) p.value=_gState.period;
+  const mn=document.getElementById('g-minN'); if(mn) mn.value=_gState.minN;
+  const fc=document.getElementById('g-fahrer'); if(fc) fc.checked=_gState.showFahrer;
+  renderAusfaelle();
+}
+function renderAusfaelle(){
+  const el=document.getElementById('g-content'); if(!el) return;
+  const d=_gCompute();
+  const card=(title,inner,sub)=>`<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:14px;"><div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">${title}</div>${sub?`<div style="font-size:12px;color:var(--text3);margin-bottom:8px;">${sub}</div>`:''}${inner}</div>`;
+  const objTable=arr=>{
+    if(!arr.length) return '<div style="color:var(--green);font-size:13px;">✓ Keine Fälle im Zeitraum.</div>';
+    const cap=400, shown=arr.slice(0,cap);
+    return `<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="background:var(--surface2);">${['Objekt',FL.stadtteil,'Nicht / Gesamt','Häufigster Grund'].map(h=>`<th style="padding:6px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);white-space:nowrap;">${dlEsc(h)}</th>`).join('')}</tr></thead><tbody>${shown.map(x=>`<tr data-treeid="${x.t.id}" style="border-top:1px solid var(--border);cursor:pointer;" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''"><td style="padding:6px 10px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(_dqName(x.t))}</td><td style="padding:6px 10px;color:var(--text2);white-space:nowrap;">${dlEsc(x.t.stadtteil||'–')}</td><td style="padding:6px 10px;white-space:nowrap;"><b style="color:var(--red);">${x.nicht}</b> / ${x.bew+x.nicht}</td><td style="padding:6px 10px;color:var(--text2);">${dlEsc(x.topReason||'–')}</td></tr>`).join('')}</tbody></table>${arr.length>cap?`<div style="font-size:11px;color:var(--text3);margin-top:6px;">Anzeige auf ${cap} begrenzt.</div>`:''}`;
+  };
+  const reasonList=d.reasons.length?d.reasons.map(([r,n])=>`<div style="display:flex;align-items:center;gap:10px;padding:4px 0;"><div style="width:170px;flex:none;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${dlEsc(r)}">${dlEsc(r)}</div><div style="flex:1;height:9px;border-radius:5px;background:#e5e1d8;overflow:hidden;"><div style="width:${d.maxReason?Math.round(n/d.maxReason*100):0}%;height:100%;background:var(--amber);"></div></div><div style="width:44px;text-align:right;font-weight:600;font-size:13px;">${n}</div></div>`).join(''):'<div style="color:var(--text3);font-size:13px;">Keine „nicht erledigt"-Gründe im Zeitraum.</div>';
+  const fahrer=!_gState.showFahrer?'':card('Fahrer — zum Nachfragen (keine Bewertung)', d.drivers.length?`<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="background:var(--surface2);">${['Fahrer','Nicht','Meldungen','Anteil'].map(h=>`<th style="padding:6px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">${h}</th>`).join('')}</tr></thead><tbody>${d.drivers.map(x=>`<tr style="border-top:1px solid var(--border);"><td style="padding:6px 10px;">${dlEsc(x.name)}</td><td style="padding:6px 10px;">${x.n}</td><td style="padding:6px 10px;color:var(--text2);">${x.tot}</td><td style="padding:6px 10px;font-weight:600;">${Math.round(x.rate*100)} %</td></tr>`).join('')}</tbody></table>`:'<div style="color:var(--text3);font-size:13px;">Zu wenige Meldungen je Fahrer (ab 5).</div>','Anteil „nicht erledigt" je Fahrer (ab 5 Meldungen). Bewusst neutral — für die Rückfrage, nicht zur Leistungsbewertung.');
+  el.innerHTML=
+    card(`Chronisch „nicht erledigt" (ab ${_gState.minN} Fällen) · ${d.chronisch.length}`, objTable(d.chronisch), 'Objekte, die wiederholt „nicht erledigt" gemeldet werden — Ursache statt Symptom prüfen (Reparatur, Zufahrt, Turnus).')+
+    card(`Nie erfolgreich im Zeitraum · ${d.nieErfolg.length}`, objTable(d.nieErfolg), 'Objekte mit Meldungen, aber keiner einzigen „erledigt".')+
+    card('Häufigste Gründe', reasonList)+
+    fahrer;
+  el.onclick=e=>{ const tr=e.target.closest('[data-treeid]'); if(tr){ selectTree(tr.dataset.treeid); switchView('karte'); } };
+}
+function gExportCsv(){
+  const d=_gCompute(); const arr=d.chronisch; if(!arr.length){ notify('Keine chronischen Ausfälle zum Export'); return; }
+  const cell=v=>{const s=''+(v==null?'':v);return /[";\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}; const line=a=>a.map(cell).join(';');
+  const body=arr.map(x=>line([_dqName(x.t),x.t.stadtteil||'',x.nicht,x.bew+x.nicht,x.topReason||'']));
+  const csv='﻿'+[line(['Objekt',FL.stadtteil,'Nicht','Gesamt','Haeufigster_Grund']),...body].join('\r\n');
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+  a.download='Ausfaelle_'+new Date().toISOString().slice(0,10)+'.csv'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+}
+
 function renderControlling(){
   if(!currentProjectId){ document.getElementById('ctrl-kpis').innerHTML='<div style="padding:20px;color:var(--text3);">Bitte zuerst ein Projekt öffnen.</div>'; return; }
   _applyCtrlWidgetVis();
@@ -12708,7 +12769,7 @@ Object.assign(window,{
   openBaeumeColMenu,toggleBaeumeCol,resetBaeumeCols,
   saveFieldLabels, setFieldLabel, toggleMobilFeld, migrateTourIds, deriveHaeufigkeitFromZustaendigkeit,
   addObjektklasse, renameObjektklasse, setKlasseStruktur, toggleKlasseFeld, deleteObjektklasse,
-  addReinigungsklasse, renameReinigungsklasse, setRkFreq, setRkColor, deleteReinigungsklasse, onKlasseChange, setColorMode, togglePlanCheck, toggleOverdueCheck, checkToggleStatus, checkShowProblems, checkShowAll, setOverdueTol, setCheckSaison, toggleCheckMenu, checkMenuPick, checkMenuGoDq, dqPick, dqExportCsv, setAbschnittRk, toggleDisplayPanel, setGeomStyle, saveDisplayDefaults, setRouteLineStyle, setSollFeld,
+  addReinigungsklasse, renameReinigungsklasse, setRkFreq, setRkColor, deleteReinigungsklasse, onKlasseChange, setColorMode, togglePlanCheck, toggleOverdueCheck, checkToggleStatus, checkShowProblems, checkShowAll, setOverdueTol, setCheckSaison, toggleCheckMenu, checkMenuPick, checkMenuGoDq, dqPick, dqExportCsv, gSet, gExportCsv, setAbschnittRk, toggleDisplayPanel, setGeomStyle, saveDisplayDefaults, setRouteLineStyle, setSollFeld,
   doLogin, doLogout, toggleLoginMode,
 });
 
