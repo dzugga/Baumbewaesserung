@@ -1446,6 +1446,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
   <div style="background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;gap:12px;flex-shrink:0;">
     <span style="font-size:13px;font-weight:600;color:var(--text);">KI-Auswertung</span>
     <span style="font-size:11px;color:var(--text3);">Auswertung wählen → fertigen Prompt mit aktuellen Projektdaten kopieren → in ChatGPT/Claude einfügen</span>
+    <button id="ki-cfg-btn" class="btn btn-secondary" style="margin-left:auto;padding:4px 10px;font-size:12px;display:none;" onclick="openKiConfigMenu(this)" title="Auswählen, welche Analysen dieses Projekt sieht">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="vertical-align:-2px;"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+      Analysen wählen
+    </button>
   </div>
   <div class="ki-content">
     <div class="ki-wrap">

@@ -11224,45 +11224,111 @@ function buildKiContext(range){
   const gruende=grp(reps.filter(x=>x.status==='nicht'), x=>x.reason)||'keine';
   const nichtStadtteil=grp(reps.filter(x=>x.status==='nicht'), x=>x.t.stadtteil)||'keine';
   const tourStr=tours.map(t=>{ const c=active.filter(x=>treeInTour(x,t.id)).length; const rt=tourRoutes[t.id]; return `${t.name}: ${c} Objekte${rt?`, ${rt.km.toFixed(1)} km`:''}`; }).join(' | ')||'keine';
-  return [
+  // Geometrie/Mengen nur ausgeben, wenn vorhanden (Flächen-/Strecken-Projekte) — sonst weglassen
+  const geomCount={punkt:0,flaeche:0,linie:0}; active.forEach(t=>{ const g=geomTypeOf(t); if(geomCount[g]!=null) geomCount[g]++; });
+  let flSum=0, liSum=0; active.forEach(t=>{ const m=parseFloat(t.menge); if(!(m>0)) return; if(t.einheit==='m') liSum+=m; else flSum+=m; });
+  const lines=[
     `Projekt: ${currentProjectData?.name||currentProjectId}`,
     `Auswertungszeitraum: ${r.label}${r.from?` (${fmtDateDE(r.from)} bis ${fmtDateDE(r.to)})`:''}`,
     `Objekte gesamt (aktiv): ${active.length}`,
     `${FL.zustand} (Bestand): ${rankList('zustand').map(e=>`${e.label} ${active.filter(t=>(t.zustand||'')===e.id).length}`).join(', ')}`,
-    `Meldungen im Zeitraum: ${reps.length} gesamt — bewässert ${bew}, nicht bewässert ${nicht}; betroffene Objekte: ${objMitMeldung}; ohne Meldung im Zeitraum: ${active.length-objMitMeldung}`,
-    `Gründe „nicht bewässert" (Zeitraum): ${gruende}`,
-    `„Nicht bewässert" je Stadtteil (Zeitraum): ${nichtStadtteil}`,
-    `Objekte je Stadtteil (Bestand): ${grp(active,t=>t.stadtteil)}`,
-    `Top-Baumarten: ${grp(active,t=>t.art,8)}`,
-    `Pflanzjahre: ${grp(active,t=>t.pflanzjahr,8)}`,
+    `Meldungen im Zeitraum: ${reps.length} gesamt — erledigt ${bew}, nicht erledigt ${nicht}; betroffene Objekte: ${objMitMeldung}; ohne Meldung im Zeitraum: ${active.length-objMitMeldung}`,
+    `Gründe „nicht erledigt" (Zeitraum): ${gruende}`,
+    `„Nicht erledigt" je ${FL.stadtteil} (Zeitraum): ${nichtStadtteil}`,
+    `Objekte je ${FL.stadtteil} (Bestand): ${grp(active,t=>t.stadtteil)}`,
+    `${FL.art} (Top): ${grp(active,t=>t.art,8)}`,
+    `${FL.pflanzjahr} (Top): ${grp(active,t=>t.pflanzjahr,8)}`,
     `Touren (${tours.length}): ${tourStr}`,
-  ].join('\n');
+  ];
+  // Zeitlicher Verlauf (für Trend-Analysen) — je Tag, bei langem Zeitraum je Monat
+  const byDay={}; reps.forEach(x=>{ (byDay[x.date]=byDay[x.date]||{b:0,n:0}); if(x.status==='nicht') byDay[x.date].n++; else byDay[x.date].b++; });
+  const days=Object.keys(byDay).sort();
+  if(days.length>=2){
+    const useMonth=days.length>21, buck={};
+    days.forEach(d=>{ const k=useMonth?d.slice(0,7):d; (buck[k]=buck[k]||{b:0,n:0}); buck[k].b+=byDay[d].b; buck[k].n+=byDay[d].n; });
+    lines.push(`Verlauf (${useMonth?'je Monat':'je Tag'}, erledigt✓/nicht✗): ${Object.keys(buck).sort().map(k=>`${k} ${buck[k].b}✓/${buck[k].n}✗`).join(', ')}`);
+  }
+  if(geomCount.flaeche||geomCount.linie){
+    lines.push(`Objekttypen: Punkte ${geomCount.punkt}, Flächen ${geomCount.flaeche}, Strecken ${geomCount.linie}`);
+    if(flSum>0) lines.push(`Fläche gesamt: ${Math.round(flSum).toLocaleString('de-DE')} m²`);
+    if(liSum>0) lines.push(`Länge gesamt: ${Math.round(liSum).toLocaleString('de-DE')} m`);
+  }
+  return lines.join('\n');
 }
 
+// Analysen sind objekt-neutral formuliert (Grünpflege, Straßenreinigung, Kontrollgänge …).
+// „jung" ist bewusst objekt-spezifisch und kann je Projekt ausgeblendet werden.
 const KI_PROMPTS=[
-  {id:'ausfall',icon:'⚠️',title:'Ausfallanalyse',desc:'Warum werden Objekte nicht versorgt? Muster & Maßnahmen.',
-   build:c=>`Du bist Experte für kommunales Grünflächen- und Baumbewässerungsmanagement. Analysiere die folgenden Daten. Finde Muster bei den nicht bewässerten Objekten (Gründe, Stadtteile, Touren), nenne die 3 wichtigsten Ursachen und konkrete, umsetzbare Maßnahmen zur Reduzierung der Ausfälle.\n\nDaten:\n${c}`},
+  {id:'ausfall',icon:'⚠️',title:'Ausfallanalyse',desc:'Warum werden Objekte nicht erledigt? Muster & Maßnahmen.',
+   build:c=>`Du bist Fachexperte für kommunales Objekt- und Flächenmanagement (z. B. Grünpflege, Straßenreinigung, Kontrollgänge, Winterdienst). Analysiere die folgenden Daten. Finde Muster bei den nicht erledigten Objekten (Gründe, Gebiete, Touren), nenne die 3 wichtigsten Ursachen und konkrete, umsetzbare Maßnahmen zur Reduzierung der Ausfälle.\n\nDaten:\n${c}`},
   {id:'touren',icon:'🚐',title:'Tour-Effizienz',desc:'Ineffiziente Touren erkennen, Objekte sinnvoll umverteilen.',
-   build:c=>`Analysiere die Touren hinsichtlich Effizienz (Anzahl Objekte je Tour, Streckenlänge). Identifiziere unausgewogene oder ineffiziente Touren und schlage eine bessere Aufteilung der Objekte vor, um den Fahraufwand zu minimieren. Begründe kurz.\n\nDaten:\n${c}`},
-  {id:'risiko',icon:'🌡️',title:'Zustands-Risiko',desc:'Objekte/Stadtteile mit schlechtem Zustand priorisieren.',
-   build:c=>`Bewerte das Risiko für Trockenstress. Welche Stadtteile oder Objektgruppen mit schlechtem Zustand und geringer Bewässerung sind besonders gefährdet? Erstelle eine priorisierte Handlungsliste für die kommende Woche.\n\nDaten:\n${c}`},
-  {id:'abdeckung',icon:'🗺️',title:'Abdeckungs-Lücken',desc:'Wo fehlt Versorgung? Abdeckungsgrad je Gebiet.',
-   build:c=>`Ermittle Versorgungslücken: Welche Objekte/Stadtteile sind „offen" (keine Meldung)? Wie hoch ist der Abdeckungsgrad je Stadtteil und Tour? Wo besteht der größte Handlungsbedarf?\n\nDaten:\n${c}`},
-  {id:'jung',icon:'🌱',title:'Jungbaum-Check',desc:'Werden frisch gepflanzte Objekte ausreichend versorgt?',
-   build:c=>`Jung gepflanzte Bäume benötigen besonders viel Wasser. Prüfe anhand der Pflanzjahre, ob die jüngsten Objekte ausreichend bewässert werden, und gib konkrete Empfehlungen für deren Pflege.\n\nDaten:\n${c}`},
+   build:c=>`Analysiere die Touren hinsichtlich Effizienz (Anzahl Objekte je Tour, Streckenlänge, ggf. Mengen). Identifiziere unausgewogene oder ineffiziente Touren und schlage eine bessere Aufteilung der Objekte vor, um den Fahr- und Arbeitsaufwand zu minimieren. Begründe kurz.\n\nDaten:\n${c}`},
+  {id:'kapazitaet',icon:'⚙️',title:'Kapazität & Auslastung',desc:'Über-/Unterlast je Tour, Umverteilung, Kapazitätsbedarf.',
+   build:c=>`Bewerte die Auslastung je Tour anhand der Objektzahl, ggf. Mengen (m²/m) und Streckenlänge. Wo besteht Über- oder Unterlast? Schlage eine ausgewogenere Verteilung vor und schätze grob den nötigen Kapazitätsbedarf (Personal/Fahrzeuge).\n\nDaten:\n${c}`},
+  {id:'risiko',icon:'🌡️',title:'Zustands-Priorisierung',desc:'Objekte/Gebiete mit schlechtem Zustand priorisieren.',
+   build:c=>`Priorisiere nach ${FL.zustand} und Erledigungsstand: Welche Gebiete oder Objektgruppen mit schlechtem Zustand und ausbleibender Erledigung sind besonders dringend? Erstelle eine priorisierte Handlungsliste für die kommende Woche.\n\nDaten:\n${c}`},
+  {id:'abdeckung',icon:'🗺️',title:'Abdeckungs-Lücken',desc:'Wo fehlt Erledigung? Erledigungsgrad je Gebiet.',
+   build:c=>`Ermittle Erledigungslücken: Welche Objekte/Gebiete sind „offen" (keine Meldung im Zeitraum)? Wie hoch ist der Erledigungsgrad je Gebiet und Tour? Wo besteht der größte Handlungsbedarf?\n\nDaten:\n${c}`},
+  {id:'gebiete',icon:'🏙️',title:'Gebiets-Vergleich',desc:'Bezirke/Gebiete vergleichen: Quote, offene Objekte.',
+   build:c=>`Vergleiche die Gebiete (${FL.stadtteil}) miteinander: Erledigungsquote, Anzahl „nicht erledigt" und offene Objekte. Erstelle eine priorisierte Rangliste der Gebiete mit dem größten Handlungsbedarf und je einer konkreten Empfehlung.\n\nDaten:\n${c}`},
+  {id:'trend',icon:'📈',title:'Entwicklung im Zeitverlauf',desc:'Trends bei Erledigung & Ausfällen, kurze Prognose.',
+   build:c=>`Analysiere die zeitliche Entwicklung im Auswertungszeitraum (siehe „Verlauf"): Wie verändern sich Erledigungen und Ausfälle? Gibt es Trends, saisonale Muster oder Ausreißer? Leite eine kurze Einschätzung und eine Prognose für die nächsten Wochen ab.\n\nDaten:\n${c}`},
+  {id:'qualitaet',icon:'🔎',title:'Grund-Analyse',desc:'Wiederkehrende Gründe für „nicht erledigt".',
+   build:c=>`Untersuche die Gründe für „nicht erledigt" im Zeitverlauf und je Gebiet. Welche Probleme treten wiederholt auf, wo häufen sie sich, und welche organisatorischen oder technischen Gegenmaßnahmen empfiehlst du? Nach Wirkung/Aufwand priorisieren.\n\nDaten:\n${c}`},
+  {id:'mengen',icon:'📐',title:'Flächen-/Mengen-Auswertung',desc:'Aufwand nach Fläche/Länge (m²/m).',
+   build:c=>`Werte die Mengen (Flächen in m², Strecken in m) aus: Wo konzentriert sich der Aufwand (Gebiete, Touren, Objekttypen)? Gibt es Auffälligkeiten zwischen Mengen und Erledigungsquote? Falls kaum Mengendaten vorliegen, weise ausdrücklich darauf hin.\n\nDaten:\n${c}`},
+  {id:'jung',icon:'🌱',title:'Jungbaum-Check',desc:'Nur Baumpflege: werden frisch gepflanzte Bäume ausreichend versorgt?',
+   build:c=>`Jung gepflanzte Bäume benötigen besonders viel Wasser. Prüfe anhand der ${FL.pflanzjahr}-Angaben, ob die jüngsten Objekte ausreichend versorgt werden, und gib konkrete Empfehlungen für deren Pflege.\n\nDaten:\n${c}`},
   {id:'bericht',icon:'📋',title:'Management-Bericht',desc:'Kompakter Wochenbericht für die Amtsleitung.',
-   build:c=>`Erstelle einen prägnanten Management-Wochenbericht (max. 1 Seite) zur Baumbewässerung: aktuelle Lage, Fortschritt, Ausfälle, Risiken und 3 Empfehlungen. Sachlicher Ton, für die Amtsleitung.\n\nDaten:\n${c}`},
+   build:c=>`Erstelle einen prägnanten Management-Wochenbericht (max. 1 Seite): aktuelle Lage, Fortschritt, nicht erledigte Objekte/Ausfälle, Risiken und 3 Empfehlungen. Sachlicher Ton, für die Amtsleitung.\n\nDaten:\n${c}`},
   {id:'frei',icon:'💬',title:'Eigene Frage',desc:'Freie Frage an die KI – Projektdaten als Kontext.',
-   build:c=>`Beantworte die folgende Frage zur Baumbewässerung anhand der Daten.\n\nFRAGE: [hier deine Frage eintragen]\n\nDaten:\n${c}`},
+   build:c=>`Beantworte die folgende Frage anhand der Projektdaten.\n\nFRAGE: [hier deine Frage eintragen]\n\nDaten:\n${c}`},
 ];
 
+// Projektweite Auswahl, welche Analysen sichtbar sind (am Projekt-Doc, Feld kiAnalysen)
+function _kiOn(id){ const w=currentProjectData&&currentProjectData.kiAnalysen; if(!w||typeof w!=='object') return true; return w[id]!==false; }
+function _kiCanConfig(){ return currentRole==='superadmin'||currentCap==='admin'; }
 function renderKi(){
   const grid=document.getElementById('ki-grid'); if(!grid) return;
-  grid.innerHTML=KI_PROMPTS.map(p=>`<button class="ki-card" onclick="openKiPrompt('${p.id}')">
+  const list=KI_PROMPTS.filter(p=>_kiOn(p.id));
+  grid.innerHTML=list.length?list.map(p=>`<button class="ki-card" onclick="openKiPrompt('${p.id}')">
     <div class="ki-ic">${p.icon}</div>
     <div class="ki-tt">${p.title}</div>
     <div class="ki-dd">${p.desc}</div>
-  </button>`).join('');
+  </button>`).join(''):'<div style="grid-column:1/-1;color:var(--text3);font-size:13px;padding:20px;">Für dieses Projekt sind keine Analysen freigeschaltet.</div>';
+  const btn=document.getElementById('ki-cfg-btn'); if(btn) btn.style.display=(currentProjectId&&_kiCanConfig())?'':'none';
+}
+async function toggleKiAnalyse(id,on){
+  if(!_kiCanConfig()||!currentProjectId) return;
+  const w=Object.assign({},(currentProjectData&&currentProjectData.kiAnalysen)||{});
+  w[id]=!!on;
+  if(currentProjectData) currentProjectData.kiAnalysen=w;
+  renderKi();
+  try{ await updateDoc(doc(db,'projects',currentProjectId),{kiAnalysen:w}); }
+  catch(e){ console.warn('kiAnalysen speichern',e); notify(dlErr(e)); }
+}
+async function resetKiAnalysen(){
+  if(!_kiCanConfig()||!currentProjectId) return;
+  if(currentProjectData) currentProjectData.kiAnalysen={};
+  renderKi();
+  const m=document.getElementById('ki-cfg-menu'); if(m) m.querySelectorAll('input[type=checkbox]').forEach(c=>c.checked=true);
+  try{ await updateDoc(doc(db,'projects',currentProjectId),{kiAnalysen:{}}); }
+  catch(e){ console.warn('kiAnalysen reset',e); notify(dlErr(e)); }
+}
+function openKiConfigMenu(btn){
+  const ex=document.getElementById('ki-cfg-menu'); if(ex){ ex.remove(); return; }
+  if(!_kiCanConfig()) return;
+  const r=btn.getBoundingClientRect();
+  const m=document.createElement('div'); m.id='ki-cfg-menu';
+  m.style.cssText=`position:fixed;top:${Math.round(r.bottom+4)}px;left:${Math.round(Math.max(8,r.right-300))}px;z-index:9999;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.2);padding:8px;width:300px;max-height:76vh;overflow:auto;`;
+  let html=`<div style="font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);padding:4px 6px 6px;">Sichtbare Analysen (projektweit)</div>`;
+  html+=KI_PROMPTS.map(p=>`<label style="display:flex;align-items:flex-start;gap:8px;padding:6px;border-radius:6px;cursor:pointer;font-size:13px;" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''">
+      <input type="checkbox" ${_kiOn(p.id)?'checked':''} onchange="toggleKiAnalyse('${p.id}',this.checked)" style="width:15px;height:15px;cursor:pointer;margin-top:2px;">
+      <span><span style="margin-right:5px;">${p.icon}</span>${dlEsc(p.title)}<span style="display:block;color:var(--text3);font-size:11px;">${dlEsc(p.desc)}</span></span></label>`).join('');
+  html+=`<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px;"><button class="btn btn-secondary" style="width:100%;padding:5px;font-size:11px;" onclick="resetKiAnalysen()">Alle einblenden</button></div>`;
+  m.innerHTML=html;
+  document.body.appendChild(m);
+  setTimeout(()=>{ const close=ev=>{ if(!m.contains(ev.target)&&ev.target!==btn&&!btn.contains(ev.target)){ m.remove(); document.removeEventListener('mousedown',close); } }; document.addEventListener('mousedown',close); },0);
 }
 
 // Markdown (Gemini-Antwort) → HTML für Anzeige & Bericht
@@ -11979,7 +12045,7 @@ async function renderHbUpdates(q){
 }
 
 Object.assign(window,{
-  openKiPrompt,renderKi,setKiMode,renderKiConfig,
+  openKiPrompt,renderKi,setKiMode,renderKiConfig,openKiConfigMenu,toggleKiAnalyse,resetKiAnalysen,
   renderHandbuch,setHbTab,hbSearchDebounced,openHbImg,closeHbImg,
   dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
   epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,epWeekShift,epWeekThis,epWeekToggleEmpty,epWeekFilter,epDayFilter,epTourCtx,epEditTour,_epCloseCtx,epPersonOpenCard,
