@@ -8441,6 +8441,7 @@ const CTRL_WIDGETS=[
   {id:'einzelmeldungen',label:'Einzelmeldungen',       group:'Tabellen'},
   {id:'historie',      label:'Abgeschlossene Touren (Historie)', group:'Tabellen'},
   {id:'soll_datenlage',label:'Soll-Datenlage',        group:'Soll-Ist'},
+  {id:'soll_ist',      label:'Soll-Ist Erfüllungsgrad', group:'Soll-Ist'},
 ];
 // Standard: alles an, wenn nichts konfiguriert ist (rückwärtskompatibel)
 function _ctrlWidgetOn(id){ const w=currentProjectData&&currentProjectData.controllingWidgets; if(!w||typeof w!=='object') return true; return w[id]!==false; }
@@ -8598,6 +8599,82 @@ function renderSollDatenlage(){
   el.innerHTML=srcBanner+kpi+legend+rows+warn;
 }
 
+// ── Soll-Ist Erfüllungsgrad (Meilenstein 2) ──────────────────────────────────
+let _sollIstDim='gebiet';
+function sollIstSetDim(d){ _sollIstDim=d||'gebiet'; renderSollIst(); }
+function _seasonDayCounts(from,to){
+  let s=0,w=0,guard=0; const end=new Date(to+'T00:00:00');
+  for(let d=new Date(from+'T00:00:00'); d<=end && guard<1200; d.setDate(d.getDate()+1),guard++){
+    const iso=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    (saisonFor(iso)==='winter'?w++:s++);
+  }
+  return {s,w};
+}
+function renderSollIst(){
+  const el=document.getElementById('ctrl-soll-ist'); if(!el) return;
+  const {from,to}=getCtrlDateRange();   // Date-Objekte
+  const spanDays=Math.round((to-from)/86400000);
+  if(!(spanDays>=0) || spanDays>400){ el.innerHTML='<div style="font-size:12px;color:#92400e;background:#fef3c7;border-radius:8px;padding:9px 12px;">Für den Soll-Ist-Abgleich bitte oben einen begrenzten Zeitraum wählen (max. ~1 Jahr) — „Diese Woche" / „Dieser Monat" oder ein eigener Zeitraum mit Von/Bis.</div>'; return; }
+  const _dstr=d=>{ const x=(d instanceof Date)?d:new Date(d); return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0'); };
+  const fromS=_dstr(from), toS=_dstr(to);
+  const list=(getCtrlFilteredTrees()||[]).filter(t=>!_isContainer(t));
+  const {s:nS,w:nW}=_seasonDayCounts(fromS,toS);
+  const ist={}; kiReports(fromS,toS).forEach(r=>{ if(r.status==='bewaessert') ist[r.t.id]=(ist[r.t.id]||0)+1; });
+  const LO=0.85, HI=1.15;   // erfüllt = 85–115 % des Solls
+  const dimName=t=>{
+    if(_sollIstDim==='typ') return ({punkt:'Punkte',seite:'Abschnitts-Seiten',flaeche:'Flächen',strecke:'Strecken'})[_objTypBucket(t)]||'—';
+    if(_sollIstDim==='tour'){ const pt=primaryTour(t); return pt?pt.name:'— ohne Tour —'; }
+    return (t.stadtteil||'—');
+  };
+  let sumIst=0,sumSoll=0,cErf=0,cUnter=0,cUeber=0,cKein=0;
+  const groups={};
+  list.forEach(t=>{
+    const sollS=sollFreqProWoche(t,'sommer'), sollW=sollFreqProWoche(t,'winter');
+    const hasSoll=sollS!=null||sollW!=null;
+    const sollP=(sollS||0)*nS/7 + (sollW||0)*nW/7;
+    const g=dimName(t); const G=groups[g]||(groups[g]={ist:0,soll:0,erf:0,unter:0,ueber:0,kein:0});
+    if(!hasSoll || sollP<=0){ cKein++; G.kein++; return; }
+    const istN=ist[t.id]||0, ratio=istN/sollP;
+    sumIst+=istN; sumSoll+=sollP; G.ist+=istN; G.soll+=sollP;
+    if(ratio<LO){ cUnter++; G.unter++; } else if(ratio>HI){ cUeber++; G.ueber++; } else { cErf++; G.erf++; }
+  });
+  const evalN=cErf+cUnter+cUeber;
+  if(evalN+cKein===0){ el.innerHTML='<div style="color:var(--text3);font-size:13px;padding:6px 0;">Keine Objekte im aktuellen Filter.</div>'; return; }
+  if(evalN===0){ el.innerHTML=`<div style="font-size:12px;color:#92400e;background:#fef3c7;border-radius:8px;padding:9px 12px;">Für ${cKein.toLocaleString('de-DE')} Objekt(e) im Filter ist kein Soll hinterlegt — kein Erfüllungsgrad berechenbar. Zuerst das Soll-Feld/die Werte pflegen (siehe „Soll-Datenlage").</div>`; return; }
+  const grad=sumSoll>0?Math.round(sumIst/sumSoll*100):0;
+  const gcol=g=>g>=85?'var(--green)':g>=70?'var(--amber)':'var(--red)';
+  const kpi=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px;">
+    ${[['Ø Erfüllungsgrad',grad+' %','var(--text)'],['unter Soll',cUnter.toLocaleString('de-DE'),'var(--red)'],['über Soll',cUeber.toLocaleString('de-DE'),'var(--blue)']]
+      .map(k=>`<div style="background:var(--surface2);border-radius:8px;padding:8px 10px;"><div style="font-size:11px;color:var(--text3);">${k[0]}</div><div style="font-size:18px;font-weight:700;color:${k[2]};">${k[1]}</div></div>`).join('')}
+  </div>`;
+  const seg=(n,c)=>evalN?`<div style="width:${(n/evalN*100).toFixed(1)}%;background:${c};"></div>`:'';
+  const distBar=`<div style="height:16px;border-radius:8px;overflow:hidden;display:flex;background:#d9d4c8;margin-bottom:8px;">
+    ${seg(cErf,'var(--green)')}${seg(cUnter,'var(--red)')}${seg(cUeber,'var(--blue)')}</div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--text2);margin-bottom:14px;">
+      <span style="display:flex;align-items:center;gap:6px;"><span style="width:11px;height:11px;border-radius:3px;background:var(--green);"></span>erfüllt · ${cErf}</span>
+      <span style="display:flex;align-items:center;gap:6px;"><span style="width:11px;height:11px;border-radius:3px;background:var(--red);"></span>unter Soll · ${cUnter}</span>
+      <span style="display:flex;align-items:center;gap:6px;"><span style="width:11px;height:11px;border-radius:3px;background:var(--blue);"></span>über Soll · ${cUeber}</span>
+      <span style="margin-left:auto;color:var(--text3);">${cKein.toLocaleString('de-DE')} ohne Soll — nicht bewertet</span>
+    </div>`;
+  const dimSel=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+    <span style="font-size:12px;color:var(--text2);">je</span>
+    <select onchange="sollIstSetDim(this.value)" style="padding:4px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
+      ${[['gebiet',FL.stadtteil||'Gebiet'],['tour','Tour'],['typ','Objekttyp']].map(o=>`<option value="${o[0]}"${_sollIstDim===o[0]?' selected':''}>${dlEsc(o[1])}</option>`).join('')}
+    </select></div>`;
+  const grpArr=Object.entries(groups).map(([name,G])=>({name,...G,grad:G.soll>0?Math.round(G.ist/G.soll*100):null}))
+    .sort((a,b)=>{ if(a.grad==null) return 1; if(b.grad==null) return -1; return a.grad-b.grad; }).slice(0,15);
+  const rows=grpArr.map(G=>{
+    const has=G.grad!=null;
+    return `<div style="display:flex;align-items:center;gap:12px;padding:7px 0;border-top:1px solid var(--border);">
+      <div style="width:160px;flex:none;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${dlEsc(G.name)}">${dlEsc(G.name)}</div>
+      <div style="flex:1;height:10px;border-radius:5px;overflow:hidden;background:#d9d4c8;">${has?`<div style="width:${Math.min(100,G.grad)}%;height:100%;background:${gcol(G.grad)};"></div>`:''}</div>
+      <div style="width:120px;flex:none;text-align:right;font-size:12px;">${has?`<b>${G.grad} %</b> <span style="color:var(--text3);">${G.unter?`· ${G.unter} unter`:''}</span>`:'<span style="color:var(--text3);">kein Soll</span>'}</div>
+    </div>`;
+  }).join('');
+  const note=`<div style="font-size:11px;color:var(--text3);margin-top:10px;">Soll = Ziel-Häufigkeit × Wochen im Zeitraum (saisonabhängig: ${nS} Sommer- / ${nW} Wintertage). Ist = erledigt-Meldungen. „erfüllt" = 85–115 % des Solls.</div>`;
+  el.innerHTML=kpi+distBar+dimSel+rows+note;
+}
+
 function renderControlling(){
   if(!currentProjectId){ document.getElementById('ctrl-kpis').innerHTML='<div style="padding:20px;color:var(--text3);">Bitte zuerst ein Projekt öffnen.</div>'; return; }
   _applyCtrlWidgetVis();
@@ -8746,6 +8823,7 @@ function renderControlling(){
   if(_ctrlWidgetOn('chart_stadtteil')) renderStadtteilChart(filtered,finalReported); else destroyChart('stadtteil');
   if(_ctrlWidgetOn('gruende')) renderReasonsBar(finalReported.filter(r=>r.lastStatus==='nicht'));
   if(_ctrlWidgetOn('soll_datenlage')) renderSollDatenlage();
+  if(_ctrlWidgetOn('soll_ist')) renderSollIst();
   if(_ctrlWidgetOn('einzelmeldungen')) renderDetailTable(finalReported);
   updateCtrlLastUpdated();
 }
@@ -12189,7 +12267,7 @@ Object.assign(window,{
   renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,_fillMerge,cfGeomToggle,
   rankAdd,rankRename,rankSetColor,rankSetZahl,rankSetZahlWinter,rankMove,rankMerge,rankDelete,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
-  openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
+  openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,sollIstSetDim,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,clearLassoSelection,
   createProject,openProject,showProjectScreen,psSetOrgFilter,setSiTab,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
