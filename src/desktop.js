@@ -9030,15 +9030,10 @@ let _dqCat=null;
 function _dqChecks(){
   const act=trees.filter(t=>isActive(t)&&!_isContainer(t));
   const all=trees.filter(t=>!_isContainer(t));
-  const idCount={}, coordGroups={};
-  act.forEach(t=>{ const k=(t.baumId||'').trim(); if(k) idCount[k]=(idCount[k]||0)+1; if(t.lat&&t.lng){ const c=(+t.lat).toFixed(5)+','+(+t.lng).toFixed(5); (coordGroups[c]=coordGroups[c]||[]).push(t); } });
-  // Echte Dubletten am selben Punkt: gleiche Objekt-ID ODER gleicher Name. Gewolltes Standort-Bündel
-  // (mehrere Datensätze am selben Punkt mit versch. Namen/IDs, z. B. „Verpflichtungen") zählt NICHT.
-  const dupSet=new Set();
-  Object.values(coordGroups).forEach(g=>{ if(g.length<2) return; const byId={}, byName={};
-    g.forEach(t=>{ const id=(t.baumId||'').trim(); if(id)(byId[id]=byId[id]||[]).push(t); const nm=(t.name||'').trim().toLowerCase(); if(nm)(byName[nm]=byName[nm]||[]).push(t); });
-    [byId,byName].forEach(o=>Object.values(o).forEach(a=>{ if(a.length>1) a.forEach(t=>dupSet.add(t.id)); }));
-  });
+  // Reine Koordinaten-Gleichheit ist KEIN Dubletten-Signal: in Projekten wie „Verpflichtungen" liegen
+  // mehrere echte Datensätze bewusst am selben Punkt. Verlässlich sind nur doppelte Objekt-IDs (Kachel unten).
+  const idCount={};
+  act.forEach(t=>{ const k=(t.baumId||'').trim(); if(k) idCount[k]=(idCount[k]||0)+1; });
   const hasSoll=t=>sollFreqProWoche(t,'sommer')!=null||sollFreqProWoche(t,'winter')!=null;
   // Unplausible Koordinaten: weit vom Schwerpunkt aller Objekte (Import-/Tippfehler, anderer Ort, 0/0)
   const geo=act.filter(t=>t.lat&&t.lng); let cy=0,cx=0,outSet=new Set();
@@ -9053,7 +9048,6 @@ function _dqChecks(){
     {key:'coordbad', label:'Unplausible Koordinaten',items:act.filter(t=>outSet.has(t.id)), detail:t=>Math.round(haversine(t.lat,t.lng,cy,cx))+' km vom Zentrum'},
     {key:'id',       label:'Ohne Objekt-ID',        items:act.filter(t=>!(t.baumId||'').trim())},
     {key:'iddup',    label:'Doppelte Objekt-ID',    items:act.filter(t=>{const k=(t.baumId||'').trim();return k&&idCount[k]>1;}), detail:t=>'ID '+(t.baumId||'')},
-    {key:'dupcoord', label:'Dubletten am selben Punkt',items:act.filter(t=>dupSet.has(t.id)), detail:t=>'gleiche '+(( (t.baumId||'').trim() && idCount[(t.baumId||'').trim()]>1)?'Objekt-ID':'Bezeichnung')+' am selben Punkt'},
     {key:'soll',     label:'Ohne Soll-Häufigkeit',  items:act.filter(t=>!hasSoll(t))},
     {key:'tour',     label:'Keiner Tour zugeordnet',items:act.filter(t=>realTourIds(t).length===0)},
     {key:'art',      label:'Ohne '+FL.art,          items:act.filter(t=>!(t.art||'').trim())},
