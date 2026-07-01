@@ -316,12 +316,12 @@ function renderNichtMap(nichtReports){
     const d=r.lastReportAt?new Date(r.lastReportAt).toLocaleDateString('de-DE'):'–';
     const meta=[r.stadtteil,r.baumnr].filter(Boolean).join(' · ');
     const popup=`<b>${esc(orTitel(r,_elGetContainer)||'Objekt')}</b>`+
-      (meta?`<br>${meta}`:'')+
-      (r.art?`<br><i>${r.art}</i>`:'')+
-      `<br>Grund: <b style="color:#dc2626;">${r.lastReason||'nicht angegeben'}</b>`+
-      (r.lastNote?`<br>Notiz: ${r.lastNote}`:'')+
-      (r.lastDriver?`<br>Fahrer: ${r.lastDriver}`:'')+
-      `<br>${d}`;
+      (meta?`<br>${esc(meta)}`:'')+
+      (r.art?`<br><i>${esc(r.art)}</i>`:'')+
+      `<br>Grund: <b style="color:#dc2626;">${esc(r.lastReason||'nicht angegeben')}</b>`+
+      (r.lastNote?`<br>Notiz: ${esc(r.lastNote)}`:'')+
+      (r.lastDriver?`<br>Fahrer: ${esc(r.lastDriver)}`:'')+
+      `<br>${esc(d)}`;
     window.L.marker([r.lat,r.lng],{icon:nichtIcon()}).bindPopup(popup).addTo(nichtLayer);
     pts.push([r.lat,r.lng]);
   });
@@ -466,7 +466,7 @@ async function loadProjects(){
   const sel=document.getElementById('login-project');
   const docs=snap.docs;
   sel.innerHTML='<option value="">– Projekt wählen –</option>'+
-    docs.map(d=>`<option value="${d.id}">${d.data().name||d.id}</option>`).join('');
+    docs.map(d=>`<option value="${esc(d.id)}">${esc(d.data().name||d.id)}</option>`).join('');
   if(docs.length===1) sel.value=docs[0].id;
 }
 

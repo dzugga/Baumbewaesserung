@@ -1724,8 +1724,8 @@ function naviShowOverview(stops, legs, total){
     const legKm=legs&&legs[i]?fmtDist(legs[i].distance):'–';
     return `<div style="display:flex;align-items:center;gap:10px;padding:9px 4px;border-top:1px solid var(--border);">
       <div style="width:24px;height:24px;border-radius:50%;background:#1d4ed822;color:#1d4ed8;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">${i+1}</div>
-      <div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${s.name||'Objekt'}</div>
-        <div style="font-size:11px;color:var(--text3);">${s.stadtteil||''} ${s.baumnr?'· '+s.baumnr:''}</div></div>
+      <div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(s.name||'Objekt')}</div>
+        <div style="font-size:11px;color:var(--text3);">${esc(s.stadtteil||'')} ${s.baumnr?'· '+esc(s.baumnr):''}</div></div>
       <div style="text-align:right;flex-shrink:0;"><div style="font-size:12px;font-weight:600;">${legs?'an '+eta:''}</div>
         <div style="font-size:11px;color:var(--text3);">+${legKm}</div></div>
     </div>`;
@@ -2177,7 +2177,7 @@ async function loadLoginProjects(){
     _loginProjects = snap.docs.map(d=>({id:d.id,...d.data()}));
     const sel = document.getElementById('login-project');
     sel.innerHTML='<option value="">– Projekt wählen –</option>'+
-      _loginProjects.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+      _loginProjects.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
     if(_loginProjects.length===1){
       sel.value=_loginProjects[0].id;
       // Pre-load tours for the only project immediately
@@ -2207,7 +2207,7 @@ async function onLoginProjectChange(){
     _loginTours[pid] = snap.docs.map(d=>({id:d.id,...d.data()}));
   }
   tourSel.innerHTML='<option value="">– Tour wählen –</option>'+
-    _loginTours[pid].map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
+    _loginTours[pid].map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('');
   if(_loginTours[pid].length===1){
     tourSel.value=_loginTours[pid][0].id;
     await onLoginTourChange();

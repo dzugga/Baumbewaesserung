@@ -4438,9 +4438,9 @@ function cancelAssign(){
 // Liefert: 'move' (aus bisherigen entfernen) | 'add' (zusätzlich) | 'cancel'
 function showTourConflictDialog(tree, currentTour, otherTourIds){
   return new Promise(resolve=>{
-    const otherNames=otherTourIds.map(id=>tours.find(t=>t.id===id)?.name||'Tour');
+    const otherNames=otherTourIds.map(id=>dlEsc(tours.find(t=>t.id===id)?.name||'Tour'));
     const namesStr=otherNames.map(n=>`„${n}"`).join(', ');
-    const curName=currentTour?.name||'aktuelle Tour';
+    const curName=dlEsc(currentTour?.name||'aktuelle Tour');
     const plural=otherNames.length>1;
     const modal=document.createElement('div');
     modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;';
@@ -4451,7 +4451,7 @@ function showTourConflictDialog(tree, currentTour, otherTourIds){
     modal.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);width:460px;max-width:92vw;overflow:hidden;">
       <div style="padding:18px 20px 12px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;color:var(--amber);">⚠ Objekt bereits verplant</div>
       <div style="padding:16px 20px;font-size:13px;color:var(--text2);line-height:1.6;">
-        Das ausgewählte Objekt <b style="color:var(--text);">${tree.name||''}</b> ist bereits ${plural?'den Touren':'der Tour'} ${namesStr} zugeordnet.<br><br>
+        Das ausgewählte Objekt <b style="color:var(--text);">${dlEsc(tree.name||'')}</b> ist bereits ${plural?'den Touren':'der Tour'} ${namesStr} zugeordnet.<br><br>
         Möchten Sie das Objekt in die Tour <b style="color:var(--text);">„${curName}"</b> übernehmen?
       </div>
       <div style="padding:0 20px 18px;display:flex;flex-direction:column;gap:8px;">
@@ -9551,8 +9551,8 @@ async function loadTourHistory(){
       return `<div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:16px;">
         <div style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0;"></div>
         <div style="flex:1;min-width:0;">
-          <div style="font-size:13px;font-weight:600;">${h.tourName} <span style="font-weight:400;color:var(--text3);font-size:12px;">· ${h.date}</span></div>
-          <div style="font-size:11px;color:var(--text3);">Fahrer: ${h.closedBy||'–'}</div>
+          <div style="font-size:13px;font-weight:600;">${dlEsc(h.tourName||'–')} <span style="font-weight:400;color:var(--text3);font-size:12px;">· ${dlEsc(h.date||'')}</span></div>
+          <div style="font-size:11px;color:var(--text3);">Fahrer: ${dlEsc(h.closedBy||'–')}</div>
         </div>
         <div style="display:flex;gap:12px;align-items:center;flex-shrink:0;">
           <span style="font-size:12px;color:#16a34a;font-weight:600;">${bew} ✓</span>
@@ -9623,19 +9623,19 @@ async function showHistoryDetail(histId){
       reasonOpts.push(`<option value="${escAttr(curReason)}" selected>${escAttr(curReason)} (alt)</option>`);
     const reasonInp=`<select data-ri="${ti}" class="hist-reason-inp" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:4px;width:100%;background:var(--bg);">${reasonOpts.join('')}</select>`;
     return `<tr style="border-top:1px solid var(--border);">
-      <td style="padding:6px 10px;font-size:12px;font-weight:500;">${t.name||'–'}</td>
-      <td style="padding:6px 10px;font-size:11px;color:var(--text2);">${t.baumnr||'–'}</td>
+      <td style="padding:6px 10px;font-size:12px;font-weight:500;">${dlEsc(t.name||'–')}</td>
+      <td style="padding:6px 10px;font-size:11px;color:var(--text2);">${dlEsc(t.baumnr||'–')}</td>
       <td style="padding:6px 10px;">${stSel}</td>
       <td style="padding:6px 10px;min-width:120px;">${reasonInp}</td>
-      <td style="padding:6px 10px;font-size:11px;color:var(--text2);">${t.lastDriver||'–'}</td>
+      <td style="padding:6px 10px;font-size:11px;color:var(--text2);">${dlEsc(t.lastDriver||'–')}</td>
     </tr>`;
   }).join('');
 
   modal.innerHTML=`<div style="background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow-md);width:860px;max-width:95vw;max-height:88vh;display:flex;flex-direction:column;overflow:hidden;">
     <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;">
       <div style="flex:1;">
-        <div style="font-size:15px;font-weight:600;">${h.tourName} — ${h.date}</div>
-        <div style="font-size:12px;color:var(--text3);">Fahrer: ${h.closedBy||'–'} · ${h.stats?.bewaessert||0} erledigt · ${h.stats?.nicht||0} nicht erledigt</div>
+        <div style="font-size:15px;font-weight:600;">${dlEsc(h.tourName||'–')} — ${dlEsc(h.date||'')}</div>
+        <div style="font-size:12px;color:var(--text3);">Fahrer: ${dlEsc(h.closedBy||'–')} · ${h.stats?.bewaessert||0} erledigt · ${h.stats?.nicht||0} nicht erledigt</div>
       </div>
       <button id="hist-save-btn" onclick="saveHistoryEdits('${histId}')" style="padding:6px 14px;background:var(--green);color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Speichern</button>
       <button id="hist-delete-btn" onclick="deleteHistoryEntry('${histId}')" style="padding:6px 14px;background:var(--red-light);color:var(--red);border:1px solid #fca5a5;border-radius:6px;font-size:13px;cursor:pointer;">Löschen</button>
@@ -10351,7 +10351,7 @@ function dashRenderTourProgress(reported){
     return `<div class="dsh-tour-row" data-name="${(t.name||'Tour').toLowerCase().replace(/"/g,'')}">
       <div class="dsh-tour-head">
         <span class="dsh-dot" style="background:${color};"></span>
-        <span class="dsh-tour-name">${t.name||'Tour'}</span>
+        <span class="dsh-tour-name">${dlEsc(t.name||'Tour')}</span>
         <span class="dsh-tour-pct">${pct}%</span>
       </div>
       <div class="dsh-bar">
@@ -11775,7 +11775,7 @@ function dispoOpenSettings(){
     const dAttr=std?'':JSON.stringify({lat:r.depot.lat,lng:r.depot.lng});
     const hof=std?`Standard: ${stdName}`:`Eigener Hof (${r.depot.lat.toFixed(4)}, ${r.depot.lng.toFixed(4)})`;
     return `<div class="ds-row" style="display:flex;gap:6px;align-items:center;margin-bottom:6px;" data-depot='${dAttr}' data-id="${dlEsc(r.id||'')}">
-      <input class="form-control ds-r-name" style="flex:1;min-width:0;padding:5px 8px;font-size:12px;" value="${r.name||('Fahrzeug '+(i+1))}">
+      <input class="form-control ds-r-name" style="flex:1;min-width:0;padding:5px 8px;font-size:12px;" value="${dlEsc(r.name||('Fahrzeug '+(i+1)))}">
       <input class="form-control ds-r-time" type="number" style="width:56px;padding:5px 8px;font-size:12px;" value="${Math.round((r.arbeitszeitMin||420)/60*10)/10}"><span style="font-size:11px;color:var(--text3);">h</span>
       <input class="form-control ds-r-max" type="number" min="0" title="Max. Körbe je Tour (0 = unbegrenzt)" style="width:56px;padding:5px 8px;font-size:12px;" value="${r.maxBins||0}">
       <span class="ds-r-hof" style="flex:1;min-width:0;font-size:11px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${hof}</span>
