@@ -6307,6 +6307,15 @@ function renderFieldOverview(el){
         </div>
       </div>`).join('')}
     <button class="btn btn-secondary" style="padding:7px 14px;font-size:12px;" onclick="addObjektklasse()">+ Objektklasse anlegen</button>`;
+  // Soll-Ist: welches Feld liefert die Ziel-Häufigkeit (×/Woche) — projektweit
+  const _sollCands=_sollCandidateFields();
+  const sollSection = ro ? '' : `
+    <div style="font-size:13px;font-weight:700;margin:26px 0 4px;">Soll-Ist</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:8px;">Welches Feld liefert die Ziel-Häufigkeit für den Soll-Ist-Abgleich? Genutzt wird die „Zahl" des gewählten Werts (z. B. wöchentlich = 1). Es zählt für alle Objekttypen.</div>
+    ${_sollCands.length?`<select class="form-control" style="width:auto;padding:6px 9px;font-size:13px;" onchange="setSollFeld(this.value)">
+      <option value="">— kein Soll-Feld —</option>
+      ${_sollCands.map(f=>`<option value="${dlEsc(f.key)}"${(currentProjectData?.sollFeld||'')===f.key?' selected':''}>${dlEsc(f.label)}</option>`).join('')}
+    </select>`:`<div style="font-size:12px;color:#92400e;background:#fef3c7;border-radius:8px;padding:8px 12px;">Noch kein Feld mit „Zahl"-Werten vorhanden. Zuerst in einer geordneten Liste (z. B. RH) je Wert eine „Zahl" eintragen — dann kann es hier als Soll-Feld gewählt werden.</div>`}`;
   // Reinigungsklassen-Katalog (Satzung): je Klasse Häufigkeit pro Element-Gruppe
   const rkSection = ro ? '' : `
     <div style="font-size:13px;font-weight:700;margin:26px 0 4px;">Reinigungsklassen (Satzung)</div>
@@ -6328,6 +6337,7 @@ function renderFieldOverview(el){
     <div style="font-size:12px;color:var(--text3);margin-bottom:16px;">Wähle ein Feld, um seine Auswahlliste zu pflegen; die Bezeichnungen änderst du unten. Freitext-Felder (${dlEsc(FL.name)}, ${dlEsc(FL.baumnr)}, ${dlEsc(FL.notiz)}) haben keine Liste.</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;">${tiles}</div>
     ${!ro && customFields.length<5?`<button class="btn btn-secondary" style="padding:7px 14px;font-size:12px;margin-top:16px;" onclick="addCustomField()">+ Kundenfeld hinzufügen (${customFields.length}/5)</button>`:''}
+    ${sollSection}
     ${klassenSection}
     ${rkSection}
     ${mobilSection}
@@ -8478,8 +8488,33 @@ function _objTypBucket(tree){
   if(tree.containerExtId) return 'seite';
   return 'punkt';
 }
+// „Zahl" eines gespeicherten Listenwerts holen — robust gegen ID- ODER Label-Speicherung
+// (Rang-Felder speichern die ID, einfache Custom-Felder das Label).
+function _zahlFor(fieldKey, stored){
+  if(stored==null||stored==='') return null;
+  const list=rankList(fieldKey);
+  const e=list.find(x=>x.id===stored) || list.find(x=>x.label===String(stored).trim());
+  if(e && e.zahl!=null && e.zahl!==''){ const n=parseFloat(e.zahl); return n>0?n:null; }
+  return null;
+}
+// Kandidaten für das Soll-Feld: Listenfelder, deren Werte eine „Zahl" tragen
+function _sollCandidateFields(){
+  const keys=['zustand','wasser',...customFields.map(c=>c.key)];
+  return keys.filter(k=>(rankList(k)||[]).some(e=>e&&e.zahl!=null&&e.zahl!==''))
+    .map(k=>({key:k,label:(k==='zustand'?FL.zustand:k==='wasser'?FL.wasser:(customFields.find(c=>c.key===k)?.label||k))}));
+}
+function _sollFeldLabel(){ const k=currentProjectData&&currentProjectData.sollFeld; if(!k) return null; return k==='zustand'?FL.zustand:k==='wasser'?FL.wasser:(customFields.find(c=>c.key===k)?.label||k); }
+async function setSollFeld(key){
+  if(isReadonly()||!currentProjectId) return;
+  if(currentProjectData) currentProjectData.sollFeld=key||'';
+  try{ await updateDoc(doc(db,'projects',currentProjectId),{sollFeld:key||''}); notify(key?`✓ Soll-Feld: ${_sollFeldLabel()}`:'✓ Soll-Feld entfernt'); }
+  catch(e){ console.warn('sollFeld speichern',e); notify(dlErr(e)); }
+  if(currentView==='controlling') renderControlling();
+}
 function sollFreqProWoche(tree, saison){
   if(!tree || _isContainer(tree)) return null;
+  const sf=currentProjectData&&currentProjectData.sollFeld;
+  if(sf) return _zahlFor(sf, tree[sf]);   // EIN projektweit designiertes Feld — für alle Objekttypen
   if(_objTypBucket(tree)==='flaeche'){
     const s=parseFloat(tree.haeufigkeitS), w=parseFloat(tree.haeufigkeitW);
     const v = saison==='winter' ? w : s;
@@ -8500,7 +8535,8 @@ function _sollInfo(tree, saison){
   const v=sollFreqProWoche(tree, saison);
   let quelle=null;
   if(v!=null){
-    if(typ==='flaeche') quelle='sommerwinter';
+    if(currentProjectData&&currentProjectData.sollFeld) quelle='sollfeld';
+    else if(typ==='flaeche') quelle='sommerwinter';
     else if(typ==='seite'){ const c=_containerOf(tree); quelle=(c&&c.reinigungsklasse)?'reinigungsklasse':'haeufigkeit'; }
     else quelle='haeufigkeit';
   }
@@ -8511,7 +8547,7 @@ function renderSollDatenlage(){
   const saison=(typeof saisonFor==='function')?saisonFor(new Date().toISOString().slice(0,10)):'sommer';
   const list=(getCtrlFilteredTrees()||[]).filter(t=>!_isContainer(t));
   const TYPES=[{key:'punkt',label:'Punkte'},{key:'seite',label:'Abschnitts-Seiten'},{key:'flaeche',label:'Flächen'},{key:'strecke',label:'Strecken'}];
-  const QL={haeufigkeit:'Häufigkeit',reinigungsklasse:'Reinigungsklasse',sommerwinter:'Sommer/Winter'};
+  const QL={haeufigkeit:'Häufigkeit',reinigungsklasse:'Reinigungsklasse',sommerwinter:'Sommer/Winter',sollfeld:_sollFeldLabel()||'Soll-Feld'};
   const buckets={}; TYPES.forEach(t=>buckets[t.key]={n:0,soll:0,q:{}});
   list.forEach(t=>{ const info=_sollInfo(t,saison); const b=buckets[info.typ]; if(!b) return; b.n++; if(info.hasSoll){ b.soll++; b.q[info.quelle]=(b.q[info.quelle]||0)+1; } });
   const total=list.length, withSoll=TYPES.reduce((a,t)=>a+buckets[t.key].soll,0), ohne=total-withSoll;
@@ -8543,7 +8579,11 @@ function renderSollDatenlage(){
   const warn=(pB.n>0 && pB.soll/pB.n<0.5)
     ? `<div style="margin-top:12px;padding:9px 12px;background:#fef3c7;border-radius:8px;font-size:12px;color:#92400e;">Bei Punkten ist überwiegend kein Soll hinterlegt. Hier zuerst die Zielhäufigkeit pflegen, bevor der Erfüllungsgrad aussagekräftig ist.</div>`
     : '';
-  el.innerHTML=kpi+legend+rows+warn;
+  const sf=_sollFeldLabel();
+  const srcBanner = sf
+    ? `<div style="font-size:12px;color:var(--text2);margin-bottom:10px;">Soll-Quelle: Feld <b>${dlEsc(sf)}</b> (die „Zahl" des gewählten Werts = ×/Woche) — projektweit für alle Objekttypen.</div>`
+    : `<div style="font-size:12px;color:#92400e;background:#fef3c7;border-radius:8px;padding:8px 12px;margin-bottom:10px;">Kein Soll-Feld festgelegt. Unter Verwaltung → Felder &amp; Listen ein Feld als „Soll-Häufigkeit" wählen. Solange greift die typweise Ersatzlogik (Häufigkeit / Reinigungsklasse / Sommer-Winter).</div>`;
+  el.innerHTML=srcBanner+kpi+legend+rows+warn;
 }
 
 function renderControlling(){
@@ -12168,7 +12208,7 @@ Object.assign(window,{
   openBaeumeColMenu,toggleBaeumeCol,resetBaeumeCols,
   saveFieldLabels, setFieldLabel, toggleMobilFeld, migrateTourIds, deriveHaeufigkeitFromZustaendigkeit,
   addObjektklasse, renameObjektklasse, setKlasseStruktur, toggleKlasseFeld, deleteObjektklasse,
-  addReinigungsklasse, renameReinigungsklasse, setRkFreq, setRkColor, deleteReinigungsklasse, onKlasseChange, setColorMode, setAbschnittRk, toggleDisplayPanel, setGeomStyle, saveDisplayDefaults, setRouteLineStyle,
+  addReinigungsklasse, renameReinigungsklasse, setRkFreq, setRkColor, deleteReinigungsklasse, onKlasseChange, setColorMode, setAbschnittRk, toggleDisplayPanel, setGeomStyle, saveDisplayDefaults, setRouteLineStyle, setSollFeld,
   doLogin, doLogout, toggleLoginMode,
 });
 
