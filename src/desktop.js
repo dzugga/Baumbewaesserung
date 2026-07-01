@@ -1780,7 +1780,10 @@ async function setGeomStyle(cat,prop,val){
   try{
     await updateDoc(doc(db,'projects',currentProjectId),{geomStyle:gs});
     if(currentProjectData) currentProjectData.geomStyle=gs;
-    try{ renderFlaechen(); }catch(_){ try{ renderDrawnGeoms(); }catch(__){} }
+    // Gezeichnete Geometrie neu zeichnen UND die importierte Flächen-Ebene (Bundle) neu stylen.
+    // renderFlaechen() allein bricht bei gleichem Key früh ab → importierte Flächen blieben ungestylt.
+    try{ renderDrawnGeoms(); }catch(_){}
+    try{ _applyFlaechenSelection(); }catch(_){}
   }catch(e){ console.warn('setGeomStyle',e); notify(dlErr(e)); }
 }
 const FL_MULTI='#eab308';  // Überschneidung: Objekt in mehreren angezeigten Touren → gelb (wie bei Punkt-Markern)
