@@ -1614,6 +1614,7 @@ function makeMarker(tree){
     if(!tour && assignMode && assignTourId && treeTourIds.includes(assignTourId)) tour=tours.find(t=>t.id===assignTourId); // Planen: Ziel-Tour einfärben (Rest bleibt sichtbar/neutral)
     color=tour?tour.color:'#6b6760';
   }
+  if(_colorMode==='plan'){ const ps=planStatusOf(tree); if(ps) color=planStatusColor(ps); }  // Planungs-Check überschreibt Tourfarbe
   const num=getRouteNum(tree.id);
   const isHighlighted=selectedTreeId===tree.id;
   const isPreselected=lassoSelection.size>0 && lassoSelection.has(tree.id); // Lasso-Vorauswahl
@@ -1826,8 +1827,26 @@ function _flTourColorFor(t){
   }
   return null;
 }
-let _colorMode='none';   // Karten-Einfärbung: 'none' | 'rk' (Reinigungsklasse) | 'haeuf' (Häufigkeit)
+let _colorMode='none';   // Karten-Einfärbung: 'none' | 'rk' | 'haeuf' | 'plan' (Soll/Plan-Check)
 function _haeufColor(h){ h=Math.round(h||0); if(h<=0) return '#d1d5db'; return ({1:'#22c55e',2:'#3b82f6',3:'#f59e0b'})[h]||'#ef4444'; }
+// Planungs-Check: Soll (Ziel/Woche) vs. Plan (Summe Wochen-Einsätze der aktiven Touren des Objekts)
+function planStatusOf(tree){
+  if(!tree || _isContainer(tree)) return null;
+  const saison=(typeof saisonFor==='function')?saisonFor(new Date().toISOString().slice(0,10)):'sommer';
+  const soll=sollFreqProWoche(tree,saison);
+  const ids=realTourIds(tree);
+  if(soll==null) return {status:'kein',soll:null,plan:0,tours:ids.length,saison};
+  let plan=0; ids.forEach(id=>plan+=_tourWeeklyOcc(tours.find(x=>x.id===id),saison));
+  const status = plan<soll-1e-6?'unter':(plan>soll+1e-6?'ueber':'ok');
+  return {status,soll,plan,tours:ids.length,saison};
+}
+function planStatusColor(ps){
+  if(!ps||ps.status==='kein') return '#d1d5db';
+  if(ps.status==='ok') return '#22c55e';
+  if(ps.status==='ueber') return '#3b82f6';
+  return ps.plan===0?'#ef4444':'#f59e0b';   // gar nicht verplant vs. unterplant
+}
+function planStatusLabel(ps){ if(!ps||ps.status==='kein') return 'kein Soll'; return ps.status==='ok'?'Planung passt':ps.status==='ueber'?'überplant':(ps.plan===0?'nicht verplant':'unterplant'); }
 // Repräsentative Häufigkeit eines Abschnitts = höchste Häufigkeit seiner Seiten (sonst eigene)
 function _haeufOf(t){
   if(_isContainer(t)){ const vals=_ausstattungOf(t.extId).map(s=>orHaeuf(s,_rkById,_containerByExt)).filter(v=>v!=null); return vals.length?Math.max(...vals):null; }
@@ -1853,6 +1872,11 @@ function _flStyleForTree(t, isLine){
     const c2=h==null?'#e5e7eb':_haeufColor(h);
     return isLine?{ color:c2, weight:6, opacity:0.95 }:{ color:c2, weight:2, fillColor:c2, fillOpacity:0.5 };
   }
+  // Modus „Planungs-Check": nach Soll/Plan-Status
+  if(_colorMode==='plan'){
+    const c2=planStatusColor(planStatusOf(t));
+    return isLine?{ color:c2, weight:6, opacity:0.95 }:{ color:c2, weight:2, fillColor:c2, fillOpacity:0.5 };
+  }
   const col=_flTourColorFor(t);
   if(activeTours.size && !col) return isLine?{ color:'#b9b6b0', weight:2, opacity:0.5 }:{ color:'#b9b6b0', weight:1, fillColor:'#b9b6b0', fillOpacity:0.06 }; // andere Tour → ausgegraut
   if(col) return isLine?{ color:col, weight:5, opacity:0.95 }:{ color:col, weight:1.5, fillColor:col, fillOpacity:0.5 };                                       // gewählte Tour → Tourfarbe
@@ -1872,10 +1896,14 @@ function _updateColorBtns(){
   document.querySelectorAll('#color-mode-menu [data-mode]').forEach(el=>{ el.style.fontWeight=el.dataset.mode===_colorMode?'700':'400'; el.style.color=el.dataset.mode===_colorMode?'var(--green)':'var(--text)'; });
 }
 function toggleColorMenu(){ const m=document.getElementById('color-mode-menu'); if(m) m.style.display=m.style.display==='none'?'block':'none'; }
+function togglePlanCheck(){ setColorMode(_colorMode==='plan'?'none':'plan'); }
+function _updatePlanCheckBtn(){ const b=document.getElementById('btn-plancheck'); if(b){ const on=_colorMode==='plan'; b.style.background=on?'var(--green)':'var(--surface)'; b.style.color=on?'#fff':'var(--text2)'; b.style.borderColor=on?'var(--green)':'var(--border)'; } }
 function setColorMode(mode){
+  const prev=_colorMode;
   _colorMode=mode; _updateColorBtns();
   const m=document.getElementById('color-mode-menu'); if(m) m.style.display='none';
-  _applyFlaechenSelection(); _renderRkLegend();
+  if(mode==='plan'||prev==='plan') rebuildMarkersWithNumbers();   // Punkt-Marker neu einfärben
+  _applyFlaechenSelection(); _renderRkLegend(); _updatePlanCheckBtn();
 }
 // ── „Darstellung"-Panel: Sichtbarkeit, Einfärben, Standard-Stile gebündelt ──
 const _CAT_LABEL={punkt:'Punkte',linie:'Strecken',flaeche:'Flächen',abschnitt:'Abschnitte'};
@@ -1922,10 +1950,10 @@ function renderDisplayPanel(){
   h+=chk(_showTourCounts,'toggleTourCounts()','Tourhäufigkeit ein/aus');
   h+=chk(_showRouteNums,'toggleRouteNums()','Routennummern ein/aus');
   if(hasCont) h+=chk(_versatzOn,'toggleVersatz()','Objekte nach Lage versetzt');
-  if(hasCont){
+  if(hasCont || currentProjectData?.sollFeld){
     h+=`<div style="font-size:12px;font-weight:600;margin:10px 0 2px;border-top:1px solid var(--border);padding-top:8px;">Einfärben nach</div>`;
     const rad=(val,label)=>`<label style="display:flex;align-items:center;gap:8px;font-size:13px;padding:3px 0;cursor:pointer;"><input type="radio" name="dp-cm" ${_colorMode===val?'checked':''} onchange="setColorMode('${val}')" style="margin:0;cursor:pointer;"><span>${label}</span></label>`;
-    h+=rad('none','aus (Tourfarbe)')+rad('rk','Reinigungsklasse')+rad('haeuf','Reinigungshäufigkeit');
+    h+=rad('none','aus (Tourfarbe)')+(hasCont?rad('rk','Reinigungsklasse')+rad('haeuf','Reinigungshäufigkeit'):'')+rad('plan','Planungs-Check (Soll/Plan)');
   }
   if(!ro){
     const rls=currentProjectData?.routeLineStyle==='solid'?'solid':'dashed';
@@ -1977,6 +2005,14 @@ function _renderRkLegend(){
     el.innerHTML=`<div style="font-size:11px;font-weight:700;margin-bottom:6px;">Häufigkeit / Woche</div>`+
       (vals.length?vals.map(v=>`<div style="display:flex;align-items:center;gap:7px;font-size:12px;margin-bottom:3px;"><span style="width:14px;height:4px;border-radius:2px;background:${_haeufColor(v)};flex:none;"></span>${v===0?'0 (keine Reinigung)':v+'×'}</div>`).join('')
         :`<div style="font-size:12px;color:var(--text3);">noch keine Häufigkeiten gesetzt</div>`);
+  } else if(_colorMode==='plan'){
+    const counts={ok:0,unter:0,stark:0,ueber:0,kein:0};
+    (trees||[]).forEach(t=>{ if(!isActive(t)||_isContainer(t)) return; const ps=planStatusOf(t); if(!ps) return; if(ps.status==='unter') (ps.plan===0?counts.stark++:counts.unter++); else counts[ps.status]++; });
+    el.style.display='block';
+    el.innerHTML=`<div style="font-size:11px;font-weight:700;margin-bottom:6px;">Planungs-Check</div>`+
+      [['#22c55e','passt',counts.ok],['#f59e0b','unterplant',counts.unter],['#ef4444','nicht verplant',counts.stark],['#3b82f6','überplant',counts.ueber],['#d1d5db','kein Soll',counts.kein]]
+      .map(r=>`<div style="display:flex;align-items:center;gap:7px;font-size:12px;margin-bottom:3px;"><span style="width:12px;height:12px;border-radius:3px;background:${r[0]};flex:none;"></span>${r[1]} · <b>${r[2]}</b></div>`).join('')+
+      `<div style="font-size:10px;color:var(--text3);margin-top:4px;">Plan = Wochen-Einsätze der Touren</div>`;
   } else { el.style.display='none'; el.innerHTML=''; }
 }
 // Bounds aller Flächen der aktuell ausgewählten Touren (für „einpassen")
@@ -3178,6 +3214,13 @@ function openDetail(id){
 
     ${tree.notiz?`<div class="form-section">${dlEsc(FL.notiz)}</div>
     <div style="padding:5px 0 8px;font-size:13px;color:var(--text2);line-height:1.55;white-space:pre-wrap;">${dlEsc(tree.notiz)}</div>`:''}
+
+    ${(()=>{ const ps=planStatusOf(tree); if(!ps) return '';
+      if(ps.status==='kein') return `<div class="form-section">Planung</div><div class="detail-field" style="padding:5px 0;"><span class="detail-key">Soll / Plan</span><span class="detail-val" style="color:var(--text3);">kein Soll hinterlegt</span></div>`;
+      const col=planStatusColor(ps);
+      return `<div class="form-section">Planung</div>
+      <div class="detail-field" style="padding:5px 0;align-items:center;"><span class="detail-key">Soll / Plan</span><span class="detail-val"><b>${+ps.soll.toFixed(2)}</b>×/Wo · Plan <b>${+ps.plan.toFixed(2)}</b> <span style="color:var(--text3);font-size:11px;">(${ps.tours} Tour${ps.tours===1?'':'en'})</span> <span style="display:inline-block;margin-left:4px;padding:1px 8px;border-radius:6px;font-size:11px;font-weight:600;background:${col}22;color:${col};">${planStatusLabel(ps)}</span></span></div>`;
+    })()}
 
     <div class="form-section">Touren (Mehrfachauswahl)</div>
     <div id="inline-tour-wrap" style="padding:6px 0 4px;"></div>
@@ -9756,7 +9799,8 @@ function showTreeTourContextMenu(tree, e){
     rows=getTreeTourIds(tree).map(id=>tours.find(t=>t.id===id)).filter(Boolean).map(t=>({color:t.color,name:t.name,sub:'',ueb:!!t.uebersicht}));
   }
   rows.sort((a,b)=>(a.ueb?1:0)-(b.ueb?1:0)); // echte Touren zuerst, Übersicht unten
-  if(rows.length===0) return; // kein Popup wenn keine Tour
+  const _ps=planStatusOf(tree);
+  if(rows.length===0 && !(_ps && _ps.status!=='kein')) return; // kein Popup, wenn weder Tour noch aussagekräftiger Plan-Status
   const treeTourList=rows; // (Variablenname unten beibehalten)
 
   // Position aus Leaflet-Event
@@ -9786,6 +9830,8 @@ function showTreeTourContextMenu(tree, e){
     <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin-bottom:8px;">
       ${dlEsc(_ttitle)} — Touren
     </div>
+    ${(()=>{ if(!_ps||_ps.status==='kein') return ''; const col=planStatusColor(_ps);
+      return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;padding:5px 8px;border-radius:6px;background:${col}1f;"><span style="width:9px;height:9px;border-radius:50%;background:${col};flex:none;"></span><span style="font-size:12px;"><b style="color:${col};">${planStatusLabel(_ps)}</b> · Soll ${+_ps.soll.toFixed(2)} · Plan ${+_ps.plan.toFixed(2)}</span></div>`; })()}
     ${treeTourList.map(t=>`
       <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);${t.ueb?'opacity:.75;':''}">
         <div style="width:10px;height:10px;border-radius:50%;background:${t.color};flex-shrink:0;margin-top:2px;align-self:flex-start;"></div>
@@ -12428,7 +12474,7 @@ Object.assign(window,{
   openBaeumeColMenu,toggleBaeumeCol,resetBaeumeCols,
   saveFieldLabels, setFieldLabel, toggleMobilFeld, migrateTourIds, deriveHaeufigkeitFromZustaendigkeit,
   addObjektklasse, renameObjektklasse, setKlasseStruktur, toggleKlasseFeld, deleteObjektklasse,
-  addReinigungsklasse, renameReinigungsklasse, setRkFreq, setRkColor, deleteReinigungsklasse, onKlasseChange, setColorMode, setAbschnittRk, toggleDisplayPanel, setGeomStyle, saveDisplayDefaults, setRouteLineStyle, setSollFeld,
+  addReinigungsklasse, renameReinigungsklasse, setRkFreq, setRkColor, deleteReinigungsklasse, onKlasseChange, setColorMode, togglePlanCheck, setAbschnittRk, toggleDisplayPanel, setGeomStyle, saveDisplayDefaults, setRouteLineStyle, setSollFeld,
   doLogin, doLogout, toggleLoginMode,
 });
 
