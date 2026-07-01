@@ -338,7 +338,7 @@ function applyClusterMode(on, rebuild){
 }
 // Cluster nur, wenn der Projekt-Schalter an ist UND keine Tour ausgewählt ist
 // (in der Touransicht stören Cluster die Reihenfolge/Übersicht).
-function _effectiveCluster(){ return !!(currentProjectData&&currentProjectData.clusterAktiv) && activeTours.size===0; }
+function _effectiveCluster(){ return !!(currentProjectData&&currentProjectData.clusterAktiv) && activeTours.size===0 && _colorMode!=='plan'; }
 
 // ── WMS-Kartenebenen (vom Nutzer verwaltbar, stadtscharf am Mandanten) ──
 const WMS_DEFAULTS=[
@@ -1902,7 +1902,9 @@ function setColorMode(mode){
   const prev=_colorMode;
   _colorMode=mode; _updateColorBtns();
   const m=document.getElementById('color-mode-menu'); if(m) m.style.display='none';
-  if(mode==='plan'||prev==='plan') rebuildMarkersWithNumbers();   // Punkt-Marker neu einfärben
+  // Plan-Modus: Clustering aus (Cluster würde die Status-Farbe verdecken); zurück: Projekt-Standard wiederherstellen.
+  // applyClusterMode(...,true) schaltet die Ebene um UND zeichnet die Marker neu (einfärben).
+  if(mode==='plan'||prev==='plan') applyClusterMode(_effectiveCluster(), true);
   _applyFlaechenSelection(); _renderRkLegend(); _updatePlanCheckBtn();
 }
 // ── „Darstellung"-Panel: Sichtbarkeit, Einfärben, Standard-Stile gebündelt ──
