@@ -8421,6 +8421,7 @@ const CTRL_WIDGETS=[
   {id:'gruende',       label:'Gründe: Nicht erledigt', group:'Tabellen'},
   {id:'einzelmeldungen',label:'Einzelmeldungen',       group:'Tabellen'},
   {id:'historie',      label:'Abgeschlossene Touren (Historie)', group:'Tabellen'},
+  {id:'soll_datenlage',label:'Soll-Datenlage',        group:'Soll-Ist'},
 ];
 // Standard: alles an, wenn nichts konfiguriert ist (rückwärtskompatibel)
 function _ctrlWidgetOn(id){ const w=currentProjectData&&currentProjectData.controllingWidgets; if(!w||typeof w!=='object') return true; return w[id]!==false; }
@@ -8465,6 +8466,84 @@ function openCtrlWidgetMenu(btn){
   m.innerHTML=html;
   document.body.appendChild(m);
   setTimeout(()=>{ const close=ev=>{ if(!m.contains(ev.target)&&ev.target!==btn&&!btn.contains(ev.target)){ m.remove(); document.removeEventListener('mousedown',close); } }; document.addEventListener('mousedown',close); },0);
+}
+
+// ── Soll-Ist: objekt-zentrierte Ziel-Häufigkeit (×/Woche) je Objekt ──────────
+// Quellen je Typ: Fläche → haeufigkeitS/W (Saison); Seite → Reinigungsklasse/haeufigkeit;
+// Punkt/Strecke → haeufigkeit. null = kein Soll hinterlegt. Basis für Meilenstein 2 (Ist-Abgleich).
+function _objTypBucket(tree){
+  const gt=geomTypeOf(tree);
+  if(gt==='flaeche') return 'flaeche';
+  if(gt==='linie') return 'strecke';
+  if(tree.containerExtId) return 'seite';
+  return 'punkt';
+}
+function sollFreqProWoche(tree, saison){
+  if(!tree || _isContainer(tree)) return null;
+  if(_objTypBucket(tree)==='flaeche'){
+    const s=parseFloat(tree.haeufigkeitS), w=parseFloat(tree.haeufigkeitW);
+    const v = saison==='winter' ? w : s;
+    if(v>0) return v;
+    if(s>0) return s; if(w>0) return w;   // nur eine Saison gepflegt → Rückfall
+    return null;
+  }
+  const h=parseFloat(tree.haeufigkeit);
+  if(h>0) return h;
+  if(tree.containerExtId){                 // Seite ohne eigenes Feld → aus Reinigungsklasse des Abschnitts
+    const c=_containerOf(tree); const rk=c&&c.reinigungsklasse?_rkById(c.reinigungsklasse):null;
+    if(rk&&rk.freq){ const vals=Object.values(rk.freq).map(x=>parseFloat(x)).filter(x=>x>0); if(vals.length) return Math.max(...vals); }
+  }
+  return null;
+}
+function _sollInfo(tree, saison){
+  const typ=_objTypBucket(tree);
+  const v=sollFreqProWoche(tree, saison);
+  let quelle=null;
+  if(v!=null){
+    if(typ==='flaeche') quelle='sommerwinter';
+    else if(typ==='seite'){ const c=_containerOf(tree); quelle=(c&&c.reinigungsklasse)?'reinigungsklasse':'haeufigkeit'; }
+    else quelle='haeufigkeit';
+  }
+  return {typ, hasSoll:v!=null, soll:v, quelle};
+}
+function renderSollDatenlage(){
+  const el=document.getElementById('ctrl-soll-datenlage'); if(!el) return;
+  const saison=(typeof saisonFor==='function')?saisonFor(new Date().toISOString().slice(0,10)):'sommer';
+  const list=(getCtrlFilteredTrees()||[]).filter(t=>!_isContainer(t));
+  const TYPES=[{key:'punkt',label:'Punkte'},{key:'seite',label:'Abschnitts-Seiten'},{key:'flaeche',label:'Flächen'},{key:'strecke',label:'Strecken'}];
+  const QL={haeufigkeit:'Häufigkeit',reinigungsklasse:'Reinigungsklasse',sommerwinter:'Sommer/Winter'};
+  const buckets={}; TYPES.forEach(t=>buckets[t.key]={n:0,soll:0,q:{}});
+  list.forEach(t=>{ const info=_sollInfo(t,saison); const b=buckets[info.typ]; if(!b) return; b.n++; if(info.hasSoll){ b.soll++; b.q[info.quelle]=(b.q[info.quelle]||0)+1; } });
+  const total=list.length, withSoll=TYPES.reduce((a,t)=>a+buckets[t.key].soll,0), ohne=total-withSoll;
+  const pctAll=total?Math.round(withSoll/total*100):0;
+  if(!total){ el.innerHTML='<div style="color:var(--text3);font-size:13px;padding:6px 0;">Keine Objekte im aktuellen Filter.</div>'; return; }
+  const kpi=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px;">
+    ${[['Objekte gesamt',total.toLocaleString('de-DE'),'var(--text)'],['mit Soll',`${withSoll.toLocaleString('de-DE')} · ${pctAll}%`,'var(--green)'],['ohne Soll',`${ohne.toLocaleString('de-DE')} · ${100-pctAll}%`,'var(--amber)']]
+      .map(k=>`<div style="background:var(--surface2);border-radius:8px;padding:8px 10px;"><div style="font-size:11px;color:var(--text3);">${k[0]}</div><div style="font-size:18px;font-weight:700;color:${k[2]};">${k[1]}</div></div>`).join('')}
+  </div>`;
+  const legend=`<div style="display:flex;gap:16px;margin-bottom:4px;font-size:11px;color:var(--text2);">
+    <span style="display:flex;align-items:center;gap:6px;"><span style="width:11px;height:11px;border-radius:3px;background:var(--green);"></span>Soll hinterlegt</span>
+    <span style="display:flex;align-items:center;gap:6px;"><span style="width:11px;height:11px;border-radius:3px;background:#d9d4c8;"></span>kein Soll</span></div>`;
+  const rows=TYPES.filter(t=>buckets[t.key].n>0).map(t=>{
+    const b=buckets[t.key], pct=Math.round(b.soll/b.n*100);
+    const chips=Object.keys(b.q).length
+      ? Object.entries(b.q).map(([k,n])=>`<span style="display:inline-block;margin:5px 5px 0 0;font-size:11px;padding:2px 8px;border-radius:6px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);">${QL[k]||k}: ${n}</span>`).join('')
+      : `<span style="display:inline-block;margin-top:5px;font-size:11px;padding:2px 8px;border-radius:6px;background:#fef3c7;color:#b45309;">kein Soll hinterlegt</span>`;
+    return `<div style="display:flex;align-items:center;gap:14px;padding:10px 0;border-top:1px solid var(--border);">
+      <div style="width:200px;flex:none;">
+        <div style="font-size:13px;font-weight:600;">${t.label}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:1px;">${b.n.toLocaleString('de-DE')} Objekte</div>
+        <div>${chips}</div>
+      </div>
+      <div style="flex:1;"><div style="height:14px;border-radius:7px;overflow:hidden;background:#d9d4c8;"><div style="width:${pct}%;height:100%;background:var(--green);"></div></div></div>
+      <div style="width:90px;flex:none;text-align:right;"><div style="font-size:15px;font-weight:700;">${pct} %</div><div style="font-size:11px;color:var(--text3);">mit Soll</div></div>
+    </div>`;
+  }).join('');
+  const pB=buckets.punkt;
+  const warn=(pB.n>0 && pB.soll/pB.n<0.5)
+    ? `<div style="margin-top:12px;padding:9px 12px;background:#fef3c7;border-radius:8px;font-size:12px;color:#92400e;">Bei Punkten ist überwiegend kein Soll hinterlegt. Hier zuerst die Zielhäufigkeit pflegen, bevor der Erfüllungsgrad aussagekräftig ist.</div>`
+    : '';
+  el.innerHTML=kpi+legend+rows+warn;
 }
 
 function renderControlling(){
@@ -8614,6 +8693,7 @@ function renderControlling(){
   if(_ctrlWidgetOn('chart_zeit')) renderTimelineChart(finalReported,from,to); else destroyChart('timeline');
   if(_ctrlWidgetOn('chart_stadtteil')) renderStadtteilChart(filtered,finalReported); else destroyChart('stadtteil');
   if(_ctrlWidgetOn('gruende')) renderReasonsBar(finalReported.filter(r=>r.lastStatus==='nicht'));
+  if(_ctrlWidgetOn('soll_datenlage')) renderSollDatenlage();
   if(_ctrlWidgetOn('einzelmeldungen')) renderDetailTable(finalReported);
   updateCtrlLastUpdated();
 }
