@@ -5283,6 +5283,58 @@ function toggleBenutzerTouren(){
 let _baeumeAllTrees = []; // cache for search
 let _baeumeNoGpsFilter = false;
 let _baeumeShowInactive = false;
+// ── Objekt-Tabelle: Spalten ein-/ausblenden (pro Browser gemerkt) ──────────
+let _baeumeHiddenCols = new Set();
+try{
+  const raw=localStorage.getItem('bwt_baeume_hidden_cols');
+  if(raw!=null) _baeumeHiddenCols=new Set(JSON.parse(raw));
+  else _baeumeHiddenCols=new Set(['notiz','menge']); // neue Spalten anfangs aus, damit die Ansicht wie bisher wirkt
+}catch(_){ _baeumeHiddenCols=new Set(['notiz','menge']); }
+function _saveBaeumeHiddenCols(){ try{ localStorage.setItem('bwt_baeume_hidden_cols', JSON.stringify([..._baeumeHiddenCols])); }catch(_){} }
+// Alle ein-/ausblendbaren Spalten (Reihenfolge = Tabelle); Custom-Felder dynamisch dazwischen.
+function _baeumeColDefs(){
+  return [
+    {key:'rn',label:'#'},
+    {key:'baumId',label:'Objekt-ID'},
+    {key:'name',label:FL.name},
+    {key:'stadtteil',label:FL.stadtteil},
+    {key:'baumnr',label:FL.baumnr},
+    {key:'art',label:FL.art},
+    {key:'pflanzjahr',label:FL.pflanzjahr},
+    {key:'pflanzzeitpunkt',label:FL.pflanzzeitpunkt},
+    ...customFields.map(c=>({key:'cf:'+c.key,label:c.label})),
+    {key:'zustand',label:FL.zustand},
+    {key:'tour',label:'Tour'},
+    {key:'wasser',label:FL.wasser},
+    {key:'datum',label:FL.datum},
+    {key:'notiz',label:FL.notiz},
+    {key:'menge',label:'Menge (m²/m)'},
+    {key:'gps',label:'GPS'},
+  ];
+}
+function _baeumeColStyleText(){
+  return [..._baeumeHiddenCols].map(k=>`#baeume-table-wrap [data-col="${String(k).replace(/["\\]/g,'')}"]{display:none}`).join('');
+}
+function _applyBaeumeColVis(){
+  const st=document.getElementById('baeume-col-style'); if(st) st.textContent=_baeumeColStyleText();
+  const b=document.getElementById('baeume-col-badge'); if(b) b.textContent=_baeumeHiddenCols.size?` (${_baeumeHiddenCols.size} aus)`:'';
+}
+function toggleBaeumeCol(key,on){ if(on) _baeumeHiddenCols.delete(key); else _baeumeHiddenCols.add(key); _saveBaeumeHiddenCols(); _applyBaeumeColVis(); }
+function resetBaeumeCols(){ _baeumeHiddenCols.clear(); _saveBaeumeHiddenCols(); _applyBaeumeColVis(); const m=document.getElementById('baeume-col-menu'); if(m) m.querySelectorAll('input[type=checkbox]').forEach(c=>c.checked=true); }
+function openBaeumeColMenu(btn){
+  const ex=document.getElementById('baeume-col-menu'); if(ex){ ex.remove(); return; }
+  const r=btn.getBoundingClientRect();
+  const m=document.createElement('div'); m.id='baeume-col-menu';
+  m.style.cssText=`position:fixed;top:${Math.round(r.bottom+4)}px;left:${Math.round(Math.max(8,r.right-250))}px;z-index:9999;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.2);padding:8px;width:250px;max-height:72vh;overflow:auto;`;
+  m.innerHTML=`<div style="font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);padding:4px 6px 8px;">Spalten ein-/ausblenden</div>`+
+    _baeumeColDefs().map(d=>`<label style="display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:6px;cursor:pointer;font-size:13px;" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''">
+        <input type="checkbox" ${_baeumeHiddenCols.has(d.key)?'':'checked'} onchange="toggleBaeumeCol('${d.key}',this.checked)" style="width:15px;height:15px;cursor:pointer;">
+        <span>${dlEsc(d.label||'—')}</span></label>`).join('')+
+    `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px;"><button class="btn btn-secondary" style="width:100%;padding:5px;font-size:11px;" onclick="resetBaeumeCols()">Alle einblenden</button></div>`;
+  document.body.appendChild(m);
+  setTimeout(()=>{ const close=ev=>{ if(!m.contains(ev.target)&&ev.target!==btn){ m.remove(); document.removeEventListener('mousedown',close); } }; document.addEventListener('mousedown',close); },0);
+}
+
 let _baeumeShowAll = false; // alle Objekte trotz Übersichts-Schwelle anzeigen
 function toggleShowAll(){
   _baeumeShowAll = !_baeumeShowAll;
@@ -6336,25 +6388,27 @@ function renderBaeumeTableWith(treeList){
   }
 
   const cols=[
-    {label:'#',        w:'40px'},
-    {label:'Objekt-ID',  w:'80px'},
-    {label:FL.name,          w:'200px'},
-    {label:FL.stadtteil,     w:'110px'},
-    {label:FL.baumnr,        w:'130px'},
-    {label:FL.art,           w:'180px'},
-    {label:FL.pflanzjahr,    w:'100px'},
-    {label:FL.pflanzzeitpunkt,w:'140px'},
-    ...customFields.map(c=>({label:c.label,w:'120px'})),
-    {label:FL.zustand,       w:'80px'},
-    {label:'Tour',           w:'110px'},
-    {label:FL.wasser,        w:'100px'},
-    {label:FL.datum,         w:'110px'},
-    {label:'GPS',      w:'70px'},
-    {label:'',         w:'100px'},
+    {key:'rn',   label:'#',        w:'40px'},
+    {key:'baumId',label:'Objekt-ID', w:'80px'},
+    {key:'name', label:FL.name,          w:'200px'},
+    {key:'stadtteil',label:FL.stadtteil, w:'110px'},
+    {key:'baumnr',label:FL.baumnr,       w:'130px'},
+    {key:'art',  label:FL.art,           w:'180px'},
+    {key:'pflanzjahr',label:FL.pflanzjahr,w:'100px'},
+    {key:'pflanzzeitpunkt',label:FL.pflanzzeitpunkt,w:'140px'},
+    ...customFields.map(c=>({key:'cf:'+c.key,label:c.label,w:'120px'})),
+    {key:'zustand',label:FL.zustand,     w:'80px'},
+    {key:'tour', label:'Tour',           w:'110px'},
+    {key:'wasser',label:FL.wasser,       w:'100px'},
+    {key:'datum',label:FL.datum,         w:'110px'},
+    {key:'notiz',label:FL.notiz,         w:'160px'},
+    {key:'menge',label:'Menge',          w:'90px'},
+    {key:'gps',  label:'GPS',      w:'70px'},
+    {key:'actions',label:'',       w:'100px'},
   ];
 
   const th=cols.map(col=>
-    `<th style="position:sticky;top:0;z-index:2;padding:9px 12px;text-align:left;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);background:var(--surface2);white-space:nowrap;min-width:${col.w};">${col.label}</th>`
+    `<th data-col="${col.key}" style="position:sticky;top:0;z-index:2;padding:9px 12px;text-align:left;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);background:var(--surface2);white-space:nowrap;min-width:${col.w};">${col.label}</th>`
   ).join('');
 
   let rows='';
@@ -6369,21 +6423,23 @@ function renderBaeumeTableWith(treeList){
     const pzt=tree.pflanzzeitpunkt||'–';
     const rowTours=getTreeTourIds(tree).map(id=>tourMap.get(id)).filter(Boolean);
     rows+=`<tr style="border-top:1px solid var(--border);transition:background .1s;cursor:pointer;${inact?'opacity:.55;':''}" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''" data-treeid="${tree.id}">
-      <td style="padding:8px 12px;font-family:'DM Mono',monospace;color:var(--text3);font-size:11px;white-space:nowrap;">${rNum!=null?'<b style=color:var(--green)>#'+rNum+'</b>':'–'}</td>
-      <td style="padding:8px 12px;font-family:'DM Mono',monospace;font-size:11px;font-weight:600;color:var(--green);white-space:nowrap;">${dlEsc(tree.baumId||'–')}</td>
-      <td style="padding:8px 12px;font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${dlEsc((tree.containerExtId&&_containerOf(tree)?.name)||tree.name||'')}">${inact?'<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:9px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);margin-right:5px;">INAKTIV</span>':''}${_geomChip(tree)}${(()=>{ const c=tree.containerExtId?_containerOf(tree):null; return c?`${dlEsc(c.name||'–')}<span style="color:var(--text3);font-weight:400;font-size:11px;"> · ${dlEsc(_elemLabel(tree))}</span>`:dlEsc(tree.name||'–'); })()}</td>
-      <td style="padding:8px 12px;color:var(--text2);white-space:nowrap;">${dlEsc(tree.stadtteil||'–')}</td>
-      <td style="padding:8px 12px;color:var(--text2);font-family:'DM Mono',monospace;font-size:11px;white-space:nowrap;">${dlEsc(tree.baumnr||'–')}</td>
-      <td style="padding:8px 12px;color:var(--text2);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${dlEsc(tree.art||'')}">${dlEsc(tree.art||'–')}</td>
-      <td style="padding:8px 12px;color:var(--text2);white-space:nowrap;">${dlEsc(tree.pflanzjahr||'–')}</td>
-      <td style="padding:8px 12px;color:var(--text2);white-space:nowrap;font-size:12px;">${dlEsc(pzt)}</td>
-      ${customFields.map(c=>`<td style="padding:8px 12px;color:var(--text2);white-space:nowrap;font-size:12px;max-width:160px;overflow:hidden;text-overflow:ellipsis;" title="${dlEsc(tree[c.key]||'')}">${dlEsc(tree[c.key]||'–')}</td>`).join('')}
-      <td style="padding:8px 12px;">${zBadge}</td>
-      <td style="padding:8px 12px;white-space:nowrap;">${rowTours.length?rowTours.map(t=>`<span style="font-size:11px;font-weight:600;color:${t.color};">${dlEsc(t.name)}</span>`).join('<br>'):'<span style="color:var(--text3);font-size:12px;">–</span>'}</td>
-      <td style="padding:8px 12px;color:var(--text2);white-space:nowrap;">${wLbl}</td>
-      <td style="padding:8px 12px;color:var(--text2);font-family:'DM Mono',monospace;font-size:11px;white-space:nowrap;">${tree.datum||'–'}</td>
-      <td style="padding:8px 12px;">${!tree.lat||!tree.lng?'<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:#fef3c7;color:#b45309;white-space:nowrap;">Kein GPS</span>':''}</td>
-      <td style="padding:8px 12px;">
+      <td data-col="rn" style="padding:8px 12px;font-family:'DM Mono',monospace;color:var(--text3);font-size:11px;white-space:nowrap;">${rNum!=null?'<b style=color:var(--green)>#'+rNum+'</b>':'–'}</td>
+      <td data-col="baumId" style="padding:8px 12px;font-family:'DM Mono',monospace;font-size:11px;font-weight:600;color:var(--green);white-space:nowrap;">${dlEsc(tree.baumId||'–')}</td>
+      <td data-col="name" style="padding:8px 12px;font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${dlEsc((tree.containerExtId&&_containerOf(tree)?.name)||tree.name||'')}">${inact?'<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:9px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);margin-right:5px;">INAKTIV</span>':''}${_geomChip(tree)}${(()=>{ const c=tree.containerExtId?_containerOf(tree):null; return c?`${dlEsc(c.name||'–')}<span style="color:var(--text3);font-weight:400;font-size:11px;"> · ${dlEsc(_elemLabel(tree))}</span>`:dlEsc(tree.name||'–'); })()}</td>
+      <td data-col="stadtteil" style="padding:8px 12px;color:var(--text2);white-space:nowrap;">${dlEsc(tree.stadtteil||'–')}</td>
+      <td data-col="baumnr" style="padding:8px 12px;color:var(--text2);font-family:'DM Mono',monospace;font-size:11px;white-space:nowrap;">${dlEsc(tree.baumnr||'–')}</td>
+      <td data-col="art" style="padding:8px 12px;color:var(--text2);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${dlEsc(tree.art||'')}">${dlEsc(tree.art||'–')}</td>
+      <td data-col="pflanzjahr" style="padding:8px 12px;color:var(--text2);white-space:nowrap;">${dlEsc(tree.pflanzjahr||'–')}</td>
+      <td data-col="pflanzzeitpunkt" style="padding:8px 12px;color:var(--text2);white-space:nowrap;font-size:12px;">${dlEsc(pzt)}</td>
+      ${customFields.map(c=>`<td data-col="cf:${c.key}" style="padding:8px 12px;color:var(--text2);white-space:nowrap;font-size:12px;max-width:160px;overflow:hidden;text-overflow:ellipsis;" title="${dlEsc(tree[c.key]||'')}">${dlEsc(tree[c.key]||'–')}</td>`).join('')}
+      <td data-col="zustand" style="padding:8px 12px;">${zBadge}</td>
+      <td data-col="tour" style="padding:8px 12px;white-space:nowrap;">${rowTours.length?rowTours.map(t=>`<span style="font-size:11px;font-weight:600;color:${t.color};">${dlEsc(t.name)}</span>`).join('<br>'):'<span style="color:var(--text3);font-size:12px;">–</span>'}</td>
+      <td data-col="wasser" style="padding:8px 12px;color:var(--text2);white-space:nowrap;">${wLbl}</td>
+      <td data-col="datum" style="padding:8px 12px;color:var(--text2);font-family:'DM Mono',monospace;font-size:11px;white-space:nowrap;">${tree.datum||'–'}</td>
+      <td data-col="notiz" style="padding:8px 12px;color:var(--text2);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;" title="${dlEsc(tree.notiz||'')}">${dlEsc(tree.notiz||'–')}</td>
+      <td data-col="menge" style="padding:8px 12px;color:var(--text2);white-space:nowrap;text-align:right;font-size:12px;">${(tree.menge==null||tree.menge==='')?'–':(tree.einheit==='m'?_fmtLen(tree.menge):_fmtArea(tree.menge))}</td>
+      <td data-col="gps" style="padding:8px 12px;">${!tree.lat||!tree.lng?'<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:#fef3c7;color:#b45309;white-space:nowrap;">Kein GPS</span>':''}</td>
+      <td data-col="actions" style="padding:8px 12px;">
         <button class="btn btn-secondary" style="padding:3px 10px;font-size:11px;white-space:nowrap;" data-editid="${tree.id}">Bearbeiten</button>
       </td>
     </tr>`;
@@ -6395,9 +6451,11 @@ function renderBaeumeTableWith(treeList){
     <div style="padding:12px 20px 8px;display:flex;align-items:center;gap:16px;flex-shrink:0;border-bottom:1px solid var(--border);background:var(--surface);">
       <span style="font-size:13px;font-weight:600;color:var(--text);">${sorted.length} Objekte${activeTourOnMap&&_atOnMap?' — <span style=color:'+_atOnMap.color+';font-weight:700>'+dlEsc(_atOnMap.name)+'</span>':''}</span>
       <span style="font-size:12px;color:var(--text3);">Klick auf Zeile → Karte</span>
-      ${(currentRole==='superadmin'||currentCap==='admin')?`<button onclick="checkBaumIdDuplicates()" class="btn btn-secondary" style="margin-left:auto;padding:3px 10px;font-size:11px;white-space:nowrap;" title="Prüft alle Objekt-IDs dieses Projekts auf Dubletten">Objekt-IDs prüfen</button>`:''}
+      <button onclick="openBaeumeColMenu(this)" class="btn btn-secondary" style="margin-left:auto;padding:3px 10px;font-size:11px;white-space:nowrap;" title="Spalten ein-/ausblenden"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;margin-right:4px;"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18"/></svg>Spalten<span id="baeume-col-badge" style="color:var(--text3);">${_baeumeHiddenCols.size?` (${_baeumeHiddenCols.size} aus)`:''}</span></button>
+      ${(currentRole==='superadmin'||currentCap==='admin')?`<button onclick="checkBaumIdDuplicates()" class="btn btn-secondary" style="padding:3px 10px;font-size:11px;white-space:nowrap;" title="Prüft alle Objekt-IDs dieses Projekts auf Dubletten">Objekt-IDs prüfen</button>`:''}
       ${(currentRole==='superadmin'||currentCap==='admin')&&trees.some(_isContainer)?`<button onclick="deriveHaeufigkeitFromZustaendigkeit()" class="btn btn-secondary" style="padding:3px 10px;font-size:11px;white-space:nowrap;" title="Setzt je Seite die Reinigungshäufigkeit aus dem Zuständigkeits-Tag im Feld Typ/Art: (Stadt) → 1×/Woche, (Anlieger) → 0">Häufigkeit aus Zuständigkeit</button>`:''}
     </div>
+    <style id="baeume-col-style">${_baeumeColStyleText()}</style>
     <div style="overflow:auto;flex:1;">
       <table style="width:100%;border-collapse:collapse;font-size:13px;background:var(--surface);">
         <thead><tr>${th}</tr></thead>
@@ -11897,6 +11955,7 @@ Object.assign(window,{
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
   renderRollenView,saveRole,addRole,deleteRole,toggleBenutzerRollen,toggleBenutzerTouren,changeBenutzerOrg,changeDtaProject,renderUsage,exportUsageCSV,
   startGpsPlacement,startMoveObject,saveMoveObject,cancelMoveObject,toggleFilterNoGps,updateBtnFilterNoGps,toggleShowAll,clearBaeumeFilters,
+  openBaeumeColMenu,toggleBaeumeCol,resetBaeumeCols,
   saveFieldLabels, setFieldLabel, toggleMobilFeld, migrateTourIds, deriveHaeufigkeitFromZustaendigkeit,
   addObjektklasse, renameObjektklasse, setKlasseStruktur, toggleKlasseFeld, deleteObjektklasse,
   addReinigungsklasse, renameReinigungsklasse, setRkFreq, setRkColor, deleteReinigungsklasse, onKlasseChange, setColorMode, setAbschnittRk, toggleDisplayPanel, setGeomStyle, saveDisplayDefaults, setRouteLineStyle,
