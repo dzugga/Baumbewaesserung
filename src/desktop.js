@@ -2264,7 +2264,14 @@ async function renderFlaechen(){
     _flaechenLayer=L.geoJSON(bundle, {
       renderer: L.canvas({ padding:0.5 }),
       style: f=>_flStyleFor(f.properties&&f.properties.extId),
-      onEachFeature:(f,layer)=>{ const ext=f.properties&&f.properties.extId; if(ext) _flaechenByExt[ext]=layer; const t=byExt[ext]; if(t){ layer.on('click',()=>selectTree(t.id,false)); layer.on('contextmenu',e=>{ L.DomEvent.stopPropagation(e); try{ e.originalEvent&&e.originalEvent.preventDefault(); }catch(_){} showTreeTourContextMenu(t, e); }); layer.bindTooltip((t.name||'Fläche')+(t.menge?' · '+t.menge+' m²':''),{sticky:true}); } }
+      onEachFeature:(f,layer)=>{ const ext=f.properties&&f.properties.extId; if(ext) _flaechenByExt[ext]=layer;
+        // Baum ERST beim Klick auflösen (nicht zur Render-Zeit — Flächen-Trees laden ggf. später,
+        // und die Ebene wird bei gleichem Key nicht neu gebaut). So bleibt die Fläche immer anklickbar.
+        const _t=()=>trees.find(x=>x.extId===ext);
+        layer.on('click',()=>{ const t=_t(); if(t) selectTree(t.id,false); });
+        layer.on('contextmenu',e=>{ L.DomEvent.stopPropagation(e); try{ e.originalEvent&&e.originalEvent.preventDefault(); }catch(_){} const t=_t(); if(t) showTreeTourContextMenu(t, e); });
+        layer.bindTooltip(()=>{ const t=_t(); return t?((t.name||'Fläche')+(t.menge?' · '+t.menge+' m²':'')):'Fläche'; },{sticky:true});
+      }
     }).addTo(map);
     _flaechenLayerKey=key;
     _applyFlaechenSelection(); // bestehende Tour-Auswahl auf neue Polygone übernehmen
