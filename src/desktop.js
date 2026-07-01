@@ -1721,15 +1721,16 @@ function renderObjFilterUI(){
       <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text3);">Filter</span>
       ${active?`<button data-action="reset-objfilter" style="border:none;background:none;color:#1d4ed8;font-size:11px;cursor:pointer;padding:0;">zurücksetzen</button>`:''}
       <span id="obj-filter-count" style="margin-left:auto;font-size:11px;color:${active?'var(--green)':'var(--text3)'};font-weight:${active?'600':'400'};"></span>
+      ${!isReadonly()?`<button onclick="openObjFilterConfig(this)" title="Auswählen, welche Filter angezeigt werden" style="border:none;background:none;cursor:pointer;color:var(--text3);padding:0;margin-left:4px;display:flex;align-items:center;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>`:''}
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;">
-      <select id="of-stadtteil" style="${ss}">${opt(distinct('stadtteil'),objFilter.stadtteil,'Alle Stadtteile')}</select>
-      <select id="of-art" style="${ss}">${opt(distinct('art'),objFilter.art,'Alle Typen')}</select>
-      <select id="of-pflanzjahr" style="${ss}">${opt(distinct('pflanzjahr'),objFilter.pflanzjahr,'Alle Jahre')}</select>
-      <select id="of-zustand" style="${ss}">${optRank('zustand',objFilter.zustand,'Alle '+FL.zustand)}</select>
-      <select id="of-wasser" style="${ss}">${optRank('wasser',objFilter.wasser,'Alle '+FL.wasser)}</select>
-      <select id="of-status" style="${ss}"><option value="">Alle Status</option><option value="bewaessert"${objFilter.status==='bewaessert'?' selected':''}>✓ Erledigt</option><option value="nicht"${objFilter.status==='nicht'?' selected':''}>✕ Nicht erledigt</option><option value="offen"${objFilter.status==='offen'?' selected':''}>○ Offen</option></select>
-      ${customFields.map(c=>`<select id="of-cf-${c.key}" style="${ss}">${opt(distinct(c.key),objFilter[c.key]||'','Alle: '+esc(c.label))}</select>`).join('')}
+      ${_objFilterShown('stadtteil')?`<select id="of-stadtteil" style="${ss}">${opt(distinct('stadtteil'),objFilter.stadtteil,'Alle Stadtteile')}</select>`:''}
+      ${_objFilterShown('art')?`<select id="of-art" style="${ss}">${opt(distinct('art'),objFilter.art,'Alle Typen')}</select>`:''}
+      ${_objFilterShown('pflanzjahr')?`<select id="of-pflanzjahr" style="${ss}">${opt(distinct('pflanzjahr'),objFilter.pflanzjahr,'Alle Jahre')}</select>`:''}
+      ${_objFilterShown('zustand')?`<select id="of-zustand" style="${ss}">${optRank('zustand',objFilter.zustand,'Alle '+FL.zustand)}</select>`:''}
+      ${_objFilterShown('wasser')?`<select id="of-wasser" style="${ss}">${optRank('wasser',objFilter.wasser,'Alle '+FL.wasser)}</select>`:''}
+      ${_objFilterShown('status')?`<select id="of-status" style="${ss}"><option value="">Alle Status</option><option value="bewaessert"${objFilter.status==='bewaessert'?' selected':''}>✓ Erledigt</option><option value="nicht"${objFilter.status==='nicht'?' selected':''}>✕ Nicht erledigt</option><option value="offen"${objFilter.status==='offen'?' selected':''}>○ Offen</option></select>`:''}
+      ${customFields.filter(c=>_objFilterShown('cf:'+c.key)).map(c=>`<select id="of-cf-${c.key}" style="${ss}">${opt(distinct(c.key),objFilter[c.key]||'','Alle: '+esc(c.label))}</select>`).join('')}
     </div>
     <label style="display:flex;align-items:center;gap:6px;margin-top:7px;font-size:11px;cursor:pointer;color:var(--text2);">
       <input type="checkbox" id="of-map"${objFilterOnMap?' checked':''}> Nur gefilterte auf der Karte zeigen
@@ -1742,6 +1743,40 @@ function renderObjFilterUI(){
   const rb=el.querySelector('[data-action="reset-objfilter"]'); if(rb) rb.onclick=()=>resetObjFilter();
   const fb=document.getElementById('btn-toggle-filter'); if(fb) fb.style.borderColor=active?'var(--green)':'var(--border)';
   updateObjFilterCount();
+}
+// Welche Filter im Panel angezeigt werden (projektweit konfigurierbar, admin)
+function _objFilterFieldDefs(){
+  return [
+    {key:'stadtteil',label:FL.stadtteil},
+    {key:'art',label:FL.art},
+    {key:'pflanzjahr',label:FL.pflanzjahr},
+    {key:'zustand',label:FL.zustand},
+    {key:'wasser',label:FL.wasser},
+    {key:'status',label:'Meldestatus'},
+    ...customFields.map(c=>({key:'cf:'+c.key,label:c.label})),
+  ];
+}
+function _objFilterShown(key){ const cfg=currentProjectData&&currentProjectData.objFilterFields; if(!Array.isArray(cfg)) return true; return cfg.includes(key); }
+async function setObjFilterField(key,on){
+  if(isReadonly()||!currentProjectId) return;
+  let cfg=Array.isArray(currentProjectData.objFilterFields)?[...currentProjectData.objFilterFields]:_objFilterFieldDefs().map(f=>f.key);
+  if(on){ if(!cfg.includes(key)) cfg.push(key); } else { cfg=cfg.filter(k=>k!==key); }
+  currentProjectData.objFilterFields=cfg;
+  if(!on){ const rk=key.startsWith('cf:')?key.slice(3):key; if(objFilter[rk]){ objFilter[rk]=''; applyObjFilter(); } }  // ausgeblendetes Feld: aktiven Filterwert lösen
+  renderObjFilterUI();
+  try{ await updateDoc(doc(db,'projects',currentProjectId),{objFilterFields:cfg}); }
+  catch(e){ console.warn('objFilterFields speichern',e); notify(dlErr(e)); }
+}
+function openObjFilterConfig(btn){
+  const ex=document.getElementById('of-cfg-menu'); if(ex){ ex.remove(); return; }
+  if(isReadonly()) return;
+  const r=btn.getBoundingClientRect();
+  const m=document.createElement('div'); m.id='of-cfg-menu';
+  m.style.cssText=`position:fixed;top:${Math.round(r.bottom+4)}px;left:${Math.round(Math.max(8,r.left-150))}px;z-index:9999;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.2);padding:8px;width:220px;max-height:70vh;overflow:auto;`;
+  m.innerHTML=`<div style="font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);padding:4px 6px 6px;">Filter anzeigen</div>`+
+    _objFilterFieldDefs().map(f=>`<label style="display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:6px;cursor:pointer;font-size:13px;" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''"><input type="checkbox" ${_objFilterShown(f.key)?'checked':''} onchange="setObjFilterField('${f.key}',this.checked)" style="width:15px;height:15px;cursor:pointer;"><span>${dlEsc(f.label||'—')}</span></label>`).join('');
+  document.body.appendChild(m);
+  setTimeout(()=>{ const close=ev=>{ if(!m.contains(ev.target)&&ev.target!==btn&&!btn.contains(ev.target)){ m.remove(); document.removeEventListener('mousedown',close); } }; document.addEventListener('mousedown',close); },0);
 }
 // Filter-Panel auf der Karte ein-/ausblenden (Knopf unter dem Auge)
 function toggleMapFilter(){
@@ -12483,7 +12518,7 @@ Object.assign(window,{
   renderMandanten,createOrgUi,moveProjectUi,setOrgNaviUi,checkBaumIdDuplicates,flaechenImportOpen,flaechenImportRun,geomDocsImportOpen,geomDocsImportRun,strMigOpen,flaechenTourGenOpen,flaechenTourGenRun,
   addWmsLayer,deleteWmsLayer,editWmsLayer,cancelWmsEdit,renderWmsList,
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,setListMode,
-  toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,toggleTourCounts,toggleRouteNums,toggleVersatz,toggleTypeFilter,setTypeVisible,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
+  toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,openObjFilterConfig,setObjFilterField,toggleTourCounts,toggleRouteNums,toggleVersatz,toggleTypeFilter,setTypeVisible,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,saveOrgCode,dlToggleNoLogin,setDriverFunktion,setDriverEinsatz,dlDismissLoginRequest,dlFunktionAdd,dlFunktionRemove,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
