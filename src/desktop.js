@@ -1856,7 +1856,7 @@ let _planShow=new Set(_PLAN_BUCKETS);
 function _planBucket(tree){ const ps=planStatusOf(tree); if(!ps) return null; if(ps.status==='unter') return ps.plan===0?'stark':'unter'; return ps.status; }
 function _planFilterApply(){ setMarkerVisibility(); _applyFlaechenFilterVisibility(); _renderRkLegend(); }
 function planToggleStatus(s){ if(_planShow.has(s)) _planShow.delete(s); else _planShow.add(s); _planFilterApply(); }
-function planShowProblems(){ _planShow=new Set(['unter','stark','ueber']); _planFilterApply(); }
+function planShowProblems(){ _planShow=new Set(['unter','stark','ueber','kein']); _planFilterApply(); }   // alles außer „passt"
 function planShowAll(){ _planShow=new Set(_PLAN_BUCKETS); _planFilterApply(); }
 // Repräsentative Häufigkeit eines Abschnitts = höchste Häufigkeit seiner Seiten (sonst eigene)
 function _haeufOf(t){
