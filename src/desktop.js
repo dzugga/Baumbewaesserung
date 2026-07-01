@@ -8642,7 +8642,7 @@ function _siIstCount(from,to){
   });
   return ist;
 }
-const _siState={period:'custom',from:'',to:'',gebiet:'',typ:'',q:'',planStatus:'',istStatus:'',aggDim:'gebiet'};
+const _siState={period:'custom',from:'',to:'',gebiet:'',typ:'',q:'',planStatus:'',istStatus:'',aggDim:'gebiet',showAll:false};
 function _siEnsureCustomDates(){
   if(_siState.period!=='custom') return;
   const day=d=>d.toISOString().slice(0,10), today=new Date();
@@ -8670,7 +8670,7 @@ function siQuickFilter(field,val){
 }
 function _siApplyStatus(list){ return list.filter(r=>(!_siState.planStatus||r.planStatus===_siState.planStatus)&&(!_siState.istStatus||r.istStatus===_siState.istStatus)); }
 function siResetFilters(){
-  _siState.gebiet=''; _siState.typ=''; _siState.planStatus=''; _siState.istStatus=''; _siState.q='';
+  _siState.gebiet=''; _siState.typ=''; _siState.planStatus=''; _siState.istStatus=''; _siState.q=''; _siState.showAll=false;
   ['si-gebiet','si-typ','si-planstatus','si-iststatus'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   const s=document.getElementById('si-search'); if(s) s.value='';
   renderSollIstView();
@@ -8724,7 +8724,7 @@ function initSollIstView(){
 function renderSollIstView(){
   const hintEl=document.getElementById('si-hint');
   if(hintEl) hintEl.innerHTML=_sollFeldLabel()?`Soll-Feld: <b>${dlEsc(_sollFeldLabel())}</b>`:`<span style="color:#b45309;">Kein Soll-Feld gewählt — Verwaltung → Felder &amp; Listen</span>`;
-  const clrEl=document.getElementById('si-clear'); if(clrEl) clrEl.style.display=(_siState.gebiet||_siState.typ||_siState.planStatus||_siState.istStatus||_siState.q)?'':'none';
+  const clrEl=document.getElementById('si-clear'); if(clrEl) clrEl.style.display=(_siState.gebiet||_siState.typ||_siState.planStatus||_siState.istStatus||_siState.q||_siState.showAll)?'':'none';
   const {rows,nS,nW,refSaison}=_siCompute();
   const withSoll=rows.filter(r=>r.hasSoll), kein=rows.length-withSoll.length;
   const TL={punkt:'Punkt',seite:'Seite',flaeche:'Fläche',strecke:'Strecke'};
@@ -8759,7 +8759,13 @@ function renderSollIstView(){
     <td style="padding:7px 10px;text-align:right;white-space:nowrap;" title="Ist: ${r.istN} Erledigt-Meldungen im Zeitraum · Soll: ${r.sollP.toFixed(2)} (= ${+r.sollWo.toFixed(2)}×/Woche × Wochen im Zeitraum)">${r.istN} / ${Math.round(r.sollP)} ${chip(r.istStatus,'ist')}</td>
   </tr>`).join('');
   const tableEl=document.getElementById('si-table');
-  if(tableEl){
+  const _hasFilter=(_siState.gebiet||_siState.typ||_siState.planStatus||_siState.istStatus||_siState.q);
+  if(tableEl && !_hasFilter && !_siState.showAll){
+    tableEl.innerHTML=`<div style="text-align:center;padding:26px 10px;color:var(--text3);">
+      <div style="font-size:13px;margin-bottom:10px;">${withSoll.length.toLocaleString('de-DE')} Objekte mit Soll — für die Übersicht ausgeblendet. Oben <b>filtern</b> oder <b>suchen</b>, um gezielt Objekte zu sehen.</div>
+      <button class="btn btn-secondary" onclick="siSet('showAll',true)" style="padding:6px 14px;font-size:12px;">Alle ${withSoll.length.toLocaleString('de-DE')} anzeigen</button>
+    </div>`;
+  } else if(tableEl){
     tableEl.innerHTML=`<div style="font-size:12px;color:var(--text3);margin:2px 0 6px;">${statusActive?`${sorted.length.toLocaleString('de-DE')} von ${withSoll.length.toLocaleString('de-DE')} (Status-Filter aktiv)`:`${withSoll.length.toLocaleString('de-DE')} Objekte mit Soll`}${kein?` · ${kein.toLocaleString('de-DE')} ohne Soll`:''}${shown.length<sorted.length?` · Anzeige auf ${cap} begrenzt`:''} — Zeitraum ${nS+nW} Tage (${nS} Sommer/${nW} Winter). Klick → Karte.</div>
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead><tr style="background:var(--surface2);">${['Objekt',FL.stadtteil,'Typ','Soll/Wo','Plan (Touren)','Ist / Soll'].map((h,i)=>`<th style="padding:7px 10px;text-align:${i>=3?'right':'left'};font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);white-space:nowrap;">${dlEsc(h)}</th>`).join('')}</tr></thead>
