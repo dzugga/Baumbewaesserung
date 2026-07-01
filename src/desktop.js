@@ -8642,15 +8642,19 @@ function _siIstCount(from,to){
   });
   return ist;
 }
-const _siState={period:'month',from:'',to:'',gebiet:'',typ:'',q:'',planStatus:'',istStatus:'',aggDim:'gebiet'};
+const _siState={period:'custom',from:'',to:'',gebiet:'',typ:'',q:'',planStatus:'',istStatus:'',aggDim:'gebiet'};
+function _siEnsureCustomDates(){
+  if(_siState.period!=='custom') return;
+  const day=d=>d.toISOString().slice(0,10), today=new Date();
+  if(!_siState.from){ const f=new Date(today); f.setDate(f.getDate()-29); _siState.from=day(f); }
+  if(!_siState.to) _siState.to=day(today);
+}
 function siSet(field,val){
   _siState[field]=val;
   if(field==='period'){
     const cf=document.getElementById('si-custom'); if(cf) cf.style.display=(val==='custom')?'flex':'none';
     if(val==='custom'){   // Datumsfelder sinnvoll vorbelegen (letzte 30 Tage), falls leer
-      const day=d=>d.toISOString().slice(0,10), today=new Date();
-      if(!_siState.from){ const f=new Date(today); f.setDate(f.getDate()-29); _siState.from=day(f); }
-      if(!_siState.to) _siState.to=day(today);
+      _siEnsureCustomDates();
       const fi=document.getElementById('si-from'), ti=document.getElementById('si-to');
       if(fi) fi.value=_siState.from; if(ti) ti.value=_siState.to;
     }
@@ -8705,6 +8709,7 @@ function initSollIstView(){
   const tSel=document.getElementById('si-typ'); if(tSel) tSel.value=_siState.typ;
   const psSel=document.getElementById('si-planstatus'); if(psSel) psSel.value=_siState.planStatus;
   const isSel=document.getElementById('si-iststatus'); if(isSel) isSel.value=_siState.istStatus;
+  _siEnsureCustomDates();
   const cf=document.getElementById('si-custom'); if(cf) cf.style.display=(_siState.period==='custom')?'flex':'none';
   const fi=document.getElementById('si-from'); if(fi) fi.value=_siState.from||'';
   const ti=document.getElementById('si-to'); if(ti) ti.value=_siState.to||'';
