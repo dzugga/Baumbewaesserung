@@ -1664,6 +1664,20 @@ function setMarkerVisibility(){
     if(show) _mAdd(m); else _mDel(m);
   });
 }
+// Eigenschaften-Filter auch auf die IMPORTIERTE Flächen-Ebene (Bundle) anwenden — sie besteht nicht
+// aus mapMarkers, sondern aus _flaechenLayer/_flaechenByExt. Nicht passende Flächen werden entfernt.
+function _applyFlaechenFilterVisibility(){
+  if(!_flaechenLayer) return;
+  const filt = objFilterOnMap && objFilterActive();
+  for(const ext in _flaechenByExt){
+    const l=_flaechenByExt[ext]; if(!l) continue;
+    const t=trees.find(x=>x.extId===ext);
+    const show = !(filt && t && !objMatchesPropFilter(t));
+    const on=_flaechenLayer.hasLayer(l);
+    if(show && !on){ try{ _flaechenLayer.addLayer(l); }catch(_){} }
+    else if(!show && on){ try{ _flaechenLayer.removeLayer(l); }catch(_){} }
+  }
+}
 
 // ── Eigenschaften-Filter (Planung) ────────────────────────────
 function objMatchesPropFilter(t){
@@ -1680,7 +1694,7 @@ function objMatchesPropFilter(t){
   return true;
 }
 function objFilterActive(){ return Object.values(objFilter).some(Boolean); }
-function applyObjFilter(){ renderList(); setMarkerVisibility(); updateObjFilterCount(); }
+function applyObjFilter(){ renderList(); setMarkerVisibility(); _applyFlaechenFilterVisibility(); updateObjFilterCount(); }
 function resetObjFilter(){ objFilter={stadtteil:'',art:'',pflanzjahr:'',zustand:'',wasser:'',status:''}; renderObjFilterUI(); applyObjFilter(); }
 function updateObjFilterCount(){
   const active=objFilterActive();
@@ -1720,7 +1734,7 @@ function renderObjFilterUI(){
   const wire={stadtteil:'of-stadtteil',art:'of-art',pflanzjahr:'of-pflanzjahr',zustand:'of-zustand',wasser:'of-wasser',status:'of-status'};
   Object.entries(wire).forEach(([k,id])=>{ const s=document.getElementById(id); if(s) s.onchange=()=>{ objFilter[k]=s.value; applyObjFilter(); renderObjFilterUI(); }; });
   customFields.forEach(c=>{ const s=document.getElementById('of-cf-'+c.key); if(s) s.onchange=()=>{ objFilter[c.key]=s.value; applyObjFilter(); renderObjFilterUI(); }; });
-  const mp=document.getElementById('of-map'); if(mp) mp.onchange=()=>{ objFilterOnMap=mp.checked; setMarkerVisibility(); };
+  const mp=document.getElementById('of-map'); if(mp) mp.onchange=()=>{ objFilterOnMap=mp.checked; setMarkerVisibility(); _applyFlaechenFilterVisibility(); };
   const rb=el.querySelector('[data-action="reset-objfilter"]'); if(rb) rb.onclick=()=>resetObjFilter();
   const fb=document.getElementById('btn-toggle-filter'); if(fb) fb.style.borderColor=active?'var(--green)':'var(--border)';
   updateObjFilterCount();
@@ -2099,7 +2113,8 @@ function renderDrawnGeoms(){
   if(!map) return;
   if(_drawnLayer){ map.removeLayer(_drawnLayer); _drawnLayer=null; } _drawnById={};
   // Seiten (Ausstattung) zeichnen sich NICHT selbst — der Abschnitt-Container vertritt sie (eine Linie statt 4 deckungsgleicher).
-  const list=(trees||[]).filter(t=>_hasDrawnGeom(t)&&isActive(t)&&!t.containerExtId&&_typeShown(t));
+  const list=(trees||[]).filter(t=>_hasDrawnGeom(t)&&isActive(t)&&!t.containerExtId&&_typeShown(t)
+    && !(objFilterOnMap && objFilterActive() && !objMatchesPropFilter(t)));   // Eigenschaften-Filter auch auf gezeichnete Geometrie
   const _vb=document.getElementById('btn-toggle-versatz'); if(_vb) _vb.style.display=(trees||[]).some(_isContainer)?'flex':'none';
   const _tb=document.getElementById('btn-type-filter'); if(_tb) _tb.style.display=_presentCategories().size>1?'flex':'none';
   const _hasCont=(trees||[]).some(_isContainer);
@@ -2253,6 +2268,7 @@ async function renderFlaechen(){
     }).addTo(map);
     _flaechenLayerKey=key;
     _applyFlaechenSelection(); // bestehende Tour-Auswahl auf neue Polygone übernehmen
+    _applyFlaechenFilterVisibility(); // aktiven Eigenschaften-Filter auf die frisch gebauten Flächen anwenden
     try{ const b=_flaechenLayer.getBounds(); if(b.isValid() && currentView==='karte' && !activeTours.size){ map.fitBounds(b,{padding:[40,40],maxZoom:16}); _cityFitDone=true; } }catch(_){}
   }catch(e){ console.warn('Flächen zeichnen:', e); notify('⚠ Flächen-Polygone-Fehler: '+(e.message||e)); }
   _flaechenBusy=false;
