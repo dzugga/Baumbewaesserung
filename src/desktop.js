@@ -1870,7 +1870,7 @@ function _haeufColor(h){ h=Math.round(h||0); if(h<=0) return '#d1d5db'; return (
 // Planungs-Check: Soll (Ziel/Woche) vs. Plan (Summe Wochen-Einsätze der aktiven Touren des Objekts)
 function planStatusOf(tree){
   if(!tree || _isContainer(tree)) return null;
-  const saison=(typeof saisonFor==='function')?saisonFor(new Date().toISOString().slice(0,10)):'sommer';
+  const saison=_curCheckSaison();          // Saison-Umschalter (H): Sommer/Winter/aktuell
   const soll=sollFreqProWoche(tree,saison);
   const ids=realTourIds(tree);
   if(soll==null) return {status:'kein',soll:null,plan:0,tours:ids.length,saison};
@@ -1885,6 +1885,10 @@ function planStatusColor(ps){
   return ps.plan===0?'#ef4444':'#f59e0b';   // gar nicht verplant vs. unterplant
 }
 function planStatusLabel(ps){ if(!ps||ps.status==='kein') return 'kein Soll'; return ps.status==='ok'?'Planung passt':ps.status==='ueber'?'überplant':(ps.plan===0?'nicht verplant':'unterplant'); }
+// Saison für den Planungs-Check: 'auto' (aktuelle) | 'sommer' | 'winter' — macht Winter-Lücken jetzt sichtbar (H)
+let _checkSaison='auto';
+function _curCheckSaison(){ return _checkSaison==='auto' ? ((typeof saisonFor==='function')?saisonFor(new Date().toISOString().slice(0,10)):'sommer') : _checkSaison; }
+function setCheckSaison(s){ _checkSaison=s||'auto'; rebuildMarkersWithNumbers(); setMarkerVisibility(); _applyFlaechenSelection(); _renderRkLegend(); }
 function _planBucket(tree){ const ps=planStatusOf(tree); if(!ps) return null; if(ps.status==='unter') return ps.plan===0?'stark':'unter'; return ps.status; }
 // ── Fälligkeit / Überfälligkeit: erwarteter Abstand (7/Soll Tage) vs. letzte ERLEDIGUNG ──
 function _lastDoneDate(tree){   // letztes Datum, an dem tatsächlich erledigt wurde (nicht „nicht erledigt")
@@ -2108,13 +2112,15 @@ function _renderRkLegend(){
     (trees||[]).forEach(t=>{ if(!isActive(t)) return; const b=cm.bucketOf(t); if(b!=null&&counts[b]!=null) counts[b]++; });
     const allShown=cm.buckets.every(b=>_checkShow.has(b[0]));
     const tolCtl=_colorMode==='overdue'?`<div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);margin:0 0 6px;">Toleranz <input type="number" min="0" step="1" value="${_overdueTol()}" onchange="setOverdueTol(this.value)" style="width:44px;padding:2px 5px;border:1px solid var(--border);border-radius:5px;font-size:11px;font-family:inherit;"> Tage</div>`:'';
+    const saisonCtl=_colorMode==='plan'?`<div style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text2);margin:0 0 6px;flex-wrap:wrap;">Saison ${[['auto','Auto'],['sommer','Sommer'],['winter','Winter']].map(o=>`<button onclick="setCheckSaison('${o[0]}')" title="Planung für diese Saison prüfen" style="font-size:10px;border:1px solid var(--border);border-radius:5px;background:${_checkSaison===o[0]?'var(--green-light)':'var(--bg)'};color:${_checkSaison===o[0]?'var(--green)':'var(--text2)'};cursor:pointer;padding:1px 6px;font-family:inherit;">${o[1]}</button>`).join('')}</div>`:'';
+    const noteExtra=_colorMode==='plan'?` · rechnet ${_curCheckSaison()==='winter'?'Winter':'Sommer'}`:'';
     el.style.display='block';
     el.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
         <span style="font-size:11px;font-weight:700;">${cm.title}</span>
         <button onclick="${allShown?'checkShowProblems()':'checkShowAll()'}" style="font-size:10px;border:1px solid var(--border);border-radius:5px;background:var(--bg);color:var(--text2);cursor:pointer;padding:1px 6px;white-space:nowrap;">${allShown?'nur Problemfälle':'alle zeigen'}</button>
-      </div>`+tolCtl+
+      </div>`+saisonCtl+tolCtl+
       cm.buckets.map(b=>{ const on=_checkShow.has(b[0]); return `<div onclick="checkToggleStatus('${b[0]}')" title="Ein-/ausblenden" style="display:flex;align-items:center;gap:7px;font-size:12px;margin-bottom:3px;cursor:pointer;opacity:${on?1:0.38};"><span style="width:12px;height:12px;border-radius:3px;background:${b[1]};flex:none;"></span>${b[2]} · <b>${counts[b[0]]}</b></div>`; }).join('')+
-      `<div style="font-size:10px;color:var(--text3);margin-top:4px;">Zeile klicken = aus-/einblenden · ${cm.note}</div>`;
+      `<div style="font-size:10px;color:var(--text3);margin-top:4px;">Zeile klicken = aus-/einblenden · ${cm.note}${noteExtra}</div>`;
   } else { el.style.display='none'; el.innerHTML=''; }
 }
 // Bounds aller Flächen der aktuell ausgewählten Touren (für „einpassen")
@@ -12702,7 +12708,7 @@ Object.assign(window,{
   openBaeumeColMenu,toggleBaeumeCol,resetBaeumeCols,
   saveFieldLabels, setFieldLabel, toggleMobilFeld, migrateTourIds, deriveHaeufigkeitFromZustaendigkeit,
   addObjektklasse, renameObjektklasse, setKlasseStruktur, toggleKlasseFeld, deleteObjektklasse,
-  addReinigungsklasse, renameReinigungsklasse, setRkFreq, setRkColor, deleteReinigungsklasse, onKlasseChange, setColorMode, togglePlanCheck, toggleOverdueCheck, checkToggleStatus, checkShowProblems, checkShowAll, setOverdueTol, toggleCheckMenu, checkMenuPick, checkMenuGoDq, dqPick, dqExportCsv, setAbschnittRk, toggleDisplayPanel, setGeomStyle, saveDisplayDefaults, setRouteLineStyle, setSollFeld,
+  addReinigungsklasse, renameReinigungsklasse, setRkFreq, setRkColor, deleteReinigungsklasse, onKlasseChange, setColorMode, togglePlanCheck, toggleOverdueCheck, checkToggleStatus, checkShowProblems, checkShowAll, setOverdueTol, setCheckSaison, toggleCheckMenu, checkMenuPick, checkMenuGoDq, dqPick, dqExportCsv, setAbschnittRk, toggleDisplayPanel, setGeomStyle, saveDisplayDefaults, setRouteLineStyle, setSollFeld,
   doLogin, doLogout, toggleLoginMode,
 });
 
