@@ -1662,6 +1662,8 @@ function setMarkerVisibility(){
     let show=treeVisibleSel(tree) && _typeShown(tree);
     // Optional: Eigenschaften-Filter auch auf der Karte anwenden
     if(show && objFilterOnMap && !objMatchesPropFilter(tree)) show=false;
+    // Planungs-Check: nach Status filtern (z. B. nur nicht erfüllte)
+    if(show && _colorMode==='plan'){ const b=_planBucket(tree); if(b && !_planShow.has(b)) show=false; }
     if(show) _mAdd(m); else _mDel(m);
   });
 }
@@ -1673,7 +1675,8 @@ function _applyFlaechenFilterVisibility(){
   for(const ext in _flaechenByExt){
     const l=_flaechenByExt[ext]; if(!l) continue;
     const t=trees.find(x=>x.extId===ext);
-    const show = !(filt && t && !objMatchesPropFilter(t));
+    let show = !(filt && t && !objMatchesPropFilter(t));
+    if(show && _colorMode==='plan' && t){ const b=_planBucket(t); if(b && !_planShow.has(b)) show=false; }
     const on=_flaechenLayer.hasLayer(l);
     if(show && !on){ try{ _flaechenLayer.addLayer(l); }catch(_){} }
     else if(!show && on){ try{ _flaechenLayer.removeLayer(l); }catch(_){} }
@@ -1847,6 +1850,14 @@ function planStatusColor(ps){
   return ps.plan===0?'#ef4444':'#f59e0b';   // gar nicht verplant vs. unterplant
 }
 function planStatusLabel(ps){ if(!ps||ps.status==='kein') return 'kein Soll'; return ps.status==='ok'?'Planung passt':ps.status==='ueber'?'überplant':(ps.plan===0?'nicht verplant':'unterplant'); }
+// Planungs-Check-Filter: welche Status auf der Karte sichtbar sind (nur im Modus 'plan')
+const _PLAN_BUCKETS=['ok','unter','stark','ueber','kein'];
+let _planShow=new Set(_PLAN_BUCKETS);
+function _planBucket(tree){ const ps=planStatusOf(tree); if(!ps) return null; if(ps.status==='unter') return ps.plan===0?'stark':'unter'; return ps.status; }
+function _planFilterApply(){ setMarkerVisibility(); _applyFlaechenFilterVisibility(); _renderRkLegend(); }
+function planToggleStatus(s){ if(_planShow.has(s)) _planShow.delete(s); else _planShow.add(s); _planFilterApply(); }
+function planShowProblems(){ _planShow=new Set(['unter','stark','ueber']); _planFilterApply(); }
+function planShowAll(){ _planShow=new Set(_PLAN_BUCKETS); _planFilterApply(); }
 // Repräsentative Häufigkeit eines Abschnitts = höchste Häufigkeit seiner Seiten (sonst eigene)
 function _haeufOf(t){
   if(_isContainer(t)){ const vals=_ausstattungOf(t.extId).map(s=>orHaeuf(s,_rkById,_containerByExt)).filter(v=>v!=null); return vals.length?Math.max(...vals):null; }
@@ -1900,6 +1911,7 @@ function togglePlanCheck(){ setColorMode(_colorMode==='plan'?'none':'plan'); }
 function _updatePlanCheckBtn(){ const b=document.getElementById('btn-plancheck'); if(b){ const on=_colorMode==='plan'; b.style.background=on?'var(--green)':'var(--surface)'; b.style.color=on?'#fff':'var(--text2)'; b.style.borderColor=on?'var(--green)':'var(--border)'; } }
 function setColorMode(mode){
   const prev=_colorMode;
+  if(mode==='plan' && prev!=='plan') _planShow=new Set(_PLAN_BUCKETS);   // beim Einschalten: alle Status sichtbar
   _colorMode=mode; _updateColorBtns();
   const m=document.getElementById('color-mode-menu'); if(m) m.style.display='none';
   // Plan-Modus: Clustering aus (Cluster würde die Status-Farbe verdecken); zurück: Projekt-Standard wiederherstellen.
@@ -2009,12 +2021,16 @@ function _renderRkLegend(){
         :`<div style="font-size:12px;color:var(--text3);">noch keine Häufigkeiten gesetzt</div>`);
   } else if(_colorMode==='plan'){
     const counts={ok:0,unter:0,stark:0,ueber:0,kein:0};
-    (trees||[]).forEach(t=>{ if(!isActive(t)||_isContainer(t)) return; const ps=planStatusOf(t); if(!ps) return; if(ps.status==='unter') (ps.plan===0?counts.stark++:counts.unter++); else counts[ps.status]++; });
+    (trees||[]).forEach(t=>{ if(!isActive(t)) return; const b=_planBucket(t); if(b) counts[b]++; });
+    const rows=[['ok','#22c55e','passt'],['unter','#f59e0b','unterplant'],['stark','#ef4444','nicht verplant'],['ueber','#3b82f6','überplant'],['kein','#d1d5db','kein Soll']];
+    const allShown=rows.every(r=>_planShow.has(r[0]));
     el.style.display='block';
-    el.innerHTML=`<div style="font-size:11px;font-weight:700;margin-bottom:6px;">Planungs-Check</div>`+
-      [['#22c55e','passt',counts.ok],['#f59e0b','unterplant',counts.unter],['#ef4444','nicht verplant',counts.stark],['#3b82f6','überplant',counts.ueber],['#d1d5db','kein Soll',counts.kein]]
-      .map(r=>`<div style="display:flex;align-items:center;gap:7px;font-size:12px;margin-bottom:3px;"><span style="width:12px;height:12px;border-radius:3px;background:${r[0]};flex:none;"></span>${r[1]} · <b>${r[2]}</b></div>`).join('')+
-      `<div style="font-size:10px;color:var(--text3);margin-top:4px;">Plan = Wochen-Einsätze der Touren</div>`;
+    el.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
+        <span style="font-size:11px;font-weight:700;">Planungs-Check</span>
+        <button onclick="${allShown?'planShowProblems()':'planShowAll()'}" style="font-size:10px;border:1px solid var(--border);border-radius:5px;background:var(--bg);color:var(--text2);cursor:pointer;padding:1px 6px;white-space:nowrap;">${allShown?'nur Problemfälle':'alle zeigen'}</button>
+      </div>`+
+      rows.map(r=>{ const on=_planShow.has(r[0]); return `<div onclick="planToggleStatus('${r[0]}')" title="Ein-/ausblenden" style="display:flex;align-items:center;gap:7px;font-size:12px;margin-bottom:3px;cursor:pointer;opacity:${on?1:0.38};"><span style="width:12px;height:12px;border-radius:3px;background:${r[1]};flex:none;"></span>${r[2]} · <b>${counts[r[0]]}</b></div>`; }).join('')+
+      `<div style="font-size:10px;color:var(--text3);margin-top:4px;">Zeile klicken = aus-/einblenden · Plan = Wochen-Einsätze der Touren</div>`;
   } else { el.style.display='none'; el.innerHTML=''; }
 }
 // Bounds aller Flächen der aktuell ausgewählten Touren (für „einpassen")
@@ -12476,7 +12492,7 @@ Object.assign(window,{
   openBaeumeColMenu,toggleBaeumeCol,resetBaeumeCols,
   saveFieldLabels, setFieldLabel, toggleMobilFeld, migrateTourIds, deriveHaeufigkeitFromZustaendigkeit,
   addObjektklasse, renameObjektklasse, setKlasseStruktur, toggleKlasseFeld, deleteObjektklasse,
-  addReinigungsklasse, renameReinigungsklasse, setRkFreq, setRkColor, deleteReinigungsklasse, onKlasseChange, setColorMode, togglePlanCheck, setAbschnittRk, toggleDisplayPanel, setGeomStyle, saveDisplayDefaults, setRouteLineStyle, setSollFeld,
+  addReinigungsklasse, renameReinigungsklasse, setRkFreq, setRkColor, deleteReinigungsklasse, onKlasseChange, setColorMode, togglePlanCheck, planToggleStatus, planShowProblems, planShowAll, setAbschnittRk, toggleDisplayPanel, setGeomStyle, saveDisplayDefaults, setRouteLineStyle, setSollFeld,
   doLogin, doLogout, toggleLoginMode,
 });
 
