@@ -9447,7 +9447,15 @@ async function apGenerate(){
   const vehicles=Array.from({length:n},(_,k)=>({ id:k+1, profile:'car', start:[depot.lng,depot.lat], end:[depot.lng,depot.lat], time_window:[toSec(von),toSec(bis)] }));
   _apBusy=true; renderAutoplan();
   try{
-    const res=await fetch(_apSolverUrl()+'/vroom/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobs,vehicles})});
+    const ctrl=new AbortController(); const timer=setTimeout(()=>ctrl.abort(),180000);
+    let res;
+    try{ res=await fetch(_apSolverUrl()+'/vroom/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobs,vehicles}),signal:ctrl.signal}); }
+    catch(e){
+      // Typischer Fall: Browser blockiert den Zugriff einer HTTPS-Seite auf localhost (Private-Network-/Lokales-Netzwerk-Schutz)
+      if(e&&e.name==='AbortError') throw new Error('Solver-Zeitlimit (3 min) überschritten');
+      throw new Error('Solver nicht erreichbar — läuft der Tourenplaner-Stack? Von der Online-Version blockiert der Browser localhost ggf.: App über http://localhost:3001 öffnen oder die Browser-Abfrage „Lokales Netzwerk" zulassen.');
+    }
+    finally{ clearTimeout(timer); }
     if(!res.ok) throw new Error('Solver antwortet nicht (HTTP '+res.status+') — läuft der Tourenplaner-Stack?');
     const sol=await res.json();
     if(sol.code!==0) throw new Error('Solver: '+(sol.error||('Code '+sol.code)));
