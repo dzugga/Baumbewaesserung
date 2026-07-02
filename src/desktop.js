@@ -9328,6 +9328,75 @@ function _apDepot(){
   return {lat:pts.reduce((s,t)=>s+t.lat,0)/pts.length, lng:pts.reduce((s,t)=>s+t.lng,0)/pts.length, quelle:'Schwerpunkt der Objekte (kein Betriebshof gesetzt)'};
 }
 function _apUhr(sec){ const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60); return h+':'+String(m).padStart(2,'0'); }
+// ── Rahmenbedingungen: Planungstage + Häufigkeit→Wochentage (vom Anwender vorgegeben) ──
+const _AP_TAGE=['Mo','Di','Mi','Do','Fr','Sa','So'];
+const _AP_PRESET={1:['Mo'],2:['Mo','Do'],3:['Mo','Mi','Fr'],4:['Mo','Di','Do','Fr'],5:['Mo','Di','Mi','Do','Fr'],6:['Mo','Di','Mi','Do','Fr','Sa'],7:['Mo','Di','Mi','Do','Fr','Sa','So']};
+let _apDay=null, _apRahmen=null, _apRahmenPid=null;
+function _apSaison(){
+  const s=_apRahmen&&_apRahmen.saison;
+  if(s==='sommer'||s==='winter') return s;
+  return (typeof saisonFor==='function')?saisonFor(new Date().toISOString().slice(0,10)):'sommer';
+}
+function _apBucketOf(t){
+  const f=sollFreqProWoche(t,_apSaison());
+  if(f==null||!(f>0)) return 'ohne';
+  if(f<1) return 'lt1';
+  return String(Math.min(7,Math.round(f)));
+}
+function _apBucketLabel(b){ return b==='ohne'?'ohne Häufigkeit (1× planen)':(b==='lt1'?'seltener als 1×/Woche (1× planen)':b+'× pro Woche'); }
+function _apBucketNeed(b,tage){ return (b==='ohne'||b==='lt1')?1:Math.min(parseInt(b),tage.length); }
+function _apDefaultDays(b,tage){
+  const need=_apBucketNeed(b,tage);
+  const pref=(_AP_PRESET[Math.min(7,(b==='ohne'||b==='lt1')?1:parseInt(b))]||['Mo']).filter(d=>tage.includes(d));
+  const out=[...pref];
+  for(const d of tage){ if(out.length>=need) break; if(!out.includes(d)) out.push(d); }
+  return out.slice(0,need).sort((a,x)=>_AP_TAGE.indexOf(a)-_AP_TAGE.indexOf(x));
+}
+// Rahmen laden (Projekt-Doc autoplanRahmen) + Buckets aus dem Bestand ableiten; fehlende Zeilen mit Standard belegen
+function _apEnsureRahmen(){
+  if(_apRahmenPid!==currentProjectId){ _apRahmen=null; _apRahmenPid=currentProjectId; } // Projektwechsel: Rahmen neu laden
+  if(!_apRahmen){
+    const saved=currentProjectData&&currentProjectData.autoplanRahmen;
+    _apRahmen=saved?JSON.parse(JSON.stringify(saved)):{tage:['Mo','Di','Mi','Do','Fr'],saison:'auto',freqTage:{}};
+  }
+  if(!Array.isArray(_apRahmen.tage)||!_apRahmen.tage.length) _apRahmen.tage=['Mo','Di','Mi','Do','Fr'];
+  if(!_apRahmen.freqTage) _apRahmen.freqTage={};
+  const buckets={};
+  _apPlanbare().forEach(t=>{ const b=_apBucketOf(t); buckets[b]=(buckets[b]||0)+1; });
+  Object.keys(buckets).forEach(b=>{
+    const cur=(_apRahmen.freqTage[b]||[]).filter(d=>_apRahmen.tage.includes(d));
+    _apRahmen.freqTage[b]=cur.length?cur:_apDefaultDays(b,_apRahmen.tage);
+  });
+  return buckets;
+}
+function apRahmenDay(d){
+  _apEnsureRahmen();
+  const i=_apRahmen.tage.indexOf(d);
+  if(i>=0){ if(_apRahmen.tage.length<=1){ notify('Mindestens ein Planungstag'); return; } _apRahmen.tage.splice(i,1); }
+  else _apRahmen.tage=_AP_TAGE.filter(x=>x===d||_apRahmen.tage.includes(x));
+  Object.keys(_apRahmen.freqTage).forEach(b=>{ _apRahmen.freqTage[b]=(_apRahmen.freqTage[b]||[]).filter(x=>_apRahmen.tage.includes(x)); });
+  renderAutoplan();
+}
+function apRahmenFreqDay(b,d){
+  _apEnsureRahmen();
+  const arr=_apRahmen.freqTage[b]||(_apRahmen.freqTage[b]=[]);
+  const i=arr.indexOf(d);
+  if(i>=0) arr.splice(i,1); else arr.push(d);
+  arr.sort((a,x)=>_AP_TAGE.indexOf(a)-_AP_TAGE.indexOf(x));
+  renderAutoplan();
+}
+function apSetSaison(s){ _apEnsureRahmen(); _apRahmen.saison=s; renderAutoplan(); }
+function apSelectDay(d){ _apDay=d; _apSelIds.clear(); renderAutoplan(); }
+// Altbestand (Varianten ohne Tage) vereinheitlichen: Touren ohne tag → '—', unassigned Strings → {tag,id}
+function _apNorm(v){
+  (v.touren||[]).forEach(t=>{ if(!t.tag) t.tag='—'; });
+  v.unassigned=(v.unassigned||[]).map(u=>typeof u==='string'?{tag:(v.touren[0]&&v.touren[0].tag)||'—',id:u}:u);
+  return v;
+}
+function _apDaysOf(v){
+  const set=[...new Set((v.touren||[]).map(t=>t.tag||'—'))];
+  return set.sort((a,b)=>_AP_TAGE.indexOf(a)-_AP_TAGE.indexOf(b));
+}
 async function initAutoplan(){
   const side=document.getElementById('ap-side'), main=document.getElementById('ap-main');
   if(!side||!main) return;
@@ -9339,7 +9408,7 @@ async function apReload(){
   _apRulesHint=false;
   try{
     const qs=await getDocs(collection(db,'projects',currentProjectId,'planVarianten'));
-    const remote=qs.docs.map(d=>({id:d.id,...d.data()}));
+    const remote=qs.docs.map(d=>_apNorm({id:d.id,...d.data()}));
     const local=_apVars.filter(v=>String(v.id).startsWith('_local')); // Sitzungs-Varianten behalten
     _apVars=[...local,...remote].sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
   }catch(e){
@@ -9354,31 +9423,56 @@ function renderAutoplan(){
   if(!side||!main) return;
   const base=_apPlanbare(), depot=_apDepot();
   const echteTouren=tours.filter(t=>!t.uebersicht).length;
+  const buckets=_apEnsureRahmen();
   const inp='padding:6px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;';
+  const dayChip=(d,on,cb)=>`<span onclick="${cb}" style="cursor:pointer;font-size:11px;font-weight:600;padding:3px 8px;border-radius:6px;border:1px solid ${on?'var(--green)':'var(--border)'};background:${on?'var(--green-light)':'var(--surface)'};color:${on?'#065f46':'var(--text3)'};">${d}</span>`;
+  const bucketOrder=Object.keys(buckets).sort((a,b)=>{ const r=x=>x==='ohne'?99:(x==='lt1'?98:parseInt(x)); return r(a)-r(b); });
+  const matrix=bucketOrder.map(b=>{
+    const sel=_apRahmen.freqTage[b]||[], need=_apBucketNeed(b,_apRahmen.tage);
+    const ok=(b==='ohne'||b==='lt1')?sel.length>=1:sel.length===need;
+    return `<div style="margin-bottom:8px;">
+      <div style="font-size:11px;color:${ok?'var(--text2)':'#b45309'};margin-bottom:3px;">${_apBucketLabel(b)} · ${buckets[b]} Obj.${ok?'':` — <b>${need} Tag${need===1?'':'e'} wählen</b> (${sel.length} gewählt)`}</div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;">${_apRahmen.tage.map(d=>dayChip(d,sel.includes(d),`apRahmenFreqDay('${b}','${d}')`)).join('')}</div>
+    </div>`;
+  }).join('');
+  const sollHint=!(currentProjectData&&currentProjectData.sollFeld)&&bucketOrder.length===1&&bucketOrder[0]==='ohne'
+    ?'<div style="font-size:11px;color:#b45309;background:#fef3c7;border-radius:7px;padding:6px 9px;margin-bottom:8px;">Kein Soll-Feld gesetzt — alle Objekte gelten als „ohne Häufigkeit". Unter Auswertung → Soll-Ist das Häufigkeits-Feld wählen.</div>':'';
   side.innerHTML=`
     <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin-bottom:8px;">Neue Variante</div>
     <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;">
       <div style="font-size:12px;color:var(--text2);margin-bottom:10px;"><b style="color:var(--text);">${base.length.toLocaleString('de-DE')}</b> planbare Objekte (aktiv, mit Koordinaten)${pilotScopeActive()?' · <span style="color:#b45309;">Pilot-Bereich aktiv</span>':''}<br>
       Start: ${depot?dlEsc(depot.quelle):'<span style="color:var(--red);">keine Objekte</span>'} · heute ${echteTouren} echte Touren</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
-        <label style="font-size:11px;color:var(--text3);">Fahrzeuge<input id="ap-n" type="number" min="1" max="50" value="3" style="${inp}width:100%;margin-top:3px;"></label>
-        <span></span>
-        <label style="font-size:11px;color:var(--text3);">Arbeitsbeginn<input id="ap-von" type="time" value="08:00" style="${inp}width:100%;margin-top:3px;"></label>
-        <label style="font-size:11px;color:var(--text3);">Arbeitsende<input id="ap-bis" type="time" value="16:00" style="${inp}width:100%;margin-top:3px;"></label>
+        <label style="font-size:11px;color:var(--text3);">Fahrzeuge je Tag<input id="ap-n" type="number" min="1" max="50" value="${_apRahmen.fahrzeuge||3}" style="${inp}width:100%;margin-top:3px;"></label>
+        <label style="font-size:11px;color:var(--text3);">Saison (Häufigkeit)<select id="ap-saison" onchange="apSetSaison(this.value)" style="${inp}width:100%;margin-top:3px;">
+          <option value="auto"${(_apRahmen.saison||'auto')==='auto'?' selected':''}>Auto (${_apSaison()==='winter'?'Winter':'Sommer'})</option>
+          <option value="sommer"${_apRahmen.saison==='sommer'?' selected':''}>Sommer</option>
+          <option value="winter"${_apRahmen.saison==='winter'?' selected':''}>Winter</option>
+        </select></label>
+        <label style="font-size:11px;color:var(--text3);">Arbeitsbeginn<input id="ap-von" type="time" value="${_apRahmen.von||'08:00'}" style="${inp}width:100%;margin-top:3px;"></label>
+        <label style="font-size:11px;color:var(--text3);">Arbeitsende<input id="ap-bis" type="time" value="${_apRahmen.bis||'16:00'}" style="${inp}width:100%;margin-top:3px;"></label>
       </div>
-      <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:10px;">Solver-URL<input id="ap-url" value="${dlEsc(_apSolverUrl())}" onchange="apSetSolverUrl(this.value)" style="${inp}width:100%;margin-top:3px;" placeholder="http://localhost:5010"></label>
-      <button class="btn btn-primary" style="width:100%;" onclick="apGenerate()" ${_apBusy||!base.length?'disabled':''}>${_apBusy?'Rechnet…':'Variante erzeugen'}</button>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:3px;">Planungstage</div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:10px;">${_AP_TAGE.map(d=>dayChip(d,_apRahmen.tage.includes(d),`apRahmenDay('${d}')`)).join('')}</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:5px;">Häufigkeit → Wochentage <span style="opacity:.7;">(an welchen Tagen wird was verplant)</span></div>
+      ${sollHint}${matrix}
+      <label style="font-size:11px;color:var(--text3);display:block;margin:4px 0 10px;">Solver-URL<input id="ap-url" value="${dlEsc(_apSolverUrl())}" onchange="apSetSolverUrl(this.value)" style="${inp}width:100%;margin-top:3px;" placeholder="http://localhost:5010"></label>
+      <button class="btn btn-primary" style="width:100%;" onclick="apGenerate()" ${_apBusy||!base.length?'disabled':''}>${_apBusy?'Rechnet…':'Wochenplan erzeugen'}</button>
     </div>
     ${_apRulesHint?`<div style="margin-top:10px;font-size:11px;color:#b45309;background:#fef3c7;border-radius:8px;padding:8px 10px;">Speichern in der Datenbank noch nicht freigeschaltet (Firestore-Regel ausstehend) — Varianten gelten nur für diese Sitzung.</div>`:''}
     <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin:16px 0 8px;">Varianten (${_apVars.length})</div>
     ${_apVars.length?_apVars.map(v=>`
       <div onclick="apSelect('${dlEsc(v.id)}')" style="padding:9px 11px;border:1px solid ${v.id===_apSel?'var(--green)':'var(--border)'};border-radius:9px;margin-bottom:6px;cursor:pointer;background:${v.id===_apSel?'var(--green-light)':'var(--bg)'};">
         <div style="font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(v.name||'Variante')}</div>
-        <div style="font-size:11px;color:var(--text3);">${(v.kpi?.fzg??'?')} Touren · ${(v.kpi?.objekte??'?').toLocaleString?(v.kpi.objekte).toLocaleString('de-DE'):v.kpi?.objekte} Objekte${String(v.id).startsWith('_local')?' · <span style="color:#b45309;">nur Sitzung</span>':''}</div>
+        <div style="font-size:11px;color:var(--text3);">${(v.kpi?.fzg??'?')} Touren · ${(v.kpi?.objekte??0).toLocaleString('de-DE')} Einsätze${String(v.id).startsWith('_local')?' · <span style="color:#b45309;">nur Sitzung</span>':''}</div>
       </div>`).join(''):'<div style="font-size:12px;color:var(--text3);padding:4px 2px;">Noch keine Varianten.</div>'}`;
   const v=_apVars.find(x=>x.id===_apSel);
   if(!v){ main.innerHTML='<div style="padding:24px;color:var(--text3);font-size:13px;">Links eine Variante erzeugen oder auswählen.</div>'; return; }
-  const spanne=(()=>{ const e=(v.touren||[]).map(t=>t.endeSec).filter(x=>typeof x==='number'); if(e.length<2) return null; return Math.round((Math.max(...e)-Math.min(...e))/60); })();
+  _apNorm(v);
+  const days=_apDaysOf(v);
+  if(!_apDay||!days.includes(_apDay)) _apDay=days[0]||null;
+  const dayTouren=(v.touren||[]).map((t,i)=>({t,i})).filter(x=>(x.t.tag||'—')===_apDay);
+  const spanne=(()=>{ const e=dayTouren.map(x=>x.t.endeSec).filter(x=>typeof x==='number'); if(e.length<2) return null; return Math.round((Math.max(...e)-Math.min(...e))/60); })();
   const kpiCard=(val,lbl)=>`<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 14px;"><div style="font-size:19px;font-weight:700;color:var(--text);">${val}</div><div style="font-size:11px;color:var(--text3);">${lbl}</div></div>`;
   main.innerHTML=`
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
@@ -9392,29 +9486,33 @@ function renderAutoplan(){
       </span>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:14px;">
-      ${kpiCard(v.kpi?.fzg??'–','eingesetzte Fahrzeuge')}
-      ${kpiCard((v.kpi?.objekte??0).toLocaleString('de-DE'),'Objekte eingeplant')}
+      ${kpiCard((v.touren||[]).length,'Touren / Woche')}
+      ${kpiCard((v.kpi?.objekte??0).toLocaleString('de-DE'),'Einsätze / Woche')}
       ${kpiCard(v.kpi?.unassigned??0,'nicht eingeplant')}
-      ${kpiCard(fmtMin(v.kpi?.fahrtMin??0),'Fahrzeit gesamt')}
-      ${kpiCard(fmtMin(v.kpi?.serviceMin??0),'Bearbeitung gesamt')}
-      ${spanne!=null?kpiCard(fmtMin(spanne),'Spanne Feierabend (Ausgleich)'):''}
+      ${kpiCard(fmtMin(v.kpi?.fahrtMin??0),'Fahrzeit / Woche')}
+      ${kpiCard(fmtMin(v.kpi?.serviceMin??0),'Bearbeitung / Woche')}
+      ${spanne!=null?kpiCard(fmtMin(spanne),'Spanne Feierabend ('+dlEsc(_apDay||'')+')'):''}
     </div>
+    ${days.length>1?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
+      ${days.map(d=>{ const tn=(v.touren||[]).filter(t=>(t.tag||'—')===d); const cnt=tn.reduce((s,t)=>s+(t.objektIds||[]).length,0);
+        return `<button onclick="apSelectDay('${dlEsc(d)}')" style="cursor:pointer;font-size:12px;font-weight:${d===_apDay?'700':'400'};padding:5px 12px;border-radius:8px;border:1px solid ${d===_apDay?'var(--green)':'var(--border)'};background:${d===_apDay?'var(--green-light)':'var(--surface)'};color:${d===_apDay?'#065f46':'var(--text2)'};">${dlEsc(d)} <span style="opacity:.7;">· ${tn.length} T / ${cnt}</span></button>`; }).join('')}
+    </div>`:''}
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:14px;">
       <table style="width:100%;border-collapse:collapse;font-size:12px;">
-        <tr style="background:var(--surface2);"><th style="text-align:left;padding:7px 12px;">Tour</th><th style="text-align:right;padding:7px 12px;">Objekte</th><th style="text-align:right;padding:7px 12px;">Fahrzeit</th><th style="text-align:right;padding:7px 12px;">Bearbeitung</th><th style="text-align:right;padding:7px 12px;">Feierabend</th></tr>
-        ${(v.touren||[]).map(t=>`<tr style="border-top:1px solid var(--border);">
+        <tr style="background:var(--surface2);"><th style="text-align:left;padding:7px 12px;">Tour (${dlEsc(_apDay||'')})</th><th style="text-align:right;padding:7px 12px;">Objekte</th><th style="text-align:right;padding:7px 12px;">Fahrzeit</th><th style="text-align:right;padding:7px 12px;">Bearbeitung</th><th style="text-align:right;padding:7px 12px;">Feierabend</th></tr>
+        ${dayTouren.map(({t})=>`<tr style="border-top:1px solid var(--border);">
           <td style="padding:7px 12px;"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${t.color};margin-right:7px;vertical-align:-1px;"></span>${dlEsc(t.name)}</td>
           <td style="text-align:right;padding:7px 12px;">${(t.objektIds||[]).length}</td>
           <td style="text-align:right;padding:7px 12px;">${fmtMin(Math.round((t.fahrtSec||0)/60))}</td>
           <td style="text-align:right;padding:7px 12px;">${fmtMin(Math.round((t.serviceSec||0)/60))}</td>
-          <td style="text-align:right;padding:7px 12px;">${t.dirty?'<span style="color:#b45309;" title="Zuordnung geändert — bitte neu berechnen">veraltet</span>':(typeof t.endeSec==='number'?_apUhr(t.endeSec)+' Uhr':'–')}</td></tr>`).join('')}
+          <td style="text-align:right;padding:7px 12px;">${t.dirty?'<span style="color:#b45309;" title="Zuordnung geändert — Zeiten werden neu berechnet">veraltet</span>':(typeof t.endeSec==='number'?_apUhr(t.endeSec)+' Uhr':'–')}</td></tr>`).join('')}
       </table>
     </div>
-    ${(v.unassigned||[]).length?`<div style="font-size:12px;color:#b45309;background:#fef3c7;border-radius:8px;padding:8px 12px;margin-bottom:14px;">${v.unassigned.length} Objekte nicht eingeplant (graue Punkte) — auf der Karte anklicken und einer Tour zuweisen, oder Zeitfenster/Fahrzeuge erhöhen.</div>`:''}
+    ${(v.unassigned||[]).length?`<div style="font-size:12px;color:#b45309;background:#fef3c7;border-radius:8px;padding:8px 12px;margin-bottom:14px;">${v.unassigned.length} Einsätze nicht eingeplant (graue Punkte am jeweiligen Tag) — anklicken und einer Tour zuweisen, oder Zeitfenster/Fahrzeuge erhöhen.</div>`:''}
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
-      <span style="font-size:11px;color:var(--text3);">Anpassen: Objekte anklicken (Mehrfachauswahl), dann Ziel-Tour wählen:</span>
+      <span style="font-size:11px;color:var(--text3);">Anpassen (${dlEsc(_apDay||'')}): Objekte anklicken, dann Ziel-Tour wählen:</span>
       <span id="ap-selinfo" style="font-size:11px;font-weight:700;color:var(--text2);background:var(--surface2);padding:3px 9px;border-radius:20px;">0 ausgewählt</span>
-      ${(v.touren||[]).map((t,i)=>`<button onclick="apAssignSel(${i})" title="Auswahl in ${dlEsc(t.name)} verschieben" style="border:1px solid var(--border);background:var(--surface);border-radius:20px;padding:3px 10px 3px 7px;font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;"><span style="width:9px;height:9px;border-radius:50%;background:${t.color};"></span>${dlEsc(t.name)}</button>`).join('')}
+      ${dayTouren.map(({t,i})=>`<button onclick="apAssignSel(${i})" title="Auswahl in ${dlEsc(t.name)} verschieben" style="border:1px solid var(--border);background:var(--surface);border-radius:20px;padding:3px 10px 3px 7px;font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;"><span style="width:9px;height:9px;border-radius:50%;background:${t.color};"></span>${dlEsc(t.name)}</button>`).join('')}
       <button onclick="apClearSel()" style="border:none;background:none;color:var(--text3);font-size:11px;cursor:pointer;padding:3px 6px;">Auswahl leeren</button>
     </div>
     <div id="ap-map" style="height:440px;border-radius:10px;border:1px solid var(--border);"></div>`;
@@ -9427,12 +9525,13 @@ function _apMarkerStyle(fill,selected){
 }
 function _apRenderMap(v){
   const el=document.getElementById('ap-map'); if(!el||!window.L) return;
-  // Beim Re-Render derselben Variante (z. B. nach Zuweisung) Kartenausschnitt beibehalten
+  // Beim Re-Render derselben Variante am selben Tag (z. B. nach Zuweisung) Kartenausschnitt beibehalten
+  const viewKey=v.id+'|'+(_apDay||'');
   let keep=null;
-  try{ if(_apMap&&_apMapVid===v.id){ keep={c:_apMap.getCenter(),z:_apMap.getZoom()}; } }catch(_){}
+  try{ if(_apMap&&_apMapVid===viewKey){ keep={c:_apMap.getCenter(),z:_apMap.getZoom()}; } }catch(_){}
   try{ if(_apMap){ _apMap.remove(); } }catch(_){}
   _apMap=L.map('ap-map',{zoomControl:true,attributionControl:false}).setView([51,9],6);
-  _apMapVid=v.id; _apMarkers={};
+  _apMapVid=viewKey; _apMarkers={};
   L.tileLayer(BASEMAP_FARBE,{maxZoom:20,maxNativeZoom:18}).addTo(_apMap);
   const grp=L.layerGroup().addTo(_apMap), pts=[];
   const byId={}; trees.forEach(t=>{ byId[t.id]=t; });
@@ -9442,15 +9541,15 @@ function _apRenderMap(v){
     _apMarkers[t.id]={m,fill};
     pts.push([t.lat,t.lng]);
   };
-  (v.touren||[]).forEach(tr=>{
+  (v.touren||[]).filter(tr=>(tr.tag||'—')===_apDay).forEach(tr=>{
     (tr.objektIds||[]).forEach(id=>{
       const t=byId[id]; if(!t||!t.lat||!t.lng) return;
       addMarker(t,tr.color||'#333',`${dlEsc(t.name||'Objekt')} · ${dlEsc(tr.name)}`);
     });
   });
-  (v.unassigned||[]).forEach(id=>{
-    const t=byId[id]; if(!t||!t.lat||!t.lng) return;
-    addMarker(t,'#9ca3af',`${dlEsc(t.name||'Objekt')} · nicht eingeplant`);
+  (v.unassigned||[]).filter(u=>u.tag===_apDay).forEach(u=>{
+    const t=byId[u.id]; if(!t||!t.lat||!t.lng) return;
+    addMarker(t,'#9ca3af',`${dlEsc(t.name||'Objekt')} · nicht eingeplant (${dlEsc(_apDay||'')})`);
   });
   const dep=v.params&&v.params.depot;
   if(dep&&dep.lat) L.circleMarker([dep.lat,dep.lng],{radius:8,color:'#fff',weight:2,fillColor:'#f59e0b',fillOpacity:1}).bindTooltip('Start/Ziel').addTo(grp);
@@ -9482,113 +9581,153 @@ async function _apSave(v){
       {touren:v.touren,unassigned:v.unassigned||[],kpi:v.kpi,manuell:true,geaendertAm:new Date().toISOString()});
   }catch(e){ console.warn('Variante speichern',e); notify(dlErr(e)); }
 }
+// Eine Tour einzeln durchrechnen (Einzel-Fahrzeug, feste Jobmenge → optimale Reihenfolge + Zeiten).
+// Passt etwas nicht ins Zeitfenster, wandert es in v.unassigned (mit Tag).
+async function _apSolveTour(v,t,byId){
+  const objs=(t.objektIds||[]).map(id=>byId[id]).filter(x=>x&&x.lat&&x.lng);
+  if(!objs.length){ t.fahrtSec=0; t.serviceSec=0; t.endeSec=null; t.dirty=false; return; }
+  const toSec=s=>{ const [h,m]=String(s||'').split(':').map(Number); return (h||0)*3600+(m||0)*60; };
+  const tw=[toSec(v.params?.von||'08:00'),toSec(v.params?.bis||'16:00')];
+  const dep=v.params&&v.params.depot;
+  const jobs=objs.map((o,i)=>({id:i+1,location:[o.lng,o.lat],service:Math.max(60,Math.round(artBewMin(o)*60))}));
+  const veh={id:1,profile:'car',time_window:tw};
+  if(dep&&dep.lat){ veh.start=[dep.lng,dep.lat]; veh.end=[dep.lng,dep.lat]; }
+  const res=await fetch(_apSolverUrl()+'/vroom/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobs,vehicles:[veh]})});
+  if(!res.ok) throw new Error('Solver antwortet nicht (HTTP '+res.status+')');
+  const sol=await res.json();
+  if(sol.code!==0) throw new Error('Solver: '+(sol.error||('Code '+sol.code)));
+  const r=(sol.routes||[])[0];
+  if(r){
+    const steps=r.steps||[];
+    t.objektIds=steps.filter(s=>s.type==='job').map(s=>objs[s.job-1].id);
+    t.fahrtSec=r.duration||0; t.serviceSec=r.service||0;
+    t.endeSec=steps.length?steps[steps.length-1].arrival:null;
+  }
+  const un=(sol.unassigned||[]).map(u=>objs[(u.id||0)-1]?.id).filter(Boolean);
+  if(un.length){
+    t.objektIds=(t.objektIds||[]).filter(id=>!un.includes(id));
+    v.unassigned=[...(v.unassigned||[]),...un.map(id=>({tag:t.tag||'—',id}))];
+  }
+  t.dirty=false;
+}
+function _apSumKpiTimes(v){
+  v.kpi=v.kpi||{};
+  v.kpi.fahrtMin=Math.round((v.touren||[]).reduce((s,t)=>s+(t.fahrtSec||0),0)/60);
+  v.kpi.serviceMin=Math.round((v.touren||[]).reduce((s,t)=>s+(t.serviceSec||0),0)/60);
+}
 async function apAssignSel(ti){
-  const v=_apCur(); if(!v||!Array.isArray(v.touren)||!v.touren[ti]) return;
+  const v=_apCur(); if(!v||!Array.isArray(v.touren)||!v.touren[ti]||_apBusy) return;
   if(!_apSelIds.size){ notify('Zuerst Objekte auf der Karte anklicken'); return; }
+  const tgt=v.touren[ti], tag=tgt.tag||'—';
   const ids=new Set(_apSelIds);
-  v.touren.forEach((t,i)=>{
+  // Nur innerhalb DESSELBEN Tages verschieben — andere Wochentage desselben Objekts bleiben unberührt
+  v.touren.forEach(t=>{
+    if((t.tag||'—')!==tag) return;
     const before=(t.objektIds||[]).length;
     t.objektIds=(t.objektIds||[]).filter(id=>!ids.has(id));
-    if(t.objektIds.length!==before) t.dirty=true; // Quelle: Zeiten stimmen nicht mehr
+    if(t.objektIds.length!==before) t.dirty=true;
   });
-  v.unassigned=(v.unassigned||[]).filter(id=>!ids.has(id));
-  ids.forEach(id=>v.touren[ti].objektIds.push(id));
-  v.touren[ti].dirty=true;
-  _apRecalcKpiCounts(v);
-  await _apSave(v);
+  v.unassigned=(v.unassigned||[]).filter(u=>!(u.tag===tag&&ids.has(u.id)));
+  ids.forEach(id=>{ if(!tgt.objektIds.includes(id)) tgt.objektIds.push(id); });
+  tgt.dirty=true; v.manuell=true;
   const n=ids.size; _apSelIds.clear();
-  notify(`✓ ${n} Objekt${n===1?'':'e'} → ${v.touren[ti].name}`);
-  renderAutoplan();
+  // Endzeiten sofort neu berechnen (nur die geänderten Touren) — Anforderung: Endzeit folgt jeder Anpassung
+  _apBusy=true; renderAutoplan();
+  try{
+    const byId={}; trees.forEach(t=>{ byId[t.id]=t; });
+    for(const t of v.touren){ if(t.dirty) await _apSolveTour(v,t,byId); }
+    _apRecalcKpiCounts(v); _apSumKpiTimes(v);
+    await _apSave(v);
+    notify(`✓ ${n} Objekt${n===1?'':'e'} → ${tgt.name} · Zeiten aktualisiert`);
+  }catch(e){
+    console.warn('apAssignSel recalc',e);
+    notify(`✓ ${n} verschoben — Zeiten konnten nicht berechnet werden (${e.message||e}); „Neu berechnen" versucht es erneut.`);
+    _apRecalcKpiCounts(v); await _apSave(v);
+  }
+  _apBusy=false; renderAutoplan();
 }
-// Reihenfolge & Zeiten je Tour neu berechnen — die (manuelle) Zuordnung bleibt unangetastet:
-// je Tour ein Einzel-Fahrzeug-Aufruf an den Solver (feste Jobmenge → optimale Reihenfolge).
+// Alle Touren der Variante neu durchrechnen — Zuordnung bleibt, Reihenfolge/Zeiten frisch.
 async function apRecalc(){
   const v=_apCur(); if(!v||_apBusy) return;
   _apBusy=true; renderAutoplan();
   try{
     const byId={}; trees.forEach(t=>{ byId[t.id]=t; });
-    const toSec=s=>{ const [h,m]=String(s||'').split(':').map(Number); return (h||0)*3600+(m||0)*60; };
-    const tw=[toSec(v.params?.von||'08:00'),toSec(v.params?.bis||'16:00')];
-    const dep=v.params&&v.params.depot;
-    let fahrtSum=0, serviceSum=0;
-    for(const t of (v.touren||[])){
-      const objs=(t.objektIds||[]).map(id=>byId[id]).filter(x=>x&&x.lat&&x.lng);
-      if(!objs.length){ t.fahrtSec=0; t.serviceSec=0; t.endeSec=null; t.dirty=false; continue; }
-      const jobs=objs.map((o,i)=>({id:i+1,location:[o.lng,o.lat],service:Math.max(60,Math.round(artBewMin(o)*60))}));
-      const veh={id:1,profile:'car',time_window:tw};
-      if(dep&&dep.lat){ veh.start=[dep.lng,dep.lat]; veh.end=[dep.lng,dep.lat]; }
-      const res=await fetch(_apSolverUrl()+'/vroom/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobs,vehicles:[veh]})});
-      if(!res.ok) throw new Error('Solver antwortet nicht (HTTP '+res.status+')');
-      const sol=await res.json();
-      if(sol.code!==0) throw new Error('Solver: '+(sol.error||('Code '+sol.code)));
-      const r=(sol.routes||[])[0];
-      if(r){
-        const steps=r.steps||[];
-        t.objektIds=steps.filter(s=>s.type==='job').map(s=>objs[s.job-1].id);
-        t.fahrtSec=r.duration||0; t.serviceSec=r.service||0;
-        t.endeSec=steps.length?steps[steps.length-1].arrival:null;
-      }
-      const un=(sol.unassigned||[]).map(u=>objs[(u.id||0)-1]?.id).filter(Boolean);
-      if(un.length){ t.objektIds=(t.objektIds||[]).filter(id=>!un.includes(id)); v.unassigned=[...(v.unassigned||[]),...un]; }
-      t.dirty=false; fahrtSum+=(t.fahrtSec||0); serviceSum+=(t.serviceSec||0);
-    }
-    _apRecalcKpiCounts(v);
-    v.kpi.fahrtMin=Math.round(fahrtSum/60); v.kpi.serviceMin=Math.round(serviceSum/60);
+    for(const t of (v.touren||[])) await _apSolveTour(v,t,byId);
+    _apRecalcKpiCounts(v); _apSumKpiTimes(v);
     await _apSave(v);
     notify('✓ Reihenfolge & Zeiten neu berechnet');
   }catch(e){ console.warn('apRecalc',e); notify('Neu berechnen: '+(e.message||e)); }
   _apBusy=false; renderAutoplan();
 }
-function apSelect(id){ _apSel=id; _apSelIds.clear(); renderAutoplan(); }
+function apSelect(id){ _apSel=id; _apSelIds.clear(); _apDay=null; renderAutoplan(); }
 async function apGenerate(){
   if(_apBusy) return;
+  const buckets=_apEnsureRahmen();
   const n=Math.max(1,Math.min(50,parseInt(document.getElementById('ap-n')?.value)||3));
   const von=document.getElementById('ap-von')?.value||'08:00', bis=document.getElementById('ap-bis')?.value||'16:00';
   const toSec=s=>{ const [h,m]=s.split(':').map(Number); return h*3600+(m||0)*60; };
   if(toSec(bis)<=toSec(von)){ notify('Arbeitsende muss nach Arbeitsbeginn liegen'); return; }
+  // Rahmen validieren: n×/Woche braucht genau n Tage (bzw. alle Planungstage, wenn weniger)
+  for(const b of Object.keys(buckets)){
+    const sel=(_apRahmen.freqTage[b]||[]).length, need=_apBucketNeed(b,_apRahmen.tage);
+    if((b==='ohne'||b==='lt1')?sel<1:sel!==need){ notify(`„${_apBucketLabel(b)}": bitte ${need} Tag${need===1?'':'e'} wählen (${sel} gewählt)`); return; }
+  }
   const base=_apPlanbare();
   if(base.length<2){ notify('Zu wenige planbare Objekte'); return; }
   if(base.length>9500){ notify('Mehr als 9.500 Objekte — bitte Bestand eingrenzen (z. B. Pilot-Bereich)'); return; }
   const depot=_apDepot(); if(!depot){ notify('Kein Startpunkt bestimmbar'); return; }
-  const jobs=base.map((t,i)=>({ id:i+1, location:[t.lng,t.lat], service:Math.max(60,Math.round(artBewMin(t)*60)) }));
-  const vehicles=Array.from({length:n},(_,k)=>({ id:k+1, profile:'car', start:[depot.lng,depot.lat], end:[depot.lng,depot.lat], time_window:[toSec(von),toSec(bis)] }));
+  // Rahmen (inkl. Fahrzeuge/Zeiten) für den Anwender am Projekt merken — best effort
+  _apRahmen.fahrzeuge=n; _apRahmen.von=von; _apRahmen.bis=bis;
+  try{ await updateDoc(doc(db,'projects',currentProjectId),{autoplanRahmen:_apRahmen}); if(currentProjectData) currentProjectData.autoplanRahmen=JSON.parse(JSON.stringify(_apRahmen)); }catch(e){ console.warn('autoplanRahmen speichern',e); }
   _apBusy=true; renderAutoplan();
   try{
-    const ctrl=new AbortController(); const timer=setTimeout(()=>ctrl.abort(),180000);
-    let res;
-    try{ res=await fetch(_apSolverUrl()+'/vroom/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobs,vehicles}),signal:ctrl.signal}); }
-    catch(e){
-      // Typischer Fall: Browser blockiert den Zugriff einer HTTPS-Seite auf localhost (Private-Network-/Lokales-Netzwerk-Schutz)
-      if(e&&e.name==='AbortError') throw new Error('Solver-Zeitlimit (3 min) überschritten');
-      throw new Error('Solver nicht erreichbar — läuft der Tourenplaner-Stack? Von der Online-Version blockiert der Browser localhost ggf.: App über http://localhost:3001 öffnen oder die Browser-Abfrage „Lokales Netzwerk" zulassen.');
+    const saison=_apSaison();
+    const touren=[], unassigned=[];
+    let einsaetze=0;
+    for(const tag of _apRahmen.tage){
+      const dayObjs=base.filter(t=>(_apRahmen.freqTage[_apBucketOf(t)]||[]).includes(tag));
+      if(!dayObjs.length) continue;
+      einsaetze+=dayObjs.length;
+      const jobs=dayObjs.map((t,i)=>({ id:i+1, location:[t.lng,t.lat], service:Math.max(60,Math.round(artBewMin(t)*60)) }));
+      const vehicles=Array.from({length:n},(_,k)=>({ id:k+1, profile:'car', start:[depot.lng,depot.lat], end:[depot.lng,depot.lat], time_window:[toSec(von),toSec(bis)] }));
+      const ctrl=new AbortController(); const timer=setTimeout(()=>ctrl.abort(),180000);
+      let res;
+      try{ res=await fetch(_apSolverUrl()+'/vroom/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobs,vehicles}),signal:ctrl.signal}); }
+      catch(e){
+        // Typischer Fall: Browser blockiert den Zugriff einer HTTPS-Seite auf localhost (Private-Network-/Lokales-Netzwerk-Schutz)
+        if(e&&e.name==='AbortError') throw new Error('Solver-Zeitlimit (3 min) überschritten');
+        throw new Error('Solver nicht erreichbar — läuft der Tourenplaner-Stack? Von der Online-Version blockiert der Browser localhost ggf.: App über http://localhost:3001 öffnen oder die Browser-Abfrage „Lokales Netzwerk" zulassen.');
+      }
+      finally{ clearTimeout(timer); }
+      if(!res.ok) throw new Error('Solver antwortet nicht (HTTP '+res.status+') — läuft der Tourenplaner-Stack?');
+      const sol=await res.json();
+      if(sol.code!==0) throw new Error('Solver ('+tag+'): '+(sol.error||('Code '+sol.code)));
+      (sol.routes||[]).forEach(r=>{
+        const steps=r.steps||[];
+        touren.push({
+          tag, name:tag+' · Tour '+r.vehicle, vehicle:r.vehicle,
+          color:TOUR_COLORS[((r.vehicle||1)-1)%TOUR_COLORS.length],   // Farbe je Fahrzeug — über alle Tage stabil
+          objektIds:steps.filter(s=>s.type==='job').map(s=>dayObjs[s.job-1].id),
+          fahrtSec:r.duration||0, serviceSec:r.service||0,
+          endeSec:steps.length?steps[steps.length-1].arrival:null,
+        });
+      });
+      (sol.unassigned||[]).forEach(u=>{ const id=dayObjs[(u.id||0)-1]?.id; if(id) unassigned.push({tag,id}); });
     }
-    finally{ clearTimeout(timer); }
-    if(!res.ok) throw new Error('Solver antwortet nicht (HTTP '+res.status+') — läuft der Tourenplaner-Stack?');
-    const sol=await res.json();
-    if(sol.code!==0) throw new Error('Solver: '+(sol.error||('Code '+sol.code)));
-    const touren=(sol.routes||[]).map((r,i)=>{
-      const steps=r.steps||[];
-      return {
-        name:'Auto-Tour '+(i+1), color:TOUR_COLORS[i%TOUR_COLORS.length], vehicle:r.vehicle,
-        objektIds:steps.filter(s=>s.type==='job').map(s=>base[s.job-1].id),
-        fahrtSec:r.duration||0, serviceSec:r.service||0,
-        endeSec:steps.length?steps[steps.length-1].arrival:null,
-      };
-    });
-    const unassigned=(sol.unassigned||[]).map(u=>base[(u.id||0)-1]?.id).filter(Boolean);
-    const kpi={ fzg:touren.length, objekte:jobs.length-unassigned.length, unassigned:unassigned.length,
-      fahrtMin:Math.round((sol.summary?.duration||0)/60), serviceMin:Math.round((sol.summary?.service||0)/60) };
-    const data={ name:'Automatik '+new Date().toLocaleDateString('de-DE')+' · '+n+' Fzg · '+von+'–'+bis,
+    if(!touren.length) throw new Error('Keine Tour entstanden — Häufigkeits-Tage prüfen');
+    const kpi={ fzg:touren.length, objekte:einsaetze-unassigned.length, unassigned:unassigned.length,
+      fahrtMin:Math.round(touren.reduce((s,t)=>s+(t.fahrtSec||0),0)/60), serviceMin:Math.round(touren.reduce((s,t)=>s+(t.serviceSec||0),0)/60) };
+    const data={ name:'Wochenplan '+new Date().toLocaleDateString('de-DE')+' · '+n+' Fzg · '+_apRahmen.tage.join(''),
       status:'entwurf', createdAt:new Date().toISOString(), createdBy:(currentUser&&currentUser.email)||'',
-      params:{fahrzeuge:n,von,bis,depot}, kpi, touren, unassigned };
+      params:{fahrzeuge:n,von,bis,depot,saison,tage:[..._apRahmen.tage],freqTage:JSON.parse(JSON.stringify(_apRahmen.freqTage))}, kpi, touren, unassigned };
     let id;
     try{ const ref=await addDoc(collection(db,'projects',currentProjectId,'planVarianten'),data); id=ref.id; }
     catch(e){
       if(e&&e.code==='permission-denied'){ id='_local'+Date.now(); _apRulesHint=true; } // Regel noch nicht deployt → Sitzungs-Variante
       else throw e;
     }
-    _apVars.unshift({id,...data}); _apSel=id;
-    notify('✓ Variante erzeugt ('+kpi.fzg+' Touren, '+kpi.objekte+' Objekte)');
+    _apVars.unshift({id,...data}); _apSel=id; _apDay=null;
+    notify('✓ Wochenplan erzeugt: '+touren.length+' Touren an '+_apRahmen.tage.length+' Tagen, '+kpi.objekte+' Einsätze');
   }catch(e){ console.warn('apGenerate',e); notify('Auto-Planung: '+(e.message||e)); }
   _apBusy=false; renderAutoplan();
 }
@@ -13234,7 +13373,7 @@ Object.assign(window,{
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,setListMode,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,openObjFilterConfig,setObjFilterField,toggleTourCounts,toggleRouteNums,toggleVersatz,toggleTypeFilter,setTypeVisible,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
   openPilotScope,closePilot,pilotSetField,pilotAddValue,pilotRemoveValue,pilotToggleActive,pilotToggleShowAll,pilotSave,
-  apGenerate,apSelect,apDelete,apSetSolverUrl,apAssignSel,apClearSel,apRecalc,
+  apGenerate,apSelect,apDelete,apSetSolverUrl,apAssignSel,apClearSel,apRecalc,apSelectDay,apRahmenDay,apRahmenFreqDay,apSetSaison,
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,saveOrgCode,dlToggleNoLogin,setDriverFunktion,setDriverEinsatz,dlDismissLoginRequest,dlFunktionAdd,dlFunktionRemove,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
