@@ -631,6 +631,7 @@ async function openProject(projectId){
   if(map) map.getContainer().style.cursor='';
   const snap=await getDoc(doc(db,'projects',projectId));
   currentProjectData={id:projectId,...snap.data()};
+  _pilotShowAll=false; // Pilot-„alle anzeigen" ist eine lokale Superadmin-Ansicht, pro Projekt zurücksetzen
   _listMode = currentProjectData.listAbschnitteDefault ? 'abschnitte' : 'objekte'; // Listen-Standard je Projekt
   document.getElementById('active-project-name').textContent=currentProjectData.name;
   // Mandant neben dem Projektnamen (gecacht, max. 1 Read)
@@ -711,8 +712,9 @@ function subscribeToProject(){
 
   const treesRef=collection(db,'projects',currentProjectId,'trees');
   unsubTrees=onSnapshot(treesRef,snap=>{
-    trees=snap.docs.map(d=>({id:d.id,...d.data()}));
-    maybeHealCount('treeCount',trees.length);
+    _allTrees=snap.docs.map(d=>({id:d.id,...d.data()}));
+    maybeHealCount('treeCount',_allTrees.length); // echter Projekt-Gesamtstand (vor Pilot-Filter)
+    trees=_applyPilotScope(_allTrees);             // Pilot-Bereich: Arbeitsmenge ggf. auf Ausschnitt eingrenzen
     if(_suppressTreeRender){
       _pendingTreeRender=true; // Massen-Schreibvorgang läuft — EIN Render am Ende statt je Batch
     }else{
@@ -1031,6 +1033,7 @@ async function confirmDeleteProject(){
     currentProjectId=null;
     currentProjectData=null;
     trees=[];
+    _allTrees=[];
     tours=[];
     tourRoutes={};
     tourOrder={};
@@ -1722,6 +1725,15 @@ function renderMapStatus(){
   if(_isCheckMode(_colorMode)){
     chips.push(chip('var(--blue)','<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',`${dlEsc(CHECK_MODES[_colorMode].title)} aktiv`,"setColorMode('none')"));
   }
+  if(pilotScopeActive()){
+    const p=_pilotCfg();
+    const svg='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></svg>';
+    const label=_pilotShowAll
+      ? 'Pilot-Bereich · alle sichtbar (nur du)'
+      : `Pilot-Bereich: ${dlEsc(_pilotFieldLabel(p.field))} = ${dlEsc(p.values.map(v=>_pilotValueLabel(p.field,v)).join(', '))} · ${((_allTrees||[]).length-trees.length).toLocaleString('de-DE')} ausgeblendet`;
+    // eigener klickbarer Chip (kein ✕): öffnet die Konfiguration (Superadmin)
+    chips.push(`<span onclick="openPilotScope()" title="Pilot-Bereich bearbeiten" style="cursor:pointer;display:inline-flex;align-items:center;gap:7px;background:var(--amber);color:#fff;border-radius:99px;padding:5px 13px;font-size:12px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.28);">${svg}${label}</span>`);
+  }
   el.innerHTML=chips.join('');
   el.style.display=chips.length?'flex':'none';
 }
@@ -1796,6 +1808,127 @@ function openObjFilterConfig(btn){
   document.body.appendChild(m);
   setTimeout(()=>{ const close=ev=>{ if(!m.contains(ev.target)&&ev.target!==btn&&!btn.contains(ev.target)){ m.remove(); document.removeEventListener('mousedown',close); } }; document.addEventListener('mousedown',close); },0);
 }
+// ── Pilot-Bereich (Superadmin) ────────────────────────────────────────────
+// Grenzt den sichtbaren Objektbestand eines Projekts temporär auf einen Ausschnitt ein
+// (z. B. nur Stadtteil „Beuel"). Nicht-destruktiv: filtert die Arbeitsmenge `trees` beim
+// Laden — Daten bleiben unverändert, Schalter aus = alles sofort zurück. Manuell an/aus.
+let _allTrees=[];        // ungefilterter Projekt-Gesamtbestand (Choke-Point-Quelle)
+let _pilotShowAll=false; // lokal (nur diese Sitzung): trotz aktivem Pilot alle Objekte zeigen — für Pflege/Bulk
+let _pilotDraft=null;    // Entwurf im Konfig-Dialog
+function _pilotCfg(){ return currentProjectData&&currentProjectData.pilotScope; }
+function pilotScopeActive(){ const p=_pilotCfg(); return !!(p&&p.active&&p.field&&Array.isArray(p.values)&&p.values.length); }
+function _pilotFieldDefs(){ return _objFilterFieldDefs().filter(f=>f.key!=='status'); } // Meldestatus taugt nicht als stabile Aufteilung
+function _pilotFieldLabel(field){ const f=_pilotFieldDefs().find(x=>x.key===field); return f?f.label:field; }
+function _pilotFieldValue(t,field){
+  if(!t||!field) return '';
+  const k = field.startsWith('cf:') ? field.slice(3) : field; // Kundenfelder liegen als t[key] (wie im Objekt-Filter)
+  const v=t[k]; return v==null?'':String(v);
+}
+function _pilotValueLabel(field,val){
+  if(field==='zustand'||field==='wasser'){ const e=(rankList(field)||[]).find(x=>String(x.id)===String(val)); return e?e.label:val; }
+  return val;
+}
+function inPilotScope(t){
+  const p=_pilotCfg();
+  if(!p||!p.active||!p.field||!Array.isArray(p.values)||!p.values.length) return true;
+  if(_pilotShowAll) return true;
+  return p.values.map(String).includes(_pilotFieldValue(t,p.field));
+}
+function _applyPilotScope(arr){ return (pilotScopeActive()&&!_pilotShowAll) ? arr.filter(inPilotScope) : arr; }
+function _pilotDistinctValues(field){
+  const s=new Set();
+  (_allTrees||[]).forEach(t=>{ const v=_pilotFieldValue(t,field); if(v!=='') s.add(v); });
+  return [...s].sort((a,b)=>String(a).localeCompare(String(b),'de',{numeric:true}));
+}
+// Nach Pilot-Änderung: Arbeitsmenge neu ableiten und Anzeige überall auffrischen
+function _pilotReapply(){
+  trees=_applyPilotScope(_allTrees);
+  try{ refreshMarkers(); }catch(_){}
+  try{ renderListDebounced(); }catch(_){}
+  try{ renderMapStatus(); }catch(_){}
+  try{ if(currentView==='dashboard') renderDashboard(); }catch(_){}
+}
+function openPilotScope(){
+  if(currentRole!=='superadmin'){ notify('Nur für Superadmin'); return; }
+  if(!currentProjectId){ notify('Bitte zuerst ein Projekt öffnen'); return; }
+  const p=_pilotCfg();
+  _pilotDraft={ active:!!(p&&p.active), field:(p&&p.field)||'stadtteil', values:Array.isArray(p&&p.values)?[...p.values]:[] };
+  _renderPilotModal();
+}
+function closePilot(){ const m=document.getElementById('pilot-modal'); if(m) m.remove(); }
+function _renderPilotModal(){
+  closePilot();
+  const d=_pilotDraft; if(!d) return;
+  const total=(_allTrees||[]).length;
+  const shown=(_allTrees||[]).filter(t=> (d.field&&d.values.length)? d.values.map(String).includes(_pilotFieldValue(t,d.field)) : true).length;
+  const hidden=total-shown;
+  const fieldOpts=_pilotFieldDefs().map(f=>`<option value="${dlEsc(f.key)}"${f.key===d.field?' selected':''}>${dlEsc(f.label||'—')}</option>`).join('');
+  const remaining=_pilotDistinctValues(d.field).filter(v=>!d.values.map(String).includes(String(v)));
+  const addOpts=`<option value="">+ Wert hinzufügen…</option>`+remaining.map(v=>`<option value="${dlEsc(String(v))}">${dlEsc(_pilotValueLabel(d.field,v))}</option>`).join('');
+  const chips = d.values.length
+    ? d.values.map((v,i)=>`<span style="display:inline-flex;align-items:center;gap:5px;font-size:13px;background:var(--green-light);color:#065f46;padding:4px 6px 4px 11px;border-radius:20px;">${dlEsc(_pilotValueLabel(d.field,v))} <span onclick="pilotRemoveValue(${i})" title="entfernen" style="cursor:pointer;font-weight:700;">✕</span></span>`).join('')
+    : `<span style="font-size:12px;color:var(--text3);">Noch keine Werte gewählt — der Pilot zeigt dann alle Objekte</span>`;
+  const on=d.active;
+  const m=document.createElement('div'); m.id='pilot-modal';
+  m.style.cssText='position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:20px;';
+  m.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.35);width:440px;max-width:100%;max-height:90vh;overflow:auto;">
+    <div style="display:flex;align-items:center;gap:10px;padding:16px 18px 10px;">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#1d4ed8" stroke-width="2.2"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></svg>
+      <span style="font-size:16px;font-weight:700;color:var(--text);">Pilot-Bereich</span>
+      <span style="margin-left:auto;font-size:10px;font-weight:700;background:#ede9fe;color:#6d28d9;padding:3px 9px;border-radius:20px;">Nur Superadmin</span>
+    </div>
+    <div style="padding:0 18px 6px;font-size:12.5px;color:var(--text2);line-height:1.55;">Grenzt den sichtbaren Objektbestand dieses Projekts auf einen Ausschnitt ein. Nicht passende Objekte werden überall ausgeblendet — die Daten bleiben unverändert.</div>
+    <div style="padding:12px 18px;">
+      <label style="display:flex;align-items:center;gap:11px;padding:11px 12px;background:${on?'var(--green-light)':'var(--surface2)'};border-radius:9px;cursor:pointer;">
+        <input type="checkbox" ${on?'checked':''} onchange="pilotToggleActive(this.checked)" style="width:16px;height:16px;cursor:pointer;">
+        <span><span style="display:block;font-size:13.5px;font-weight:600;color:${on?'#065f46':'var(--text)'};">Pilot-Bereich ${on?'aktiv':'inaktiv'}</span><span style="font-size:11.5px;color:${on?'#047857':'var(--text3)'};">${on?'Kunde sieht nur den eingegrenzten Bestand':'Alle Objekte sind sichtbar'}</span></span>
+      </label>
+      <div style="margin-top:14px;">
+        <label style="display:block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text3);margin-bottom:5px;">Feld</label>
+        <select onchange="pilotSetField(this.value)" style="width:100%;padding:8px;font-size:13px;border:1px solid var(--border);border-radius:7px;background:var(--bg);font-family:inherit;">${fieldOpts}</select>
+      </div>
+      <div style="margin-top:12px;">
+        <label style="display:block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text3);margin-bottom:5px;">Erlaubte Werte</label>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;padding:8px;border:1px solid var(--border);border-radius:7px;min-height:38px;align-items:center;">${chips}</div>
+        <select onchange="pilotAddValue(this.value)" style="width:100%;margin-top:7px;padding:8px;font-size:13px;border:1px solid var(--border);border-radius:7px;background:var(--bg);font-family:inherit;">${addOpts}</select>
+      </div>
+      <div style="display:flex;align-items:center;gap:9px;padding:10px 12px;background:var(--surface2);border-radius:8px;margin-top:14px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="color:var(--text3);flex:none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+        <span style="font-size:12.5px;color:var(--text2);"><b style="color:var(--text);">${hidden.toLocaleString('de-DE')}</b> von ${total.toLocaleString('de-DE')} ausgeblendet · <b style="color:var(--text);">${shown.toLocaleString('de-DE')}</b> im Pilot sichtbar</span>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:12px;color:var(--text2);cursor:pointer;">
+        <input type="checkbox" ${_pilotShowAll?'checked':''} onchange="pilotToggleShowAll(this.checked)" style="width:15px;height:15px;cursor:pointer;"> Als Superadmin trotzdem alle anzeigen (nur für dich, wird nicht gespeichert)
+      </label>
+    </div>
+    <div style="display:flex;gap:10px;padding:12px 18px 18px;">
+      <button onclick="pilotSave()" class="btn btn-primary" style="flex:1;">Speichern</button>
+      <button onclick="closePilot()" class="btn btn-secondary">Schließen</button>
+    </div>
+  </div>`;
+  m.addEventListener('mousedown',ev=>{ if(ev.target===m) closePilot(); });
+  document.body.appendChild(m);
+}
+function pilotSetField(field){ if(!_pilotDraft)return; _pilotDraft.field=field; _pilotDraft.values=[]; _renderPilotModal(); }
+function pilotAddValue(v){ if(!_pilotDraft||v==null||v==='')return; if(!_pilotDraft.values.map(String).includes(String(v))) _pilotDraft.values.push(v); _renderPilotModal(); }
+function pilotRemoveValue(i){ if(!_pilotDraft)return; _pilotDraft.values.splice(i,1); _renderPilotModal(); }
+function pilotToggleActive(on){ if(!_pilotDraft)return; _pilotDraft.active=!!on; _renderPilotModal(); }
+function pilotToggleShowAll(on){ _pilotShowAll=!!on; _pilotReapply(); notify(_pilotShowAll?'Zeige alle Objekte (nur für dich)':'Pilot-Bereich angewendet'); }
+async function pilotSave(){
+  if(currentRole!=='superadmin'||!currentProjectId||!_pilotDraft) return;
+  const d=_pilotDraft;
+  const cfg={ active:!!d.active, field:d.field||'stadtteil', values:(d.values||[]).map(String), setAt:new Date().toISOString(), setBy:(currentUser&&currentUser.email)||'' };
+  try{
+    await updateDoc(doc(db,'projects',currentProjectId),{pilotScope:cfg});
+    if(currentProjectData) currentProjectData.pilotScope=cfg;
+    _pilotReapply();
+    if(cfg.active&&cfg.values.length){ // beim Aktivieren sanft auf den Pilot-Ausschnitt zoomen
+      try{ const pts=trees.filter(t=>isActive(t)&&t.lat&&t.lng).map(t=>[t.lat,t.lng]); if(pts.length&&map&&map.fitBounds) map.fitBounds(L.latLngBounds(pts),{padding:[40,40],maxZoom:16}); }catch(_){}
+    }
+    notify('✓ Pilot-Bereich gespeichert');
+    closePilot();
+  }catch(e){ console.warn('pilotSave',e); notify(dlErr(e)); }
+}
+
 // Filter-Panel auf der Karte ein-/ausblenden (Knopf unter dem Auge)
 function toggleMapFilter(){
   const p=document.getElementById('map-filter-panel'); if(!p) return;
@@ -2457,7 +2590,7 @@ function diffMarkers(changes){
       if(mapMarkers[id]){ _mDel(mapMarkers[id]); delete mapMarkers[id]; }
       if(c.type!=='removed'){
         const tree={id,...c.doc.data()};
-        if(isActive(tree)&&tree.lat&&tree.lng) mapMarkers[id]=makeMarker(tree);
+        if(isActive(tree)&&inPilotScope(tree)&&tree.lat&&tree.lng) mapMarkers[id]=makeMarker(tree); // Pilot-Bereich: Status-Updates dürfen keine Nicht-Pilot-Marker zurückholen
       }
     });
   } finally { _routeNumMap=null; }
@@ -12805,6 +12938,7 @@ Object.assign(window,{
   addWmsLayer,deleteWmsLayer,editWmsLayer,cancelWmsEdit,renderWmsList,
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,setListMode,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,openObjFilterConfig,setObjFilterField,toggleTourCounts,toggleRouteNums,toggleVersatz,toggleTypeFilter,setTypeVisible,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
+  openPilotScope,closePilot,pilotSetField,pilotAddValue,pilotRemoveValue,pilotToggleActive,pilotToggleShowAll,pilotSave,
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,saveOrgCode,dlToggleNoLogin,setDriverFunktion,setDriverEinsatz,dlDismissLoginRequest,dlFunktionAdd,dlFunktionRemove,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
