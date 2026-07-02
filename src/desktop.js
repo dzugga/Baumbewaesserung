@@ -9588,6 +9588,32 @@ function renderAutoplan(){
   const dayTouren=(v.touren||[]).map((t,i)=>({t,i})).filter(x=>allView||(x.t.tag||'—')===_apDay);
   const spanne=(()=>{ if(allView) return null; const e=dayTouren.map(x=>x.t.endeSec).filter(x=>typeof x==='number'); if(e.length<2) return null; return Math.round((Math.max(...e)-Math.min(...e))/60); })();
   const kpiCard=(val,lbl)=>`<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 14px;"><div style="font-size:19px;font-weight:700;color:var(--text);">${val}</div><div style="font-size:11px;color:var(--text3);">${lbl}</div></div>`;
+  // Auslastungs-Diagnose je Tag: WARUM ist etwas nicht eingeplant? Geplant vs. verfügbar + Bedarf des Rests.
+  const byIdT={}; trees.forEach(t=>{ byIdT[t.id]=t; });
+  const toSecH=s=>{ const [h,m]=String(s||'').split(':').map(Number); return (h||0)*3600+(m||0)*60; };
+  const fzgN=(v.params&&v.params.fahrzeuge)||0;
+  const fensterMin=v.params?Math.max(0,Math.round((toSecH(v.params.bis||'16:00')-toSecH(v.params.von||'08:00'))/60)):0;
+  const availMin=fzgN*fensterMin;
+  const diag=days.map(d=>{
+    const tn=(v.touren||[]).filter(t=>(t.tag||'—')===d);
+    const usedMin=Math.round(tn.reduce((s,t)=>s+(t.fahrtSec||0)+(t.serviceSec||0),0)/60);
+    const un=(v.unassigned||[]).filter(u=>u.tag===d);
+    const unMin=Math.round(un.reduce((s,u)=>{ const t=byIdT[u.id]; return s+(t?Math.max(1,artBewMin(t)):5); },0));
+    return {d,usedMin,unCnt:un.length,unMin};
+  });
+  const diagBox=`<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:14px;">
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text3);margin-bottom:6px;">Auslastung je Tag <span style="font-weight:400;text-transform:none;">— verfügbar: ${fzgN} Fzg × ${dlEsc(v.params?.von||'?')}–${dlEsc(v.params?.bis||'?')} = ${fmtMin(availMin)}</span></div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <tr style="color:var(--text3);"><th style="text-align:left;padding:2px 6px;">Tag</th><th style="text-align:right;padding:2px 6px;">geplant (Fahrt+Bearb.)</th><th style="text-align:right;padding:2px 6px;">frei</th><th style="text-align:right;padding:2px 6px;">nicht eingeplant</th><th style="text-align:right;padding:2px 6px;">Bedarf des Rests</th></tr>
+      ${diag.map(x=>{ const frei=availMin-x.usedMin; const eng=x.unCnt>0||frei<30;
+        return `<tr><td style="padding:2px 6px;font-weight:${x.d===_apDay?'700':'400'};">${dlEsc(x.d)}</td>
+        <td style="text-align:right;padding:2px 6px;">${fmtMin(x.usedMin)}</td>
+        <td style="text-align:right;padding:2px 6px;color:${frei<0?'var(--red)':'var(--text2)'};">${fmtMin(frei)}</td>
+        <td style="text-align:right;padding:2px 6px;color:${x.unCnt?'var(--red)':'var(--text3)'};font-weight:${x.unCnt?'700':'400'};">${x.unCnt||'–'}</td>
+        <td style="text-align:right;padding:2px 6px;color:${x.unCnt?'#b45309':'var(--text3)'};">${x.unCnt?'≈ '+fmtMin(x.unMin)+' + Fahrt':'–'}</td></tr>`; }).join('')}
+    </table>
+    ${diag.some(x=>x.unCnt)?`<div style="font-size:11px;color:var(--text2);margin-top:7px;">Der Tag ist voll: Es passt nicht mehr in ${fzgN} Fahrzeuge × Arbeitszeit. Hebel: mehr Fahrzeuge, längeres Zeitfenster, weitere Planungstage — oder Zeitaufwand je Objektart prüfen (ohne gepflegten Wert gelten ${getBewDuration()} min je Objekt).</div>`:''}
+  </div>`;
   main.innerHTML=`
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
       <span style="font-size:15px;font-weight:700;color:var(--text);">${dlEsc(v.name||'Variante')}</span>
@@ -9609,8 +9635,8 @@ function renderAutoplan(){
     </div>
     ${days.length>1?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
       <button onclick="apSelectDay('__all')" style="cursor:pointer;font-size:12px;font-weight:${allView?'700':'400'};padding:5px 12px;border-radius:8px;border:1px solid ${allView?'var(--green)':'var(--border)'};background:${allView?'var(--green-light)':'var(--surface)'};color:${allView?'#065f46':'var(--text2)'};">Woche <span style="opacity:.7;">· ${(v.touren||[]).length} T</span></button>
-      ${days.map(d=>{ const tn=(v.touren||[]).filter(t=>(t.tag||'—')===d); const cnt=tn.reduce((s,t)=>s+(t.objektIds||[]).length,0);
-        return `<button onclick="apSelectDay('${dlEsc(d)}')" style="cursor:pointer;font-size:12px;font-weight:${d===_apDay?'700':'400'};padding:5px 12px;border-radius:8px;border:1px solid ${d===_apDay?'var(--green)':'var(--border)'};background:${d===_apDay?'var(--green-light)':'var(--surface)'};color:${d===_apDay?'#065f46':'var(--text2)'};">${dlEsc(d)} <span style="opacity:.7;">· ${tn.length} T / ${cnt}</span></button>`; }).join('')}
+      ${days.map(d=>{ const tn=(v.touren||[]).filter(t=>(t.tag||'—')===d); const cnt=tn.reduce((s,t)=>s+(t.objektIds||[]).length,0); const unC=(v.unassigned||[]).filter(u=>u.tag===d).length;
+        return `<button onclick="apSelectDay('${dlEsc(d)}')" style="cursor:pointer;font-size:12px;font-weight:${d===_apDay?'700':'400'};padding:5px 12px;border-radius:8px;border:1px solid ${d===_apDay?'var(--green)':'var(--border)'};background:${d===_apDay?'var(--green-light)':'var(--surface)'};color:${d===_apDay?'#065f46':'var(--text2)'};">${dlEsc(d)} <span style="opacity:.7;">· ${tn.length} T / ${cnt}</span>${unC?` <span style="color:var(--red);font-weight:700;">⚠${unC}</span>`:''}</button>`; }).join('')}
     </div>`:''}
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:14px;">
       <table style="width:100%;border-collapse:collapse;font-size:12px;">
@@ -9623,7 +9649,8 @@ function renderAutoplan(){
           <td style="text-align:right;padding:7px 12px;">${t.dirty?'<span style="color:#b45309;" title="Zuordnung geändert — Zeiten werden neu berechnet">veraltet</span>':(typeof t.endeSec==='number'?_apUhr(t.endeSec)+' Uhr':'–')}</td></tr>`).join('')}
       </table>
     </div>
-    ${(v.unassigned||[]).length?`<div style="font-size:12px;color:#b45309;background:#fef3c7;border-radius:8px;padding:8px 12px;margin-bottom:14px;">${v.unassigned.length} Einsätze nicht eingeplant (graue Punkte am jeweiligen Tag) — anklicken und einer Tour zuweisen, oder Zeitfenster/Fahrzeuge erhöhen.</div>`:''}
+    ${diagBox}
+    ${(v.unassigned||[]).length?`<div style="font-size:12px;color:#b45309;background:#fef3c7;border-radius:8px;padding:8px 12px;margin-bottom:14px;">${v.unassigned.length} Einsätze nicht eingeplant (graue Punkte am jeweiligen Tag) — Ursache siehe „Auslastung je Tag" oben.</div>`:''}
     ${allView?`<div style="font-size:11px;color:var(--text3);margin-bottom:8px;">Wochen-Übersicht: jede Tour in eigener Farbe. Zum Anpassen einen Tages-Reiter wählen.</div>`:`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
       <span style="font-size:11px;color:var(--text3);">Anpassen (${dlEsc(_apDay||'')}): Objekte anklicken, dann Ziel-Tour wählen:</span>
       <span id="ap-selinfo" style="font-size:11px;font-weight:700;color:var(--text2);background:var(--surface2);padding:3px 9px;border-radius:20px;">0 ausgewählt</span>
