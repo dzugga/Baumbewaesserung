@@ -1659,15 +1659,20 @@ function makeMarker(tree){
   return _mAdd(m);
 }
 
+// Ist ein Objekt aktuell auf der Karte SICHTBAR (Tour-Fokus, Typ-Filter, Eigenschafts-Filter,
+// Check-Modus)? Gemeinsame Wahrheit für Marker-Anzeige UND Lasso-Auswahl — das Lasso darf
+// nur treffen, was der Anwender sieht (sonst landen ausgeblendete/inaktive Objekte in Touren).
+function _lassoSelectable(tree){
+  if(!isActive(tree)) return false;
+  if(!(treeVisibleSel(tree) && _typeShown(tree))) return false;
+  if(objFilterOnMap && !objMatchesPropFilter(tree)) return false;
+  if(_isCheckMode(_colorMode)){ const b=_checkBucket(tree); if(b && !_checkShow.has(b)) return false; }
+  return true;
+}
 function setMarkerVisibility(){
   trees.forEach(tree=>{
     const m=mapMarkers[tree.id];if(!m)return;
-    let show=treeVisibleSel(tree) && _typeShown(tree);
-    // Optional: Eigenschaften-Filter auch auf der Karte anwenden
-    if(show && objFilterOnMap && !objMatchesPropFilter(tree)) show=false;
-    // Plan-/Fälligkeits-Check: nach Status filtern (z. B. nur Problemfälle)
-    if(show && _isCheckMode(_colorMode)){ const b=_checkBucket(tree); if(b && !_checkShow.has(b)) show=false; }
-    if(show) _mAdd(m); else _mDel(m);
+    if(_lassoSelectable(tree)) _mAdd(m); else _mDel(m);
   });
 }
 // Eigenschaften-Filter auch auf die IMPORTIERTE Flächen-Ebene (Bundle) anwenden — sie besteht nicht
@@ -10779,6 +10784,7 @@ async function applyLasso(){
   const offX=_mr.left-_cr.left, offY=_mr.top-_cr.top;
   trees.forEach(tree=>{
     if(!tree.lat||!tree.lng)return;
+    if(!_lassoSelectable(tree))return; // nur was sichtbar ist — keine inaktiven/weggefilterten Objekte einsammeln
     const pt=map.latLngToContainerPoint(L.latLng(tree.lat,tree.lng));
     if(touchesLasso(pt.x+offX,pt.y+offY,MARKER_RADIUS)) selected.push(tree);
   });
@@ -10788,6 +10794,8 @@ async function applyLasso(){
   const _l0=lassoPoints[0];
   trees.forEach(tree=>{
     if((tree.lat&&tree.lng) || !_hasDrawnGeom(tree) || _isContainer(tree)) return; // Container nicht planbar — nur seine Seiten
+    if(!isActive(tree) || !treeVisibleSel(tree)) return;                            // nur Sichtbares
+    if(objFilterOnMap && !objMatchesPropFilter(tree)) return;
     const g=_treeGeom(tree); if(!g) return;
     const isPoly = g.type==='Polygon';
     const ring = isPoly ? (g.coordinates[0]||[]) : (g.coordinates||[]);
@@ -10810,7 +10818,14 @@ async function applyLasso(){
   remakeMarkers(selected.map(t=>t.id)); // Auswahl-Ringe zeigen (Punkt-Marker)
   _applyFlaechenSelection(); // Geometrie-Objekte (Fläche/Strecke) neu einfärben
   renderLassoActions();
-  notify(`${lassoSelection.size} Objekte ausgewählt${added<selected.length?` (${added} neu)`:''}`);
+  const st=_lassoStandorte();
+  notify(`${lassoSelection.size} Objekte ausgewählt${added<selected.length?` (${added} neu)`:''}${st<lassoSelection.size?` — an nur ${st} Standorten (Mehrfach-Datensätze am selben Punkt!)`:''}`);
+}
+// Anzahl unterschiedlicher Koordinaten in der Vorauswahl — deckt gestapelte Mehrfach-Datensätze auf
+function _lassoStandorte(){
+  const s=new Set();
+  lassoSelection.forEach(id=>{ const t=trees.find(x=>x.id===id); if(t&&t.lat&&t.lng) s.add(t.lat.toFixed(6)+','+t.lng.toFixed(6)); else s.add('g'+id); });
+  return s.size;
 }
 
 // Nur die genannten Marker neu zeichnen (für Auswahl-Ring) — Routen-Nummern-Map einmal vorberechnen
@@ -10850,7 +10865,8 @@ function renderLassoActions(){
   const tour=tours.find(t=>t.id===(assignTourId||lassoTourId));
   const tn=dlEsc(tour?.name||'Tour');
   const btn=(act,label,bg)=>`<button onclick="lassoAction('${act}')" style="padding:4px 11px;font-size:12px;font-weight:600;border:none;border-radius:var(--radius-sm);background:${bg};color:#fff;cursor:pointer;white-space:nowrap;">${label}</button>`;
-  bar.innerHTML=`<span style="font-weight:700;">${n} ausgewählt</span>
+  const _st=_lassoStandorte();
+  bar.innerHTML=`<span style="font-weight:700;">${n} ausgewählt${_st<n?` <span style="font-weight:600;color:#fde68a;" title="Mehrere Datensätze liegen auf demselben Punkt">· nur ${_st} Standorte!</span>`:''}</span>
     ${btn('add','➕ Zu „'+tn+'“ hinzufügen','rgba(255,255,255,.18)')}
     ${btn('move','➡ Nach „'+tn+'“ verschieben','rgba(255,255,255,.18)')}
     ${btn('unplan','⊘ Aus Tour(en) entfernen','rgba(255,255,255,.18)')}
