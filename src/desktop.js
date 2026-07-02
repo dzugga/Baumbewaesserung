@@ -9318,6 +9318,7 @@ function gExportCsv(){
 // Solver-URL lokal je Rechner (localStorage): Prototyp localhost:5010, später Cloud-Run-URL.
 let _apVars=[], _apSel=null, _apMap=null, _apBusy=false, _apRulesHint=false;
 let _apSelIds=new Set(), _apMarkers={}, _apMapVid=null; // Karten-Auswahl fürs manuelle Anpassen
+let _apHiddenTours=new Set(); // per Legende ausgeblendete Touren (Index in v.touren)
 function _apSolverUrl(){ try{ return localStorage.getItem('apSolverUrl')||'http://localhost:5010'; }catch(_){ return 'http://localhost:5010'; } }
 function apSetSolverUrl(v){ try{ localStorage.setItem('apSolverUrl',(v||'').trim().replace(/\/+$/,'')); }catch(_){} }
 function _apPlanbare(){ return trees.filter(t=>isActive(t)&&t.lat&&t.lng); }
@@ -9582,9 +9583,10 @@ function renderAutoplan(){
   if(!v){ main.innerHTML='<div style="padding:24px;color:var(--text3);font-size:13px;">Links eine Variante erzeugen oder auswählen.</div>'; return; }
   _apNorm(v);
   const days=_apDaysOf(v);
-  if(!_apDay||!days.includes(_apDay)) _apDay=days[0]||null;
-  const dayTouren=(v.touren||[]).map((t,i)=>({t,i})).filter(x=>(x.t.tag||'—')===_apDay);
-  const spanne=(()=>{ const e=dayTouren.map(x=>x.t.endeSec).filter(x=>typeof x==='number'); if(e.length<2) return null; return Math.round((Math.max(...e)-Math.min(...e))/60); })();
+  if(!_apDay||(_apDay!=='__all'&&!days.includes(_apDay))) _apDay=days[0]||null;
+  const allView=_apDay==='__all';
+  const dayTouren=(v.touren||[]).map((t,i)=>({t,i})).filter(x=>allView||(x.t.tag||'—')===_apDay);
+  const spanne=(()=>{ if(allView) return null; const e=dayTouren.map(x=>x.t.endeSec).filter(x=>typeof x==='number'); if(e.length<2) return null; return Math.round((Math.max(...e)-Math.min(...e))/60); })();
   const kpiCard=(val,lbl)=>`<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 14px;"><div style="font-size:19px;font-weight:700;color:var(--text);">${val}</div><div style="font-size:11px;color:var(--text3);">${lbl}</div></div>`;
   main.innerHTML=`
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
@@ -9606,14 +9608,15 @@ function renderAutoplan(){
       ${spanne!=null?kpiCard(fmtMin(spanne),'Spanne Feierabend ('+dlEsc(_apDay||'')+')'):''}
     </div>
     ${days.length>1?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
+      <button onclick="apSelectDay('__all')" style="cursor:pointer;font-size:12px;font-weight:${allView?'700':'400'};padding:5px 12px;border-radius:8px;border:1px solid ${allView?'var(--green)':'var(--border)'};background:${allView?'var(--green-light)':'var(--surface)'};color:${allView?'#065f46':'var(--text2)'};">Woche <span style="opacity:.7;">· ${(v.touren||[]).length} T</span></button>
       ${days.map(d=>{ const tn=(v.touren||[]).filter(t=>(t.tag||'—')===d); const cnt=tn.reduce((s,t)=>s+(t.objektIds||[]).length,0);
         return `<button onclick="apSelectDay('${dlEsc(d)}')" style="cursor:pointer;font-size:12px;font-weight:${d===_apDay?'700':'400'};padding:5px 12px;border-radius:8px;border:1px solid ${d===_apDay?'var(--green)':'var(--border)'};background:${d===_apDay?'var(--green-light)':'var(--surface)'};color:${d===_apDay?'#065f46':'var(--text2)'};">${dlEsc(d)} <span style="opacity:.7;">· ${tn.length} T / ${cnt}</span></button>`; }).join('')}
     </div>`:''}
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:14px;">
       <table style="width:100%;border-collapse:collapse;font-size:12px;">
-        <tr style="background:var(--surface2);"><th style="text-align:left;padding:7px 12px;">Tour (${dlEsc(_apDay||'')})</th><th style="text-align:right;padding:7px 12px;">Objekte</th><th style="text-align:right;padding:7px 12px;">Fahrzeit</th><th style="text-align:right;padding:7px 12px;">Bearbeitung</th><th style="text-align:right;padding:7px 12px;">Feierabend</th></tr>
-        ${dayTouren.map(({t})=>`<tr style="border-top:1px solid var(--border);">
-          <td style="padding:7px 12px;"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${t.color};margin-right:7px;vertical-align:-1px;"></span>${dlEsc(t.name)}</td>
+        <tr style="background:var(--surface2);"><th style="text-align:left;padding:7px 12px;">Tour (${allView?'ganze Woche':dlEsc(_apDay||'')})</th><th style="text-align:right;padding:7px 12px;">Objekte</th><th style="text-align:right;padding:7px 12px;">Fahrzeit</th><th style="text-align:right;padding:7px 12px;">Bearbeitung</th><th style="text-align:right;padding:7px 12px;">Feierabend</th></tr>
+        ${dayTouren.map(({t,i})=>`<tr style="border-top:1px solid var(--border);${_apHiddenTours.has(i)?'opacity:.45;':''}">
+          <td style="padding:7px 12px;"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${_apTourColorFor(t,i,allView)};margin-right:7px;vertical-align:-1px;"></span>${dlEsc(t.name)}</td>
           <td style="text-align:right;padding:7px 12px;">${(t.objektIds||[]).length}</td>
           <td style="text-align:right;padding:7px 12px;">${fmtMin(Math.round((t.fahrtSec||0)/60))}</td>
           <td style="text-align:right;padding:7px 12px;">${fmtMin(Math.round((t.serviceSec||0)/60))}</td>
@@ -9621,15 +9624,26 @@ function renderAutoplan(){
       </table>
     </div>
     ${(v.unassigned||[]).length?`<div style="font-size:12px;color:#b45309;background:#fef3c7;border-radius:8px;padding:8px 12px;margin-bottom:14px;">${v.unassigned.length} Einsätze nicht eingeplant (graue Punkte am jeweiligen Tag) — anklicken und einer Tour zuweisen, oder Zeitfenster/Fahrzeuge erhöhen.</div>`:''}
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+    ${allView?`<div style="font-size:11px;color:var(--text3);margin-bottom:8px;">Wochen-Übersicht: jede Tour in eigener Farbe. Zum Anpassen einen Tages-Reiter wählen.</div>`:`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
       <span style="font-size:11px;color:var(--text3);">Anpassen (${dlEsc(_apDay||'')}): Objekte anklicken, dann Ziel-Tour wählen:</span>
       <span id="ap-selinfo" style="font-size:11px;font-weight:700;color:var(--text2);background:var(--surface2);padding:3px 9px;border-radius:20px;">0 ausgewählt</span>
       ${dayTouren.map(({t,i})=>`<button onclick="apAssignSel(${i})" title="Auswahl in ${dlEsc(t.name)} verschieben" style="border:1px solid var(--border);background:var(--surface);border-radius:20px;padding:3px 10px 3px 7px;font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;"><span style="width:9px;height:9px;border-radius:50%;background:${t.color};"></span>${dlEsc(t.name)}</button>`).join('')}
       <button onclick="apClearSel()" style="border:none;background:none;color:var(--text3);font-size:11px;cursor:pointer;padding:3px 6px;">Auswahl leeren</button>
+    </div>`}
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap;">
+      <span style="font-size:11px;color:var(--text3);">Anzeige:</span>
+      ${dayTouren.map(({t,i})=>{ const hid=_apHiddenTours.has(i);
+        return `<span onclick="apToggleTourVis(${i})" title="Tour ein-/ausblenden" style="cursor:pointer;display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:3px 9px;border-radius:20px;border:1px solid var(--border);background:${hid?'var(--surface2)':'var(--surface)'};opacity:${hid?'.5':'1'};${hid?'text-decoration:line-through;':''}"><span style="width:9px;height:9px;border-radius:50%;background:${_apTourColorFor(t,i,allView)};"></span>${dlEsc(t.name)}</span>`; }).join('')}
+      ${_apHiddenTours.size?`<button onclick="apShowAllTours()" style="border:none;background:none;color:var(--text3);font-size:11px;cursor:pointer;padding:3px 6px;">alle einblenden</button>`:''}
     </div>
     <div id="ap-map" style="height:440px;border-radius:10px;border:1px solid var(--border);"></div>`;
   setTimeout(()=>_apRenderMap(v),30);
 }
+// Farbe einer Tour in der Anzeige: Tages-Sicht = gespeicherte Fahrzeug-Farbe;
+// Wochen-Sicht = eigene Farbe je Tour (sonst wären alle „Fahrzeug 1"-Touren gleichfarbig).
+function _apTourColorFor(t,i,allView){ return allView?TOUR_COLORS[i%TOUR_COLORS.length]:(t.color||'#333'); }
+function apToggleTourVis(i){ if(_apHiddenTours.has(i)) _apHiddenTours.delete(i); else _apHiddenTours.add(i); renderAutoplan(); }
+function apShowAllTours(){ _apHiddenTours.clear(); renderAutoplan(); }
 function _apMarkerStyle(fill,selected){
   return selected
     ? {radius:7,color:'#111',weight:3,fillColor:fill,fillOpacity:1}
@@ -9653,15 +9667,19 @@ function _apRenderMap(v){
     _apMarkers[t.id]={m,fill};
     pts.push([t.lat,t.lng]);
   };
-  (v.touren||[]).filter(tr=>(tr.tag||'—')===_apDay).forEach(tr=>{
+  const allView=_apDay==='__all';
+  (v.touren||[]).forEach((tr,ti)=>{
+    if(!(allView||(tr.tag||'—')===_apDay)) return;
+    if(_apHiddenTours.has(ti)) return;
+    const col=_apTourColorFor(tr,ti,allView);
     (tr.objektIds||[]).forEach(id=>{
       const t=byId[id]; if(!t||!t.lat||!t.lng) return;
-      addMarker(t,tr.color||'#333',`${dlEsc(t.name||'Objekt')} · ${dlEsc(tr.name)}`);
+      addMarker(t,col,`${dlEsc(t.name||'Objekt')} · ${dlEsc(tr.name)}`);
     });
   });
-  (v.unassigned||[]).filter(u=>u.tag===_apDay).forEach(u=>{
+  (v.unassigned||[]).filter(u=>allView||u.tag===_apDay).forEach(u=>{
     const t=byId[u.id]; if(!t||!t.lat||!t.lng) return;
-    addMarker(t,'#9ca3af',`${dlEsc(t.name||'Objekt')} · nicht eingeplant (${dlEsc(_apDay||'')})`);
+    addMarker(t,'#9ca3af',`${dlEsc(t.name||'Objekt')} · nicht eingeplant (${dlEsc(u.tag||'')})`);
   });
   const dep=v.params&&v.params.depot;
   if(dep&&dep.lat) L.circleMarker([dep.lat,dep.lng],{radius:8,color:'#fff',weight:2,fillColor:'#f59e0b',fillOpacity:1}).bindTooltip('Start/Ziel').addTo(grp);
@@ -9771,7 +9789,7 @@ async function apRecalc(){
   }catch(e){ console.warn('apRecalc',e); notify('Neu berechnen: '+(e.message||e)); }
   _apBusy=false; renderAutoplan();
 }
-function apSelect(id){ _apSel=id; _apSelIds.clear(); _apDay=null; renderAutoplan(); }
+function apSelect(id){ _apSel=id; _apSelIds.clear(); _apDay=null; _apHiddenTours.clear(); renderAutoplan(); }
 async function apGenerate(){
   if(_apBusy) return;
   const buckets=_apEnsureRahmen();
@@ -9840,7 +9858,7 @@ async function apGenerate(){
       if(e&&e.code==='permission-denied'){ id='_local'+Date.now(); _apRulesHint=true; } // Regel noch nicht deployt → Sitzungs-Variante
       else throw e;
     }
-    _apVars.unshift({id,...data}); _apSel=id; _apDay=null;
+    _apVars.unshift({id,...data}); _apSel=id; _apDay=null; _apHiddenTours.clear();
     notify('✓ Wochenplan erzeugt: '+touren.length+' Touren an '+_apRahmen.tage.length+' Tagen, '+kpi.objekte+' Einsätze');
   }catch(e){ console.warn('apGenerate',e); notify('Auto-Planung: '+(e.message||e)); }
   _apBusy=false; renderAutoplan();
@@ -13487,7 +13505,7 @@ Object.assign(window,{
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,setListMode,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,openObjFilterConfig,setObjFilterField,toggleTourCounts,toggleRouteNums,toggleVersatz,toggleTypeFilter,setTypeVisible,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
   openPilotScope,closePilot,pilotSetField,pilotAddValue,pilotRemoveValue,pilotToggleActive,pilotToggleShowAll,pilotSave,
-  apGenerate,apSelect,apDelete,apSetSolverUrl,apAssignSel,apClearSel,apRecalc,apSelectDay,apRahmenDay,apRahmenFreqDay,apSetSaison,apRahmenMode,apRahmenErlaubtDay,
+  apGenerate,apSelect,apDelete,apSetSolverUrl,apAssignSel,apClearSel,apRecalc,apSelectDay,apRahmenDay,apRahmenFreqDay,apSetSaison,apRahmenMode,apRahmenErlaubtDay,apToggleTourVis,apShowAllTours,
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,saveOrgCode,dlToggleNoLogin,setDriverFunktion,setDriverEinsatz,dlDismissLoginRequest,dlFunktionAdd,dlFunktionRemove,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
