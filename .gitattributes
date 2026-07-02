@@ -1,2 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Shell-Skripte werden in Linux-Container gemountet — MUESSEN LF behalten (CRLF bricht /bin/sh)
+*.sh text eol=lf

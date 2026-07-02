@@ -1,0 +1,31 @@
+# vroom-express-Konfiguration (Schema = Original aus VROOM-Project/vroom-express).
+# Abweichungen vom Standard:
+#   - routingServers.osrm.car.host: 'osrm' (Compose-Service-Name statt 0.0.0.0)
+#   - maxlocations/maxvehicles/limit erhoeht (Stadtplanung: tausende Objekte)
+cliArgs:
+  geometry: false # Geometrie je Anfrage per "g"-Option anforderbar (override erlaubt)
+  planmode: false
+  threads: 4
+  explore: 5
+  limit: '25mb' # max. Groesse des JSON-Problems
+  logdir: '/conf'
+  logsize: '100M'
+  maxlocations: 10000
+  maxvehicles: 500
+  override: ['c', 'g', 'l', 't', 'x']
+  path: ''
+  port: 3000
+  router: 'osrm'
+  timeout: 300000
+  baseurl: '/'
+routingServers:
+  osrm:
+    car:
+      host: 'osrm'
+      port: '5000'
+    bike:
+      host: 'osrm'
+      port: '5000'
+    foot:
+      host: 'osrm'
+      port: '5000'

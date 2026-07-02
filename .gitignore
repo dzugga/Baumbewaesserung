@@ -7,3 +7,6 @@ _commitmsg.txt
 scripts/_verify-*.mjs
 scripts/_fldtest-*.mjs
 functions/_fldtest-*.mjs
+
+# Tourenplaner: lokale Datensatz-Liste (maschinenspezifisch)
+docker/tourenplaner-datasets.json

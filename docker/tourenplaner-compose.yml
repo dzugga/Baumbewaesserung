@@ -1,0 +1,71 @@
+# Lokaler Tourenplaner-Stack: OSRM (Routing/Matrix) + VROOM (Touren-Optimierung).
+# Abgeleitet vom RWF-Geocoder-Setup, BEWUSST OHNE Nominatim (Geocoding brauchen wir
+# hier nicht — Adresssuche laeuft in der App weiter wie bisher).
+# Eigener Projektname/Container/Volumes/Port — kollidiert nicht mit anderen Stacks.
+#
+# Steuerung ueber tourenplaner.ps1 (Datensaetze anlegen/aktivieren/loeschen).
+# Zugriff NUR ueber den CORS-Proxy:  http://localhost:5010/osrm/...  +  http://localhost:5010/vroom/
+name: bw-tourenplaner
+services:
+  # Laedt/kopiert die Region einmalig ins OSRM-Volume, dann fertig.
+  osrm-init:
+    image: curlimages/curl:latest
+    container_name: bw-tp-osrm-init
+    user: root
+    # Bbox-Flow: tourenplaner.ps1 legt eine zugeschnittene Datei unter /region/region.osm.pbf
+    # ab und setzt PBF_PATH (hat Vorrang). Sonst Download per PBF_URL (Namens-Flow).
+    entrypoint:
+      - /bin/sh
+      - -c
+      - 'test -f /data/region.osm.pbf || { if [ -f /region/region.osm.pbf ]; then cp /region/region.osm.pbf /data/region.osm.pbf; else curl -L -o /data/region.osm.pbf "${PBF_URL:-https://download.geofabrik.de/europe/germany/nordrhein-westfalen/koeln-regbez-latest.osm.pbf}"; fi; }'
+    volumes:
+      - osrmdata:/data
+      - regiondata:/region
+
+  # Routing-Backend: bereitet den Graphen einmalig auf (MLD) und startet osrm-routed.
+  osrm:
+    image: osrm/osrm-backend:latest
+    container_name: bw-tp-osrm
+    restart: unless-stopped
+    depends_on:
+      osrm-init:
+        condition: service_completed_successfully
+    entrypoint: ["/bin/sh", "/run/osrm-run.sh"]
+    volumes:
+      - osrmdata:/data
+      - ./osrm-run.sh:/run/osrm-run.sh:ro
+    expose:
+      - "5000"
+
+  # Optimierer: vroom-express, spricht OSRM ueber den Service-Namen an (vroom-conf/config.yml).
+  vroom:
+    image: ghcr.io/vroom-project/vroom-docker:v1.15.0
+    container_name: bw-tp-vroom
+    restart: unless-stopped
+    depends_on:
+      - osrm
+    environment:
+      VROOM_ROUTER: osrm
+    volumes:
+      - ./vroom-conf:/conf
+    expose:
+      - "3000"
+
+  # Ein Host-Port fuer beides, mit CORS-Headern fuer den Browser-Fetch aus der App.
+  proxy:
+    image: nginx:alpine
+    container_name: bw-tp-proxy
+    restart: unless-stopped
+    depends_on:
+      - osrm
+      - vroom
+    ports:
+      - "5010:80"
+    volumes:
+      - ./nginx-tourenplaner.conf:/etc/nginx/conf.d/default.conf:ro
+
+volumes:
+  osrmdata:
+    name: ${OSRM_VOLUME:-bw-tp-osrm-default}
+  regiondata:
+    name: ${REGION_VOLUME:-bw-tp-region-default}
