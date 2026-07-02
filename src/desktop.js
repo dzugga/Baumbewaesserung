@@ -1702,7 +1702,7 @@ function applyObjFilter(){ renderList(); setMarkerVisibility(); _applyFlaechenFi
 function resetObjFilter(){ objFilter={stadtteil:'',art:'',pflanzjahr:'',zustand:'',wasser:'',status:''}; renderObjFilterUI(); applyObjFilter(); }
 function updateObjFilterCount(){
   const active=objFilterActive();
-  const fb=document.getElementById('btn-toggle-filter'); if(fb){ fb.style.background=active?'var(--green)':'var(--surface)'; fb.style.color=active?'#fff':'var(--text2)'; fb.style.borderColor=active?'var(--green)':'var(--border)'; }
+  const fb=document.getElementById('btn-toggle-filter'); if(fb){ fb.style.borderColor=active?'var(--green)':'var(--border)'; fb.style.boxShadow=active?'0 0 0 2px var(--green), var(--shadow-md)':'var(--shadow-md)'; }
   renderMapStatus();
   const el=document.getElementById('obj-filter-count'); if(!el)return;
   const act=trees.filter(isActive);
