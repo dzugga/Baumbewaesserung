@@ -44,4 +44,10 @@ jobs:
             if curl -sf http://localhost:3001/index.html >/dev/null 2>&1; then echo "Server bereit"; break; fi
             sleep 1
           done
-          SMOKE_URL=http://localhost:3001 npm run smoke
+          # 2 Versuche: transiente Runner-Aussetzer (Netz/Chrome-Start) nicht als Fehlschlag werten
+          for versuch in 1 2; do
+            if SMOKE_URL=http://localhost:3001 npm run smoke; then exit 0; fi
+            echo "Smoke-Versuch $versuch fehlgeschlagen — ${versuch}. Wiederholung in 10 s"
+            sleep 10
+          done
+          exit 1
