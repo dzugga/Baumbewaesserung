@@ -9361,13 +9361,38 @@ function _apEnsureRahmen(){
   }
   if(!Array.isArray(_apRahmen.tage)||!_apRahmen.tage.length) _apRahmen.tage=['Mo','Di','Mi','Do','Fr'];
   if(!_apRahmen.freqTage) _apRahmen.freqTage={};
+  if(!_apRahmen.freqErlaubt) _apRahmen.freqErlaubt={};
   const buckets={};
   _apPlanbare().forEach(t=>{ const b=_apBucketOf(t); buckets[b]=(buckets[b]||0)+1; });
   Object.keys(buckets).forEach(b=>{
     const cur=(_apRahmen.freqTage[b]||[]).filter(d=>_apRahmen.tage.includes(d));
     _apRahmen.freqTage[b]=cur.length?cur:_apDefaultDays(b,_apRahmen.tage);
+    const er=(_apRahmen.freqErlaubt[b]||[]).filter(d=>_apRahmen.tage.includes(d));
+    _apRahmen.freqErlaubt[b]=er.length?er:_apDefaultErlaubt(b,_apRahmen.tage);
   });
   return buckets;
+}
+// Erlaubte Tage je Häufigkeit (Automatik-Modus): Wochenende nur, wenn es die Häufigkeit real braucht —
+// Standard: bis 5×/Woche Mo–Fr, 6× inkl. Sa, 7× alle Tage. Vom Anwender je Häufigkeit umschaltbar.
+function _apDefaultErlaubt(b,tage){
+  const n=(b==='ohne'||b==='lt1')?1:parseInt(b);
+  const pool = n>=7?_AP_TAGE : (n>=6?['Mo','Di','Mi','Do','Fr','Sa'] : ['Mo','Di','Mi','Do','Fr']);
+  const out=tage.filter(d=>pool.includes(d));
+  for(const d of tage){ if(out.length>=Math.min(n,tage.length)) break; if(!out.includes(d)) out.push(d); } // Notfall: zu wenig Tage im Pool
+  return out.sort((a,x)=>_AP_TAGE.indexOf(a)-_AP_TAGE.indexOf(x));
+}
+function _apErlaubt(b){
+  const er=((_apRahmen&&_apRahmen.freqErlaubt||{})[b]||[]).filter(d=>_apRahmen.tage.includes(d));
+  return er.length?er:_apDefaultErlaubt(b,_apRahmen.tage);
+}
+function apRahmenErlaubtDay(b,d){
+  _apEnsureRahmen();
+  const arr=_apRahmen.freqErlaubt[b]||(_apRahmen.freqErlaubt[b]=_apDefaultErlaubt(b,_apRahmen.tage));
+  const i=arr.indexOf(d);
+  if(i>=0){ if(arr.length<=1){ notify('Mindestens ein erlaubter Tag'); return; } arr.splice(i,1); }
+  else arr.push(d);
+  arr.sort((a,x)=>_AP_TAGE.indexOf(a)-_AP_TAGE.indexOf(x));
+  renderAutoplan();
 }
 function apRahmenDay(d){
   _apEnsureRahmen();
@@ -9375,6 +9400,7 @@ function apRahmenDay(d){
   if(i>=0){ if(_apRahmen.tage.length<=1){ notify('Mindestens ein Planungstag'); return; } _apRahmen.tage.splice(i,1); }
   else _apRahmen.tage=_AP_TAGE.filter(x=>x===d||_apRahmen.tage.includes(x));
   Object.keys(_apRahmen.freqTage).forEach(b=>{ _apRahmen.freqTage[b]=(_apRahmen.freqTage[b]||[]).filter(x=>_apRahmen.tage.includes(x)); });
+  Object.keys(_apRahmen.freqErlaubt||{}).forEach(b=>{ _apRahmen.freqErlaubt[b]=(_apRahmen.freqErlaubt[b]||[]).filter(x=>_apRahmen.tage.includes(x)); });
   renderAutoplan();
 }
 function apRahmenFreqDay(b,d){
@@ -9441,7 +9467,7 @@ function _apAssignDays(base){
       objs.forEach(o=>days.forEach(d=>put(o,d)));
       continue;
     }
-    const pats=_apPatterns(b,_apRahmen.tage);
+    const pats=_apPatterns(b,_apErlaubt(b)); // nur die für diese Häufigkeit erlaubten Tage (z. B. Sa erst ab 6×)
     if(pats.length===1){ objs.forEach(o=>pats[0].forEach(d=>put(o,d))); continue; }
     const groups=_apBalancedClusters(objs,pats.length);
     const gw=groups.map(g=>g.reduce((s,o)=>s+Math.max(1,artBewMin(o)),0));
@@ -9499,13 +9525,17 @@ function renderAutoplan(){
   const bucketOrder=Object.keys(buckets).sort((a,b)=>{ const r=x=>x==='ohne'?99:(x==='lt1'?98:parseInt(x)); return r(a)-r(b); });
   const matrix=bucketOrder.map(b=>{
     const mode=_apModeOf(b);
-    const pats=_apPatterns(b,_apRahmen.tage);
+    const pats=_apPatterns(b, mode==='auto'?_apErlaubt(b):_apRahmen.tage);
     const modeBtn=(m,lbl)=>`<span onclick="apRahmenMode('${b}','${m}')" style="cursor:pointer;font-size:10px;font-weight:600;padding:2px 7px;border-radius:5px;border:1px solid ${mode===m?'var(--green)':'var(--border)'};background:${mode===m?'var(--green-light)':'var(--surface)'};color:${mode===m?'#065f46':'var(--text3)'};">${lbl}</span>`;
     let body;
     if(mode==='auto'){
-      body=pats.length>1
+      const erlaubt=_apErlaubt(b);
+      const nWant=(b==='ohne'||b==='lt1')?1:parseInt(b);
+      const zuWenig=erlaubt.length<Math.min(nWant,_apRahmen.tage.length);
+      const erChips=_apRahmen.tage.length>1?`<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-bottom:3px;"><span style="font-size:10px;color:var(--text3);">erlaubt:</span>${_apRahmen.tage.map(d=>dayChip(d,erlaubt.includes(d),`apRahmenErlaubtDay('${b}','${d}')`)).join('')}</div>`:'';
+      body=erChips+(zuWenig?`<div style="font-size:11px;color:#b45309;">Nur ${erlaubt.length} erlaubte Tage für ${nWant}×/Woche — wird ${erlaubt.length}× geplant.</div>`:'')+(pats.length>1
         ?`<div style="font-size:11px;color:var(--text3);">Muster: <b style="color:var(--text2);">${pats.map(p=>p.join('+')).join('</b> oder <b style="color:var(--text2);">')}</b> — Zuteilung nach Gebiet (kompakt & ausgewogen)</div>`
-        :`<div style="font-size:11px;color:var(--text3);">Tage: <b style="color:var(--text2);">${pats[0].join('+')}</b></div>`;
+        :`<div style="font-size:11px;color:var(--text3);">Tage: <b style="color:var(--text2);">${pats[0].join('+')}</b></div>`);
     }else{
       const sel=_apRahmen.freqTage[b]||[], need=_apBucketNeed(b,_apRahmen.tage);
       const ok=(b==='ohne'||b==='lt1')?sel.length>=1:sel.length===need;
@@ -13457,7 +13487,7 @@ Object.assign(window,{
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,setListMode,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,openObjFilterConfig,setObjFilterField,toggleTourCounts,toggleRouteNums,toggleVersatz,toggleTypeFilter,setTypeVisible,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
   openPilotScope,closePilot,pilotSetField,pilotAddValue,pilotRemoveValue,pilotToggleActive,pilotToggleShowAll,pilotSave,
-  apGenerate,apSelect,apDelete,apSetSolverUrl,apAssignSel,apClearSel,apRecalc,apSelectDay,apRahmenDay,apRahmenFreqDay,apSetSaison,apRahmenMode,
+  apGenerate,apSelect,apDelete,apSetSolverUrl,apAssignSel,apClearSel,apRecalc,apSelectDay,apRahmenDay,apRahmenFreqDay,apSetSaison,apRahmenMode,apRahmenErlaubtDay,
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,saveOrgCode,dlToggleNoLogin,setDriverFunktion,setDriverEinsatz,dlDismissLoginRequest,dlFunktionAdd,dlFunktionRemove,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
