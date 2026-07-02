@@ -9386,6 +9386,76 @@ function apRahmenFreqDay(b,d){
   renderAutoplan();
 }
 function apSetSaison(s){ _apEnsureRahmen(); _apRahmen.saison=s; renderAutoplan(); }
+// ── Tages-Muster + Gebiets-Zuteilung (periodische Planung) ──
+// Je Häufigkeit n gibt es zulässige, gleichmäßig verteilte Tages-Muster (2× → Mo+Do ODER Di+Fr).
+// WELCHES Muster ein Objekt bekommt, entscheidet die Geografie: ausgewogene kompakte Cluster.
+const _AP_OFFS={1:[0],2:[0,3],3:[0,2,4],4:[0,1,3,4]};
+function _apPatterns(b,tage){
+  const n=_apBucketNeed(b,tage), len=tage.length;
+  if(n>=len) return [[...tage]];
+  let offs=(_AP_OFFS[n]&&_AP_OFFS[n][n-1]<len)?_AP_OFFS[n]:null;
+  if(!offs) offs=[...new Set(Array.from({length:n},(_,i)=>Math.min(len-1,Math.round(i*(len-1)/Math.max(1,n-1)))))];
+  const out=[], mx=offs[offs.length-1];
+  for(let s=0;s+mx<len;s++) out.push(offs.map(o=>tage[s+o]));
+  return out.length?out:[tage.slice(0,n)];
+}
+function _apModeOf(b){ const m=(_apRahmen&&_apRahmen.freqMode||{})[b]; return m==='fest'?'fest':'auto'; }
+function apRahmenMode(b,m){ _apEnsureRahmen(); (_apRahmen.freqMode=_apRahmen.freqMode||{})[b]=m; renderAutoplan(); }
+function _apD2(a,b){ const dx=(a.lng-b.lng)*Math.cos((a.lat+b.lat)*Math.PI/360), dy=a.lat-b.lat; return dx*dx+dy*dy; }
+// Ausgewogene räumliche Cluster (gewichtete k-means-Variante, Gewicht = Bearbeitungsminuten):
+// kompakte Gebiete, deren Arbeitslast sich ähnelt — Grundlage der Tages-/Muster-Zuteilung.
+function _apBalancedClusters(objs,k){
+  if(k<=1) return [objs];
+  if(objs.length<=k) return objs.map(o=>[o]).concat(Array.from({length:k-objs.length},()=>[]));
+  const W=objs.map(o=>Math.max(1,artBewMin(o)));
+  const cap=W.reduce((a,b)=>a+b,0)/k*1.2;
+  const cs=[objs[0]];
+  while(cs.length<k){ let best=null,bd=-1; objs.forEach(o=>{ const d=Math.min(...cs.map(c=>_apD2(o,c))); if(d>bd){bd=d;best=o;} }); cs.push(best); }
+  let cent=cs.map(o=>({lat:o.lat,lng:o.lng})), groups=null;
+  for(let it=0;it<8;it++){
+    groups=Array.from({length:k},()=>[]); const load=Array(k).fill(0);
+    // eindeutige Fälle zuerst zuteilen → Kapazitätsgrenze verdrängt nur Grenzfälle
+    const order=objs.map((o,i)=>{ const ds=cent.map(c=>_apD2(o,c)); const s=[...ds].sort((a,b)=>a-b); return {o,i,ds,margin:(s[1]??s[0])-s[0]}; }).sort((a,b)=>b.margin-a.margin);
+    order.forEach(({o,i,ds})=>{
+      const idx=ds.map((d,j)=>({d,j})).sort((a,b)=>a.d-b.d);
+      const put=idx.find(x=>load[x.j]+W[i]<=cap)||idx[0];
+      groups[put.j].push(o); load[put.j]+=W[i];
+    });
+    cent=groups.map((g,j)=>g.length?{lat:g.reduce((s,o)=>s+o.lat,0)/g.length,lng:g.reduce((s,o)=>s+o.lng,0)/g.length}:cent[j]);
+  }
+  return groups;
+}
+// Tageszuteilung der ganzen Woche: feste Buckets direkt, Auto-Buckets über Cluster→Muster.
+// Muster-Wahl je Cluster: größte Gruppe zuerst auf das aktuell am wenigsten belastete Muster.
+function _apAssignDays(base){
+  const dayObjs={}, dayLoad={};
+  _apRahmen.tage.forEach(d=>{ dayObjs[d]=[]; dayLoad[d]=0; });
+  const put=(o,d)=>{ dayObjs[d].push(o); dayLoad[d]+=Math.max(1,artBewMin(o)); };
+  const bucketObjs={};
+  base.forEach(t=>{ const b=_apBucketOf(t); (bucketObjs[b]=bucketObjs[b]||[]).push(t); });
+  const order=Object.keys(bucketObjs).sort((a,b)=>_apBucketNeed(b,_apRahmen.tage)-_apBucketNeed(a,_apRahmen.tage)); // hohe Häufigkeit zuerst (verankert die Tage)
+  for(const b of order.reverse()){
+    const objs=bucketObjs[b];
+    if(_apModeOf(b)==='fest'){
+      const days=(_apRahmen.freqTage[b]||[]);
+      objs.forEach(o=>days.forEach(d=>put(o,d)));
+      continue;
+    }
+    const pats=_apPatterns(b,_apRahmen.tage);
+    if(pats.length===1){ objs.forEach(o=>pats[0].forEach(d=>put(o,d))); continue; }
+    const groups=_apBalancedClusters(objs,pats.length);
+    const gw=groups.map(g=>g.reduce((s,o)=>s+Math.max(1,artBewMin(o)),0));
+    const gOrder=groups.map((_,i)=>i).sort((a,b)=>gw[b]-gw[a]);
+    const free=new Set(pats.map((_,i)=>i));
+    for(const gi of gOrder){
+      let best=null,bl=Infinity;
+      for(const pi of free){ const l=pats[pi].reduce((s,d)=>s+dayLoad[d],0); if(l<bl){bl=l;best=pi;} }
+      free.delete(best);
+      groups[gi].forEach(o=>pats[best].forEach(d=>put(o,d)));
+    }
+  }
+  return dayObjs;
+}
 function apSelectDay(d){ _apDay=d; _apSelIds.clear(); renderAutoplan(); }
 // Altbestand (Varianten ohne Tage) vereinheitlichen: Touren ohne tag → '—', unassigned Strings → {tag,id}
 function _apNorm(v){
@@ -9428,11 +9498,23 @@ function renderAutoplan(){
   const dayChip=(d,on,cb)=>`<span onclick="${cb}" style="cursor:pointer;font-size:11px;font-weight:600;padding:3px 8px;border-radius:6px;border:1px solid ${on?'var(--green)':'var(--border)'};background:${on?'var(--green-light)':'var(--surface)'};color:${on?'#065f46':'var(--text3)'};">${d}</span>`;
   const bucketOrder=Object.keys(buckets).sort((a,b)=>{ const r=x=>x==='ohne'?99:(x==='lt1'?98:parseInt(x)); return r(a)-r(b); });
   const matrix=bucketOrder.map(b=>{
-    const sel=_apRahmen.freqTage[b]||[], need=_apBucketNeed(b,_apRahmen.tage);
-    const ok=(b==='ohne'||b==='lt1')?sel.length>=1:sel.length===need;
-    return `<div style="margin-bottom:8px;">
-      <div style="font-size:11px;color:${ok?'var(--text2)':'#b45309'};margin-bottom:3px;">${_apBucketLabel(b)} · ${buckets[b]} Obj.${ok?'':` — <b>${need} Tag${need===1?'':'e'} wählen</b> (${sel.length} gewählt)`}</div>
-      <div style="display:flex;gap:4px;flex-wrap:wrap;">${_apRahmen.tage.map(d=>dayChip(d,sel.includes(d),`apRahmenFreqDay('${b}','${d}')`)).join('')}</div>
+    const mode=_apModeOf(b);
+    const pats=_apPatterns(b,_apRahmen.tage);
+    const modeBtn=(m,lbl)=>`<span onclick="apRahmenMode('${b}','${m}')" style="cursor:pointer;font-size:10px;font-weight:600;padding:2px 7px;border-radius:5px;border:1px solid ${mode===m?'var(--green)':'var(--border)'};background:${mode===m?'var(--green-light)':'var(--surface)'};color:${mode===m?'#065f46':'var(--text3)'};">${lbl}</span>`;
+    let body;
+    if(mode==='auto'){
+      body=pats.length>1
+        ?`<div style="font-size:11px;color:var(--text3);">Muster: <b style="color:var(--text2);">${pats.map(p=>p.join('+')).join('</b> oder <b style="color:var(--text2);">')}</b> — Zuteilung nach Gebiet (kompakt & ausgewogen)</div>`
+        :`<div style="font-size:11px;color:var(--text3);">Tage: <b style="color:var(--text2);">${pats[0].join('+')}</b></div>`;
+    }else{
+      const sel=_apRahmen.freqTage[b]||[], need=_apBucketNeed(b,_apRahmen.tage);
+      const ok=(b==='ohne'||b==='lt1')?sel.length>=1:sel.length===need;
+      body=`${ok?'':`<div style="font-size:11px;color:#b45309;margin-bottom:2px;"><b>${need} Tag${need===1?'':'e'} wählen</b> (${sel.length} gewählt)</div>`}
+        <div style="display:flex;gap:4px;flex-wrap:wrap;">${_apRahmen.tage.map(d=>dayChip(d,sel.includes(d),`apRahmenFreqDay('${b}','${d}')`)).join('')}</div>`;
+    }
+    return `<div style="margin-bottom:9px;">
+      <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);margin-bottom:3px;">${_apBucketLabel(b)} · ${buckets[b]} Obj.<span style="margin-left:auto;display:flex;gap:3px;">${modeBtn('auto','Automatisch')}${modeBtn('fest','Feste Tage')}</span></div>
+      ${body}
     </div>`;
   }).join('');
   const sollHint=!(currentProjectData&&currentProjectData.sollFeld)&&bucketOrder.length===1&&bucketOrder[0]==='ohne'
@@ -9667,8 +9749,9 @@ async function apGenerate(){
   const von=document.getElementById('ap-von')?.value||'08:00', bis=document.getElementById('ap-bis')?.value||'16:00';
   const toSec=s=>{ const [h,m]=s.split(':').map(Number); return h*3600+(m||0)*60; };
   if(toSec(bis)<=toSec(von)){ notify('Arbeitsende muss nach Arbeitsbeginn liegen'); return; }
-  // Rahmen validieren: n×/Woche braucht genau n Tage (bzw. alle Planungstage, wenn weniger)
+  // Rahmen validieren — nur Buckets im „Feste Tage"-Modus (Auto verteilt selbst)
   for(const b of Object.keys(buckets)){
+    if(_apModeOf(b)!=='fest') continue;
     const sel=(_apRahmen.freqTage[b]||[]).length, need=_apBucketNeed(b,_apRahmen.tage);
     if((b==='ohne'||b==='lt1')?sel<1:sel!==need){ notify(`„${_apBucketLabel(b)}": bitte ${need} Tag${need===1?'':'e'} wählen (${sel} gewählt)`); return; }
   }
@@ -9682,10 +9765,11 @@ async function apGenerate(){
   _apBusy=true; renderAutoplan();
   try{
     const saison=_apSaison();
+    const dayMap=_apAssignDays(base);   // Objekt→Tage: feste Vorgaben + Gebiets-Zuteilung der Auto-Buckets
     const touren=[], unassigned=[];
     let einsaetze=0;
     for(const tag of _apRahmen.tage){
-      const dayObjs=base.filter(t=>(_apRahmen.freqTage[_apBucketOf(t)]||[]).includes(tag));
+      const dayObjs=dayMap[tag]||[];
       if(!dayObjs.length) continue;
       einsaetze+=dayObjs.length;
       const jobs=dayObjs.map((t,i)=>({ id:i+1, location:[t.lng,t.lat], service:Math.max(60,Math.round(artBewMin(t)*60)) }));
@@ -13373,7 +13457,7 @@ Object.assign(window,{
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,setListMode,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,openObjFilterConfig,setObjFilterField,toggleTourCounts,toggleRouteNums,toggleVersatz,toggleTypeFilter,setTypeVisible,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
   openPilotScope,closePilot,pilotSetField,pilotAddValue,pilotRemoveValue,pilotToggleActive,pilotToggleShowAll,pilotSave,
-  apGenerate,apSelect,apDelete,apSetSolverUrl,apAssignSel,apClearSel,apRecalc,apSelectDay,apRahmenDay,apRahmenFreqDay,apSetSaison,
+  apGenerate,apSelect,apDelete,apSetSolverUrl,apAssignSel,apClearSel,apRecalc,apSelectDay,apRahmenDay,apRahmenFreqDay,apSetSaison,apRahmenMode,
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,saveOrgCode,dlToggleNoLogin,setDriverFunktion,setDriverEinsatz,dlDismissLoginRequest,dlFunktionAdd,dlFunktionRemove,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
