@@ -1698,7 +1698,7 @@ function objMatchesPropFilter(t){
   return true;
 }
 function objFilterActive(){ return Object.values(objFilter).some(Boolean); }
-function applyObjFilter(){ renderList(); setMarkerVisibility(); _applyFlaechenFilterVisibility(); updateObjFilterCount(); }
+function applyObjFilter(){ renderList(); setMarkerVisibility(); _applyFlaechenFilterVisibility(); renderDrawnGeoms(); updateObjFilterCount(); }
 function resetObjFilter(){ objFilter={stadtteil:'',art:'',pflanzjahr:'',zustand:'',wasser:'',status:''}; renderObjFilterUI(); applyObjFilter(); }
 function updateObjFilterCount(){
   const active=objFilterActive();
@@ -1739,7 +1739,7 @@ function renderObjFilterUI(){
   const wire={stadtteil:'of-stadtteil',art:'of-art',pflanzjahr:'of-pflanzjahr',zustand:'of-zustand',wasser:'of-wasser',status:'of-status'};
   Object.entries(wire).forEach(([k,id])=>{ const s=document.getElementById(id); if(s) s.onchange=()=>{ objFilter[k]=s.value; applyObjFilter(); renderObjFilterUI(); }; });
   customFields.forEach(c=>{ const s=document.getElementById('of-cf-'+c.key); if(s) s.onchange=()=>{ objFilter[c.key]=s.value; applyObjFilter(); renderObjFilterUI(); }; });
-  const mp=document.getElementById('of-map'); if(mp) mp.onchange=()=>{ objFilterOnMap=mp.checked; setMarkerVisibility(); _applyFlaechenFilterVisibility(); };
+  const mp=document.getElementById('of-map'); if(mp) mp.onchange=()=>{ objFilterOnMap=mp.checked; setMarkerVisibility(); _applyFlaechenFilterVisibility(); renderDrawnGeoms(); };
   const rb=el.querySelector('[data-action="reset-objfilter"]'); if(rb) rb.onclick=()=>resetObjFilter();
   const fb=document.getElementById('btn-toggle-filter'); if(fb) fb.style.borderColor=active?'var(--green)':'var(--border)';
   updateObjFilterCount();
