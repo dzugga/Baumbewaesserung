@@ -10915,10 +10915,12 @@ async function lassoAction(mode){
       const chunk=targets.slice(i,i+400);
       const batch=db.batch();
       chunk.forEach(tree=>{
+        // Übersichten sind keine echten Touren → Verschieben/Entfernen lässt sie unangetastet
+        const uebersichten=getTreeTourIds(tree).filter(id=>isOverviewTour(id));
         let newIds;
         if(mode==='add') newIds=[...new Set([...getTreeTourIds(tree),tourId])];
-        else if(mode==='move') newIds=[tourId];
-        else newIds=[]; // unplan → unverplant
+        else if(mode==='move') newIds=[...new Set([tourId,...uebersichten])];
+        else newIds=uebersichten; // unplan → aus echten Touren raus, Übersichts-Zugehörigkeit bleibt
         newIds=newIds.filter(Boolean);
         batch.update(doc(db,'projects',currentProjectId,'trees',tree.id),{tourIds:newIds,tourId:newIds[0]||''});
       });
