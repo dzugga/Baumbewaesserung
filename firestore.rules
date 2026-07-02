@@ -64,13 +64,16 @@ service cloud.firestore {
     // ----- Nutzungs-Zähler je Mandant (Reads/Writes/Deletes, App-seitig hochgezählt) -----
     match /usage/{uid} {
       allow read:          if isSuper() || (inOrg(resource.data.orgId) && cap() == 'admin');
-      allow create, update: if signedIn() && inOrg(request.resource.data.orgId); // jeder eingeloggte Nutzer zählt seine Org hoch
+      allow create, update: if signedIn() && inOrg(request.resource.data.orgId)
+                            && request.resource.data.keys().hasOnly(['orgId','monat','reads','writes','deletes','updatedAt']); // nur die erwarteten Zählfelder
       allow delete:        if isSuper();
     }
 
     // ----- Fehler-Protokoll (globaler Fehler-Handler) — best-effort, nur Admin liest -----
     match /errors/{eid} {
-      allow create: if signedIn();                       // jeder Eingeloggte darf seinen Laufzeitfehler melden
+      allow create: if signedIn()
+                    && request.resource.data.uid == request.auth.uid   // nur die eigene uid (keine Fremd-Impersonation)
+                    && request.resource.data.keys().hasOnly(['app','kind','message','stack','url','ua','uid','at']);
       allow read:   if isSuper() || cap() == 'admin';
       allow update: if false;                            // unveränderlich
       allow delete: if isSuper();
@@ -133,7 +136,8 @@ service cloud.firestore {
         // request.auth.uid — nur DER laesst sich gegen where('ownerUid','==',uid) garantieren (Rules sind keine Filter).
         allow read:   if canPlan(resource.data.orgId)
                       || request.auth.uid == resource.data.ownerUid;
-        allow create: if canPlan(request.resource.data.orgId);          // Anlegen beim Senden (Desktop-Batch)
+        allow create: if canPlan(request.resource.data.orgId)
+                      && request.resource.data.ownerUid == 'drv_' + request.resource.data.driverId; // ownerUid an driverId gebunden
         allow update: if (canPlan(resource.data.orgId) && orgUnchanged())
                       || (request.auth.uid == resource.data.ownerUid && orgUnchanged() && onlyMessageStatusFields());
         allow delete: if canManage(resource.data.orgId);
