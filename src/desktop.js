@@ -5268,6 +5268,7 @@ function switchView(v){
   const ki=document.getElementById('view-ki');
   const sollist=document.getElementById('view-sollist'); if(sollist) sollist.style.display=v==='sollist'?'flex':'none';
   const datenq=document.getElementById('view-datenqualitaet'); if(datenq) datenq.style.display=v==='datenqualitaet'?'flex':'none';
+  const autoplan=document.getElementById('view-autoplan'); if(autoplan) autoplan.style.display=v==='autoplan'?'flex':'none';
   const ausf=document.getElementById('view-ausfaelle'); if(ausf) ausf.style.display=v==='ausfaelle'?'flex':'none';
   const kiconfig=document.getElementById('view-kiconfig');
   const handbuch=document.getElementById('view-handbuch'); if(handbuch) handbuch.style.display=v==='handbuch'?'flex':'none';
@@ -5315,6 +5316,7 @@ function switchView(v){
   if(v==='sollist') initSollIstView();
   if(v==='datenqualitaet') initDatenqualitaet();
   if(v==='ausfaelle') initAusfaelle();
+  if(v==='autoplan') initAutoplan();
   if(v==='kiconfig') renderKiConfig();
   if(v==='handbuch') renderHandbuch();
   if(v==='wmskarten') renderWmsList();
@@ -9309,6 +9311,184 @@ function gExportCsv(){
   a.download='Ausfaelle_'+new Date().toISOString().slice(0,10)+'.csv'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
 }
 
+// ── AUTO-PLANUNG (Beta, Superadmin) ───────────────────────────────────────
+// Erzeugt Touren-VARIANTEN per eigenem Optimierungsdienst (VROOM/OSRM, docker/tourenplaner-*).
+// Varianten liegen in projects/{pid}/planVarianten — echte Touren/Objekte bleiben unberührt,
+// bis eine Variante bewusst produktiv geschaltet wird (folgt in Ausbaustufe 2).
+// Solver-URL lokal je Rechner (localStorage): Prototyp localhost:5010, später Cloud-Run-URL.
+let _apVars=[], _apSel=null, _apMap=null, _apBusy=false, _apRulesHint=false;
+function _apSolverUrl(){ try{ return localStorage.getItem('apSolverUrl')||'http://localhost:5010'; }catch(_){ return 'http://localhost:5010'; } }
+function apSetSolverUrl(v){ try{ localStorage.setItem('apSolverUrl',(v||'').trim().replace(/\/+$/,'')); }catch(_){} }
+function _apPlanbare(){ return trees.filter(t=>isActive(t)&&t.lat&&t.lng); }
+function _apDepot(){
+  const d=getDepot();
+  if(d&&d.lat&&d.lng) return {lat:d.lat,lng:d.lng,quelle:'Betriebshof'};
+  const pts=_apPlanbare(); if(!pts.length) return null;
+  return {lat:pts.reduce((s,t)=>s+t.lat,0)/pts.length, lng:pts.reduce((s,t)=>s+t.lng,0)/pts.length, quelle:'Schwerpunkt der Objekte (kein Betriebshof gesetzt)'};
+}
+function _apUhr(sec){ const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60); return h+':'+String(m).padStart(2,'0'); }
+async function initAutoplan(){
+  const side=document.getElementById('ap-side'), main=document.getElementById('ap-main');
+  if(!side||!main) return;
+  if(currentRole!=='superadmin'){ main.innerHTML='<div style="padding:20px;color:var(--text3);">Nur für Superadmin.</div>'; side.innerHTML=''; return; }
+  if(!currentProjectId){ main.innerHTML='<div style="padding:20px;color:var(--text3);">Bitte zuerst ein Projekt öffnen.</div>'; side.innerHTML=''; return; }
+  await apReload();
+}
+async function apReload(){
+  _apRulesHint=false;
+  try{
+    const qs=await getDocs(collection(db,'projects',currentProjectId,'planVarianten'));
+    const remote=qs.docs.map(d=>({id:d.id,...d.data()}));
+    const local=_apVars.filter(v=>String(v.id).startsWith('_local')); // Sitzungs-Varianten behalten
+    _apVars=[...local,...remote].sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
+  }catch(e){
+    if(e&&e.code==='permission-denied'){ _apRulesHint=true; } else { console.warn('planVarianten laden',e); }
+    _apVars=_apVars.filter(v=>String(v.id).startsWith('_local'));
+  }
+  if(_apSel&&!_apVars.find(v=>v.id===_apSel)) _apSel=_apVars[0]?.id||null;
+  renderAutoplan();
+}
+function renderAutoplan(){
+  const side=document.getElementById('ap-side'), main=document.getElementById('ap-main');
+  if(!side||!main) return;
+  const base=_apPlanbare(), depot=_apDepot();
+  const echteTouren=tours.filter(t=>!t.uebersicht).length;
+  const inp='padding:6px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;';
+  side.innerHTML=`
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin-bottom:8px;">Neue Variante</div>
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;">
+      <div style="font-size:12px;color:var(--text2);margin-bottom:10px;"><b style="color:var(--text);">${base.length.toLocaleString('de-DE')}</b> planbare Objekte (aktiv, mit Koordinaten)${pilotScopeActive()?' · <span style="color:#b45309;">Pilot-Bereich aktiv</span>':''}<br>
+      Start: ${depot?dlEsc(depot.quelle):'<span style="color:var(--red);">keine Objekte</span>'} · heute ${echteTouren} echte Touren</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+        <label style="font-size:11px;color:var(--text3);">Fahrzeuge<input id="ap-n" type="number" min="1" max="50" value="3" style="${inp}width:100%;margin-top:3px;"></label>
+        <span></span>
+        <label style="font-size:11px;color:var(--text3);">Arbeitsbeginn<input id="ap-von" type="time" value="08:00" style="${inp}width:100%;margin-top:3px;"></label>
+        <label style="font-size:11px;color:var(--text3);">Arbeitsende<input id="ap-bis" type="time" value="16:00" style="${inp}width:100%;margin-top:3px;"></label>
+      </div>
+      <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:10px;">Solver-URL<input id="ap-url" value="${dlEsc(_apSolverUrl())}" onchange="apSetSolverUrl(this.value)" style="${inp}width:100%;margin-top:3px;" placeholder="http://localhost:5010"></label>
+      <button class="btn btn-primary" style="width:100%;" onclick="apGenerate()" ${_apBusy||!base.length?'disabled':''}>${_apBusy?'Rechnet…':'Variante erzeugen'}</button>
+    </div>
+    ${_apRulesHint?`<div style="margin-top:10px;font-size:11px;color:#b45309;background:#fef3c7;border-radius:8px;padding:8px 10px;">Speichern in der Datenbank noch nicht freigeschaltet (Firestore-Regel ausstehend) — Varianten gelten nur für diese Sitzung.</div>`:''}
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin:16px 0 8px;">Varianten (${_apVars.length})</div>
+    ${_apVars.length?_apVars.map(v=>`
+      <div onclick="apSelect('${dlEsc(v.id)}')" style="padding:9px 11px;border:1px solid ${v.id===_apSel?'var(--green)':'var(--border)'};border-radius:9px;margin-bottom:6px;cursor:pointer;background:${v.id===_apSel?'var(--green-light)':'var(--bg)'};">
+        <div style="font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(v.name||'Variante')}</div>
+        <div style="font-size:11px;color:var(--text3);">${(v.kpi?.fzg??'?')} Touren · ${(v.kpi?.objekte??'?').toLocaleString?(v.kpi.objekte).toLocaleString('de-DE'):v.kpi?.objekte} Objekte${String(v.id).startsWith('_local')?' · <span style="color:#b45309;">nur Sitzung</span>':''}</div>
+      </div>`).join(''):'<div style="font-size:12px;color:var(--text3);padding:4px 2px;">Noch keine Varianten.</div>'}`;
+  const v=_apVars.find(x=>x.id===_apSel);
+  if(!v){ main.innerHTML='<div style="padding:24px;color:var(--text3);font-size:13px;">Links eine Variante erzeugen oder auswählen.</div>'; return; }
+  const spanne=(()=>{ const e=(v.touren||[]).map(t=>t.endeSec).filter(x=>typeof x==='number'); if(e.length<2) return null; return Math.round((Math.max(...e)-Math.min(...e))/60); })();
+  const kpiCard=(val,lbl)=>`<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 14px;"><div style="font-size:19px;font-weight:700;color:var(--text);">${val}</div><div style="font-size:11px;color:var(--text3);">${lbl}</div></div>`;
+  main.innerHTML=`
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
+      <span style="font-size:15px;font-weight:700;color:var(--text);">${dlEsc(v.name||'Variante')}</span>
+      <span style="font-size:10px;font-weight:700;background:var(--surface2);color:var(--text2);padding:2px 8px;border-radius:20px;">${dlEsc(v.status||'entwurf')}</span>
+      <span style="font-size:11px;color:var(--text3);">${v.createdAt?new Date(v.createdAt).toLocaleString('de-DE'):''} ${v.createdBy?'· '+dlEsc(v.createdBy):''}</span>
+      <span style="margin-left:auto;display:flex;gap:8px;">
+        <button class="btn btn-secondary" style="padding:5px 12px;font-size:12px;" disabled title="Ausbaustufe 2 — kommt als Nächstes">Produktiv schalten (folgt)</button>
+        <button class="btn btn-secondary" style="padding:5px 12px;font-size:12px;color:var(--red);" onclick="apDelete('${dlEsc(v.id)}')">Löschen</button>
+      </span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:14px;">
+      ${kpiCard(v.kpi?.fzg??'–','eingesetzte Fahrzeuge')}
+      ${kpiCard((v.kpi?.objekte??0).toLocaleString('de-DE'),'Objekte eingeplant')}
+      ${kpiCard(v.kpi?.unassigned??0,'nicht eingeplant')}
+      ${kpiCard(fmtMin(v.kpi?.fahrtMin??0),'Fahrzeit gesamt')}
+      ${kpiCard(fmtMin(v.kpi?.serviceMin??0),'Bearbeitung gesamt')}
+      ${spanne!=null?kpiCard(fmtMin(spanne),'Spanne Feierabend (Ausgleich)'):''}
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:14px;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <tr style="background:var(--surface2);"><th style="text-align:left;padding:7px 12px;">Tour</th><th style="text-align:right;padding:7px 12px;">Objekte</th><th style="text-align:right;padding:7px 12px;">Fahrzeit</th><th style="text-align:right;padding:7px 12px;">Bearbeitung</th><th style="text-align:right;padding:7px 12px;">Feierabend</th></tr>
+        ${(v.touren||[]).map(t=>`<tr style="border-top:1px solid var(--border);">
+          <td style="padding:7px 12px;"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${t.color};margin-right:7px;vertical-align:-1px;"></span>${dlEsc(t.name)}</td>
+          <td style="text-align:right;padding:7px 12px;">${(t.objektIds||[]).length}</td>
+          <td style="text-align:right;padding:7px 12px;">${fmtMin(Math.round((t.fahrtSec||0)/60))}</td>
+          <td style="text-align:right;padding:7px 12px;">${fmtMin(Math.round((t.serviceSec||0)/60))}</td>
+          <td style="text-align:right;padding:7px 12px;">${typeof t.endeSec==='number'?_apUhr(t.endeSec)+' Uhr':'–'}</td></tr>`).join('')}
+      </table>
+    </div>
+    ${(v.unassigned||[]).length?`<div style="font-size:12px;color:#b45309;background:#fef3c7;border-radius:8px;padding:8px 12px;margin-bottom:14px;">${v.unassigned.length} Objekte passten nicht in die Arbeitszeit — mehr Fahrzeuge, längeres Zeitfenster oder eigene Variante dafür erzeugen.</div>`:''}
+    <div id="ap-map" style="height:440px;border-radius:10px;border:1px solid var(--border);"></div>`;
+  setTimeout(()=>_apRenderMap(v),30);
+}
+function _apRenderMap(v){
+  const el=document.getElementById('ap-map'); if(!el||!window.L) return;
+  try{ if(_apMap){ _apMap.remove(); } }catch(_){}
+  _apMap=L.map('ap-map',{zoomControl:true,attributionControl:false}).setView([51,9],6);
+  L.tileLayer(BASEMAP_FARBE,{maxZoom:20,maxNativeZoom:18}).addTo(_apMap);
+  const grp=L.layerGroup().addTo(_apMap), pts=[];
+  const byId={}; trees.forEach(t=>{ byId[t.id]=t; });
+  (v.touren||[]).forEach(tr=>{
+    (tr.objektIds||[]).forEach(id=>{
+      const t=byId[id]; if(!t||!t.lat||!t.lng) return;
+      L.circleMarker([t.lat,t.lng],{radius:5,color:'#fff',weight:1.2,fillColor:tr.color||'#333',fillOpacity:.95})
+        .bindTooltip(`${dlEsc(t.name||'Objekt')} · ${dlEsc(tr.name)}`).addTo(grp);
+      pts.push([t.lat,t.lng]);
+    });
+  });
+  const dep=v.params&&v.params.depot;
+  if(dep&&dep.lat) L.circleMarker([dep.lat,dep.lng],{radius:8,color:'#fff',weight:2,fillColor:'#f59e0b',fillOpacity:1}).bindTooltip('Start/Ziel').addTo(grp);
+  if(pts.length) _apMap.fitBounds(L.latLngBounds(pts),{padding:[30,30]});
+  setTimeout(()=>{ try{ _apMap.invalidateSize(); }catch(_){} },120);
+}
+function apSelect(id){ _apSel=id; renderAutoplan(); }
+async function apGenerate(){
+  if(_apBusy) return;
+  const n=Math.max(1,Math.min(50,parseInt(document.getElementById('ap-n')?.value)||3));
+  const von=document.getElementById('ap-von')?.value||'08:00', bis=document.getElementById('ap-bis')?.value||'16:00';
+  const toSec=s=>{ const [h,m]=s.split(':').map(Number); return h*3600+(m||0)*60; };
+  if(toSec(bis)<=toSec(von)){ notify('Arbeitsende muss nach Arbeitsbeginn liegen'); return; }
+  const base=_apPlanbare();
+  if(base.length<2){ notify('Zu wenige planbare Objekte'); return; }
+  if(base.length>9500){ notify('Mehr als 9.500 Objekte — bitte Bestand eingrenzen (z. B. Pilot-Bereich)'); return; }
+  const depot=_apDepot(); if(!depot){ notify('Kein Startpunkt bestimmbar'); return; }
+  const jobs=base.map((t,i)=>({ id:i+1, location:[t.lng,t.lat], service:Math.max(60,Math.round(artBewMin(t)*60)) }));
+  const vehicles=Array.from({length:n},(_,k)=>({ id:k+1, profile:'car', start:[depot.lng,depot.lat], end:[depot.lng,depot.lat], time_window:[toSec(von),toSec(bis)] }));
+  _apBusy=true; renderAutoplan();
+  try{
+    const res=await fetch(_apSolverUrl()+'/vroom/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobs,vehicles})});
+    if(!res.ok) throw new Error('Solver antwortet nicht (HTTP '+res.status+') — läuft der Tourenplaner-Stack?');
+    const sol=await res.json();
+    if(sol.code!==0) throw new Error('Solver: '+(sol.error||('Code '+sol.code)));
+    const touren=(sol.routes||[]).map((r,i)=>{
+      const steps=r.steps||[];
+      return {
+        name:'Auto-Tour '+(i+1), color:TOUR_COLORS[i%TOUR_COLORS.length], vehicle:r.vehicle,
+        objektIds:steps.filter(s=>s.type==='job').map(s=>base[s.job-1].id),
+        fahrtSec:r.duration||0, serviceSec:r.service||0,
+        endeSec:steps.length?steps[steps.length-1].arrival:null,
+      };
+    });
+    const unassigned=(sol.unassigned||[]).map(u=>base[(u.id||0)-1]?.id).filter(Boolean);
+    const kpi={ fzg:touren.length, objekte:jobs.length-unassigned.length, unassigned:unassigned.length,
+      fahrtMin:Math.round((sol.summary?.duration||0)/60), serviceMin:Math.round((sol.summary?.service||0)/60) };
+    const data={ name:'Automatik '+new Date().toLocaleDateString('de-DE')+' · '+n+' Fzg · '+von+'–'+bis,
+      status:'entwurf', createdAt:new Date().toISOString(), createdBy:(currentUser&&currentUser.email)||'',
+      params:{fahrzeuge:n,von,bis,depot}, kpi, touren, unassigned };
+    let id;
+    try{ const ref=await addDoc(collection(db,'projects',currentProjectId,'planVarianten'),data); id=ref.id; }
+    catch(e){
+      if(e&&e.code==='permission-denied'){ id='_local'+Date.now(); _apRulesHint=true; } // Regel noch nicht deployt → Sitzungs-Variante
+      else throw e;
+    }
+    _apVars.unshift({id,...data}); _apSel=id;
+    notify('✓ Variante erzeugt ('+kpi.fzg+' Touren, '+kpi.objekte+' Objekte)');
+  }catch(e){ console.warn('apGenerate',e); notify('Auto-Planung: '+(e.message||e)); }
+  _apBusy=false; renderAutoplan();
+}
+async function apDelete(id){
+  const v=_apVars.find(x=>x.id===id); if(!v) return;
+  if(!await confirmByName({label:'Variante', name:v.name||''})) return;
+  if(!String(id).startsWith('_local')){
+    try{ await deleteDoc(doc(db,'projects',currentProjectId,'planVarianten',id)); }
+    catch(e){ console.warn('apDelete',e); notify(dlErr(e)); return; }
+  }
+  _apVars=_apVars.filter(x=>x.id!==id);
+  if(_apSel===id) _apSel=_apVars[0]?.id||null;
+  notify('Variante gelöscht'); renderAutoplan();
+}
+
 function renderControlling(){
   if(!currentProjectId){ document.getElementById('ctrl-kpis').innerHTML='<div style="padding:20px;color:var(--text3);">Bitte zuerst ein Projekt öffnen.</div>'; return; }
   _applyCtrlWidgetVis();
@@ -12939,6 +13119,7 @@ Object.assign(window,{
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,setListMode,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,openObjFilterConfig,setObjFilterField,toggleTourCounts,toggleRouteNums,toggleVersatz,toggleTypeFilter,setTypeVisible,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
   openPilotScope,closePilot,pilotSetField,pilotAddValue,pilotRemoveValue,pilotToggleActive,pilotToggleShowAll,pilotSave,
+  apGenerate,apSelect,apDelete,apSetSolverUrl,
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,saveOrgCode,dlToggleNoLogin,setDriverFunktion,setDriverEinsatz,dlDismissLoginRequest,dlFunktionAdd,dlFunktionRemove,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,

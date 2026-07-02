@@ -197,6 +197,13 @@ service cloud.firestore {
         allow create: if inOrg(request.resource.data.orgId) && (cap() == 'driver' || canPlan(request.resource.data.orgId));
         allow update, delete: if canPlan(resource.data.orgId);
       }
+      // Auto-Planung: gespeicherte Touren-Varianten (beruehren echte Touren/Objekte nicht)
+      match /planVarianten/{vid} {
+        allow read:           if canReadProj();
+        allow create:         if canPlan(request.resource.data.orgId);
+        allow update:         if canPlan(resource.data.orgId) && orgUnchanged();
+        allow delete:         if canPlan(resource.data.orgId);
+      }
     }
   }
 }
