@@ -10894,6 +10894,17 @@ async function lassoAction(mode){
       }
     }
   }
+  // Bereits in der Ziel-Tour Verplante beim Hinzufügen überspringen — und das klar melden
+  let schonDrin=0;
+  if(mode==='add'){
+    schonDrin=targets.filter(t=>treeInTour(t,tourId)).length;
+    targets=targets.filter(t=>!treeInTour(t,tourId));
+    if(!targets.length){
+      notify(`⚠ Nichts hinzugefügt — alle ${schonDrin} ausgewählten Objekte sind bereits in „${tour?.name||'Tour'}"`);
+      renderLassoActions();
+      return;
+    }
+  }
   const verbing=mode==='add'?'hinzufügen':mode==='move'?'verschieben':'aus Tour(en) entfernen';
   notify(`${targets.length} Objekte – ${verbing}…`);
   setSyncState('syncing',`${verbing}… 0/${targets.length}`);
@@ -10932,7 +10943,7 @@ async function lassoAction(mode){
   renderLassoActions();
   setSyncState('ok','Synchronisiert');
   const verb=mode==='add'?`→ „${tour?.name||'Tour'}“ hinzugefügt`:mode==='move'?`→ „${tour?.name||'Tour'}“ verschoben`:'aus Tour(en) entfernt';
-  notify(`✓ ${targets.length} Objekte ${verb}`);
+  notify(`✓ ${targets.length} Objekte ${verb}${schonDrin?` · ${schonDrin} übersprungen (bereits in der Tour)`:''}`);
 }
 
 // cancelLasso merged into cancelAssign
