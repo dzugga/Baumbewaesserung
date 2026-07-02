@@ -1803,7 +1803,13 @@ function renderList(q=''){
 }
 
 // ─── SHEET ────────────────────────────────────────────────────
+// Füllgrad-Schnellmeldung: ein Tipp setzt Füllgrad + „erledigt" in einem Schritt (nutzt saveReport).
+let _quickFg=null;
+function _fgColor(v){ return v<=25?'#16a34a':v<=50?'#3b82f6':v<=75?'#f59e0b':v>=120?'#991b1b':'#ef4444'; }
+function reportFuellgrad(id,v){ _quickFg=v; _sheetStatus='bewaessert'; saveReport(id); }
+
 function openSheet(id){
+  _quickFg=null;
   // Abgeschlossene Tour ist schreibgeschützt – Status-/Bearbeitungs-Sheet nicht öffnen
   if(currentTour?.status==='abgeschlossen'){
     toast('Tour abgeschlossen — keine Änderungen möglich');
@@ -1827,6 +1833,11 @@ function openSheet(id){
     : '<div style="font-size:12px;color:var(--text3);padding:4px 0;">Keine Gründe hinterlegt — bitte in der Desktop-App unter Verwaltung einrichten.</div>';
 
   document.getElementById('sheet-body').innerHTML=`
+    ${currentProjectData?.fuellgradAktiv?`
+    <div class="section-title" style="margin-top:0;">Füllgrad melden <span style="font-weight:400;color:var(--text3);font-size:12px;">· ein Tipp = erledigt</span></div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px;">
+      ${FUELLGRAD_OPTS.map(o=>{const c=_fgColor(o.v);const filled=o.v>=120;return `<button onclick="reportFuellgrad('${id}',${o.v})" style="padding:16px 6px;border:1.5px solid ${c};border-radius:12px;background:${filled?c:c+'18'};color:${filled?'#fff':c};font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;line-height:1.15;">${o.l}</button>`;}).join('')}
+    </div>`:''}
     ${_np?`<button class="btn btn-secondary" style="width:100%;margin-bottom:14px;display:flex;align-items:center;justify-content:center;gap:6px;" onclick="naviExternal(${_np[0]},${_np[1]})">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
       In Google Maps navigieren
@@ -1868,13 +1879,6 @@ function openSheet(id){
       </div>
     </div>
 
-    ${currentProjectData?.fuellgradAktiv?`
-    <!-- Füllgrad -->
-    <div class="section-title" style="margin-top:16px;">Füllgrad</div>
-    <div class="reason-chips" id="fuellgrad-chips">
-      ${FUELLGRAD_OPTS.map(o=>`<div class="reason-chip${tree.lastFuellgrad===o.v?' selected':''}" data-fg="${o.v}">${o.l}</div>`).join('')}
-    </div>`:''}
-
     <!-- Info fields -->
     <div class="section-title">Stammdaten</div>
     ${_mobilInfoRows(tree)}
@@ -1889,8 +1893,6 @@ function openSheet(id){
     document.querySelectorAll('#reason-chips .reason-chip').forEach(c=>c.classList.remove('selected'));
     chip.classList.add('selected');
   };
-  const fgc=document.getElementById('fuellgrad-chips');
-  if(fgc) fgc.onclick=e=>{ const chip=e.target.closest('[data-fg]'); if(!chip)return; fgc.querySelectorAll('.reason-chip').forEach(c=>c.classList.remove('selected')); chip.classList.add('selected'); };
 
   document.getElementById('sheet-footer').innerHTML=`
     <button class="btn btn-secondary" style="flex:1;" onclick="closeSheet()">Abbrechen</button>
@@ -1955,9 +1957,10 @@ async function saveReport(id){
   const notiz=document.getElementById('p-notiz')?.value||tree.notiz||'';
   let fuellgrad=null;
   if(currentProjectData?.fuellgradAktiv){
-    const fgSel=document.querySelector('#fuellgrad-chips .reason-chip.selected');
-    if(fgSel) fuellgrad=Number(fgSel.dataset.fg);
+    if(_quickFg!=null) fuellgrad=_quickFg;                                   // Schnell-Tipp (Füllgrad = erledigt)
+    else { const fgSel=document.querySelector('#fuellgrad-chips .reason-chip.selected'); if(fgSel) fuellgrad=Number(fgSel.dataset.fg); }
   }
+  _quickFg=null;
 
   const updates={
     lastStatus:status||null,
@@ -2670,7 +2673,7 @@ async function enablePush(silent){
 
 // Expose functions used in inline onclick handlers (static + dynamically generated)
 Object.assign(window, {
-  selectStatus, closeSheet, saveReport,
+  selectStatus, closeSheet, saveReport, reportFuellgrad,
   closeFinishSheet, finishTour, reopenTour,
   showFinishConfirm, markAllDone,
   switchTab,
