@@ -10412,7 +10412,8 @@ function dashRenderNichtMap(nichtReports){
   const L=window.L; const wrap=document.getElementById('dash-nicht-map');
   if(!L||!wrap)return;
   if(!dashNichtMap){
-    dashNichtMap=L.map('dash-nicht-map',{zoomControl:true,attributionControl:false}).setView([50.0,8.42],12);
+    let _c=[52.279,8.047], _z=12; try{ if(map&&map.getCenter){ const mc=map.getCenter(); _c=[mc.lat,mc.lng]; _z=Math.min(map.getZoom()||12,13); } }catch(_){}
+    dashNichtMap=L.map('dash-nicht-map',{zoomControl:true,attributionControl:false}).setView(_c,_z);   // Start am Projekt, nicht am alten Hessen-Default
     L.tileLayer(BASEMAP_FARBE,{maxZoom:20,maxNativeZoom:18}).addTo(dashNichtMap);
     dashNichtLayer=L.layerGroup().addTo(dashNichtMap);
     setTimeout(()=>dashNichtMap.invalidateSize(),200);
@@ -10437,6 +10438,13 @@ function dashRenderNichtMap(nichtReports){
     pts.push([r.lat,r.lng]);
   });
   if(pts.length>0) dashNichtMap.fitBounds(L.latLngBounds(pts),{padding:[40,40],maxZoom:16});
+  else {
+    // Keine „nicht erledigt"-Punkte mit Koordinaten → auf die Projekt-Objekte zentrieren (richtige Region),
+    // sonst auf den Mittelpunkt der Hauptkarte — NICHT auf einem festen Fremd-Default hängenbleiben.
+    const proj=(trees||[]).filter(t=>isActive(t)&&t.lat&&t.lng).map(t=>[t.lat,t.lng]);
+    if(proj.length) dashNichtMap.fitBounds(L.latLngBounds(proj),{padding:[40,40],maxZoom:14});
+    else { try{ if(map&&map.getCenter){ dashNichtMap.setView(map.getCenter(), Math.min(map.getZoom()||12,13)); } }catch(_){} }
+  }
   setTimeout(()=>dashNichtMap.invalidateSize(),100);
 }
 
@@ -11726,7 +11734,8 @@ function toggleDispoRoutes(){ _dispoRoutesVisible=!_dispoRoutesVisible; const b=
 function dispoRenderMap(){
   const L=window.L, wrap=document.getElementById('dispo-map'); if(!L||!wrap) return;
   if(!dispoMap){
-    dispoMap=L.map('dispo-map',{zoomControl:false,attributionControl:false}).setView([50.0,8.42],12);
+    let _dc=[52.279,8.047], _dz=12; try{ if(map&&map.getCenter){ const mc=map.getCenter(); _dc=[mc.lat,mc.lng]; _dz=Math.min(map.getZoom()||12,13); } }catch(_){}
+    dispoMap=L.map('dispo-map',{zoomControl:false,attributionControl:false}).setView(_dc,_dz);   // Start am Projekt, nicht am alten Hessen-Default
     dispoBaseFarbe=basemapLayer('farbe').addTo(dispoMap);
     dispoBaseGrau=basemapLayer('grau');
     dispoLayer=L.layerGroup().addTo(dispoMap);
