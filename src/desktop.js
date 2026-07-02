@@ -9338,12 +9338,20 @@ function _apSaison(){
   if(s==='sommer'||s==='winter') return s;
   return (typeof saisonFor==='function')?saisonFor(new Date().toISOString().slice(0,10)):'sommer';
 }
-function _apBucketOf(t){
-  const f=sollFreqProWoche(t,_apSaison());
+function _apBucketize(f){
   if(f==null||!(f>0)) return 'ohne';
   if(f<1) return 'lt1';
   return String(Math.min(7,Math.round(f)));
 }
+function _apBucketOf(t){ return _apBucketize(sollFreqProWoche(t,_apSaison())); }
+// Bucket eines Objekts im Kontext einer VARIANTE (deren Saison, nicht die aktuelle Rahmen-Saison)
+function _apBucketOfV(t,v){ return _apBucketize(sollFreqProWoche(t,(v&&v.params&&v.params.saison)||_apSaison())); }
+// Farben je Häufigkeit (Karten-Modus „Häufigkeit")
+const _AP_FREQ_COLORS={'1':'#3b82f6','2':'#16a34a','3':'#f59e0b','4':'#8b5cf6','5':'#ef4444','6':'#0d9488','7':'#7c2d12','lt1':'#94a3b8','ohne':'#6b7280'};
+function _apFreqColor(b){ return _AP_FREQ_COLORS[b]||'#6b7280'; }
+function _apFreqShort(b){ return b==='ohne'?'ohne':(b==='lt1'?'<1×':b+'×'); }
+let _apColorBy='tour'; // Karten-Färbung: 'tour' | 'freq'
+function apColorBy(m){ _apColorBy=(m==='freq')?'freq':'tour'; renderAutoplan(); }
 function _apBucketLabel(b){ return b==='ohne'?'ohne Häufigkeit (1× planen)':(b==='lt1'?'seltener als 1×/Woche (1× planen)':b+'× pro Woche'); }
 function _apBucketNeed(b,tage){ return (b==='ohne'||b==='lt1')?1:Math.min(parseInt(b),tage.length); }
 function _apDefaultDays(b,tage){
@@ -9659,10 +9667,23 @@ function renderAutoplan(){
     </div>`}
     <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap;">
       <span style="font-size:11px;color:var(--text3);">Anzeige:</span>
+      <span style="display:inline-flex;border:1px solid var(--border);border-radius:7px;overflow:hidden;">
+        <span onclick="apColorBy('tour')" style="cursor:pointer;font-size:10px;font-weight:600;padding:3px 9px;background:${_apColorBy==='tour'?'var(--green-light)':'var(--surface)'};color:${_apColorBy==='tour'?'#065f46':'var(--text3)'};">Touren</span>
+        <span onclick="apColorBy('freq')" style="cursor:pointer;font-size:10px;font-weight:600;padding:3px 9px;border-left:1px solid var(--border);background:${_apColorBy==='freq'?'var(--green-light)':'var(--surface)'};color:${_apColorBy==='freq'?'#065f46':'var(--text3)'};">Häufigkeit</span>
+      </span>
       ${dayTouren.map(({t,i})=>{ const hid=_apHiddenTours.has(i);
         return `<span onclick="apToggleTourVis(${i})" title="Tour ein-/ausblenden" style="cursor:pointer;display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:3px 9px;border-radius:20px;border:1px solid var(--border);background:${hid?'var(--surface2)':'var(--surface)'};opacity:${hid?'.5':'1'};${hid?'text-decoration:line-through;':''}"><span style="width:9px;height:9px;border-radius:50%;background:${_apTourColorFor(t,i,allView)};"></span>${dlEsc(t.name)}</span>`; }).join('')}
       ${_apHiddenTours.size?`<button onclick="apShowAllTours()" style="border:none;background:none;color:var(--text3);font-size:11px;cursor:pointer;padding:3px 6px;">alle einblenden</button>`:''}
     </div>
+    ${_apColorBy==='freq'?(()=>{ // Legende: Häufigkeit → Farbe, mit Anzahl im sichtbaren Ausschnitt
+      const cnt={};
+      dayTouren.forEach(({t,i})=>{ if(_apHiddenTours.has(i)) return; (t.objektIds||[]).forEach(id=>{ const o=byIdT[id]; if(!o) return; const b=_apBucketOfV(o,v); cnt[b]=(cnt[b]||0)+1; }); });
+      (v.unassigned||[]).filter(u=>allView||u.tag===_apDay).forEach(u=>{ const o=byIdT[u.id]; if(!o) return; const b=_apBucketOfV(o,v); cnt[b]=(cnt[b]||0)+1; });
+      const order=Object.keys(cnt).sort((a,b)=>{ const r=x=>x==='ohne'?99:(x==='lt1'?98:parseInt(x)); return r(a)-r(b); });
+      return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;font-size:11px;color:var(--text2);">
+        <span style="color:var(--text3);">Häufigkeit:</span>
+        ${order.map(b=>`<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:10px;height:10px;border-radius:50%;background:${_apFreqColor(b)};border:1px solid #fff;box-shadow:0 0 0 1px var(--border);"></span>${_apFreqShort(b)} <span style="color:var(--text3);">(${cnt[b]})</span></span>`).join('')}
+      </div>`; })():''}
     <div id="ap-map" style="height:440px;border-radius:10px;border:1px solid var(--border);"></div>`;
   setTimeout(()=>_apRenderMap(v),30);
 }
@@ -9695,18 +9716,28 @@ function _apRenderMap(v){
     pts.push([t.lat,t.lng]);
   };
   const allView=_apDay==='__all';
+  // Tage je Objekt (für den Tooltip: „Mo+Do") einmal vorberechnen
+  const objDays={};
+  (v.touren||[]).forEach(tr=>{ (tr.objektIds||[]).forEach(id=>{ (objDays[id]=objDays[id]||[]).push(tr.tag||'—'); }); });
+  const tipFor=(t,extra)=>{
+    const b=_apBucketOfV(t,v);
+    const tage=(objDays[t.id]||[]).sort((a,x)=>_AP_TAGE.indexOf(a)-_AP_TAGE.indexOf(x)).join('+');
+    return `${dlEsc(t.name||'Objekt')} · ${extra}<br>Häufigkeit: <b>${_apFreqShort(b)}</b>${tage?` · Tage: <b>${tage}</b>`:''}`;
+  };
   (v.touren||[]).forEach((tr,ti)=>{
     if(!(allView||(tr.tag||'—')===_apDay)) return;
     if(_apHiddenTours.has(ti)) return;
-    const col=_apTourColorFor(tr,ti,allView);
+    const tourCol=_apTourColorFor(tr,ti,allView);
     (tr.objektIds||[]).forEach(id=>{
       const t=byId[id]; if(!t||!t.lat||!t.lng) return;
-      addMarker(t,col,`${dlEsc(t.name||'Objekt')} · ${dlEsc(tr.name)}`);
+      const col=_apColorBy==='freq'?_apFreqColor(_apBucketOfV(t,v)):tourCol;
+      addMarker(t,col,tipFor(t,dlEsc(tr.name)));
     });
   });
   (v.unassigned||[]).filter(u=>allView||u.tag===_apDay).forEach(u=>{
     const t=byId[u.id]; if(!t||!t.lat||!t.lng) return;
-    addMarker(t,'#9ca3af',`${dlEsc(t.name||'Objekt')} · nicht eingeplant (${dlEsc(u.tag||'')})`);
+    const col=_apColorBy==='freq'?_apFreqColor(_apBucketOfV(t,v)):'#9ca3af';
+    addMarker(t,col,tipFor(t,`nicht eingeplant (${dlEsc(u.tag||'')})`));
   });
   const dep=v.params&&v.params.depot;
   if(dep&&dep.lat) L.circleMarker([dep.lat,dep.lng],{radius:8,color:'#fff',weight:2,fillColor:'#f59e0b',fillOpacity:1}).bindTooltip('Start/Ziel').addTo(grp);
@@ -13532,7 +13563,7 @@ Object.assign(window,{
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,setListMode,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,openObjFilterConfig,setObjFilterField,toggleTourCounts,toggleRouteNums,toggleVersatz,toggleTypeFilter,setTypeVisible,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
   openPilotScope,closePilot,pilotSetField,pilotAddValue,pilotRemoveValue,pilotToggleActive,pilotToggleShowAll,pilotSave,
-  apGenerate,apSelect,apDelete,apSetSolverUrl,apAssignSel,apClearSel,apRecalc,apSelectDay,apRahmenDay,apRahmenFreqDay,apSetSaison,apRahmenMode,apRahmenErlaubtDay,apToggleTourVis,apShowAllTours,
+  apGenerate,apSelect,apDelete,apSetSolverUrl,apAssignSel,apClearSel,apRecalc,apSelectDay,apRahmenDay,apRahmenFreqDay,apSetSaison,apRahmenMode,apRahmenErlaubtDay,apToggleTourVis,apShowAllTours,apColorBy,
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,saveOrgCode,dlToggleNoLogin,setDriverFunktion,setDriverEinsatz,dlDismissLoginRequest,dlFunktionAdd,dlFunktionRemove,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
