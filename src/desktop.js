@@ -7729,7 +7729,7 @@ async function renderUserMgmt(){
     </div>
     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:10px;">
       <input id="ur-new-email" class="form-control" type="email" placeholder="E-Mail" style="flex:1;min-width:150px;padding:5px 8px;font-size:12px;">
-      <input id="ur-new-pass" class="form-control" type="text" placeholder="Start-Passwort (min. 6)" style="width:170px;padding:5px 8px;font-size:12px;">
+      <input id="ur-new-pass" class="form-control" type="text" placeholder="Start-Passwort (min. 10)" style="width:170px;padding:5px 8px;font-size:12px;">
       <select id="ur-new-role" style="padding:5px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
         ${roleOptionsHtml('planer')}
       </select>
@@ -7765,13 +7765,13 @@ async function addOrgUser(){
   const password=(document.getElementById('ur-new-pass')?.value||'').trim();
   const newRole=document.getElementById('ur-new-role')?.value||'planer';
   if(!email){ notify('Bitte E-Mail eingeben'); return; }
-  if(password.length<6){ notify('Start-Passwort min. 6 Zeichen'); return; }
+  if(password.length<10){ notify('Start-Passwort min. 10 Zeichen'); return; }
   try{ await dlFnCall('createOrgUser',{email,password,newRole,orgId:userMgmtOrg}); notify('✓ Nutzer angelegt'); renderUserMgmt(); }
   catch(e){ notify(fnErr(e)); }
 }
 async function saveUserPass(uid){
   const password=(document.getElementById('ur-pass-'+uid)?.value||'').trim();
-  if(password.length<6){ notify('Passwort min. 6 Zeichen'); return; }
+  if(password.length<10){ notify('Passwort min. 10 Zeichen'); return; }
   try{ await dlFnCall('setUserPassword',{uid,password}); urPassEdit=null; notify('✓ Passwort gesetzt'); renderUserMgmt(); }
   catch(e){ notify(fnErr(e)); }
 }

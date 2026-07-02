@@ -342,7 +342,7 @@ exports.createOrgUser = onCall({ region: REGION }, async (req) => {
   if (!isSuper && targetOrg !== callerOrg) throw new HttpsError('permission-denied', 'Fremder Mandant');
   if (!newRole || (!isSuper && newRole === 'superadmin')) throw new HttpsError('permission-denied', 'Rolle nicht erlaubt');
   if (!email || !/.+@.+\..+/.test(String(email))) throw new HttpsError('invalid-argument', 'Gültige E-Mail erforderlich');
-  if (!password || String(password).length < 6) throw new HttpsError('invalid-argument', 'Passwort min. 6 Zeichen');
+  if (!password || String(password).length < 10) throw new HttpsError('invalid-argument', 'Passwort min. 10 Zeichen');
 
   let user;
   try {
@@ -352,7 +352,7 @@ exports.createOrgUser = onCall({ region: REGION }, async (req) => {
     });
   } catch (e) {
     if (e.code === 'auth/email-already-exists') throw new HttpsError('already-exists', 'E-Mail ist bereits vergeben');
-    if (e.code === 'auth/invalid-password') throw new HttpsError('invalid-argument', 'Passwort ungültig (min. 6 Zeichen)');
+    if (e.code === 'auth/invalid-password') throw new HttpsError('invalid-argument', 'Passwort ungültig (min. 10 Zeichen)');
     throw new HttpsError('internal', e.message || 'Konnte Nutzer nicht anlegen');
   }
   const cap = await capForRole(newRole, targetOrg);
@@ -368,7 +368,7 @@ exports.createOrgUser = onCall({ region: REGION }, async (req) => {
 exports.setUserPassword = onCall({ region: REGION }, async (req) => {
   const { role, callerOrg } = requireAdmin(req.auth);
   const { uid, password } = req.data || {};
-  if (!uid || !password || String(password).length < 6) throw new HttpsError('invalid-argument', 'uid + Passwort (min. 6) erforderlich');
+  if (!uid || !password || String(password).length < 10) throw new HttpsError('invalid-argument', 'uid + Passwort (min. 10) erforderlich');
   await assertSameOrg(role, callerOrg, uid);
   await admin.auth().updateUser(uid, { password: String(password) });
   return { ok: true };
