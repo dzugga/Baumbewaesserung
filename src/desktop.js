@@ -1702,10 +1702,28 @@ function applyObjFilter(){ renderList(); setMarkerVisibility(); _applyFlaechenFi
 function resetObjFilter(){ objFilter={stadtteil:'',art:'',pflanzjahr:'',zustand:'',wasser:'',status:''}; renderObjFilterUI(); applyObjFilter(); }
 function updateObjFilterCount(){
   const active=objFilterActive();
-  const fb=document.getElementById('btn-toggle-filter'); if(fb) fb.style.borderColor=active?'var(--green)':'var(--border)';
+  const fb=document.getElementById('btn-toggle-filter'); if(fb){ fb.style.background=active?'var(--green)':'var(--surface)'; fb.style.color=active?'#fff':'var(--text2)'; fb.style.borderColor=active?'var(--green)':'var(--border)'; }
+  renderMapStatus();
   const el=document.getElementById('obj-filter-count'); if(!el)return;
   const act=trees.filter(isActive);
   el.textContent = active? `${act.filter(objMatchesPropFilter).length}/${act.length}` : '';
+}
+// Sichtbare Status-Leiste auf der Karte: zeigt aktiven Eigenschaften-Filter und aktiven Kontroll-Modus
+// (blenden Objekte aus / färben um) mit Ein-Klick-Abschalten — damit der Anwender es sofort bemerkt.
+function renderMapStatus(){
+  const el=document.getElementById('map-status'); if(!el) return;
+  const _x='border:none;background:rgba(255,255,255,.28);color:#fff;width:18px;height:18px;border-radius:50%;cursor:pointer;font-size:12px;line-height:1;display:flex;align-items:center;justify-content:center;flex:none;';
+  const chip=(bg,svg,label,onclick)=>`<span style="display:inline-flex;align-items:center;gap:7px;background:${bg};color:#fff;border-radius:99px;padding:4px 6px 4px 12px;font-size:12px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.28);">${svg}${label} <button onclick="${onclick}" title="ausschalten" style="${_x}">✕</button></span>`;
+  const chips=[];
+  if(objFilterActive()){
+    const act=trees.filter(isActive), n=act.filter(objMatchesPropFilter).length;
+    chips.push(chip('var(--green)','<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>',`Filter aktiv · ${n}/${act.length} <span style="opacity:.85;font-weight:500;">${objFilterOnMap?'auf Karte':'nur Liste'}</span>`,'resetObjFilter()'));
+  }
+  if(_isCheckMode(_colorMode)){
+    chips.push(chip('var(--blue)','<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',`${dlEsc(CHECK_MODES[_colorMode].title)} aktiv`,"setColorMode('none')"));
+  }
+  el.innerHTML=chips.join('');
+  el.style.display=chips.length?'flex':'none';
 }
 function renderObjFilterUI(){
   const el=document.getElementById('obj-filter'); if(!el)return;
@@ -1739,7 +1757,7 @@ function renderObjFilterUI(){
   const wire={stadtteil:'of-stadtteil',art:'of-art',pflanzjahr:'of-pflanzjahr',zustand:'of-zustand',wasser:'of-wasser',status:'of-status'};
   Object.entries(wire).forEach(([k,id])=>{ const s=document.getElementById(id); if(s) s.onchange=()=>{ objFilter[k]=s.value; applyObjFilter(); renderObjFilterUI(); }; });
   customFields.forEach(c=>{ const s=document.getElementById('of-cf-'+c.key); if(s) s.onchange=()=>{ objFilter[c.key]=s.value; applyObjFilter(); renderObjFilterUI(); }; });
-  const mp=document.getElementById('of-map'); if(mp) mp.onchange=()=>{ objFilterOnMap=mp.checked; setMarkerVisibility(); _applyFlaechenFilterVisibility(); renderDrawnGeoms(); };
+  const mp=document.getElementById('of-map'); if(mp) mp.onchange=()=>{ objFilterOnMap=mp.checked; setMarkerVisibility(); _applyFlaechenFilterVisibility(); renderDrawnGeoms(); renderMapStatus(); };
   const rb=el.querySelector('[data-action="reset-objfilter"]'); if(rb) rb.onclick=()=>resetObjFilter();
   const fb=document.getElementById('btn-toggle-filter'); if(fb) fb.style.borderColor=active?'var(--green)':'var(--border)';
   updateObjFilterCount();
@@ -2004,7 +2022,7 @@ function setColorMode(mode){
   // Check-Modus: Clustering aus (Cluster würde die Status-Farbe verdecken); zurück: Projekt-Standard wiederherstellen.
   // applyClusterMode(...,true) schaltet die Ebene um UND zeichnet die Marker neu (einfärben).
   if(_isCheckMode(mode)||_isCheckMode(prev)) applyClusterMode(_effectiveCluster(), true);
-  _applyFlaechenSelection(); _renderRkLegend(); _updateCheckBtns();
+  _applyFlaechenSelection(); _renderRkLegend(); _updateCheckBtns(); renderMapStatus();
 }
 // ── „Darstellung"-Panel: Sichtbarkeit, Einfärben, Standard-Stile gebündelt ──
 const _CAT_LABEL={punkt:'Punkte',linie:'Strecken',flaeche:'Flächen',abschnitt:'Abschnitte'};
