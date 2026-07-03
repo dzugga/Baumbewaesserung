@@ -148,18 +148,41 @@ function getTreeTourIds(tree){
 // keine Routenberechnung, auf der Karte standardmäßig ausgeblendet.
 function isOverviewTour(tourId){ const t=tours.find(x=>x.id===tourId); return !!(t&&t.uebersicht); }
 // ── Tour-Rhythmus: läuft die Tour an einem Datum? ──
+// Modell: BETRIEBSTAGE (welche Wochentage) × WOCHEN-RHYTHMUS (jede / jede 2. / jede 4. Woche).
+// Ersetzt das mehrdeutige „täglich". Ohne Betriebstage ist eine Tour bewusst NICHT fällig und zählt 0.
+const _WD=[{n:1,l:'Mo'},{n:2,l:'Di'},{n:3,l:'Mi'},{n:4,l:'Do'},{n:5,l:'Fr'},{n:6,l:'Sa'},{n:0,l:'So'}]; // n = Date.getDay()
 function _daysBetween(a,b){ const [ay,am,ad]=a.split('-').map(Number),[by,bm,bd]=b.split('-').map(Number); return Math.round((Date.UTC(by,bm-1,bd)-Date.UTC(ay,am-1,ad))/86400000); }
 function _tourInValidity(t,date){ const g=t&&t.gueltig; if(!Array.isArray(g)||!g.length) return true; return g.some(p=>p&&p.from<=date&&p.to>=date); }
+// Betriebstage (getDay-Nummern). Abwärtskompatibel für Alt-Touren ohne das Feld:
+//  - Legacy „täglich" → alle 7 Tage;  - Legacy Wochen-Rhythmen mit Startdatum → dessen Wochentag.
+function _tourBetriebstage(t){
+  if(!t) return [];
+  if(Array.isArray(t.betriebstage)) return t.betriebstage;
+  if(t.interval==='taeglich') return [1,2,3,4,5,6,0];
+  if(t.startDate && (t.interval==='woechentlich'||t.interval==='14taeglich'||t.interval==='4woechentlich')){
+    const [Y,M,D]=t.startDate.split('-').map(Number); return [new Date(Y,M-1,D).getDay()];
+  }
+  return [];
+}
+function _weekFactor(iv){ return iv==='14taeglich'?0.5:iv==='4woechentlich'?0.25:iv==='bedarf'?0:1; } // jede/jede2./jede4. Woche
+// Kalenderwochen-Index (Mo-basiert) für die Wochen-Parität bei 2-/4-wöchentlichem Rhythmus.
+function _isoWeekIndex(dateStr){ const [Y,M,D]=dateStr.split('-').map(Number); const ms=Date.UTC(Y,M-1,D); const dow=(new Date(ms).getUTCDay()+6)%7; return Math.floor((ms-dow*86400000)/(7*86400000)); }
 function tourDueOn(t,date){
   if(!t || !_tourInValidity(t,date)) return false;
   if(t.saison && saisonFor(date)!==t.saison) return false; // Sommer-/Winter-Tour: nur in der passenden Saison fällig
   const iv=t.interval||'';
-  if(iv==='bedarf') return false;            // Bedarfstour: nie automatisch fällig
-  if(!iv||!t.startDate) return true;          // ohne Intervall/Startdatum: immer fällig (Bestand)
-  if(date<t.startDate) return false;
-  if(iv==='taeglich') return true;
-  const d=_daysBetween(t.startDate,date);
-  return iv==='woechentlich'?d%7===0:iv==='14taeglich'?d%14===0:iv==='4woechentlich'?d%28===0:true;
+  if(iv==='bedarf') return false;                          // Bedarfstour: nie automatisch fällig
+  const bt=_tourBetriebstage(t);
+  if(!bt.length) return false;                             // ohne Betriebstage → nicht fällig (bewusst)
+  const [Y,M,D]=date.split('-').map(Number);
+  if(!bt.includes(new Date(Y,M-1,D).getDay())) return false; // heute kein Betriebstag
+  if(t.startDate && date<t.startDate) return false;
+  if(iv==='14taeglich'||iv==='4woechentlich'){             // Wochen-Rhythmus ab Startdatum-Woche
+    if(!t.startDate) return true;
+    const wk=_isoWeekIndex(date)-_isoWeekIndex(t.startDate);
+    return iv==='14taeglich'?wk%2===0:wk%4===0;
+  }
+  return true;                                             // jede Woche (woechentlich / '' / legacy täglich)
 }
 function realTourIds(tree){ return getTreeTourIds(tree).filter(id=>!isOverviewTour(id)); } // ohne Übersichten
 function treeInTour(tree, tourId){
@@ -4802,7 +4825,10 @@ function openTourModal(id){
   renderTourRegeln();
   // Rhythmus & Gültigkeit
   document.getElementById('t-startdate').value=(t&&t.startDate)||'';
-  document.getElementById('t-interval').value=(t&&t.interval)||'';
+  // Legacy-Intervalle täglich/woechentlich auf den neuen Wochen-Rhythmus abbilden (= „jede Woche")
+  const _iv=(t&&t.interval)||''; document.getElementById('t-interval').value=(_iv==='14taeglich'||_iv==='4woechentlich'||_iv==='bedarf')?_iv:'';
+  window._tourBt = t ? [..._tourBetriebstage(t)] : [1,2,3,4,5]; // neue Tour: Mo–Fr vorbelegt
+  renderBetriebstage();
   window._tourGueltig=(t&&Array.isArray(t.gueltig)?t.gueltig:[]).map(g=>({from:g.from||'',to:g.to||''}));
   renderTourGueltigRows(); tourUpdWeekday();
   document.getElementById('tour-modal').classList.add('open');
@@ -4819,7 +4845,8 @@ async function saveTour(){
   const startDate=document.getElementById('t-startdate').value||'';
   const interval=document.getElementById('t-interval').value||'';
   const gueltig=(window._tourGueltig||[]).filter(g=>g.from&&g.to).map(g=>({from:g.from,to:g.to}));
-  const data={name,desc:document.getElementById('t-desc').value,color:selectedTourColor,zusatzzeiten,regeln:collectTourRegeln(),startDate,interval,gueltig,reinigungssystem:document.getElementById('t-system')?.value||''};
+  const betriebstage=_WD.map(w=>w.n).filter(n=>(window._tourBt||[]).includes(n)); // stabile Reihenfolge Mo→So
+  const data={name,desc:document.getElementById('t-desc').value,color:selectedTourColor,zusatzzeiten,regeln:collectTourRegeln(),startDate,interval,betriebstage,gueltig,reinigungssystem:document.getElementById('t-system')?.value||''};
   try{
     if(editingTourId){
       data.arbeitszeitMin=arbeitszeitMin>0?arbeitszeitMin:firebase.firestore.FieldValue.delete();
@@ -4840,6 +4867,19 @@ function _wdName(date){ if(!date) return ''; const [Y,M,D]=date.split('-').map(N
 function _todayStr(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function tourUpdWeekday(){ const el=document.getElementById('t-weekday'); const sd=document.getElementById('t-startdate')?.value; if(el) el.textContent=sd?_wdName(sd):''; tourRenderPreview(); }
 function tourRhythmusUI(){ tourRenderPreview(); }
+// Betriebstage-Ankreuzfelder rendern + umschalten
+function renderBetriebstage(){
+  const el=document.getElementById('t-betriebstage'); if(!el) return;
+  const sel=window._tourBt||[];
+  el.innerHTML=_WD.map(w=>{ const on=sel.includes(w.n);
+    return `<span onclick="tourToggleBetriebstag(${w.n})" style="cursor:pointer;user-select:none;font-size:12px;font-weight:600;padding:5px 11px;border-radius:7px;border:1px solid ${on?'var(--green)':'var(--border)'};background:${on?'var(--green-light)':'var(--surface)'};color:${on?'#065f46':'var(--text3)'};">${w.l}</span>`; }).join('');
+}
+function tourToggleBetriebstag(n){
+  window._tourBt=window._tourBt||[];
+  const i=window._tourBt.indexOf(n);
+  if(i>=0) window._tourBt.splice(i,1); else window._tourBt.push(n);
+  renderBetriebstage(); tourRenderPreview();
+}
 function tourGueltigAdd(from,to){ window._tourGueltig=window._tourGueltig||[]; window._tourGueltig.push({from:from||'',to:to||''}); renderTourGueltigRows(); }
 function tourGueltigDel(i){ if(window._tourGueltig) window._tourGueltig.splice(i,1); renderTourGueltigRows(); }
 function tourGueltigSet(i,field,val){ if(window._tourGueltig&&window._tourGueltig[i]){ window._tourGueltig[i][field]=val; tourRenderPreview(); } }
@@ -4858,15 +4898,18 @@ function tourRenderPreview(){
   const el=document.getElementById('t-termin-preview'); if(!el) return;
   const iv=document.getElementById('t-interval')?.value||'';
   const sd=document.getElementById('t-startdate')?.value||'';
+  const bt=window._tourBt||[];
   if(iv==='bedarf'){ el.innerHTML='<b>Bedarfstour</b> — kein fester Rhythmus; im Einsatzplaner über „Bedarf" einplanbar.'; return; }
-  if(!iv){ el.textContent='Ohne Intervall: läuft an jedem Tag (Bestand).'; return; }
-  if(!sd){ el.innerHTML='<span style="color:#b45309;">Bitte Startdatum setzen — bestimmt Wochentag und Rhythmus.</span>'; return; }
-  const tmp={interval:iv, startDate:sd, gueltig:(window._tourGueltig||[]).filter(g=>g.from&&g.to)};
-  const today=_todayStr(); const startAt=sd>today?sd:today;
+  if(!bt.length){ el.innerHTML='<span style="color:#b45309;">Keine Betriebstage gewählt — die Tour ist nicht fällig und zählt 0×/Woche.</span>'; return; }
+  const occ=bt.length*_weekFactor(iv);
+  const occTxt = occ===Math.round(occ)?occ+'×/Woche':occ.toFixed(2).replace(/0$/,'')+'×/Woche';
+  if((iv==='14taeglich'||iv==='4woechentlich') && !sd){ el.innerHTML='<span style="color:#b45309;">Bitte Startdatum setzen — bestimmt, in welchen Wochen die Tour fährt.</span>'; return; }
+  const tmp={interval:iv, startDate:sd, betriebstage:bt, gueltig:(window._tourGueltig||[]).filter(g=>g.from&&g.to)};
+  const today=_todayStr(); const startAt=(sd&&sd>today)?sd:today;
   let [Y,M,D]=startAt.split('-').map(Number); let dt=new Date(Y,M-1,D);
   const out=[]; let guard=0;
   while(out.length<5 && guard<732){ const ds=dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'); if(tourDueOn(tmp,ds)) out.push(ds); dt.setDate(dt.getDate()+1); guard++; }
-  el.innerHTML='Nächste Einsätze: '+(out.length?out.map(d=>{ const [,m,da]=d.split('-'); return _wdName(d).slice(0,2)+' '+da+'.'+m+'.'; }).join(' · '):'<span style="color:#b45309;">keine im Gültigkeitszeitraum</span>');
+  el.innerHTML=`<b>${occTxt}</b> · Nächste Einsätze: `+(out.length?out.map(d=>{ const [,m,da]=d.split('-'); return _wdName(d).slice(0,2)+' '+da+'.'+m+'.'; }).join(' · '):'<span style="color:#b45309;">keine im Gültigkeitszeitraum</span>');
 }
 
 // Übersichten im Touren-Reiter ein-/ausblenden
@@ -9088,13 +9131,10 @@ function renderSollDatenlage(mountId, list, saison){
 function _tourWeeklyOcc(tour,saison){
   if(!tour || isOverviewTour(tour.id)) return 0;
   if(tour.saison && tour.saison!==saison) return 0;   // Saison-Tour zählt nur in ihrer Saison
-  const iv=tour.interval||'';
-  if(iv==='bedarf') return 0;
-  if(iv==='taeglich') return 5;         // Mo–Fr
-  if(iv==='woechentlich') return 1;
-  if(iv==='14taeglich') return 0.5;
-  if(iv==='4woechentlich') return 0.25;
-  return 1;                              // kein Intervall / Bestandstour = 1×/Woche
+  if(tour.interval==='bedarf') return 0;
+  const bt=_tourBetriebstage(tour);
+  if(!bt.length) return 0;                            // ohne Betriebstage → 0 (bewusst; s. tourDueOn)
+  return bt.length*_weekFactor(tour.interval||'');    // z. B. Mo+Do jede 2. Woche = 2 × 0,5 = 1×/Woche
 }
 function _seasonDayCounts(from,to){
   let s=0,w=0,guard=0; const end=new Date(to+'T00:00:00');
@@ -11656,7 +11696,7 @@ function _epFmtDate(dt){ return dt.getFullYear()+'-'+String(dt.getMonth()+1).pad
 function _epMondayOf(date){ const [Y,M,D]=date.split('-').map(Number); const dt=new Date(Y,M-1,D); const wd=dt.getDay(); dt.setDate(dt.getDate()+(wd===0?-6:1-wd)); return _epFmtDate(dt); }
 function _epAddDays(date,n){ const [Y,M,D]=date.split('-').map(Number); const dt=new Date(Y,M-1,D); dt.setDate(dt.getDate()+n); return _epFmtDate(dt); }
 function _epIsoWeek(date){ const [Y,M,D]=date.split('-').map(Number); const dt=new Date(Date.UTC(Y,M-1,D)); const day=dt.getUTCDay()||7; dt.setUTCDate(dt.getUTCDate()+4-day); const ys=new Date(Date.UTC(dt.getUTCFullYear(),0,1)); return Math.ceil((((dt-ys)/86400000)+1)/7); }
-function _epIntervalLabel(t){ const iv=(t&&t.interval)||''; if(iv==='bedarf') return 'nur bei Bedarf'; if(!iv) return 'immer (Bestand)'; const base={taeglich:'täglich',woechentlich:'wöchentlich','14taeglich':'14-täglich','4woechentlich':'4-wöchentlich'}[iv]||iv; return (iv!=='taeglich'&&t.startDate)?base+' ('+_epWdLetter(t.startDate)+')':base; }
+function _epIntervalLabel(t){ const iv=(t&&t.interval)||''; if(iv==='bedarf') return 'nur bei Bedarf'; const bt=_tourBetriebstage(t); if(!bt.length) return 'keine Betriebstage'; const tage=_WD.filter(w=>bt.includes(w.n)).map(w=>w.l).join(' '); const rhythm=iv==='14taeglich'?' · jede 2. Woche':iv==='4woechentlich'?' · jede 4. Woche':''; return tage+rhythm; }
 function epWeekShift(d){ _epWeekMon=_epAddDays(_epWeekMon||_epMondayOf(_epDate||_epToday()),7*(d|0)); renderEp(); }
 function epWeekThis(){ _epWeekMon=_epMondayOf(_epToday()); renderEp(); }
 function epWeekToggleEmpty(){ _epWeekHideEmpty=!_epWeekHideEmpty; renderEp(); }
@@ -13789,7 +13829,7 @@ Object.assign(window,{
   openAddTree,openEditTree,closeTreeModal,saveTree,deleteTree,
   archiveTree,reactivateTree,archiveTreeFromModal,reactivateTreeFromModal,deleteTreeFromModal,toggleShowInactive,showTreeOnMapFromModal,bulkSetInactive,bulkDelete,
   openTourModal,closeTourModal,saveTour,deleteTour,toggleTourUebersicht,toggleOverviewInGrid,filterTourenGrid,showTourViolations,
-  tourZusatzAdd,tourZusatzDel,tourRegelToggle,tourUpdWeekday,tourRhythmusUI,tourGueltigAdd,tourGueltigDel,tourGueltigSet,_sx,_sxClear,
+  tourZusatzAdd,tourZusatzDel,tourRegelToggle,tourUpdWeekday,tourRhythmusUI,tourToggleBetriebstag,tourGueltigAdd,tourGueltigDel,tourGueltigSet,_sx,_sxClear,
   openTourReport,closeReportModal,repAddCol,repRemoveCol,repMoveCol,repApplyFromControls,
   printReport,exportReportExcel,saveReportTemplate,loadReportTemplate,printTourMap,
   openOrderEditor,repOrderMove,closeOrderEditor,saveManualOrder,
