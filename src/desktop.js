@@ -4141,8 +4141,9 @@ async function saveTree(){
     wasser:document.getElementById('f-wasser').value,
     zustand:document.getElementById('f-zustand').value,
     datum:document.getElementById('f-datum').value,
-    tourId:document.getElementById('f-tour').value,
-    tourIds:document.getElementById('f-tour').value?[document.getElementById('f-tour').value]:[],
+    // tourId/tourIds bewusst NICHT hier schreiben: das Feld ist ausgeblendet und trägt nur die
+    // erste Tour → Speichern würde Mehrfach-Touren und Übersichts-Zugehörigkeit kappen.
+    // Tour-Zuordnung läuft ausschließlich über die Planung (Lasso/Zuweisen).
     notiz:document.getElementById('f-notiz').value,
     klasse:document.getElementById('f-klasse')?.value||'',
   };
@@ -4162,6 +4163,7 @@ async function saveTree(){
       await addDoc(collection(db,'projects',currentProjectId,'trees'),{
         ...data,
         baumId, // eindeutige fortlaufende ID z.B. B-00042
+        tourIds:[], tourId:'', // neues Objekt startet unverplant
         history:[],
         createdAt:serverTimestamp()
       });
@@ -4643,13 +4645,14 @@ async function assignTreeToTour(treeId,tourId,skipConflictCheck=false){
       if(r!=='all') return; // Einzelobjekt: nur „Trotzdem zuweisen" fährt fort
     }
   }
-  // Bereits anderen Tour(en) zugeordnet → Hinweisdialog
-  const otherIds=currentIds.filter(id=>id!==tourId);
+  // Bereits anderen ECHTEN Tour(en) zugeordnet → Hinweisdialog (Übersichten zählen nicht als Konflikt)
+  const uebersichten=currentIds.filter(id=>isOverviewTour(id));
+  const otherIds=currentIds.filter(id=>id!==tourId && !isOverviewTour(id));
   if(otherIds.length>0 && !skipConflictCheck){
     const choice=await showTourConflictDialog(tree, tour, otherIds);
     if(choice==='cancel') return;
     if(choice==='move'){
-      await setTreeTourIds(treeId, [tourId]); // aus bisherigen Touren entfernen
+      await setTreeTourIds(treeId, [tourId, ...uebersichten]); // aus echten Touren raus, Übersichten bleiben
       notify(`${tree.name} → ${tour?.name||'Tour'} (aus bisheriger Tour entfernt)`);
       routeCache={}; rebuildAssignPills();
       return;
@@ -8600,8 +8603,11 @@ async function doImport(){
     const projSnap=await getDoc(projRef);
     let counter=projSnap.data()?.lastBaumId||0;
     const colRef=collection(db,'projects',currentProjectId,'trees');
-    // Bestehende Objekt-IDs → Dok-ID (für Re-Import als Update aus dem Export-Kreislauf)
-    const byBaumId=new Map(trees.filter(t=>t.baumId).map(t=>[t.baumId,t.id]));
+    // Bestehende Objekt-IDs → Objekt (für Re-Import als Update aus dem Export-Kreislauf).
+    // GESAMTBESTAND (_allTrees), nicht die Pilot-Arbeitsmenge — sonst legt ein Re-Import für
+    // Objekte außerhalb des Pilot-Ausschnitts Dubletten an.
+    const _impSrc=(_allTrees&&_allTrees.length)?_allTrees:trees;
+    const byBaumId=new Map(_impSrc.filter(t=>t.baumId).map(t=>[t.baumId,t]));
     const CH=450; // Firestore-Batch-Limit ist 500
     for(let i=0;i<_importRows.length;i+=CH){
       const batch=db.batch();
@@ -8614,10 +8620,15 @@ async function doImport(){
           wasser:r.wasser||'mittel', zustand:r.zustand||'mittel',
         };
         customFields.forEach(c=>{ if(r[c.key]!=null) fields[c.key]=r[c.key]; });
-        // Tour-Zuordnung aus ja/nein-Tag-Spalten (nur wenn Tour-Spalten vorhanden waren)
-        if(Array.isArray(r.tourIds)){ fields.tourIds=r.tourIds; fields.tourId=r.tourIds[0]||''; }
-        const existId = r.baumId && byBaumId.get(r.baumId);
-        if(existId){ batch.update(colRef.doc(existId), fields); updated++; }
+        const exist = r.baumId && byBaumId.get(r.baumId);
+        // Tour-Zuordnung aus ja/nein-Tag-Spalten (nur wenn Tour-Spalten vorhanden waren).
+        // Übersichts-Zugehörigkeit des Bestandsobjekts bleibt erhalten (steht nie in den Import-Spalten).
+        if(Array.isArray(r.tourIds)){
+          const ueb = exist ? getTreeTourIds(exist).filter(id=>isOverviewTour(id)) : [];
+          const merged=[...new Set([...r.tourIds, ...ueb])];
+          fields.tourIds=merged; fields.tourId=merged[0]||'';
+        }
+        if(exist){ batch.update(colRef.doc(exist.id), fields); updated++; }
         else {
           counter++;
           batch.set(colRef.doc(),{
