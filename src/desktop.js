@@ -5705,9 +5705,17 @@ function filterBaeumeTable(q){
   renderBaeumeTableWith(filtered);
 }
 
-function renderBaeumeTable(){
-  // Abschnitt-Container sind keine Objekte → nicht in der Objekt-Tabelle führen
+// Objekt-Basis der Tabelle: Arbeitsmenge (ggf. Pilot-gefiltert) PLUS alle Inaktiven aus dem
+// Gesamtbestand — sonst wären Archiv-Objekte außerhalb des Pilot-Ausschnitts über
+// „Inaktive zeigen" unsichtbar, obwohl „Archiv bereinigen" sie zählt.
+function _baeumeBase(){
   const base=trees.filter(t=>!_isContainer(t));
+  const have=new Set(base.map(t=>t.id));
+  (_allTrees||[]).forEach(t=>{ if(!isActive(t)&&!_isContainer(t)&&!have.has(t.id)) base.push(t); });
+  return base;
+}
+function renderBaeumeTable(){
+  const base=_baeumeBase();
   _baeumeAllTrees = [...base]; // cache all (Objekt-)trees
   document.getElementById('baeume-search-count').textContent = '';
   renderBaeumeTableWith(_baeumeShowInactive ? base : base.filter(isActive));
@@ -5769,7 +5777,7 @@ async function stripIdsFromRoutes(ids){
 }
 function _bulkRefresh(){
   _suppressTreeRender=false; _pendingTreeRender=false;
-  _baeumeAllTrees=[...trees];
+  _baeumeAllTrees=_baeumeBase();
   refreshMarkers(); renderList();
   filterBaeumeTable(document.getElementById('baeume-search')?.value||'');
   setSyncState('ok','Synchronisiert');
