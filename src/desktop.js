@@ -4199,6 +4199,42 @@ async function removeTreeFromRoutes(treeId){
   routeCache={};
 }
 
+// Gelöschte Objekt-IDs aus den Artefakten der Auto-Planung entfernen: Varianten-Touren/unassigned
+// (mit Neuberechnung der Zähl-KPIs) und die persistierten Fixierungen am Projekt-Doc. Sonst zeigen
+// Varianten „Phantom-Objekte" und der Fixierungs-Zähler tote Einträge.
+async function _stripIdsFromPlanArtifacts(ids){
+  const set=new Set(ids); if(!set.size) return;
+  try{
+    const snap=await getDocs(collection(db,'projects',currentProjectId,'planVarianten'));
+    for(const d of snap.docs){
+      const v=d.data()||{}; let changed=false;
+      const touren=(v.touren||[]).map(t=>{
+        const keep=(t.objektIds||[]).filter(x=>!set.has(x));
+        if(keep.length!==(t.objektIds||[]).length) changed=true;
+        return {...t, objektIds:keep};
+      });
+      const unassigned=(v.unassigned||[]).filter(u=>!set.has(u&&u.id));
+      if(unassigned.length!==(v.unassigned||[]).length) changed=true;
+      if(changed){
+        const kpi={...(v.kpi||{})};
+        kpi.objekte=touren.reduce((s,t)=>s+(t.objektIds||[]).length,0);
+        kpi.unassigned=unassigned.length;
+        kpi.fzg=touren.filter(t=>(t.objektIds||[]).length).length;
+        await updateDoc(doc(db,'projects',currentProjectId,'planVarianten',d.id),{touren,unassigned,kpi});
+      }
+    }
+  }catch(e){ console.warn('_stripIdsFromPlanArtifacts planVarianten',e); }
+  // Fixierungen am Projekt-Doc säubern
+  try{
+    const r=currentProjectData&&currentProjectData.autoplanRahmen;
+    if(r&&Array.isArray(r.locks)&&r.locks.some(l=>l&&set.has(l.id))){
+      r.locks=r.locks.filter(l=>l&&!set.has(l.id));
+      await updateDoc(doc(db,'projects',currentProjectId),{autoplanRahmen:r});
+      if(_apRahmen&&Array.isArray(_apRahmen.locks)) _apRahmen.locks=_apRahmen.locks.filter(l=>l&&!set.has(l.id));
+    }
+  }catch(e){ console.warn('_stripIdsFromPlanArtifacts locks',e); }
+}
+
 // Hat der Baum eine Bewässerungs-Historie (eigene history[] oder tourHistory-Treffer)?
 async function treeHasHistory(tree){
   if((tree.history||[]).length>0) return true;
@@ -4251,6 +4287,7 @@ async function deleteTree(id){
   setSyncState('syncing','Löscht…');
   try{
     await removeTreeFromRoutes(id);
+    await _stripIdsFromPlanArtifacts([id]); // aus Auto-Planungs-Varianten + Fixierungen entfernen
     await deleteDoc(doc(db,'projects',currentProjectId,'trees',id));
     closePanel(); closeTreeModal(); notify('Objekt gelöscht');
   }catch(e){ notify('Fehler: '+e.message); }
@@ -5774,6 +5811,7 @@ async function archivBereinigen(){
       setSyncState('syncing',`Bereinigt… ${Math.min(i+400,ids.length)}/${ids.length}`);
     }
     await stripIdsFromRoutes(ids);
+    await _stripIdsFromPlanArtifacts(ids); // Auto-Planungs-Varianten + Fixierungen von gelöschten Objekten säubern
     notify(`✓ Archiv bereinigt — ${ids.length} inaktive Objekte endgültig gelöscht`);
   }catch(e){ console.warn('archivBereinigen',e); setSyncState('error','Fehler'); notify('⚠ Fehlgeschlagen: '+(e.message||e)); }
   finally{ _bulkRefresh(); }
@@ -5856,6 +5894,7 @@ async function bulkDelete(){
       await batch.commit(); _bumpUsage('writes',chunk.length);
     }
     await stripIdsFromRoutes([...toDelete,...toArchive]);
+    await _stripIdsFromPlanArtifacts(toDelete); // nur die endgültig Gelöschten aus Varianten/Fixierungen entfernen
     notify(`✓ ${toDelete.length} gelöscht, ${toArchive.length} wegen Historie archiviert`);
   }catch(e){ console.warn('bulkDelete',e); setSyncState('error','Fehler'); notify('⚠ Fehlgeschlagen: '+(e.message||e)); }
   finally{ _bulkRefresh(); }
@@ -11196,8 +11235,10 @@ function dashBuildReported(){
         if(!tree.lastStatus||tree.lastStatus==='offen')return;
         const live=liveById.get(tree.id); if(!live)return;
         const at=tree.lastReportAt||h.date;
+        const key=(tree.id||'')+'|'+dashDayStr(at);
+        if(seen.has(key))return;   // Objekt in mehreren Touren → mehrere Snapshots am selben Tag NICHT doppelt zählen
         out.push({...live,lastStatus:tree.lastStatus,lastReason:tree.lastReason||null,lastNote:tree.lastNote||null,lastDriver:tree.lastDriver||null,lastReportAt:at,_tourId:h.tourId});
-        seen.add((tree.id||'')+'|'+dashDayStr(at));
+        seen.add(key);
       });
     });
   } else {
@@ -12272,7 +12313,9 @@ function dispoLoadReal(){
     let rate=rateById[t.id];
     if(rate==null){ const a=(t.art||'').trim(); rate=(artAvg[a]!=null?artAvg[a]:globalAvg); }
     rate=Math.max(1, Math.min(60, rate));
-    const base=(typeof t.lastFuellgrad==='number')?t.lastFuellgrad:0;
+    // Nach einer LEERUNG (letzte Meldung 'bewaessert') ist der Behälter leer → Prognose ab 0.
+    // Nur wenn zuletzt NICHT geleert wurde (z. B. „nicht erledigt"), zählt der gemeldete Füllstand weiter.
+    const base=(t.lastStatus==='bewaessert')?0:((typeof t.lastFuellgrad==='number')?t.lastFuellgrad:0);
     const last=_dispoLastDate(t);
     const days=last?Math.max(0,(now-last.getTime())/86400000):0;
     const fuell=Math.max(0, Math.min(130, Math.round(base + rate*days)));

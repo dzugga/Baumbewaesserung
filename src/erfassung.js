@@ -615,7 +615,9 @@ function watchTrees(pid){
       // Optimistische lokale Writes ignorieren: die Save-Logik (waitForPendingWrites +
       // applyCoordLocally) steuert die Liste selbst — „Baum bleibt bis Server-Bestätigung".
       if (!first && snap.metadata.hasPendingWrites) return;
-      allTrees = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // Archivierte Objekte (aktiv===false) ausblenden — sie sind außer Dienst und dürfen nicht
+      // wieder Koordinaten/Fotos erhalten (sonst „Wiederbelebung" gelöschter/inaktiver Objekte).
+      allTrees = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(t => t.aktiv !== false);
       treesOhneKoords = allTrees.filter(t => !t.lat || !t.lng);
       cacheTreesLocal(pid, currentErfasser, allTrees);
       if (first) { first = false; resolve(); }
@@ -637,7 +639,7 @@ async function startErfassung(pid){
     // Erster Login offline ohne Firestore-Cache → localStorage-Fallback
     const cached = loadCachedTrees(pid, currentErfasser);
     if (cached && cached.length) {
-      allTrees = cached;
+      allTrees = cached.filter(t => t.aktiv !== false);
       treesOhneKoords = allTrees.filter(t => !t.lat || !t.lng);
       toast('📦 Offline — lokale Daten geladen');
     }
