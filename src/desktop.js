@@ -8,6 +8,17 @@ import { initAppCheck } from './appcheck.js';
 import { basemapLayer, BASEMAP_FARBE, BASEMAP_GRAU, BASEMAP_ATTR } from './basemaps.js';
 import { firebaseConfig } from './firebase-config.js';
 import { esc as dlEsc } from './esc.js'; // dlEsc = projektweites HTML-Escape (zentral in esc.js)
+// Escaper für Zeichenketten, die als JS-String-Argument in einem Inline-Handler stehen
+// (Handler-Attribut ruft eine Funktion mit einfach-quotiertem Argument auf). dlEsc allein genügt
+// NICHT: der HTML-Parser dekodiert &#39; im Attribut zurück zu ' → die Zeichenkette bricht aus dem
+// JS-String aus (Code-Injection durch DB-Werte mit Apostroph). Hier zusätzlich JS-Escape (\\ \' \n).
+// Kontext: doppelt-quotiertes Attribut, JS-String single-quoted.
+function _jsArg(s){
+  return String(s==null?'':s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\r?\n/g,'\\n')
+    .replace(/"/g,'&quot;');
+}
 import { titelOf as orTitel, ELEM_GRUPPE_ORDER, ELEM_GRUPPE_LABEL, haeufigkeitOf as orHaeuf, objektartOf as orObjektart, lageOf as orLage } from './objektrollen.js'; // zentrale Rollen (Objekt + Lage, Reinigungs-Häufigkeit)
 import { initVersionCheck } from './version-check.js';
 initVersionCheck();   // erkennt neue Deploys während die App offen ist → „Neu laden"-Banner
@@ -3860,7 +3871,7 @@ function renderModalMedia(treeId){
   el.innerHTML=`
     <div class="form-section">Fotos${fotos.length?` (${fotos.length})`:''}</div>
     ${fotos.length
-      ?`<div style="display:flex;gap:8px;flex-wrap:wrap;padding:2px 0 6px;">${fotos.map((f,i)=>`<img src="${f.u}" loading="lazy" onclick="openFoto('${dlEsc(treeId)}',${i})" title="Foto ansehen" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--border);cursor:pointer;">`).join('')}</div>`
+      ?`<div style="display:flex;gap:8px;flex-wrap:wrap;padding:2px 0 6px;">${fotos.map((f,i)=>`<img src="${f.u}" loading="lazy" onclick="openFoto('${_jsArg(treeId)}',${i})" title="Foto ansehen" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--border);cursor:pointer;">`).join('')}</div>`
       :'<div style="font-size:11px;color:var(--text3);padding:2px 0 6px;">Keine Fotos vorhanden (Aufnahme über die Erfassungs-App).</div>'}
     <div class="form-section">Dokumente${docs.length?` (${docs.length})`:''}</div>
     <div style="display:flex;flex-direction:column;gap:5px;padding:2px 0 4px;">
@@ -3868,11 +3879,11 @@ function renderModalMedia(treeId){
         <span style="flex-shrink:0;">${d.typ==='link'?'🔗':docIcon(d.name)}</span>
         <a href="${dlEsc(d.u)}" target="_blank" rel="noopener" title="${dlEsc(d.name||'')}" style="flex:1;min-width:0;font-size:12px;font-weight:600;color:var(--text);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(d.name||'Dokument')}</a>
         ${d.size?`<span style="font-size:10px;color:var(--text3);flex-shrink:0;">${fmtBytes(d.size)}</span>`:''}
-        ${isReadonly()?'':`<button type="button" onclick="docDelete('${dlEsc(treeId)}',${i})" title="Entfernen" style="border:none;background:none;cursor:pointer;color:var(--red);font-size:15px;line-height:1;padding:0 2px;flex-shrink:0;">×</button>`}
+        ${isReadonly()?'':`<button type="button" onclick="docDelete('${_jsArg(treeId)}',${i})" title="Entfernen" style="border:none;background:none;cursor:pointer;color:var(--red);font-size:15px;line-height:1;padding:0 2px;flex-shrink:0;">×</button>`}
       </div>`).join('')}
       ${isReadonly()?(docs.length?'':'<div style="font-size:11px;color:var(--text3);">Keine Dokumente.</div>'):`<div style="display:flex;gap:6px;">
-        <button type="button" class="btn btn-secondary" style="flex:1;padding:6px;font-size:12px;" onclick="docUploadStart('${dlEsc(treeId)}')">📎 Datei hochladen</button>
-        <button type="button" class="btn btn-secondary" style="flex:1;padding:6px;font-size:12px;" onclick="docAddLink('${dlEsc(treeId)}')">🔗 Link hinzufügen</button>
+        <button type="button" class="btn btn-secondary" style="flex:1;padding:6px;font-size:12px;" onclick="docUploadStart('${_jsArg(treeId)}')">📎 Datei hochladen</button>
+        <button type="button" class="btn btn-secondary" style="flex:1;padding:6px;font-size:12px;" onclick="docAddLink('${_jsArg(treeId)}')">🔗 Link hinzufügen</button>
       </div>`}
     </div>`;
 }
@@ -4700,7 +4711,7 @@ function renderTourRegeln(){
     if(sel.length) activeCount++;
     const chips=opts.map((o,oi)=>{
       const on=sel.includes(o.val);
-      return `<button type="button" onclick="tourRegelToggle('${dlEsc(def.key)}',${oi})" style="padding:3px 9px;font-size:11px;border-radius:12px;cursor:pointer;border:1px solid ${on?'var(--green-mid)':'var(--border)'};background:${on?'var(--green-light)':'var(--bg)'};color:${on?'var(--green-strong,#15803d)':'var(--text2)'};font-family:inherit;">${o.color?`<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${o.color};margin-right:4px;vertical-align:middle;"></span>`:''}${dlEsc(o.label)}</button>`;
+      return `<button type="button" onclick="tourRegelToggle('${_jsArg(def.key)}',${oi})" style="padding:3px 9px;font-size:11px;border-radius:12px;cursor:pointer;border:1px solid ${on?'var(--green-mid)':'var(--border)'};background:${on?'var(--green-light)':'var(--bg)'};color:${on?'var(--green-strong,#15803d)':'var(--text2)'};font-family:inherit;">${o.color?`<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${o.color};margin-right:4px;vertical-align:middle;"></span>`:''}${dlEsc(o.label)}</button>`;
     }).join('');
     return `<div><div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:3px;">${dlEsc(def.label)} ${sel.length?`<span style="color:var(--text3);font-weight:400;">(${sel.length} erlaubt)</span>`:'<span style="color:var(--text3);font-weight:400;">– alle erlaubt</span>'}</div><div style="display:flex;flex-wrap:wrap;gap:4px;">${chips}</div></div>`;
   }).join('')||'<div style="font-size:11px;color:var(--text3);">Keine Listenfelder mit Werten vorhanden.</div>';
@@ -5404,7 +5415,7 @@ function _nmAudienceDetail(){
   }
   if(_nmAudience==='drivers'){
     if(!_nmDrivers.length) return '<div style="margin-top:8px;font-size:12px;color:var(--text3);">Keine login-fähigen Fahrer in diesem Mandanten.</div>';
-    return '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;max-width:520px;">'+_nmDrivers.map(d=>`<label style="display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border);border-radius:20px;padding:4px 10px;font-size:12px;cursor:pointer;"><input type="checkbox" ${_nmSel.has(d.id)?'checked':''} onchange="nmToggleSel('${dlEsc(d.id)}')" style="margin:0;">${dlEsc(d.name)}</label>`).join('')+'</div>';
+    return '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;max-width:520px;">'+_nmDrivers.map(d=>`<label style="display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border);border-radius:20px;padding:4px 10px;font-size:12px;cursor:pointer;"><input type="checkbox" ${_nmSel.has(d.id)?'checked':''} onchange="nmToggleSel('${_jsArg(d.id)}')" style="margin:0;">${dlEsc(d.name)}</label>`).join('')+'</div>';
   }
   if(_nmAudience==='toursOfDay'){
     const due=tours.filter(t=>!t.uebersicht && tourDueOn(t,_todayStr()));
@@ -5983,14 +5994,14 @@ function renderArtenList(){
     const c=byId[a.id]||0;
     return `<tr style="border-top:1px solid var(--border);">
       <td style="padding:4px 8px 4px 12px;width:46px;">
-        <button type="button" ${ro?'disabled':`onclick="artSetIcon('${dlEsc(a.id)}')"`} title="${a.icon?'Eigenes Symbol — ändern':'Projekt-Standard — eigenes Symbol setzen'}" style="width:32px;height:32px;font-size:16px;padding:0;border:1.5px solid ${a.icon?'var(--green-mid)':'var(--border)'};border-radius:8px;background:${a.icon?'var(--green-light)':'var(--bg)'};cursor:${ro?'default':'pointer'};${a.icon?'':'opacity:.55;'}">${a.icon||projIcon()}</button>
+        <button type="button" ${ro?'disabled':`onclick="artSetIcon('${_jsArg(a.id)}')"`} title="${a.icon?'Eigenes Symbol — ändern':'Projekt-Standard — eigenes Symbol setzen'}" style="width:32px;height:32px;font-size:16px;padding:0;border:1.5px solid ${a.icon?'var(--green-mid)':'var(--border)'};border-radius:8px;background:${a.icon?'var(--green-light)':'var(--bg)'};cursor:${ro?'default':'pointer'};${a.icon?'':'opacity:.55;'}">${a.icon||projIcon()}</button>
       </td>
       <td style="padding:7px 12px;font-weight:500;">${dlEsc(a.name)}</td>
-      ${showKl?`<td style="padding:7px 12px;">${ro?dlEsc(objektklassen.find(k=>k.id===a.klasse)?.name||'alle'):`<select onchange="artSetKlasse('${dlEsc(a.id)}',this.value)" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;max-width:140px;"><option value="">alle Klassen</option>${objektklassen.map(k=>`<option value="${dlEsc(k.id)}"${a.klasse===k.id?' selected':''}>${dlEsc(k.name)}</option>`).join('')}</select>`}</td>`:''}
+      ${showKl?`<td style="padding:7px 12px;">${ro?dlEsc(objektklassen.find(k=>k.id===a.klasse)?.name||'alle'):`<select onchange="artSetKlasse('${_jsArg(a.id)}',this.value)" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;max-width:140px;"><option value="">alle Klassen</option>${objektklassen.map(k=>`<option value="${dlEsc(k.id)}"${a.klasse===k.id?' selected':''}>${dlEsc(k.name)}</option>`).join('')}</select>`}</td>`:''}
       <td style="padding:7px 12px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text2);">${c}</td>
       <td style="padding:4px 12px;text-align:right;white-space:nowrap;">${ro
         ?(typeof a.zeitaufwand==='number'&&a.zeitaufwand>0?a.zeitaufwand+' min':'<span style="color:var(--text3);font-size:11px;">Standard</span>')
-        :`<input type="number" min="0" step="1" value="${typeof a.zeitaufwand==='number'&&a.zeitaufwand>0?a.zeitaufwand:''}" placeholder="${getBewDuration()}" onchange="artSetTime('${dlEsc(a.id)}',this.value)" style="width:50px;padding:3px 6px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;" title="Minuten je Objekt (Stück); leer = Projekt-Standard (${getBewDuration()} min)"><span style="font-size:10px;color:var(--text3);"> min/Stk</span>${_geomActive()?`<br><input type="number" min="0" step="0.1" value="${typeof a.zeitaufwandM==='number'&&a.zeitaufwandM>0?a.zeitaufwandM:''}" placeholder="–" onchange="artSetRate('${dlEsc(a.id)}','zeitaufwandM',this.value)" style="width:50px;padding:3px 6px;margin-top:3px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;" title="Minuten je 100 m (Strecken)"><span style="font-size:10px;color:var(--text3);"> min/100m</span><br><input type="number" min="0" step="0.1" value="${typeof a.zeitaufwandM2==='number'&&a.zeitaufwandM2>0?a.zeitaufwandM2:''}" placeholder="–" onchange="artSetRate('${dlEsc(a.id)}','zeitaufwandM2',this.value)" style="width:50px;padding:3px 6px;margin-top:3px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;" title="Minuten je 100 m² (Flächen)"><span style="font-size:10px;color:var(--text3);"> min/100m²</span>`:''}`}</td>
+        :`<input type="number" min="0" step="1" value="${typeof a.zeitaufwand==='number'&&a.zeitaufwand>0?a.zeitaufwand:''}" placeholder="${getBewDuration()}" onchange="artSetTime('${_jsArg(a.id)}',this.value)" style="width:50px;padding:3px 6px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;" title="Minuten je Objekt (Stück); leer = Projekt-Standard (${getBewDuration()} min)"><span style="font-size:10px;color:var(--text3);"> min/Stk</span>${_geomActive()?`<br><input type="number" min="0" step="0.1" value="${typeof a.zeitaufwandM==='number'&&a.zeitaufwandM>0?a.zeitaufwandM:''}" placeholder="–" onchange="artSetRate('${_jsArg(a.id)}','zeitaufwandM',this.value)" style="width:50px;padding:3px 6px;margin-top:3px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;" title="Minuten je 100 m (Strecken)"><span style="font-size:10px;color:var(--text3);"> min/100m</span><br><input type="number" min="0" step="0.1" value="${typeof a.zeitaufwandM2==='number'&&a.zeitaufwandM2>0?a.zeitaufwandM2:''}" placeholder="–" onchange="artSetRate('${_jsArg(a.id)}','zeitaufwandM2',this.value)" style="width:50px;padding:3px 6px;margin-top:3px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;" title="Minuten je 100 m² (Flächen)"><span style="font-size:10px;color:var(--text3);"> min/100m²</span>`:''}`}</td>
       <td style="padding:7px 12px;white-space:nowrap;text-align:right;">${ro?'<span style="font-size:11px;color:var(--text3);">nur Lesezugriff</span>':`
         <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" onclick="renameArt('${a.id}')">Umbenennen</button>
         <select data-merge-field="__art__" data-merge-self="${dlEsc(a.id)}" onmousedown="_fillMerge(this)" onfocus="_fillMerge(this)" onchange="if(this.value)mergeArt('${a.id}',this.value);this.selectedIndex=0;" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
@@ -7096,9 +7107,9 @@ function renderReportDialog(){
   const avail=fields.filter(f=>!cfg.columns.includes(f.key));
   const colRows=cfg.columns.map((k,i)=>`<div style="display:flex;align-items:center;gap:5px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px;font-size:13px;">
      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(_repFieldLabel(k))}</span>
-     <button class="btn btn-secondary" style="padding:1px 7px;font-size:12px;${i===0?'opacity:.4;':''}" onclick="repMoveCol('${dlEsc(k)}',-1)">▲</button>
-     <button class="btn btn-secondary" style="padding:1px 7px;font-size:12px;${i===cfg.columns.length-1?'opacity:.4;':''}" onclick="repMoveCol('${dlEsc(k)}',1)">▼</button>
-     <button class="btn btn-secondary" style="padding:1px 7px;font-size:12px;color:var(--red);" onclick="repRemoveCol('${dlEsc(k)}')">✕</button>
+     <button class="btn btn-secondary" style="padding:1px 7px;font-size:12px;${i===0?'opacity:.4;':''}" onclick="repMoveCol('${_jsArg(k)}',-1)">▲</button>
+     <button class="btn btn-secondary" style="padding:1px 7px;font-size:12px;${i===cfg.columns.length-1?'opacity:.4;':''}" onclick="repMoveCol('${_jsArg(k)}',1)">▼</button>
+     <button class="btn btn-secondary" style="padding:1px 7px;font-size:12px;color:var(--red);" onclick="repRemoveCol('${_jsArg(k)}')">✕</button>
    </div>`).join('')||'<div style="font-size:12px;color:var(--text3);margin-bottom:6px;">Keine Spalten gewählt.</div>';
   const addBlock=avail.length?`<div style="display:flex;gap:6px;margin-top:4px;"><select id="rep-addcol" class="form-control" style="flex:1;">${avail.map(f=>`<option value="${dlEsc(f.key)}">${dlEsc(f.label)}</option>`).join('')}</select><button class="btn btn-secondary" style="white-space:nowrap;" onclick="repAddCol(document.getElementById('rep-addcol').value)">+ Spalte</button></div>`:'';
   const tpls=currentProjectData?.reportTemplates||[];
@@ -7631,12 +7642,12 @@ function renderReinigungssysteme(){
   const list=getReinigungssysteme();
   if(!list.length){ el.innerHTML='<div style="font-size:12px;color:var(--text3);padding:6px 2px;">Noch keine Reinigungssysteme. Unten anlegen.</div>'; return; }
   el.innerHTML=list.map(s=>`<div style="display:flex;gap:6px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;">
-    <input class="form-control" value="${dlEsc(s.name||'')}" onchange="rsUpdate('${dlEsc(s.id)}','name',this.value)" style="flex:1;min-width:150px;padding:4px 8px;font-size:12px;">
-    <select class="form-control" onchange="rsUpdate('${dlEsc(s.id)}','typ',this.value)" style="width:130px;padding:4px 8px;font-size:12px;">
+    <input class="form-control" value="${dlEsc(s.name||'')}" onchange="rsUpdate('${_jsArg(s.id)}','name',this.value)" style="flex:1;min-width:150px;padding:4px 8px;font-size:12px;">
+    <select class="form-control" onchange="rsUpdate('${_jsArg(s.id)}','typ',this.value)" style="width:130px;padding:4px 8px;font-size:12px;">
       ${['maschinell','manuell','team'].map(t=>`<option value="${t}"${s.typ===t?' selected':''}>${_rsTypLabel(t)}</option>`).join('')}
     </select>
-    <input class="form-control" type="number" min="0" step="0.5" value="${s.speed??''}" onchange="rsUpdate('${dlEsc(s.id)}','speed',this.value)" style="width:78px;padding:4px 8px;font-size:12px;" title="km/h"><span style="font-size:11px;color:var(--text3);">km/h</span>
-    <button onclick="rsDelete('${dlEsc(s.id)}')" title="Entfernen" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:16px;line-height:1;">×</button>
+    <input class="form-control" type="number" min="0" step="0.5" value="${s.speed??''}" onchange="rsUpdate('${_jsArg(s.id)}','speed',this.value)" style="width:78px;padding:4px 8px;font-size:12px;" title="km/h"><span style="font-size:11px;color:var(--text3);">km/h</span>
+    <button onclick="rsDelete('${_jsArg(s.id)}')" title="Entfernen" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:16px;line-height:1;">×</button>
   </div>`).join('');
 }
 async function rsAdd(){
@@ -7785,8 +7796,8 @@ async function renderDriverLogins(){
       <div style="display:flex;flex-direction:column;gap:5px;">
         ${requested.map(d=>`<div style="display:flex;align-items:center;gap:8px;font-size:12px;">
           <span style="flex:1;min-width:120px;">${dlEsc(d.name)}${d.funktion?` <span style="color:var(--text3);">· ${dlEsc(d.funktion)}</span>`:''}</span>
-          <button class="btn btn-primary" style="padding:4px 10px;font-size:11px;" onclick="dlEditPin('${dlEsc(d.id)}')">PIN vergeben →</button>
-          <button class="btn btn-secondary" style="padding:4px 10px;font-size:11px;" onclick="dlDismissLoginRequest('${dlEsc(d.id)}')">Ablehnen</button>
+          <button class="btn btn-primary" style="padding:4px 10px;font-size:11px;" onclick="dlEditPin('${_jsArg(d.id)}')">PIN vergeben →</button>
+          <button class="btn btn-secondary" style="padding:4px 10px;font-size:11px;" onclick="dlDismissLoginRequest('${_jsArg(d.id)}')">Ablehnen</button>
         </div>`).join('')}
       </div>
       <div style="font-size:11px;color:#9a6700;margin-top:6px;">„PIN vergeben" aktiviert den kostenpflichtigen Login. „Ablehnen" zieht die Anfrage zurück (Person bleibt ohne Login).</div>
@@ -7800,7 +7811,7 @@ async function renderDriverLogins(){
     </div>
     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border);">
       <span style="font-size:12px;font-weight:600;">Funktionen</span>
-      ${_dlFunktionen.map(f=>`<span style="display:inline-flex;align-items:center;gap:3px;font-size:12px;background:var(--surface2);padding:3px 4px 3px 9px;border-radius:99px;">${dlEsc(f)}<i onclick="dlFunktionRemove('${dlEsc(f)}')" title="entfernen" style="cursor:pointer;color:var(--text3);font-style:normal;padding:0 3px;">×</i></span>`).join('')||'<span style="font-size:11px;color:var(--text3);">noch keine</span>'}
+      ${_dlFunktionen.map(f=>`<span style="display:inline-flex;align-items:center;gap:3px;font-size:12px;background:var(--surface2);padding:3px 4px 3px 9px;border-radius:99px;">${dlEsc(f)}<i onclick="dlFunktionRemove('${_jsArg(f)}')" title="entfernen" style="cursor:pointer;color:var(--text3);font-style:normal;padding:0 3px;">×</i></span>`).join('')||'<span style="font-size:11px;color:var(--text3);">noch keine</span>'}
       <input id="dl-new-funktion-name" class="form-control" placeholder="neue Funktion…" style="width:140px;padding:5px 8px;font-size:12px;" onkeydown="if(event.key==='Enter')dlFunktionAdd()">
       <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px;" onclick="dlFunktionAdd()">+ Funktion</button>
       <span style="font-size:11px;color:var(--text3);">Auswahl im Personal (hier & Einsatzplaner) — kein Freitext.</span>
@@ -7827,20 +7838,20 @@ function dlRow(d){
   const active=d.active!==false, editing=dlPinEdit===d.id;
   const hasLogin = !d.noLogin && (d.pinHash || d.role);
   const inPlan = (typeof d.einsatz==='boolean')?d.einsatz:!['superadmin','orgadmin','admin','planer'].includes(d.role||'');
-  const roleSel=`<select onchange="changeDriverRole('${dlEsc(d.id)}',this.value)" title="Rolle ändern" style="font-size:11px;padding:2px 5px;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-family:inherit;">${personRoleOptionsHtml(d.role||'fahrer')}</select>`;
+  const roleSel=`<select onchange="changeDriverRole('${_jsArg(d.id)}',this.value)" title="Rolle ändern" style="font-size:11px;padding:2px 5px;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-family:inherit;">${personRoleOptionsHtml(d.role||'fahrer')}</select>`;
   return `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--bg);border-radius:6px;flex-wrap:wrap;">
     <span style="flex:1;min-width:120px;font-size:13px;${active?'':'color:var(--text3);text-decoration:line-through;'}">${dlEsc(d.name)}</span>
-    <select title="Funktion / Einsatzgruppe" onchange="setDriverFunktion('${dlEsc(d.id)}',this.value)" style="width:118px;font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-family:inherit;">${funktionenOptions(_dlFunktionen, d.funktion)}</select>
-    <label style="font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--text2);" title="Im Einsatzplaner berücksichtigen"><input type="checkbox" ${inPlan?'checked':''} onchange="setDriverEinsatz('${dlEsc(d.id)}',this.checked)" style="margin:0;cursor:pointer;"> Einsatz</label>
+    <select title="Funktion / Einsatzgruppe" onchange="setDriverFunktion('${_jsArg(d.id)}',this.value)" style="width:118px;font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-family:inherit;">${funktionenOptions(_dlFunktionen, d.funktion)}</select>
+    <label style="font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--text2);" title="Im Einsatzplaner berücksichtigen"><input type="checkbox" ${inPlan?'checked':''} onchange="setDriverEinsatz('${_jsArg(d.id)}',this.checked)" style="margin:0;cursor:pointer;"> Einsatz</label>
     ${hasLogin?roleSel:(d.loginRequested?'<span style="font-size:10px;font-weight:700;color:#9a6700;background:#fcefcb;padding:2px 7px;border-radius:5px;" title="App-Login vom Einsatzleiter angefordert">🔑 Login angefordert</span>':'<span style="font-size:10px;font-weight:700;color:var(--text3);background:var(--surface2);padding:2px 7px;border-radius:5px;">ohne Login</span>')}
     <span style="font-size:10px;font-weight:700;color:${active?'var(--green)':'var(--text3)'};">${active?'aktiv':'inaktiv'}</span>
     ${editing
       ? `<input id="dl-pin-${dlEsc(d.id)}" class="form-control" placeholder="neue PIN" inputmode="numeric" maxlength="6" style="width:110px;padding:4px 6px;font-size:12px;">
-         <button class="btn btn-primary" style="padding:4px 8px;font-size:11px;" onclick="saveDriverPin('${dlEsc(d.id)}')">OK</button>
+         <button class="btn btn-primary" style="padding:4px 8px;font-size:11px;" onclick="saveDriverPin('${_jsArg(d.id)}')">OK</button>
          <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="dlCancelPin()">✕</button>`
-      : `<button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="dlEditPin('${dlEsc(d.id)}')">PIN setzen</button>
-         <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="toggleDriverLoginActive('${dlEsc(d.id)}',${active})">${active?'deaktivieren':'aktivieren'}</button>
-         <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;color:#c0392b;" onclick="deleteDriverUi('${dlEsc(d.id)}','${dlEsc(d.name||'')}')">Löschen</button>`}
+      : `<button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="dlEditPin('${_jsArg(d.id)}')">PIN setzen</button>
+         <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="toggleDriverLoginActive('${_jsArg(d.id)}',${active})">${active?'deaktivieren':'aktivieren'}</button>
+         <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;color:#c0392b;" onclick="deleteDriverUi('${_jsArg(d.id)}','${_jsArg(d.name||'')}')">Löschen</button>`}
   </div>`;
 }
 function dlToggleNoLogin(){ const no=document.getElementById('dl-new-nologin')?.checked; ['dl-new-role','dl-new-pin'].forEach(id=>{ const el=document.getElementById(id); if(el) el.style.display=no?'none':''; }); }
@@ -7947,7 +7958,7 @@ function roleOptionsHtml(selected){
 }
 function urRow(u){
   const active=u.active!==false, editing=urPassEdit===u.id;
-  const roleSel=`<select onchange="changeUserRole('${dlEsc(u.id)}',this.value)" title="Rolle ändern" style="font-size:11px;padding:2px 5px;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-family:inherit;">
+  const roleSel=`<select onchange="changeUserRole('${_jsArg(u.id)}',this.value)" title="Rolle ändern" style="font-size:11px;padding:2px 5px;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-family:inherit;">
     ${roleOptionsHtml(u.role)}</select>`;
   return `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--bg);border-radius:6px;flex-wrap:wrap;">
     <span style="flex:1;min-width:140px;font-size:13px;${active?'':'color:var(--text3);text-decoration:line-through;'}">${dlEsc(u.email||u.id)}</span>
@@ -7955,11 +7966,11 @@ function urRow(u){
     <span style="font-size:10px;font-weight:700;color:${active?'var(--green)':'var(--text3)'};">${active?'aktiv':'inaktiv'}</span>
     ${editing
       ? `<input id="ur-pass-${dlEsc(u.id)}" class="form-control" type="text" placeholder="neues Passwort" style="width:150px;padding:4px 6px;font-size:12px;">
-         <button class="btn btn-primary" style="padding:4px 8px;font-size:11px;" onclick="saveUserPass('${dlEsc(u.id)}')">OK</button>
+         <button class="btn btn-primary" style="padding:4px 8px;font-size:11px;" onclick="saveUserPass('${_jsArg(u.id)}')">OK</button>
          <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="urCancelPass()">✕</button>`
-      : `<button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="urEditPass('${dlEsc(u.id)}')">Passwort</button>
-         <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="toggleUserActive('${dlEsc(u.id)}',${active})">${active?'deaktivieren':'aktivieren'}</button>
-         <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;color:#c0392b;" onclick="deleteOrgUserUi('${dlEsc(u.id)}','${dlEsc(u.email||'')}')">Löschen</button>`}
+      : `<button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="urEditPass('${_jsArg(u.id)}')">Passwort</button>
+         <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="toggleUserActive('${_jsArg(u.id)}',${active})">${active?'deaktivieren':'aktivieren'}</button>
+         <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;color:#c0392b;" onclick="deleteOrgUserUi('${_jsArg(u.id)}','${_jsArg(u.email||'')}')">Löschen</button>`}
   </div>`;
 }
 async function addOrgUser(){
@@ -8062,8 +8073,8 @@ function roleCard(key,r){
     </div>
     <div style="font-size:10px;color:var(--text3);margin:-4px 0 10px;line-height:1.5;">↗ = Start-Verknüpfung der App im Menü „Apps". Steuert nur die Desktop-Verknüpfung — der direkte App-Zugang (PIN-Login in der jeweiligen App) bleibt davon unberührt.</div>
     <div style="display:flex;gap:8px;">
-      <button class="btn btn-primary" style="padding:5px 12px;font-size:12px;" onclick="saveRole('${dlEsc(key)}')">Speichern</button>
-      ${r.builtin?'':`<button class="btn btn-secondary" style="padding:5px 12px;font-size:12px;color:#c0392b;" onclick="deleteRole('${dlEsc(key)}')">Löschen</button>`}
+      <button class="btn btn-primary" style="padding:5px 12px;font-size:12px;" onclick="saveRole('${_jsArg(key)}')">Speichern</button>
+      ${r.builtin?'':`<button class="btn btn-secondary" style="padding:5px 12px;font-size:12px;color:#c0392b;" onclick="deleteRole('${_jsArg(key)}')">Löschen</button>`}
     </div>
   </div>`;
 }
@@ -9653,7 +9664,7 @@ function renderAutoplan(){
   side.innerHTML=`
     <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin-bottom:8px;">Varianten (${_apVars.length})</div>
     ${_apVars.length?_apVars.map(vv=>`
-      <div onclick="apSelect('${dlEsc(vv.id)}')" style="padding:9px 11px;border:1px solid ${vv.id===_apSel?'var(--green)':'var(--border)'};border-radius:9px;margin-bottom:6px;cursor:pointer;background:${vv.id===_apSel?'var(--green-light)':'var(--bg)'};">
+      <div onclick="apSelect('${_jsArg(vv.id)}')" style="padding:9px 11px;border:1px solid ${vv.id===_apSel?'var(--green)':'var(--border)'};border-radius:9px;margin-bottom:6px;cursor:pointer;background:${vv.id===_apSel?'var(--green-light)':'var(--bg)'};">
         <div style="font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(vv.name||'Variante')}</div>
         <div style="font-size:11px;color:var(--text3);">${(vv.kpi?.fzg??'?')} Touren · ${(vv.kpi?.objekte??0).toLocaleString('de-DE')} Einsätze${String(vv.id).startsWith('_local')?' · <span style="color:#b45309;">nur Sitzung</span>':''}</div>
       </div>`).join(''):'<div style="font-size:12px;color:var(--text3);padding:4px 2px 10px;">Noch keine Varianten — unten erzeugen.</div>'}
@@ -9730,7 +9741,7 @@ function renderAutoplan(){
       <span style="margin-left:auto;display:flex;gap:8px;">
         <button class="btn btn-secondary" style="padding:5px 12px;font-size:12px;${(v.touren||[]).some(t=>t.dirty)?'border-color:#f59e0b;color:#b45309;font-weight:600;':''}" onclick="apRecalc()" ${_apBusy?'disabled':''} title="Reihenfolge & Zeiten je Tour neu berechnen — deine Zuordnung bleibt">${_apBusy?'Rechnet…':'Neu berechnen'}</button>
         <button class="btn btn-secondary" style="padding:5px 12px;font-size:12px;" disabled title="Ausbaustufe 2 — kommt als Nächstes">Produktiv schalten (folgt)</button>
-        <button class="btn btn-secondary" style="padding:5px 12px;font-size:12px;color:var(--red);" onclick="apDelete('${dlEsc(v.id)}')">Löschen</button>
+        <button class="btn btn-secondary" style="padding:5px 12px;font-size:12px;color:var(--red);" onclick="apDelete('${_jsArg(v.id)}')">Löschen</button>
       </span>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:14px;">
@@ -9744,7 +9755,7 @@ function renderAutoplan(){
     ${days.length>1?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
       <button onclick="apSelectDay('__all')" style="cursor:pointer;font-size:12px;font-weight:${allView?'700':'400'};padding:5px 12px;border-radius:8px;border:1px solid ${allView?'var(--green)':'var(--border)'};background:${allView?'var(--green-light)':'var(--surface)'};color:${allView?'#065f46':'var(--text2)'};">Woche <span style="opacity:.7;">· ${(v.touren||[]).length} T</span></button>
       ${days.map(d=>{ const tn=(v.touren||[]).filter(t=>(t.tag||'—')===d); const cnt=tn.reduce((s,t)=>s+(t.objektIds||[]).length,0); const unC=(v.unassigned||[]).filter(u=>u.tag===d).length;
-        return `<button onclick="apSelectDay('${dlEsc(d)}')" style="cursor:pointer;font-size:12px;font-weight:${d===_apDay?'700':'400'};padding:5px 12px;border-radius:8px;border:1px solid ${d===_apDay?'var(--green)':'var(--border)'};background:${d===_apDay?'var(--green-light)':'var(--surface)'};color:${d===_apDay?'#065f46':'var(--text2)'};">${dlEsc(d)} <span style="opacity:.7;">· ${tn.length} T / ${cnt}</span>${unC?` <span style="color:var(--red);font-weight:700;">⚠${unC}</span>`:''}</button>`; }).join('')}
+        return `<button onclick="apSelectDay('${_jsArg(d)}')" style="cursor:pointer;font-size:12px;font-weight:${d===_apDay?'700':'400'};padding:5px 12px;border-radius:8px;border:1px solid ${d===_apDay?'var(--green)':'var(--border)'};background:${d===_apDay?'var(--green-light)':'var(--surface)'};color:${d===_apDay?'#065f46':'var(--text2)'};">${dlEsc(d)} <span style="opacity:.7;">· ${tn.length} T / ${cnt}</span>${unC?` <span style="color:var(--red);font-weight:700;">⚠${unC}</span>`:''}</button>`; }).join('')}
     </div>`:''}
     ${(v.unassigned||[]).length?`<div style="font-size:12px;color:#b45309;background:#fef3c7;border-radius:8px;padding:8px 12px;margin-bottom:10px;">${v.unassigned.length} Einsätze nicht eingeplant (graue Punkte am jeweiligen Tag) — Details unter „Auslastung je Tag".</div>`:''}
     ${allView?`<div style="font-size:11px;color:var(--text3);margin-bottom:8px;">Wochen-Übersicht: jede Tour in eigener Farbe. Zum Anpassen einen Tages-Reiter wählen.</div>`:`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
@@ -11805,7 +11816,7 @@ function epTourCtx(ev, tid){
   if(!_epCanWrite()) return;
   const t=_epTours.find(x=>x.id===tid);
   const el=document.createElement('div'); el.className='ep-ctx';
-  el.innerHTML=`<button onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='transparent'" onclick="_epCloseCtx();epEditTour('${dlEsc(tid)}')" style="display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:transparent;padding:8px 10px;font-size:13px;color:var(--text);border-radius:6px;cursor:pointer;"><span class="ep-dot" style="background:${t&&t.color||'#888'};"></span>Tour „${dlEsc((t&&t.name)||'Tour')}" bearbeiten</button>`;
+  el.innerHTML=`<button onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='transparent'" onclick="_epCloseCtx();epEditTour('${_jsArg(tid)}')" style="display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:transparent;padding:8px 10px;font-size:13px;color:var(--text);border-radius:6px;cursor:pointer;"><span class="ep-dot" style="background:${t&&t.color||'#888'};"></span>Tour „${dlEsc((t&&t.name)||'Tour')}" bearbeiten</button>`;
   document.body.appendChild(el);
   const w=240; let left=Math.min(ev.clientX, window.innerWidth-w-8), top=ev.clientY;
   if(top+72>window.innerHeight) top=window.innerHeight-80;
@@ -11878,8 +11889,8 @@ function epPlanHtml(){
   const dayCountTxt=_epDayQuery?`${dueTours.filter(t=>_dayHay(t).includes(_epDayQuery)).length} / ${dueTours.length}`:'';
   const rows=dueTours.map(rowFor).join('')||`<tr><td colspan="4" style="padding:18px;text-align:center;color:var(--text3);">Heute läuft keine planmäßige Tour.</td></tr>`;
   const usedVehIds=new Set(activeTours.map(x=>x.vehicleId).filter(Boolean));
-  const poolPers=availPers.map(p=>{ const used=(load[p.name]||0)>0; return `<span class="ep-pool${used?' used':''}" ${used?'':`draggable="true" ondragstart="epDragStart(event,'driver','${dlEsc(p.name)}')"`} title="${used?'bereits verplant':'auf eine Tour ziehen'}">${dlEsc(p.name)}${used?' ✓':''}</span>`; }).join('')||'<span class="ep-dash">keine anwesend</span>';
-  const poolVeh=availVeh.map(v=>{ const used=usedVehIds.has(v.id); return `<span class="ep-pool veh${used?' used':''}" ${used?'':`draggable="true" ondragstart="epDragStart(event,'vehicle','${dlEsc(v.id)}')"`} title="${used?'bereits verplant':'auf eine Tour ziehen'}">${dlEsc(v.name)}${used?' ✓':''}</span>`; }).join('')||'<span class="ep-dash">keine verfügbar</span>';
+  const poolPers=availPers.map(p=>{ const used=(load[p.name]||0)>0; return `<span class="ep-pool${used?' used':''}" ${used?'':`draggable="true" ondragstart="epDragStart(event,'driver','${_jsArg(p.name)}')"`} title="${used?'bereits verplant':'auf eine Tour ziehen'}">${dlEsc(p.name)}${used?' ✓':''}</span>`; }).join('')||'<span class="ep-dash">keine anwesend</span>';
+  const poolVeh=availVeh.map(v=>{ const used=usedVehIds.has(v.id); return `<span class="ep-pool veh${used?' used':''}" ${used?'':`draggable="true" ondragstart="epDragStart(event,'vehicle','${_jsArg(v.id)}')"`} title="${used?'bereits verplant':'auf eine Tour ziehen'}">${dlEsc(v.name)}${used?' ✓':''}</span>`; }).join('')||'<span class="ep-dash">keine verfügbar</span>';
   const stdBar=ro?'':`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
     <button class="btn btn-secondary" style="font-size:12px;padding:6px 12px;${anyStd?'':'opacity:.5;cursor:not-allowed;'}" ${anyStd?'onclick="epApplyStandards()"':'disabled title="Noch keine Standards gespeichert"'}>★ Standardbesetzung übernehmen</button>
     <span style="font-size:11px;color:var(--text3);">Stern je Tour = aktuelle Besetzung als Standard merken. „Übernehmen" füllt den Tag aus den Standards (nur verfügbare).</span></div>`;
@@ -11967,7 +11978,7 @@ function epAbsenceHtml(){
           : (_epHasLogin(p) ? '' : '<span style="font-size:9px;font-weight:700;color:var(--text3);background:var(--surface2);padding:1px 6px;border-radius:5px;">ohne Login</span>'));
     const nameCell=ro
       ? `${dlEsc(p.name)}${p.funktion?` <span style="font-size:10px;color:var(--text3);">${dlEsc(p.funktion)}</span>`:''} ${badge}`
-      : `<span onclick="epPersonOpenCard('${dlEsc(p.id)}')" title="Person verwalten" style="cursor:pointer;border-radius:5px;padding:1px 3px;">${dlEsc(p.name)}${p.funktion?` <span style="font-size:10px;color:var(--text3);">${dlEsc(p.funktion)}</span>`:''} ${badge}</span>`;
+      : `<span onclick="epPersonOpenCard('${_jsArg(p.id)}')" title="Person verwalten" style="cursor:pointer;border-radius:5px;padding:1px 3px;">${dlEsc(p.name)}${p.funktion?` <span style="font-size:10px;color:var(--text3);">${dlEsc(p.funktion)}</span>`:''} ${badge}</span>`;
     return `<tr style="border-top:1px solid var(--border);${inactive?'opacity:.5;':''}"><td style="padding:4px 10px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${nameCell}</td>${cells}</tr>`;
   }).join('')||`<tr><td colspan="${days.length+1}" style="padding:18px;color:var(--text3);text-align:center;">Noch kein Personal in diesem Mandanten — oben „＋ Mitarbeiter".</td></tr>`;
   const legend=Object.values(EP_ABS).map(c=>`<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);"><span style="width:11px;height:11px;border-radius:3px;background:${c[1]};"></span>${c[0]}</span>`).join('');
@@ -13430,7 +13441,7 @@ async function renderMandanten(){
       <span style="font-size:14px;">${p.icon||'🌳'}</span>
       <span style="flex:1;font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(p.name||p.id)}</span>
       <span style="font-size:11px;color:var(--text3);">${p.treeCount??'–'} Objekte</span>
-      <select onchange="if(this.value){moveProjectUi('${dlEsc(p.id)}','${dlEsc(p.name||'')}',this.value);this.selectedIndex=0;}" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-family:inherit;">
+      <select onchange="if(this.value){moveProjectUi('${_jsArg(p.id)}','${_jsArg(p.name||'')}',this.value);this.selectedIndex=0;}" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-family:inherit;">
         <option value="">→ verschieben…</option>
         ${orgs.filter(o=>o.id!==org).map(o=>`<option value="${dlEsc(o.id)}">${dlEsc(o.name||o.id)}</option>`).join('')}
       </select>
@@ -13450,7 +13461,7 @@ async function renderMandanten(){
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
         <span style="font-size:14px;font-weight:700;">${dlEsc(o.name||o.id)}</span>
         ${o.code?`<span style="font-size:10px;font-weight:700;background:var(--green-light);color:var(--green);padding:2px 8px;border-radius:99px;">${dlEsc(o.code)}</span>`:''}
-        <label title="Navi-Funktion in der Fahrer-App für diesen Mandanten freischalten" style="font-size:11px;display:inline-flex;align-items:center;gap:5px;cursor:pointer;color:var(--text2);background:var(--bg);border:1px solid var(--border);border-radius:99px;padding:2px 9px;"><input type="checkbox" ${o.naviEnabled?'checked':''} onchange="setOrgNaviUi('${dlEsc(o.id)}',this.checked)" style="width:13px;height:13px;cursor:pointer;margin:0;">Navi-App</label>
+        <label title="Navi-Funktion in der Fahrer-App für diesen Mandanten freischalten" style="font-size:11px;display:inline-flex;align-items:center;gap:5px;cursor:pointer;color:var(--text2);background:var(--bg);border:1px solid var(--border);border-radius:99px;padding:2px 9px;"><input type="checkbox" ${o.naviEnabled?'checked':''} onchange="setOrgNaviUi('${_jsArg(o.id)}',this.checked)" style="width:13px;height:13px;cursor:pointer;margin:0;">Navi-App</label>
         <span style="font-size:11px;color:var(--text3);margin-left:auto;">${drvCount[o.id]||0} Personen · ${projs.filter(p=>p.orgId===o.id).length} Projekte</span>
       </div>
       ${projs.filter(p=>p.orgId===o.id).map(p=>projRow(p,o.id)).join('')||'<div style="font-size:12px;color:var(--text3);padding:2px 0;">Keine Projekte.</div>'}
@@ -13638,7 +13649,7 @@ function renderHandbuch(){
           <div style="padding:2px 14px 12px 34px;font-size:13px;line-height:1.65;color:var(--text2);">
             <div style="white-space:pre-line;">${hbMark(s.text,q)}</div>
             ${(s.imgs||[]).map(im=>`<figure style="margin:12px 0 4px;">
-              <img src="${im.src}" loading="lazy" onclick="openHbImg('${im.src}','${dlEsc(im.cap||'')}')" alt="${dlEsc(im.cap||'')}" style="max-width:100%;max-height:420px;width:auto;border:1px solid var(--border);border-radius:8px;cursor:zoom-in;box-shadow:0 1px 4px rgba(0,0,0,.10);">
+              <img src="${im.src}" loading="lazy" onclick="openHbImg('${im.src}','${_jsArg(im.cap||'')}')" alt="${dlEsc(im.cap||'')}" style="max-width:100%;max-height:420px;width:auto;border:1px solid var(--border);border-radius:8px;cursor:zoom-in;box-shadow:0 1px 4px rgba(0,0,0,.10);">
               <figcaption style="font-size:11px;color:var(--text3);margin-top:4px;">🔍 ${dlEsc(im.cap||'Zum Vergrößern klicken')}</figcaption>
             </figure>`).join('')}
           </div>

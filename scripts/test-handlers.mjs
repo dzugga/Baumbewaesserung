@@ -4,8 +4,10 @@
 // falls dort Object.assign(window,...) genutzt wird.
 import fs from 'fs';
 
+// Blockkommentare entfernen, damit Handler-Beispiele in Doku-Kommentaren nicht als „referenziert" gelten
+const stripBlockComments=s=>s.replace(/\/\*[\s\S]*?\*\//g,'');
 const read=p=>fs.readFileSync(p,'utf8');
-const desktop=read('src/desktop.js');
+const desktop=stripBlockComments(read('src/desktop.js'));
 const html=read('index.html');
 
 // 1) Handler-Namen einsammeln (aus index.html + allen Template-Strings in desktop.js)
