@@ -11159,18 +11159,24 @@ function dashFmtDE(d){ return d.toLocaleDateString('de-DE',{day:'2-digit',month:
 
 function dashBuildReported(){
   const out=[]; const seen=new Set();
+  // Live-Lagebild: nur Meldungen zu HEUTE existierenden, aktiven Objekten. Protokolle zu
+  // gelöschten/bereinigten Objekten gehören ins Controlling (tourHistory), nicht hierher.
+  // Koordinaten/Name kommen vom LIVE-Objekt — Snapshots können veraltet/ohne Koordinaten sein.
+  const liveById=new Map(trees.filter(isActive).map(t=>[t.id,t]));
   if(dashTourHistoryLoaded){
     dashTourHistory.forEach(h=>{
       if(!dashInRange(h.date))return;
       (h.trees||[]).forEach(tree=>{
         if(!tree.lastStatus||tree.lastStatus==='offen')return;
+        const live=liveById.get(tree.id); if(!live)return;
         const at=tree.lastReportAt||h.date;
-        out.push({...tree,lastReportAt:at,_tourId:h.tourId});
+        out.push({...live,lastStatus:tree.lastStatus,lastReason:tree.lastReason||null,lastNote:tree.lastNote||null,lastDriver:tree.lastDriver||null,lastReportAt:at,_tourId:h.tourId});
         seen.add((tree.id||'')+'|'+dashDayStr(at));
       });
     });
   } else {
     trees.forEach(tree=>{
+      if(!isActive(tree))return;
       (tree.history||[]).forEach(h=>{
         if(!h.date||!dashInRange(h.date))return;
         if(!h.status||h.status==='offen')return;
@@ -11180,6 +11186,7 @@ function dashBuildReported(){
     });
   }
   trees.forEach(tree=>{
+    if(!isActive(tree))return;
     if(!tree.lastStatus||tree.lastStatus==='offen'||!tree.lastReportAt)return;
     const d=dashDayStr(tree.lastReportAt);
     if(!dashInRange(d))return;
