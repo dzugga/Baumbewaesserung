@@ -87,6 +87,45 @@ try {
   await d.evaluate(() => { window.switchView('handbuch'); });
   await sleep(500);
   await shot(d, 'desktop-handbuch');                           console.log('✓ desktop-handbuch');
+
+  // ── Weitere Desktop-Ansichten (Superadmin, Projekt offen) — resilient ──
+  const viewShot = async (view, name, wait = 1400) => {
+    try { await d.evaluate(v => window.switchView(v), view); await sleep(wait); await shot(d, name); console.log('✓ ' + name); }
+    catch (e) { console.log('⚠ ' + name + ' übersprungen: ' + (e.message || e)); }
+  };
+  await viewShot('dashboard', 'desktop-dashboard', 2600);
+  await viewShot('sollist', 'desktop-sollist', 1800);
+  await viewShot('datenqualitaet', 'desktop-datenqualitaet', 1600);
+  await viewShot('ausfaelle', 'desktop-ausfaelle', 1600);
+  await viewShot('ki', 'desktop-ki', 1400);
+  await viewShot('autoplan', 'desktop-autoplan', 1600);
+  await viewShot('einsatzplaner', 'desktop-einsatzplaner', 2200);
+  await viewShot('disposition', 'desktop-disposition', 2200);
+  await viewShot('nachrichten', 'desktop-nachrichten', 1600);
+  await viewShot('wmskarten', 'desktop-wms', 1400);
+  await viewShot('mandanten', 'desktop-mandanten', 1600);
+  await viewShot('usage', 'desktop-usage', 1600);
+  await viewShot('systeminfo', 'desktop-systeminfo', 1800);
+
+  // Felder & Listen (Reiter in der Objekte-Ansicht)
+  try { await d.evaluate(() => { window.switchView('baeume'); window.switchBaeumeTab && window.switchBaeumeTab('arten'); }); await sleep(1400); await shot(d, 'desktop-felder'); console.log('✓ desktop-felder'); }
+  catch (e) { console.log('⚠ desktop-felder übersprungen: ' + (e.message || e)); }
+
+  // Modale/Dialoge
+  const modalShot = async (open, name, close, wait = 900) => {
+    try { await d.evaluate(open); await sleep(wait); await shot(d, name); console.log('✓ ' + name); if (close) await d.evaluate(close); await sleep(300); }
+    catch (e) { console.log('⚠ ' + name + ' übersprungen: ' + (e.message || e)); }
+  };
+  await modalShot(() => window.openSettings(), 'desktop-einstellungen', () => window.closeSettings());
+  await modalShot(() => window.openPilotScope(), 'desktop-pilot', () => window.closePilot());
+  await modalShot(() => window.openTourModal('t_nord'), 'desktop-tour', () => window.closeTourModal(), 1100);
+
+  // Karten-Werkzeuge (Filter-Panel, Kontrolle-Menü)
+  try { await d.evaluate(() => window.switchView('karte')); await sleep(1200);
+    await d.evaluate(() => window.toggleMapFilter()); await sleep(700); await shot(d, 'desktop-filter'); console.log('✓ desktop-filter');
+    await d.evaluate(() => window.toggleMapFilter()); await sleep(300);
+  } catch (e) { console.log('⚠ desktop-filter übersprungen: ' + (e.message || e)); }
+
   await d.close();
 
   // ── FAHRER-APP (Mobil-Format 414×860) ──────────────────────────────────────

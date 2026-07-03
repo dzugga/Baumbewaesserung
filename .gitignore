@@ -10,3 +10,8 @@ functions/_fldtest-*.mjs
 
 # Tourenplaner: lokale Datensatz-Liste (maschinenspezifisch)
 docker/tourenplaner-datasets.json
+
+# Service-Konto-Schluessel (niemals committen)
+*serviceAccount*.json
+*service-account*.json
+functions/scripts/*key*.json
