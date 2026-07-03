@@ -643,6 +643,7 @@ async function openProject(projectId){
   const snap=await getDoc(doc(db,'projects',projectId));
   currentProjectData={id:projectId,...snap.data()};
   _pilotShowAll=false; // Pilot-„alle anzeigen" ist eine lokale Superadmin-Ansicht, pro Projekt zurücksetzen
+  _resetAutoplanState(); // Auto-Planungs-Varianten/Rahmen/Auswahl gehören zum ALTEN Projekt — verwerfen (sonst Cross-Projekt-Schreiben)
   _listMode = currentProjectData.listAbschnitteDefault ? 'abschnitte' : 'objekte'; // Listen-Standard je Projekt
   document.getElementById('active-project-name').textContent=currentProjectData.name;
   // Mandant neben dem Projektnamen (gecacht, max. 1 Read)
@@ -672,17 +673,19 @@ async function openProject(projectId){
 // Baut die aktive datengetriebene Ansicht (Controlling/Dashboard) nach einem
 // Projektwechsel neu auf, sobald die ersten trees/tours-Snapshots da sind.
 // Debounce, damit nicht jeder einzelne Snapshot einen Neuaufbau auslöst.
+// Alle datengetriebenen Vollbild-Ansichten, die nach einem Projektwechsel neu aufgebaut werden müssen,
+// sobald die ersten trees/tours-Snapshots des neuen Projekts da sind (sonst zeigen sie Alt-Projekt-Daten).
+const _DATA_VIEWS={ controlling:initControlling, dashboard:initDashboard, sollist:initSollIstView, datenqualitaet:initDatenqualitaet, ausfaelle:initAusfaelle, autoplan:initAutoplan };
 function syncDataViewToProject(){
   if(_dataViewProject===currentProjectId) return;
-  if(currentView!=='controlling' && currentView!=='dashboard') return;
+  if(!_DATA_VIEWS[currentView]) return;
   if(_dataViewSyncQueued) return;
   _dataViewSyncQueued=true;
   setTimeout(()=>{
     _dataViewSyncQueued=false;
     if(_dataViewProject===currentProjectId) return;
     _dataViewProject=currentProjectId;
-    if(currentView==='controlling') initControlling();
-    else if(currentView==='dashboard') initDashboard();
+    const fn=_DATA_VIEWS[currentView]; if(fn) try{ fn(); }catch(e){ console.warn('Daten-Ansicht nach Projektwechsel',e); }
   },60);
 }
 
@@ -694,9 +697,10 @@ function showProjectScreen(){
   Object.values(mapMarkers).forEach(m=>_mDel(m));mapMarkers={};
   Object.values(tourRoutes).forEach(r=>map.removeLayer(r.layer));tourRoutes={};
   if(depotMarker){map.removeLayer(depotMarker);depotMarker=null;}
-  tours=[];trees=[];tourOrder={};activeTours.clear();showUnplanned=false;activeTourOnMap=null;filterTour='all';showOverviewInLegend=false;showOverviewInGrid=false;showOverviewInAssign=false;
+  tours=[];trees=[];_allTrees=[];tourOrder={};activeTours.clear();showUnplanned=false;activeTourOnMap=null;filterTour='all';showOverviewInLegend=false;showOverviewInGrid=false;showOverviewInAssign=false;
   reasons=[]; // Gründe des Projekts verwerfen (kein projektübergreifendes Hängenbleiben)
   _routesCache={};_routesLoadedFor=null; // Routen-Cache verwerfen
+  _dataViewProject=null; _resetAutoplanState(); // Daten-Ansichten + Auto-Planung nicht projektübergreifend hängenlassen
   initProjectScreen();
 }
 
@@ -10012,6 +10016,13 @@ async function apRecalc(){
   _apBusy=false; renderAutoplan();
 }
 function apSelect(id){ _apSel=id; _apSelIds.clear(); _apDay=null; _apHiddenTours.clear(); renderAutoplan(); }
+// Beim Projektwechsel: alle Auto-Planungs-Modulzustände verwerfen (gehören zum vorigen Projekt).
+function _resetAutoplanState(){
+  _apVars=[]; _apSel=null; _apDay=null; _apBusy=false; _apRulesHint=false;
+  _apRahmen=null; _apRahmenPid=null; _apColorBy='tour'; _apMapVid=null; _pilotDraft=null;
+  try{ _apSelIds.clear(); }catch(_){ _apSelIds=new Set(); }
+  try{ _apHiddenTours.clear(); }catch(_){ _apHiddenTours=new Set(); }
+}
 async function apGenerate(){
   if(_apBusy) return;
   const buckets=_apEnsureRahmen();
