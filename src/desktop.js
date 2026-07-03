@@ -5723,6 +5723,36 @@ function updateBulkBar(){
   const bi=document.getElementById('bulk-inactive'), bd=document.getElementById('bulk-delete');
   if(bi){ bi.textContent=act+' inaktiv'; bi.disabled=!act; bi.style.opacity=act?'':'.4'; bi.style.cursor=act?'pointer':'not-allowed'; }
   if(bd){ bd.textContent=n+' löschen'; bd.disabled=!n; bd.style.opacity=n?'':'.4'; bd.style.cursor=n?'pointer':'not-allowed'; }
+  // Archiv-Bereinigung zählt über den GESAMTEN Projektbestand (nicht Pilot-/Ansichts-gefiltert)
+  const ba=document.getElementById('bulk-archiv');
+  if(ba){ const ina=(_allTrees.length?_allTrees:trees).filter(t=>!isActive(t)).length; ba.textContent=`Archiv bereinigen (${ina})`; ba.disabled=!ina; ba.style.opacity=ina?'':'.4'; ba.style.cursor=ina?'pointer':'not-allowed'; }
+}
+// ─── ARCHIV BEREINIGEN (nur Superadmin): ALLE inaktiven Objekte des Projekts endgültig löschen ───
+// Für Alt-/Testdaten aus früheren Importen. Abgeschlossene Tour-Protokolle (tourHistory) tragen
+// eigene Kopien der Meldedaten und bleiben unberührt — verloren geht nur der objektbezogene Verlauf.
+async function archivBereinigen(){
+  if(currentRole!=='superadmin'||!currentProjectId) return;
+  const alle=(_allTrees.length?_allTrees:trees).filter(t=>!isActive(t));
+  if(!alle.length){ notify('Keine inaktiven Objekte im Projekt'); return; }
+  const ans=prompt(`Archiv bereinigen — ENDGÜLTIGES Löschen:\n\n`+
+    `• ${alle.length} inaktive (archivierte) Objekte werden unwiderruflich entfernt — inklusive ihres Verlaufs.\n`+
+    `• Abgeschlossene Tour-Protokolle (Controlling) bleiben erhalten.\n\n`+
+    `Nicht umkehrbar. Zum Bestätigen die Zahl ${alle.length} eingeben:`, '');
+  if(ans===null) return;
+  if((ans||'').trim()!==String(alle.length)){ notify('Abgebrochen — Bestätigungszahl stimmt nicht'); return; }
+  const ids=alle.map(t=>t.id);
+  setSyncState('syncing','Bereinigt…'); _suppressTreeRender=true;
+  try{
+    for(let i=0;i<ids.length;i+=400){
+      const chunk=ids.slice(i,i+400), batch=db.batch();
+      chunk.forEach(id=>batch.delete(doc(db,'projects',currentProjectId,'trees',id)));
+      await batch.commit(); _bumpUsage('deletes',chunk.length);
+      setSyncState('syncing',`Bereinigt… ${Math.min(i+400,ids.length)}/${ids.length}`);
+    }
+    await stripIdsFromRoutes(ids);
+    notify(`✓ Archiv bereinigt — ${ids.length} inaktive Objekte endgültig gelöscht`);
+  }catch(e){ console.warn('archivBereinigen',e); setSyncState('error','Fehler'); notify('⚠ Fehlgeschlagen: '+(e.message||e)); }
+  finally{ _bulkRefresh(); }
 }
 // Entfernt mehrere Objekt-IDs in EINEM Durchlauf aus allen Routen (statt pro Objekt)
 async function stripIdsFromRoutes(ids){
@@ -13656,7 +13686,7 @@ Object.assign(window,{
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,setListMode,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,openObjFilterConfig,setObjFilterField,toggleTourCounts,toggleRouteNums,toggleVersatz,toggleTypeFilter,setTypeVisible,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
   openPilotScope,closePilot,pilotSetField,pilotAddValue,pilotRemoveValue,pilotToggleActive,pilotToggleShowAll,pilotSave,
-  apGenerate,apSelect,apDelete,apSetSolverUrl,apAssignSel,apClearSel,apRecalc,apSelectDay,apRahmenDay,apRahmenFreqDay,apSetSaison,apRahmenMode,apRahmenErlaubtDay,apToggleTourVis,apShowAllTours,apColorBy,apClearLocks,
+  apGenerate,apSelect,apDelete,apSetSolverUrl,apAssignSel,apClearSel,apRecalc,apSelectDay,apRahmenDay,apRahmenFreqDay,apSetSaison,apRahmenMode,apRahmenErlaubtDay,apToggleTourVis,apShowAllTours,apColorBy,apClearLocks,archivBereinigen,
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,saveOrgCode,dlToggleNoLogin,setDriverFunktion,setDriverEinsatz,dlDismissLoginRequest,dlFunktionAdd,dlFunktionRemove,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
