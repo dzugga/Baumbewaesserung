@@ -9240,7 +9240,7 @@ function _dqChecks(){
     geo.forEach((m,i)=>{ if(dists[i]>Math.max(10, med*8)) outSet.add(m.id); });   // >10 km UND >8× Median
   }
   return [
-    {key:'gps',      label:'Ohne Koordinaten',      items:act.filter(t=>!t.lat||!t.lng)},
+    {key:'gps',      label:'Ohne Koordinaten',      items:act.filter(t=>!t.lat&&!t.lng ? !_routePoint(t) : (!t.lat||!t.lng))}, // Flächen/Strecken mit Geometrie haben einen Ort — kein Mangel
     {key:'coordbad', label:'Unplausible Koordinaten',items:act.filter(t=>outSet.has(t.id)), detail:t=>Math.round(haversine(t.lat,t.lng,cy,cx))+' km vom Zentrum'},
     {key:'id',       label:'Ohne Objekt-ID',        items:act.filter(t=>!(t.baumId||'').trim())},
     {key:'iddup',    label:'Doppelte Objekt-ID',    items:act.filter(t=>{const k=(t.baumId||'').trim();return k&&idCount[k]>1;}), detail:t=>'ID '+(t.baumId||'')},
@@ -11317,20 +11317,25 @@ function dashRenderNichtMap(nichtReports){
   const byId={};
   nichtReports.forEach(r=>{ const k=r.id||(r.lat+','+r.lng); if(!byId[k]||(r.lastReportAt||'')>(byId[k].lastReportAt||'')) byId[k]=r; });
   const uniq=Object.values(byId);
-  const withCoords=uniq.filter(r=>r.lat&&r.lng);
-  const ohne=uniq.length-withCoords.length;
+  // Flächen/Strecken haben keine lat/lng — ihr Anker-Punkt (Schwerpunkt/Mittelpunkt) kommt aus
+  // der Geometrie (_routePoint), damit sie auf der Karte erscheinen statt in „ohne Koordinaten".
+  const withPt=[], ohneArr=[];
+  uniq.forEach(r=>{ const p=_routePoint(r); if(p) withPt.push({r,p}); else ohneArr.push(r); });
+  const ohne=ohneArr.length;
   const countEl=document.getElementById('dash-map-count'); if(countEl) countEl.textContent=uniq.length>0?`${uniq.length} Objekte`:'';
   const noteEl=document.getElementById('dash-map-note'); if(noteEl) noteEl.textContent=ohne>0?`${ohne} ohne Koordinaten (nicht auf der Karte)`:'';
   const emptyEl=document.getElementById('dash-map-empty'); if(emptyEl) emptyEl.classList.toggle('show', uniq.length===0);
   const pts=[];
-  withCoords.forEach(r=>{
+  withPt.forEach(({r,p})=>{
     const d=r.lastReportAt?new Date(r.lastReportAt).toLocaleDateString('de-DE'):'–';
     const meta=[r.stadtteil,r.baumnr].filter(Boolean).map(dlEsc).join(' · ');
-    const popup=`<b>${dlEsc(r.name||'Objekt')}</b>`+(meta?`<br>${meta}`:'')+(r.art?`<br><i>${dlEsc(r.art)}</i>`:'')+
+    const gt=(typeof geomTypeOf==='function')?geomTypeOf(r):null;
+    const gtLabel=gt==='flaeche'?' (Fläche)':gt==='linie'?' (Strecke)':'';
+    const popup=`<b>${dlEsc(r.name||'Objekt')}${gtLabel}</b>`+(meta?`<br>${meta}`:'')+(r.art?`<br><i>${dlEsc(r.art)}</i>`:'')+
       `<br>Grund: <b style="color:#dc2626;">${dlEsc(r.lastReason||'nicht angegeben')}</b>`+
       (r.lastNote?`<br>Notiz: ${dlEsc(r.lastNote)}`:'')+(r.lastDriver?`<br>Fahrer: ${dlEsc(r.lastDriver)}`:'')+`<br>${d}`;
-    L.marker([r.lat,r.lng],{icon:dashNichtIcon()}).bindPopup(popup).addTo(dashNichtLayer);
-    pts.push([r.lat,r.lng]);
+    L.marker(p,{icon:dashNichtIcon()}).bindPopup(popup).addTo(dashNichtLayer);
+    pts.push(p);
   });
   if(pts.length>0) dashNichtMap.fitBounds(L.latLngBounds(pts),{padding:[40,40],maxZoom:16});
   else {
