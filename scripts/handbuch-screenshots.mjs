@@ -23,6 +23,18 @@ if (!CHROME) { console.error('Chrome nicht gefunden'); process.exit(1); }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const shot = (page, name) => page.screenshot({ path: join(OUT, name + '.jpg'), type: 'jpeg', quality: 82 });
 
+// FESTER App-Check-Debug-Token: App Check schuetzt inzwischen den Login. Damit der Headless-Browser
+// nicht bei jedem Lauf einen neuen (nicht registrierten) Zufalls-Token erzeugt, injizieren wir vor
+// dem Laden IMMER denselben Token. Dieser eine Token muss EINMAL in der Firebase-Konsole unter
+// App Check → Apps → „Debug-Tokens verwalten" hinterlegt werden (siehe Skript-Kopf / README).
+const APPCHECK_DEBUG_TOKEN = process.env.APPCHECK_DEBUG_TOKEN || '5b0c7e2a-4f1d-4e9a-9c3b-8a2f6d1e0c74';
+// Neue Seite mit vorab gesetztem Debug-Token (appcheck.js respektiert einen bereits gesetzten Wert).
+async function newPage() {
+  const p = await browser.newPage();
+  await p.evaluateOnNewDocument(t => { self.FIREBASE_APPCHECK_DEBUG_TOKEN = t; }, APPCHECK_DEBUG_TOKEN);
+  return p;
+}
+
 // Auf eine Bedingung im Browser warten
 async function waitFor(page, fn, timeout = 15000) {
   await page.waitForFunction(fn, { timeout });
@@ -41,7 +53,7 @@ const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new'
 
 try {
   // ── DESKTOP (1440×810) ─────────────────────────────────────────────────────
-  const d = await browser.newPage();
+  const d = await newPage();
   await d.setViewport({ width: 1440, height: 810, deviceScaleFactor: 1.5 });
   await d.goto(BASE + '/index.html', { waitUntil: 'networkidle2' });
   await loginPin(d, 'Demo Admin', '135790');
@@ -78,7 +90,7 @@ try {
   await d.close();
 
   // ── FAHRER-APP (Mobil-Format 414×860) ──────────────────────────────────────
-  const m = await browser.newPage();
+  const m = await newPage();
   await m.setViewport({ width: 414, height: 860, deviceScaleFactor: 2 });
   await m.goto(BASE + '/mobil.html', { waitUntil: 'networkidle2' });
   await loginPin(m, 'Max Muster', '246800');
@@ -111,7 +123,7 @@ try {
   await m.close();
 
   // ── ERFASSUNGS-APP ──────────────────────────────────────────────────────────
-  const e = await browser.newPage();
+  const e = await newPage();
   await e.setViewport({ width: 414, height: 860, deviceScaleFactor: 2 });
   await e.goto(BASE + '/erfassung.html', { waitUntil: 'networkidle2' });
   await loginPin(e, 'Demo Admin', '135790');
@@ -133,7 +145,7 @@ try {
   await e.close();
 
   // ── EINSATZLEITER ───────────────────────────────────────────────────────────
-  const l = await browser.newPage();
+  const l = await newPage();
   await l.setViewport({ width: 1440, height: 810, deviceScaleFactor: 1.5 });
   await l.goto(BASE + '/einsatzleiter.html', { waitUntil: 'networkidle2' });
   // Auth besteht ggf. schon aus der vorigen App (gleicher Browser-Kontext) → dann direkt Projektwahl
