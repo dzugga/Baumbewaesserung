@@ -19,7 +19,10 @@ export function initAppCheck() {
       // Nur auf localhost: Debug-Token erzeugen, damit Dev/CI nach dem "Erzwingen" nicht ausgesperrt
       // werden. Der einmalig in der Browser-Konsole geloggte Token muss in der Firebase-Konsole unter
       // App Check → Apps → „Debug-Tokens verwalten" registriert werden. In Produktion passiert das NICHT.
-      try { if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') self.FIREBASE_APPCHECK_DEBUG_TOKEN = true; } catch (_) {}
+      // Einen VORAB gesetzten Debug-Token (z. B. vom Screenshot-Skript per fixem Wert injiziert)
+      // NICHT überschreiben — sonst würde bei jedem Headless-Start ein neuer, nicht registrierter
+      // Zufalls-Token erzeugt. Nur wenn keiner gesetzt ist, auf localhost einen erzeugen lassen.
+      try { if ((location.hostname === 'localhost' || location.hostname === '127.0.0.1') && self.FIREBASE_APPCHECK_DEBUG_TOKEN === undefined) self.FIREBASE_APPCHECK_DEBUG_TOKEN = true; } catch (_) {}
       firebase.appCheck().activate(APP_CHECK_SITE_KEY, /* autoRefresh */ true);
     }
   } catch (e) {
