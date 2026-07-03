@@ -10,6 +10,8 @@ import { onlyTreeStatusFields } from './driver-fields.js';
 initVersionCheck();   // erkennt neue Deploys während die App offen ist → „Neu laden"-Banner
 // Container-Index (extId→Abschnitt) für die Anzeige-Rollen; aus dem vollen Projekt-Snapshot gebaut.
 let _objIndex = null;
+// Lokaler Kalendertag YYYY-MM-DD (NICHT toISOString, das ist UTC → verschiebt Meldungen 00–02 Uhr auf den Vortag)
+function _localDateStr(d){ d=d||new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function _setObjIndex(objs){ _objIndex = buildContainerIndex(objs); }
 function _getContainer(extId){ return _objIndex ? _objIndex.getContainer(extId) : null; }
 function _onSessionKicked(){ try{ alert('Abgemeldet: Diese Kennung wurde an einem anderen Gerät angemeldet.'); }catch(_){}; try{ firebase.auth().signOut(); }catch(_){}; location.reload(); }
@@ -906,50 +908,17 @@ async function finishTour() {
       })),
     };
 
-    // ── Batches: max 20 Trees pro Batch → granulares Progress-Update ─
-    const BATCH_SIZE = 20;
+    // Tour-Abschluss: NUR Snapshot (tourHistory, Controlling-Nachweis) + Tour-Status schreiben.
+    // KEINE erneuten history-Einträge je Objekt — jede Meldung wurde bereits beim Melden (saveReport/
+    // markTreeDone) mit status+at in tree.history festgehalten. Ein zweiter Eintrag hier hätte sonst
+    // Erledigungen doppelt und „nicht erledigt" fälschlich als erledigt gezählt.
     const batchPromises = [];
-    let completed = 0;
-
-    for(let i = 0; i < treesWithStatus.length; i += BATCH_SIZE) {
-      const batch = db.batch();
-      const chunk = treesWithStatus.slice(i, i + BATCH_SIZE);
-      chunk.forEach(tree => {
-        const entry = {
-          date: dateStr, tourId: currentTourId, tourName: currentTour?.name||'',
-          status: tree.lastStatus, reason: tree.lastReason||null,
-          note: tree.lastNote||null, driver: tree.lastDriver||null,
-        };
-        batch.update(
-          db.collection('projects').doc(currentProjectId).collection('trees').doc(tree.id),
-          { history: firebase.firestore.FieldValue.arrayUnion(entry) }
-        );
-      });
-      if(i === 0) {
-        batch.set(
-          db.collection('projects').doc(currentProjectId).collection('tourHistory').doc(histId),
-          snapshot
-        );
-        batch.update(
-          db.collection('projects').doc(currentProjectId).collection('tours').doc(currentTourId),
-          { status:'abgeschlossen', closedAt:tsStr, closedBy:currentDriver, lastClosedDate:dateStr }
-        );
-      }
-      batchPromises.push(
-        batch.commit().then(() => {
-          completed += chunk.length;
-          const realPct = 75 + (completed / Math.max(treesWithStatus.length,1)) * 20;
-          setProgress(realPct, `${completed} / ${treesWithStatus.length} gespeichert…`);
-        })
-      );
-    }
-
-    if(treesWithStatus.length === 0) {
+    {
       const batch = db.batch();
       batch.set(db.collection('projects').doc(currentProjectId).collection('tourHistory').doc(histId), snapshot);
       batch.update(db.collection('projects').doc(currentProjectId).collection('tours').doc(currentTourId),
         { status:'abgeschlossen', closedAt:tsStr, closedBy:currentDriver, lastClosedDate:dateStr });
-      batchPromises.push(batch.commit());
+      batchPromises.push(batch.commit().then(()=>setProgress(95, 'Gespeichert…')));
     }
 
     await Promise.all(batchPromises);
@@ -1981,8 +1950,12 @@ async function saveReport(id){
   // Snapshot der betroffenen Felder — fürs Rollback bei hartem Schreibfehler (Server-Ablehnung)
   const _prevVals={}; ['zustand','wasser','notiz','lastStatus','lastReason','lastNote','lastDriver','lastReportAt','datum','lastFuellgrad'].forEach(k=>{ _prevVals[k]=tree[k]; });
 
+  const _now=new Date();
   const histEntry={
-    date:new Date().toISOString().slice(0,10),
+    at:_now.toISOString(),          // eindeutiger Zeitstempel → arrayUnion dedupliziert gleiche Tagesmeldungen NICHT weg
+    date:_localDateStr(_now),       // lokaler Kalendertag (nicht UTC) für Zeitraum-Filter
+    status,                         // 'bewaessert' | 'nicht' — Auswertungen zählen ausschließlich hierüber
+    reason:reason||null,
     note:`${status==='bewaessert'?'Bewässert':'Nicht bewässert'}${reason?' — '+reason:''}${note?' ('+note+')':''}${fuellgrad!=null?' · Füllgrad: '+fgLabel(fuellgrad):''}`,
     driver:currentDriver
   };
@@ -2126,9 +2099,9 @@ async function confirmFollowDone(){
 // onlyStatusFields). Spiegelt die Fehlerbehandlung von saveReport (Server-Ablehnung ≠ offline).
 async function markTreeDone(tree){
   if(!tree || tree.lastStatus==='bewaessert') return;
-  const id=tree.id, now=new Date().toISOString();
-  const updates={ lastStatus:'bewaessert', lastReason:null, lastNote:null, lastDriver:currentDriver, lastReportAt:now, datum:now.slice(0,10) };
-  const histEntry={ date:now.slice(0,10), note:'Bewässert', driver:currentDriver };
+  const id=tree.id, _now=new Date(), now=_now.toISOString();
+  const updates={ lastStatus:'bewaessert', lastReason:null, lastNote:null, lastDriver:currentDriver, lastReportAt:now, datum:_localDateStr(_now) };
+  const histEntry={ at:now, date:_localDateStr(_now), status:'bewaessert', reason:null, note:'Bewässert', driver:currentDriver };
   const _u=onlyTreeStatusFields(updates);   // nur erlaubte Fahrer-Felder (Rules onlyStatusFields)
   const firestoreUpdates={..._u, history:firebase.firestore.FieldValue.arrayUnion(histEntry)};
   const offlineUpdates={..._u, history:[...(tree.history||[]),histEntry]};

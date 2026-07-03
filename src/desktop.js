@@ -2049,7 +2049,7 @@ function _planBucket(tree){ const ps=planStatusOf(tree); if(!ps) return null; if
 // ── Fälligkeit / Überfälligkeit: erwarteter Abstand (7/Soll Tage) vs. letzte ERLEDIGUNG ──
 function _lastDoneDate(tree){   // letztes Datum, an dem tatsächlich erledigt wurde (nicht „nicht erledigt")
   let d=null;
-  (tree.history||[]).forEach(h=>{ if(!h.date) return; if(h.status==='bewaessert'||(!h.status&&h.note)){ const x=(''+h.date).slice(0,10); if(!d||x>d) d=x; } });
+  (tree.history||[]).forEach(h=>{ if(!h.date) return; if(h.status==='bewaessert'){ const x=(''+h.date).slice(0,10); if(!d||x>d) d=x; } });
   if(tree.lastStatus==='bewaessert'&&tree.lastReportAt){ const x=(''+tree.lastReportAt).slice(0,10); if(!d||x>d) d=x; }
   return d;
 }
@@ -8744,7 +8744,7 @@ function getCtrlDateRange(){
   } else {
     const f=document.getElementById('ctrl-date-from')?.value;
     const t=document.getElementById('ctrl-date-to')?.value;
-    return {from:f?new Date(f):new Date(0),to:t?new Date(t+'T23:59:59'):new Date()};
+    return {from:f?new Date(f+'T00:00:00'):new Date(0),to:t?new Date(t+'T23:59:59'):new Date()}; // lokale Mitternacht (nicht UTC) — sonst fällt der Starttag raus
   }
 }
 
@@ -9044,7 +9044,7 @@ function _siIstCount(from,to){
     let n=0; const seenDays=new Set();
     (t.history||[]).forEach(h=>{
       if(!h.date) return;
-      if(!(h.status==='bewaessert' || (!h.status && h.note))) return;   // erledigt (inkl. Notiz-Alt-Einträge)
+      if(h.status!=='bewaessert') return;   // Ist zählt nur echte Erledigungen (jede Meldung trägt status)
       const d=(''+h.date).slice(0,10);
       if(inR(d)){ n++; seenDays.add(d); }
     });
@@ -9300,7 +9300,7 @@ function _gCompute(){
     let bew=0,nicht=0; const reasons={}; const fills=[];
     (t.history||[]).forEach(h=>{
       if(!h.date||!inR((''+h.date).slice(0,10))) return;
-      const done=h.status==='bewaessert'||(!h.status&&h.note), no=h.status==='nicht';
+      const done=h.status==='bewaessert', no=h.status==='nicht';
       if(typeof h.fuellgrad==='number') fills.push(h.fuellgrad);
       if(!done&&!no) return;
       if(done) bew++; else { nicht++; if(h.reason){ reasons[h.reason]=(reasons[h.reason]||0)+1; reasonAgg[h.reason]=(reasonAgg[h.reason]||0)+1; } }
