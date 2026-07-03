@@ -4861,11 +4861,13 @@ async function deleteTour(id){
     modal.onclick=e=>{if(e.target===modal){modal.remove();resolve(false);}};
   });
   if(!confirmed)return;
-  for(const tree of trees.filter(t=>treeInTour(t,id))){
+  // Gesamtbestand bereinigen — auch Objekte außerhalb eines Pilot-Ausschnitts behalten sonst die tote Tour-ID
+  for(const tree of ((_allTrees&&_allTrees.length)?_allTrees:trees).filter(t=>treeInTour(t,id))){
     const newIds=getTreeTourIds(tree).filter(tid=>tid!==id);
     await setTreeTourIds(tree.id, newIds);
   }
   await deleteDoc(doc(db,'projects',currentProjectId,'tours',id));
+  try{ await deleteDoc(doc(db,'projects',currentProjectId,'routes',id)); }catch(_){}  // gespeicherte Route der Tour mit entfernen (sonst verwaistes Doc)
   if(activeTours.has(id)){ activeTours.delete(id); syncActiveTour(); if(!activeTours.size) filterTour='all'; }
   routeCache={};notify('Tour gelöscht');
 }
@@ -7546,9 +7548,10 @@ async function migrateTourIds(){
   notify('Migration läuft…');
   let migrated=0;
   const BATCH=400;
-  for(let i=0;i<trees.length;i+=BATCH){
+  const _migSrc=(_allTrees&&_allTrees.length)?_allTrees:trees; // Gesamtbestand
+  for(let i=0;i<_migSrc.length;i+=BATCH){
     const batch=db.batch();
-    trees.slice(i,i+BATCH).forEach(tree=>{
+    _migSrc.slice(i,i+BATCH).forEach(tree=>{
       if(!Array.isArray(tree.tourIds)){
         const ids=tree.tourId?[tree.tourId]:[];
         batch.update(
@@ -7568,7 +7571,7 @@ async function migrateTourIds(){
 let _migratingTourIds=false;
 async function autoMigrateTourIds(){
   if(!currentProjectId || _migratingTourIds) return;
-  const pending=trees.filter(t=>!Array.isArray(t.tourIds));
+  const pending=((_allTrees&&_allTrees.length)?_allTrees:trees).filter(t=>!Array.isArray(t.tourIds)); // Gesamtbestand migrieren, nicht nur den Pilot-Ausschnitt
   if(pending.length===0) return;
   _migratingTourIds=true;
   try{
@@ -8395,7 +8398,7 @@ function downloadImportTemplate(){
 function downloadObjectsExport(){
   const XLSX=window.XLSX; if(!XLSX){ notify('SheetJS nicht geladen'); return; }
   const headers=[FL.name,FL.stadtteil,FL.baumnr,FL.art,FL.pflanzjahr,FL.pflanzzeitpunkt,FL.zustand,FL.wasser,...customFields.map(c=>c.label),FL.notiz,'Objektklasse','Koordinate 1','Koordinate 2','Objekt-ID'];
-  const list=trees.filter(isActive);
+  const list=((_allTrees&&_allTrees.length)?_allTrees:trees).filter(isActive); // Voll-Export = Gesamtbestand, auch außerhalb eines Pilot-Ausschnitts
   const _klName=t=>{ const k=objektklassen.find(x=>x.id===t.klasse); return k?k.name:''; };
   const rows=list.map(t=>{
     const kf=_klasseFelder(t), ok=key=>!kf||kf.includes(key), gt=geomTypeOf(t); // nur Felder der Objektklasse exportieren
@@ -8664,7 +8667,8 @@ async function doImport(){
 // Dubletten-Prüfung (Admin): scannt die Objekt-IDs des offenen Projekts (keine Extra-Reads, nutzt geladene trees)
 function checkBaumIdDuplicates(){
   // Nur AKTIVE Objekte: archivierte (per „Löschen" bei vorhandener Historie nur inaktiv gesetzte) zählen nicht.
-  const act=trees.filter(isActive);
+  // GESAMTBESTAND — ein Duplikat kann über die Pilot-Grenze hinweg oder ganz außerhalb liegen.
+  const act=((_allTrees&&_allTrees.length)?_allTrees:trees).filter(isActive);
   const seen=new Map();
   act.forEach(t=>{ const id=(t.baumId||'').trim(); if(id) seen.set(id,(seen.get(id)||0)+1); });
   const dups=[...seen.entries()].filter(([,n])=>n>1);
