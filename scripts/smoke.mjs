@@ -41,10 +41,13 @@ for (const app of APPS) {
   page.on('console', m => { if (m.type() === 'error') { const t = m.text(); if (!IGNORE.test(t)) errors.push('Konsolenfehler: ' + t); } });
   const probleme = [];
   try {
-    const resp = await page.goto(BASE + app.path, { waitUntil: 'load', timeout: 25000 });
+    const resp = await page.goto(BASE + app.path, { waitUntil: 'load', timeout: 45000 });
     if (!resp || !resp.ok()) probleme.push('Seite lädt nicht (HTTP ' + (resp ? resp.status() : '—') + ')');
-    await sleep(3500); // async-Init abwarten (Firebase, Module)
-    if (!(await page.$(app.sel))) probleme.push('Kein erwartetes Element (' + app.sel + ') — evtl. weißer Bildschirm');
+    // Auf das erwartete Element WARTEN (statt fester Wartezeit) — robust gegen langsame CI-Runner,
+    // ohne echte Fehler zu verdecken (JS-Ausnahmen/Konsolenfehler werden weiter gesammelt).
+    try { await page.waitForSelector(app.sel, { timeout: 20000 }); }
+    catch { probleme.push('Kein erwartetes Element (' + app.sel + ') — evtl. weißer Bildschirm'); }
+    await sleep(1500); // kurz nachlaufen lassen für späte Init-Fehler
     const len = await page.evaluate(() => ((document.body && document.body.innerText) || '').trim().length);
     if (len === 0) probleme.push('Seite ist leer (kein Text gerendert)');
   } catch (e) { probleme.push('Navigation/Render-Fehler: ' + (e.message || e)); }
