@@ -8795,11 +8795,11 @@ function initControlling(){
       vals.map(v=>`<option value="${v}"${v===prev('ctrl-filter-fahrer')?' selected':''}>${v}</option>`).join('');
   }
 
-  // Baumart
+  // Typ/Art (objekt-neutral, Projekt-Feldbezeichnung)
   const baumartSel=document.getElementById('ctrl-filter-baumart');
   if(baumartSel){
     const vals=[...new Set(trees.map(t=>t.art).filter(Boolean))].sort();
-    baumartSel.innerHTML='<option value="">Alle Baumarten</option>'+
+    baumartSel.innerHTML=`<option value="">Alle: ${dlEsc(FL.art||'Typ/Art')}</option>`+
       vals.map(v=>`<option value="${v}"${v===prev('ctrl-filter-baumart')?' selected':''}>${v}</option>`).join('');
   }
 
@@ -10059,7 +10059,7 @@ function renderControlling(){
   if(fJahr) activeFilters.push(`Pflanzjahr: ${fJahr}`);
   if(fStatus) activeFilters.push(`Status: ${{bewaessert:'✓ Erledigt',nicht:'✕ Nicht erledigt',offen:'○ Offen'}[fStatus]}`);
   if(fFahrer) activeFilters.push(`Fahrer: ${fFahrer}`);
-  if(fBaumart) activeFilters.push(`Baumart: ${fBaumart}`);
+  if(fBaumart) activeFilters.push(`${FL.art||'Typ/Art'}: ${fBaumart}`);
   const summaryEl=document.getElementById('ctrl-filter-summary');
   const summaryTxt=document.getElementById('ctrl-filter-summary-text');
   if(summaryEl&&summaryTxt){
@@ -10636,7 +10636,7 @@ async function exportHistoryCSV(histId){
     historyCache[histId]={id:snap.id,...snap.data()};
   }
   const h=normalizeHistory(historyCache[histId]);
-  const header='Tour;Datum;Fahrer;Anlage/Straße;Stadtteil;Baumart;Baumnr.;Status;Grund;Notiz;Zustand;Wasserbedarf';
+  const header=`Tour;Datum;Fahrer;${FL.name||'Anlage/Straße'};${FL.stadtteil||'Stadtteil'};${FL.art||'Typ/Art'};${FL.baumnr||'Objektnr.'};Status;Grund;Notiz;${FL.zustand||'Zustand'};${FL.wasser||'Wasserbedarf'}`;
   const rows=h.trees.map(t=>[
     h.tourName,h.date,t.lastDriver||'',orTitel(t,_containerByExt)||'',t.stadtteil||'',t.art||'',t.baumnr||'',
     t.lastStatus||'offen',t.lastReason||'',t.lastNote||'',rankLabel('zustand',t.zustand),rankLabel('wasser',t.wasser)
@@ -10671,7 +10671,7 @@ function exportCtrlCSV(){
   const filtered=getCtrlFilteredTrees();
   const {from,to}=getCtrlDateRange();
   const reported=filtered.filter(t=>t.lastReportAt&&inCtrlRange(t.lastReportAt.slice?t.lastReportAt.slice(0,10):t.lastReportAt));
-  const header='Anlage/Straße;Stadtteil;Baumart;Baumnr.;Tour;Status;Grund;Fahrer;Datum';
+  const header=`${FL.name||'Anlage/Straße'};${FL.stadtteil||'Stadtteil'};${FL.art||'Typ/Art'};${FL.baumnr||'Objektnr.'};Tour;Status;Grund;Fahrer;Datum`;
   const rows=reported.map(t=>{
     const tour=tours.find(x=>x.id===t.tourId);
     return [orTitel(t,_containerByExt),t.stadtteil,t.art,t.baumnr,tour?.name||'',t.lastStatus,t.lastReason||'',t.lastDriver||'',t.lastReportAt?.slice(0,10)||'']
