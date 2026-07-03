@@ -9932,8 +9932,10 @@ async function _apSave(v){
 // Eine Tour einzeln durchrechnen (Einzel-Fahrzeug, feste Jobmenge → optimale Reihenfolge + Zeiten).
 // Passt etwas nicht ins Zeitfenster, wandert es in v.unassigned (mit Tag).
 async function _apSolveTour(v,t,byId){
-  const objs=(t.objektIds||[]).map(id=>byId[id]).filter(x=>x&&x.lat&&x.lng);
-  if(!objs.length){ t.fahrtSec=0; t.serviceSec=0; t.endeSec=null; t.dirty=false; return; }
+  const orig=(t.objektIds||[]);
+  const dropped=orig.filter(id=>!byId[id]).length; // Objekt nicht mehr im Bestand (gelöscht/inaktiv/außer Scope)
+  const objs=orig.map(id=>byId[id]).filter(x=>x&&x.lat&&x.lng);
+  if(!objs.length){ t.fahrtSec=0; t.serviceSec=0; t.endeSec=null; t.objektIds=objs.map(o=>o.id); t.dirty=false; return dropped; }
   const toSec=s=>{ const [h,m]=String(s||'').split(':').map(Number); return (h||0)*3600+(m||0)*60; };
   const tw=[toSec(v.params?.von||'08:00'),toSec(v.params?.bis||'16:00')];
   const dep=v.params&&v.params.depot;
@@ -9957,6 +9959,7 @@ async function _apSolveTour(v,t,byId){
     v.unassigned=[...(v.unassigned||[]),...un.map(id=>({tag:t.tag||'—',id}))];
   }
   t.dirty=false;
+  return dropped;
 }
 function _apSumKpiTimes(v){
   v.kpi=v.kpi||{};
@@ -9991,10 +9994,11 @@ async function apAssignSel(ti){
   _apBusy=true; renderAutoplan();
   try{
     const byId={}; trees.forEach(t=>{ byId[t.id]=t; });
-    for(const t of v.touren){ if(t.dirty) await _apSolveTour(v,t,byId); }
+    let dropped=0;
+    for(const t of v.touren){ if(t.dirty) dropped+=(await _apSolveTour(v,t,byId))||0; }
     _apRecalcKpiCounts(v); _apSumKpiTimes(v);
     await _apSave(v);
-    notify(`✓ ${n} Objekt${n===1?'':'e'} → ${tgt.name} · Zeiten aktualisiert`);
+    notify(`✓ ${n} Objekt${n===1?'':'e'} → ${tgt.name} · Zeiten aktualisiert${dropped?` · ${dropped} nicht mehr vorhanden`:''}`);
   }catch(e){
     console.warn('apAssignSel recalc',e);
     notify(`✓ ${n} verschoben — Zeiten konnten nicht berechnet werden (${e.message||e}); „Neu berechnen" versucht es erneut.`);
@@ -10002,20 +10006,22 @@ async function apAssignSel(ti){
   }
   _apBusy=false; renderAutoplan();
 }
-// Alle Touren der Variante neu durchrechnen — Zuordnung bleibt, Reihenfolge/Zeiten frisch.
+// Alle Touren der Variante neu durchrechnen — Tour-Zuordnung bleibt (nur Reihenfolge/Zeiten frisch;
+// Fixierungen sind dadurch inhärent gewahrt, da Objekte nie zwischen Touren wandern).
 async function apRecalc(){
   const v=_apCur(); if(!v||_apBusy) return;
   _apBusy=true; renderAutoplan();
   try{
     const byId={}; trees.forEach(t=>{ byId[t.id]=t; });
-    for(const t of (v.touren||[])) await _apSolveTour(v,t,byId);
+    let dropped=0;
+    for(const t of (v.touren||[])) dropped+=(await _apSolveTour(v,t,byId))||0;
     _apRecalcKpiCounts(v); _apSumKpiTimes(v);
     await _apSave(v);
-    notify('✓ Reihenfolge & Zeiten neu berechnet');
+    notify(dropped?`✓ Neu berechnet · ${dropped} nicht mehr vorhandene Objekte entfernt`:'✓ Reihenfolge & Zeiten neu berechnet');
   }catch(e){ console.warn('apRecalc',e); notify('Neu berechnen: '+(e.message||e)); }
   _apBusy=false; renderAutoplan();
 }
-function apSelect(id){ _apSel=id; _apSelIds.clear(); _apDay=null; _apHiddenTours.clear(); renderAutoplan(); }
+function apSelect(id){ if(_apBusy){ notify('Berechnung läuft — bitte warten'); return; } _apSel=id; _apSelIds.clear(); _apDay=null; _apHiddenTours.clear(); renderAutoplan(); }
 // Beim Projektwechsel: alle Auto-Planungs-Modulzustände verwerfen (gehören zum vorigen Projekt).
 function _resetAutoplanState(){
   _apVars=[]; _apSel=null; _apDay=null; _apBusy=false; _apRulesHint=false;
@@ -10105,6 +10111,7 @@ async function apGenerate(){
   _apBusy=false; renderAutoplan();
 }
 async function apDelete(id){
+  if(_apBusy){ notify('Berechnung läuft — bitte warten'); return; }
   const v=_apVars.find(x=>x.id===id); if(!v) return;
   if(!await confirmByName({label:'Variante', name:v.name||''})) return;
   if(!String(id).startsWith('_local')){
@@ -10645,13 +10652,12 @@ async function saveHistoryEdits(histId){
     const ti=parseInt(inp.dataset.ri);
     h.trees[ti].lastReason=inp.value||null;
   });
-  // Recalculate stats
-  h.stats={
-    total:h.trees.length,
-    bewaessert:h.trees.filter(t=>t.lastStatus==='bewaessert').length,
-    nicht:h.trees.filter(t=>t.lastStatus==='nicht').length,
-    offen:h.trees.filter(t=>!t.lastStatus).length,
-  };
+  // Stats neu berechnen — aber total/offen ERHALTEN: h.trees enthält nur die gemeldeten Objekte,
+  // stats.total = ALLE Tour-Objekte (inkl. nie gemeldeter). Nur bewässert/nicht aus h.trees neu bilden.
+  const _origTotal=(h.stats&&typeof h.stats.total==='number')?h.stats.total:h.trees.length;
+  const _bew=h.trees.filter(t=>t.lastStatus==='bewaessert').length;
+  const _nicht=h.trees.filter(t=>t.lastStatus==='nicht').length;
+  h.stats={ total:_origTotal, bewaessert:_bew, nicht:_nicht, offen:Math.max(0,_origTotal-_bew-_nicht) };
   // Save to Firestore
   await setDoc(doc(db,'projects',currentProjectId,'tourHistory',histId),h);
   historyCache[histId]=h;
@@ -10712,11 +10718,23 @@ async function exportHistoryCSV(histId){
     historyCache[histId]={id:snap.id,...snap.data()};
   }
   const h=normalizeHistory(historyCache[histId]);
-  const header=`Tour;Datum;Fahrer;${FL.name||'Anlage/Straße'};${FL.stadtteil||'Stadtteil'};${FL.art||'Typ/Art'};${FL.baumnr||'Objektnr.'};Status;Grund;Notiz;${FL.zustand||'Zustand'};${FL.wasser||'Wasserbedarf'}`;
-  const rows=h.trees.map(t=>[
-    h.tourName,h.date,t.lastDriver||'',orTitel(t,_containerByExt)||'',t.stadtteil||'',t.art||'',t.baumnr||'',
-    t.lastStatus||'offen',t.lastReason||'',t.lastNote||'',rankLabel('zustand',t.zustand),rankLabel('wasser',t.wasser)
-  ].map(v=>`"${(v||'').replace(/"/g,'""')}"`).join(';')).join('\n');
+  // Objekt-Eigenschaften (Zustand/Wasser/Titel/Füllgrad) aus dem LIVE-Objekt anreichern — der
+  // tourHistory-Snapshot trägt sie nicht, sonst blieben die Spalten leer (wie beim Einsatzleiter).
+  const _liveById=new Map(trees.map(x=>[x.id,x]));
+  const _fgAktiv=!!(currentProjectData&&currentProjectData.fuellgradAktiv);
+  const header=`Tour;Datum;Fahrer;${FL.name||'Anlage/Straße'};${FL.stadtteil||'Stadtteil'};${FL.art||'Typ/Art'};${FL.baumnr||'Objektnr.'};Status;Grund;Notiz;${FL.zustand||'Zustand'};${FL.wasser||'Wasserbedarf'}`+(_fgAktiv?';Füllgrad':'');
+  const rows=h.trees.map(t=>{
+    const lv=_liveById.get(t.id);
+    const zustand=(t.zustand!=null?t.zustand:(lv?lv.zustand:''));
+    const wasser=(t.wasser!=null?t.wasser:(lv?lv.wasser:''));
+    const fg=(typeof t.fuellgrad==='number')?t.fuellgrad:(lv&&typeof lv.lastFuellgrad==='number'?lv.lastFuellgrad:null);
+    const cells=[
+      h.tourName,h.date,t.lastDriver||'',orTitel(lv||t,_containerByExt)||'',(t.stadtteil||(lv&&lv.stadtteil)||''),(t.art||(lv&&lv.art)||''),(t.baumnr||(lv&&lv.baumnr)||''),
+      t.lastStatus||'offen',t.lastReason||'',t.lastNote||'',rankLabel('zustand',zustand),rankLabel('wasser',wasser)
+    ];
+    if(_fgAktiv) cells.push(fg!=null?fgLabelD(fg):'');
+    return cells.map(v=>`"${(''+(v==null?'':v)).replace(/"/g,'""')}"`).join(';');
+  }).join('\n');
   const blob=new Blob(['\uFEFF'+header+'\n'+rows],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
