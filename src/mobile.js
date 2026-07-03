@@ -1964,7 +1964,6 @@ async function saveReport(id){
   // Schreib-Payload hart auf erlaubte Fahrer-Felder filtern (Rules onlyStatusFields) — Defense-in-Depth.
   const _u=onlyTreeStatusFields(updates);
   const firestoreUpdates={..._u, history: firebase.firestore.FieldValue.arrayUnion(histEntry)};
-  const offlineUpdates={..._u, history:[...(tree.history||[]),histEntry]};
 
   // Update local state + close sheet immediately (optimistic UI)
   Object.assign(tree, updates);
@@ -1979,7 +1978,7 @@ async function saveReport(id){
   toast(status==='bewaessert'?'✓ Erledigt gemeldet':'✕ Nicht erledigt gemeldet');
 
   if(!isOnline){
-    addToOfflineQueue(id, offlineUpdates);
+    addToOfflineQueue(id, _u, histEntry);
     toast('📦 Offline gespeichert — wird synchronisiert wenn Netz verfügbar');
   } else {
     // Firestore write in background — UI already updated
@@ -2003,7 +2002,7 @@ async function saveReport(id){
         toast('⚠ Abgelehnt ('+(code||'?')+') · Felder: '+Object.keys(firestoreUpdates).join(',')+' · orgId '+(tree.orgId?'ok':'FEHLT'), 6000);
       } else {
         // echtes Netzproblem (unavailable/timeout) → offline puffern
-        addToOfflineQueue(id, offlineUpdates);
+        addToOfflineQueue(id, _u, histEntry);
         toast('📦 Offline gespeichert — wird später synchronisiert');
       }
     });
@@ -2104,11 +2103,10 @@ async function markTreeDone(tree){
   const histEntry={ at:now, date:_localDateStr(_now), status:'bewaessert', reason:null, note:'Bewässert', driver:currentDriver };
   const _u=onlyTreeStatusFields(updates);   // nur erlaubte Fahrer-Felder (Rules onlyStatusFields)
   const firestoreUpdates={..._u, history:firebase.firestore.FieldValue.arrayUnion(histEntry)};
-  const offlineUpdates={..._u, history:[...(tree.history||[]),histEntry]};
   const _prev={}; Object.keys(updates).forEach(k=>_prev[k]=tree[k]);
   Object.assign(tree, updates);
   renderMarkers(); renderList(''); updateProgress();
-  if(!isOnline){ await addToOfflineQueue(id, offlineUpdates); return; }
+  if(!isOnline){ await addToOfflineQueue(id, _u, histEntry); return; }
   updateDoc(doc(db,'projects',currentProjectId,'trees',id), firestoreUpdates).catch(e=>{
     const code=e&&e.code;
     if(code==='permission-denied' || code==='invalid-argument' || code==='not-found'){
@@ -2117,7 +2115,7 @@ async function markTreeDone(tree){
       renderMarkers(); renderList(''); updateProgress();
       toast('⚠ Nicht gespeichert ('+(code||'?')+')');
     } else {
-      addToOfflineQueue(id, offlineUpdates);
+      addToOfflineQueue(id, _u, histEntry);
     }
   });
 }
@@ -2320,11 +2318,14 @@ async function getOfflineQueue(){
   catch(e){ return []; }
 }
 
-async function addToOfflineQueue(treeId, updates){
+async function addToOfflineQueue(treeId, updates, histEntry){
   const q = await getOfflineQueue();
-  // Replace existing entry for same tree (latest wins)
+  // Replace existing entry for same tree (latest wins bei Status-Feldern) — Verlaufseinträge aber
+  // AKKUMULIEREN: beim Sync werden sie per arrayUnion angehängt (überschreiben NICHT das ganze
+  // history-Array, sonst gingen serverseitig hinzugekommene Meldungen anderer Geräte verloren).
   const idx = q.findIndex(e=>e.treeId===treeId);
-  const entry = { treeId, updates, projectId: currentProjectId, queuedAt: new Date().toISOString() };
+  const prev = idx>=0 ? (q[idx].histEntries||[]) : [];
+  const entry = { treeId, updates, histEntries: histEntry ? [...prev, histEntry] : prev, projectId: currentProjectId, queuedAt: new Date().toISOString() };
   if(idx>=0) q[idx] = entry;
   else q.push(entry);
   await idbSet(QUEUE_KEY, q);
@@ -2362,9 +2363,14 @@ async function syncOfflineQueue(){
 
   for(const entry of q){
     try {
+      const up = {...(entry.updates||{})};
+      // Verlaufseinträge per arrayUnion anhängen (nicht das ganze Array überschreiben)
+      if(entry.histEntries && entry.histEntries.length){
+        up.history = firebase.firestore.FieldValue.arrayUnion(...entry.histEntries);
+      }
       await updateDoc(
         doc(db,'projects',entry.projectId,'trees',entry.treeId),
-        entry.updates
+        up
       );
       synced++;
     } catch(e){
