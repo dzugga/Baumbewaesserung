@@ -2068,7 +2068,8 @@ function planStatusOf(tree){
   const soll=sollFreqProWoche(tree,saison);
   const ids=realTourIds(tree);
   if(soll==null) return {status:'kein',soll:null,plan:0,tours:ids.length,saison};
-  let plan=0; ids.forEach(id=>plan+=_tourWeeklyOcc(tours.find(x=>x.id===id),saison));
+  const _today=_todayStr();
+  let plan=0; ids.forEach(id=>plan+=_tourWeeklyOcc(tours.find(x=>x.id===id),saison,_today));
   const status = plan<soll-1e-6?'unter':(plan>soll+1e-6?'ueber':'ok');
   return {status,soll,plan,tours:ids.length,saison};
 }
@@ -4827,7 +4828,11 @@ function openTourModal(id){
   document.getElementById('t-startdate').value=(t&&t.startDate)||'';
   // Legacy-Intervalle täglich/woechentlich auf den neuen Wochen-Rhythmus abbilden (= „jede Woche")
   const _iv=(t&&t.interval)||''; document.getElementById('t-interval').value=(_iv==='14taeglich'||_iv==='4woechentlich'||_iv==='bedarf')?_iv:'';
-  window._tourBt = t ? [..._tourBetriebstage(t)] : [1,2,3,4,5]; // neue Tour: Mo–Fr vorbelegt
+  let _bt = t ? _tourBetriebstage(t) : [1,2,3,4,5]; // neue Tour: Mo–Fr vorbelegt
+  // Alt-Tour ohne betriebstage-Feld, aber mit wiederkehrendem Alt-Intervall (z. B. „wöchentlich" ohne
+  // Startdatum) → Mo–Fr vorbelegen, damit das bloße Speichern die Fälligkeit nicht stumm auf 0 setzt.
+  if(t && !Array.isArray(t.betriebstage) && !_bt.length && t.interval && t.interval!=='bedarf') _bt=[1,2,3,4,5];
+  window._tourBt = [..._bt];
   renderBetriebstage();
   window._tourGueltig=(t&&Array.isArray(t.gueltig)?t.gueltig:[]).map(g=>({from:g.from||'',to:g.to||''}));
   renderTourGueltigRows(); tourUpdWeekday();
@@ -5900,6 +5905,7 @@ async function bulkSetInactive(){
       setSyncState('syncing',`Speichert… ${Math.min(i+400,ids.length)}/${ids.length}`);
     }
     await stripIdsFromRoutes(ids);
+    await _stripIdsFromPlanArtifacts(ids); // inaktive Objekte auch aus Auto-Planungs-Varianten/Fixierungen entfernen
     notify(`✓ ${ids.length} Objekte inaktiv gesetzt`);
   }catch(e){ console.warn('bulkSetInactive',e); setSyncState('error','Fehler'); notify('⚠ Fehlgeschlagen: '+(e.message||e)); }
   finally{ _bulkRefresh(); }
@@ -7169,7 +7175,10 @@ function reportRows(tourId,cfg){
     rows.push([String(i+1), ...cols.map(k=>_repCell(t,k)), ...ab]);
     notiz.push(t.notiz||'');
   });
-  const sums=cols.map(k=>{ let s=0,any=false; list.forEach(t=>{const n=parseFloat(String(_repCell(t,k)).replace(',','.')); if(!isNaN(n)&&String(_repCell(t,k)).trim()!==''){s+=n;any=true;}}); return any?s:null; });
+  // Summenzeile nur für ADDITIVE Spalten (Mengen/Zeiten) — Identität/Kategorie (Objektnummer, Jahr,
+  // Objekt-ID …) ergibt keine sinnvolle Summe, auch wenn die Werte numerisch sind.
+  const _noSum=new Set(['baumnr','pflanzjahr','pflanzzeitpunkt','baumId','name','stadtteil','art','zustand','wasser','klasse','tour','status','fahrer','datum','grund']);
+  const sums=cols.map(k=>{ if(_noSum.has(k)) return null; let s=0,any=false; list.forEach(t=>{const raw=String(_repCell(t,k)).replace(',','.'); const n=parseFloat(raw); if(!isNaN(n)&&raw.trim()!==''){s+=n;any=true;}}); return any?s:null; });
   return {headers,rows,notiz,sums,cols,abhakCols,count:list.length};
 }
 let _rep=null; // {tourId,cfg,order}
@@ -8463,7 +8472,7 @@ function buildImportMapping(headerRow){
 // Geordnete-Listen-Zelle → stabile id. Match auf Label/Schlüssel ODER auf den hinterlegten Zahlenwert
 // (z. B. Import-Zelle „2" trifft den Wert mit Zahl 2). Leer/unbekannt → 'mittel'.
 function mapRankImport(fk,val){
-  const raw=String(val??'').trim(); const v=_normH(raw); if(!v) return 'mittel';
+  const raw=String(val??'').trim(); const v=_normH(raw); if(!v) return '';   // leere Zelle → kein Wert (überschreibt beim Update NICHT); Neu-Objekt bekommt Default separat
   const list=rankList(fk);
   let e=list.find(x=>_normH(x.id)===v||_normH(x.label)===v);
   if(!e){ const num=parseFloat(raw.replace(',','.')); if(!isNaN(num)) e=list.find(x=>x.zahl!=null && Number(x.zahl)===num); }
@@ -8717,8 +8726,11 @@ async function doImport(){
           name:r.name, stadtteil:r.stadtteil, art:r.art, baumnr:r.baumnr,
           pflanzjahr:r.pflanzjahr, pflanzzeitpunkt:r.pflanzzeitpunkt, notiz:r.notiz,
           lat:(la==null?null:la), lng:(lo==null?null:lo),
-          wasser:r.wasser||'mittel', zustand:r.zustand||'mittel',
         };
+        // Rang-Felder (Zustand/Wasserbedarf) NUR setzen, wenn die Zelle einen Wert hatte —
+        // eine leere Zelle darf beim Update den Bestandswert nicht auf „mittel" überschreiben.
+        if(r.wasser) fields.wasser=r.wasser;
+        if(r.zustand) fields.zustand=r.zustand;
         customFields.forEach(c=>{ if(r[c.key]!=null) fields[c.key]=r[c.key]; });
         const exist = r.baumId && byBaumId.get(r.baumId);
         // Tour-Zuordnung aus ja/nein-Tag-Spalten (nur wenn Tour-Spalten vorhanden waren).
@@ -8733,6 +8745,7 @@ async function doImport(){
           counter++;
           batch.set(colRef.doc(),{
             datum:'',tourId:'',tourIds:[],history:[],
+            wasser:'mittel', zustand:'mittel',   // Default nur fürs NEUE Objekt; fields überschreibt, wenn Zelle einen Wert hatte
             ...fields,
             baumId:'B-'+String(counter).padStart(5,'0'), createdAt:serverTimestamp(),
             orgId: currentProjectData?.orgId || currentOrg,
@@ -9066,7 +9079,9 @@ function sollFreqProWoche(tree, saison){
   if(h>0) return h;
   if(tree.containerExtId){                 // Seite ohne eigenes Feld → aus Reinigungsklasse des Abschnitts
     const c=_containerOf(tree); const rk=c&&c.reinigungsklasse?_rkById(c.reinigungsklasse):null;
-    if(rk&&rk.freq){ const vals=Object.values(rk.freq).map(x=>parseFloat(x)).filter(x=>x>0); if(vals.length) return Math.max(...vals); }
+    // Häufigkeit der EIGENEN Element-Gruppe der Seite (z. B. Gehweg), nicht das Maximum über alle Gruppen —
+    // sonst bekäme ein Gehweg fälschlich die Fahrbahn-Häufigkeit. Entspricht haeufigkeitOf (objektrollen.js).
+    if(rk&&rk.freq){ const g=(tree.element||'').replace(/_[lr]$/,''); const v=parseFloat(rk.freq[g]); if(v>0) return v; }
   }
   return null;
 }
@@ -9128,10 +9143,11 @@ function renderSollDatenlage(mountId, list, saison){
 
 // ── Soll-Ist: eigener Reiter (Auswertung → Soll-Ist) ─────────────────────────
 // Plan = eingeplante Häufigkeit/Woche = Summe der Wochen-Einsätze aller aktiven Touren des Objekts.
-function _tourWeeklyOcc(tour,saison){
+function _tourWeeklyOcc(tour,saison,refDate){
   if(!tour || isOverviewTour(tour.id)) return 0;
   if(tour.saison && tour.saison!==saison) return 0;   // Saison-Tour zählt nur in ihrer Saison
   if(tour.interval==='bedarf') return 0;
+  if(refDate && !_tourInValidity(tour,refDate)) return 0; // außerhalb der Gültigkeitszeiträume → zählt nicht in den Plan
   const bt=_tourBetriebstage(tour);
   if(!bt.length) return 0;                            // ohne Betriebstage → 0 (bewusst; s. tourDueOn)
   return bt.length*_weekFactor(tour.interval||'');    // z. B. Mo+Do jede 2. Woche = 2 × 0,5 = 1×/Woche
@@ -9213,6 +9229,8 @@ function _siCompute(){
   if(!from||!to){ const m=kiComputeRange('month'); from=m.from; to=m.to; }   // „Gesamt" nicht sinnvoll → Monat
   const dc=_seasonDayCounts(from,to), nS=dc.s, nW=dc.w;
   const refSaison=nW>nS?'winter':'sommer';
+  const _fmtD=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  const _siRef=_fmtD(to); // Referenzdatum (Periodenende) für die Gültigkeits-Prüfung der Touren
   const ist=_siIstCount(from,to);
   const rows=_siBaseList().map(t=>{
     const sS=sollFreqProWoche(t,'sommer'), sW=sollFreqProWoche(t,'winter');
@@ -9221,7 +9239,7 @@ function _siCompute(){
     if(!hasSoll) return o;
     o.sollWo=(refSaison==='winter')?(sW!=null?sW:sS):(sS!=null?sS:sW);
     o.sollP=(sS||0)*nS/7 + (sW||0)*nW/7;
-    o.plan=realTourIds(t).reduce((a,id)=>a+_tourWeeklyOcc(tours.find(x=>x.id===id),refSaison),0);
+    o.plan=realTourIds(t).reduce((a,id)=>a+_tourWeeklyOcc(tours.find(x=>x.id===id),refSaison,_siRef),0);
     o.istN=ist[t.id]||0;
     o.planStatus=(o.sollWo>0)?(o.plan<o.sollWo-1e-6?'unter':(o.plan>o.sollWo+1e-6?'ueber':'ok')):null;
     o.grad=o.sollP>0?o.istN/o.sollP:null;
@@ -9406,15 +9424,26 @@ function _gCompute(){
   const inR=d=>d&&(!from||d>=from)&&(!to||d<=to);
   const per=[], reasonAgg={}, driverAgg={};
   trees.filter(t=>isActive(t)&&!_isContainer(t)).forEach(t=>{
-    let bew=0,nicht=0; const reasons={}; const fills=[];
+    let bew=0,nicht=0; const reasons={}; const fills=[]; const seenDays=new Set();
     (t.history||[]).forEach(h=>{
       if(!h.date||!inR((''+h.date).slice(0,10))) return;
       const done=h.status==='bewaessert', no=h.status==='nicht';
       if(typeof h.fuellgrad==='number') fills.push(h.fuellgrad);
       if(!done&&!no) return;
+      seenDays.add((''+h.date).slice(0,10));
       if(done) bew++; else { nicht++; if(h.reason){ reasons[h.reason]=(reasons[h.reason]||0)+1; reasonAgg[h.reason]=(reasonAgg[h.reason]||0)+1; } }
       if(h.driver){ const da=driverAgg[h.driver]=driverAgg[h.driver]||{tot:0,n:0}; da.tot++; if(no) da.n++; }
     });
+    // Aktueller Status ohne history-Eintrag (z. B. Sammel-Erledigung) — wie die anderen Aggregatoren, sonst „nie Erfolg"-Fehlalarm
+    if(t.lastStatus && t.lastStatus!=='offen' && t.lastReportAt){
+      const d=(''+t.lastReportAt).slice(0,10);
+      if(inR(d) && !seenDays.has(d)){
+        if(t.lastStatus==='bewaessert') bew++;
+        else if(t.lastStatus==='nicht'){ nicht++; if(t.lastReason){ reasons[t.lastReason]=(reasons[t.lastReason]||0)+1; reasonAgg[t.lastReason]=(reasonAgg[t.lastReason]||0)+1; } }
+        if(t.lastDriver){ const da=driverAgg[t.lastDriver]=driverAgg[t.lastDriver]||{tot:0,n:0}; da.tot++; if(t.lastStatus==='nicht') da.n++; }
+        if(typeof t.lastFuellgrad==='number') fills.push(t.lastFuellgrad);
+      }
+    }
     if(bew||nicht||fills.length){ const tr=Object.entries(reasons).sort((a,b)=>b[1]-a[1])[0]; per.push({t,bew,nicht,topReason:tr?tr[0]:'',fillN:fills.length,avgFill:fills.length?Math.round(fills.reduce((a,b)=>a+b,0)/fills.length):null}); }
   });
   const chronisch=per.filter(x=>x.nicht>=_gState.minN).sort((a,b)=>b.nicht-a.nicht);
@@ -10760,7 +10789,7 @@ async function exportHistoryCSV(histId){
   const h=normalizeHistory(historyCache[histId]);
   // Objekt-Eigenschaften (Zustand/Wasser/Titel/Füllgrad) aus dem LIVE-Objekt anreichern — der
   // tourHistory-Snapshot trägt sie nicht, sonst blieben die Spalten leer (wie beim Einsatzleiter).
-  const _liveById=new Map(trees.map(x=>[x.id,x]));
+  const _liveById=new Map((_allTrees.length?_allTrees:trees).map(x=>[x.id,x])); // Gesamtbestand — bei aktivem Pilot fehlten sonst Objekte außerhalb des Ausschnitts
   const _fgAktiv=!!(currentProjectData&&currentProjectData.fuellgradAktiv);
   const header=`Tour;Datum;Fahrer;${FL.name||'Anlage/Straße'};${FL.stadtteil||'Stadtteil'};${FL.art||'Typ/Art'};${FL.baumnr||'Objektnr.'};Status;Grund;Notiz;${FL.zustand||'Zustand'};${FL.wasser||'Wasserbedarf'}`+(_fgAktiv?';Füllgrad':'');
   const rows=h.trees.map(t=>{
@@ -13389,6 +13418,7 @@ async function flaechenTourGenRun(){
       const ref=ex?tcol.doc(ex.id):tcol.doc();
       keyToId.set(tt.genKey, ref.id);
       batch.set(ref,{ orgId:org, name:tt.name, color:tt.color, interval:'woechentlich', startDate:tt.startDate,
+        betriebstage: tt.startDate ? [new Date(tt.startDate+'T00:00:00').getDay()] : [], // Wochentag explizit (nicht nur Legacy-Fallback)
         saison:tt.saison, wochentag:tt.wd, fahrzeugNr:tt.fahrzeug, vehicleName:'Fzg '+tt.fahrzeug,
         autoFlaeche:true, genKey:tt.genKey, gueltig:[], createdAt:firebase.firestore.FieldValue.serverTimestamp() },{merge:true});
       if(++ops>=400) await flush();
