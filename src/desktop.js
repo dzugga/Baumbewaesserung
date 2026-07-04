@@ -2362,8 +2362,19 @@ function _containerOf(t){ if(!t||!t.containerExtId) return null; if(_ctIndexRef!
 // Adapter für die geteilten Resolver (objektrollen.js erwartet getContainer(extId))
 function _containerByExt(extId){ return _containerOf({containerExtId:extId}); }
 function _ausstattungOf(containerExtId){ if(!containerExtId) return []; if(_ctIndexRef!==trees) _rebuildContIndex(); return _ausstIndex.get(containerExtId)||[]; }
-// Effektive Länge/Fläche + Einheit: eigener Wert, sonst geerbt vom Container
-function _effMenge(t){ if(!t) return 0; if(t.menge!=null&&t.menge!=='') return parseFloat(t.menge)||0; const c=_containerOf(t); return c?(parseFloat(c.menge)||0):0; }
+// Effektive Länge/Fläche + Einheit: eigener Wert, sonst geerbt vom Container, sonst aus der
+// Geometrie abgeleitet (wie beim Zeichnen in finishDraw) — sonst wäre der Zeitaufwand eines
+// importierten Flächen-/Linienobjekts ohne gepflegtes „menge"-Feld fälschlich 0.
+function _effMenge(t){
+  if(!t) return 0;
+  if(t.menge!=null&&t.menge!=='') return parseFloat(t.menge)||0;
+  const c=_containerOf(t);
+  if(c&&c.menge!=null&&c.menge!=='') return parseFloat(c.menge)||0;
+  const g=_treeGeom(t);
+  if(g&&g.type==='Polygon') return Math.round(_geoArea((g.coordinates[0]||[]).map(p=>[p[1],p[0]])));
+  if(g&&g.type==='LineString') return Math.round(_geoLen((g.coordinates||[]).map(p=>[p[1],p[0]])));
+  return 0;
+}
 function _effEinheit(t){ if(t&&t.einheit) return t.einheit; const c=_containerOf(t); return c?(c.einheit||''):''; }
 // Vererbungs-Zustand einer Seite: erbt | eigene Länge | eigene Geometrie
 function _ausstStatus(t){ if(t&&(t.geomStr||(t.geom&&t.geom.coordinates))) return 'geom'; if(t&&t.menge!=null&&t.menge!=='') return 'laenge'; return 'erbt'; }
@@ -7334,21 +7345,29 @@ function _repSections(stops, mode){
 // Polygon-Geometrie der Flächen einer Tour (für Kartendruck) — bevorzugt geladene Layer-Geometrie, sonst Bundle.
 async function _repFlaechenFeatures(tourId){
   const extIds=new Set(trees.filter(t=>treeInTour(t,tourId)&&geomTypeOf(t)==='flaeche'&&t.extId).map(t=>t.extId));
-  if(!extIds.size) return [];
   let feats=[];
-  if(_flaechenLayer){ try{ const gj=_flaechenLayer.toGeoJSON(); feats=(gj.features||[]).filter(f=>extIds.has(f.properties&&f.properties.extId)); }catch(_){} }
-  if(!feats.length){
-    try{ let url=await storage.ref(`objektgeom/${currentProjectData.orgId}/${currentProjectId}/flaechen.json`).getDownloadURL();
-      url+=(url.includes('?')?'&':'?')+'v='+(currentProjectData.geomVersion||''); const r=await fetch(url); const b=await r.json();
-      feats=(b.features||[]).filter(f=>extIds.has(f.properties&&f.properties.extId)); }catch(e){ console.warn('rep flaechen laden',e); }
+  if(extIds.size){
+    if(_flaechenLayer){ try{ const gj=_flaechenLayer.toGeoJSON(); feats=(gj.features||[]).filter(f=>extIds.has(f.properties&&f.properties.extId)); }catch(_){} }
+    if(!feats.length){
+      try{ let url=await storage.ref(`objektgeom/${currentProjectData.orgId}/${currentProjectId}/flaechen.json`).getDownloadURL();
+        url+=(url.includes('?')?'&':'?')+'v='+(currentProjectData.geomVersion||''); const r=await fetch(url); const b=await r.json();
+        feats=(b.features||[]).filter(f=>extIds.has(f.properties&&f.properties.extId)); }catch(e){ console.warn('rep flaechen laden',e); }
+    }
   }
+  // Gezeichnete (nicht importierte) Flächen tragen ihre Geometrie direkt am Objekt (geomStr) — fehlten
+  // bisher komplett im Kartenausdruck, obwohl sie im Tabellen-Bericht als Zeile erscheinen. Synthetisches
+  // Feature mit derselben extId-Konvention ('_gezeichnet_'+id), damit die restliche Logik unverändert greift.
+  trees.filter(t=>treeInTour(t,tourId)&&geomTypeOf(t)==='flaeche'&&!t.extId).forEach(t=>{
+    const g=_treeGeom(t);
+    if(g&&g.type==='Polygon') feats.push({type:'Feature',properties:{extId:'_gezeichnet_'+t.id},geometry:g});
+  });
   return feats;
 }
 function _featBounds(f){ let b=null; const walk=cs=>{ if(!Array.isArray(cs))return; if(typeof cs[0]==='number'){ const ll=[cs[1],cs[0]]; b=b?(b.extend(ll),b):L.latLngBounds(ll,ll); return; } cs.forEach(walk); }; if(f&&f.geometry) walk(f.geometry.coordinates); return b; }
 async function printTourMap(){
   if(!_rep) return; const {tourId}=_rep; const tour=tours.find(t=>t.id===tourId); if(!tour){ notify('Keine Tour'); return; }
   const stopsTrees0=trees.filter(t=>treeInTour(t,tourId)&&t.lat&&t.lng);
-  const flTrees0=trees.filter(t=>treeInTour(t,tourId)&&geomTypeOf(t)==='flaeche'&&t.extId);
+  const flTrees0=trees.filter(t=>treeInTour(t,tourId)&&geomTypeOf(t)==='flaeche'&&(t.extId||_treeGeom(t)));
   if(!stopsTrees0.length && !flTrees0.length){ notify('Keine Objekte mit Koordinaten oder Flächen in dieser Tour'); return; }
   const flFeatures = flTrees0.length ? await _repFlaechenFeatures(tourId) : [];
   // Flächen-Koordinaten flach sammeln (für Ausrichtung/Bounds)
@@ -7364,7 +7383,7 @@ async function printTourMap(){
   const _flByExt={}; flFeatures.forEach(f=>{ const e=f.properties&&f.properties.extId; if(e) _flByExt[e]=f; });
   const _flOrdered=_repSort(tourId, flTrees0, _rep.cfg&&_rep.cfg.sort);
   const _nPts=stops.length;
-  _flOrdered.forEach((t,i)=>{ const bb=_featBounds(_flByExt[t.extId]); if(!bb)return; const c=bb.getCenter(); stops.push({lat:c.lat,lng:c.lng,n:_nPts+i+1,name:t.name||'',bbox:bb,fl:true}); });
+  _flOrdered.forEach((t,i)=>{ const bb=_featBounds(_flByExt[t.extId||('_gezeichnet_'+t.id)]); if(!bb)return; const c=bb.getCenter(); stops.push({lat:c.lat,lng:c.lng,n:_nPts+i+1,name:t.name||'',bbox:bb,fl:true}); });
   const depot=getDepot();
   const useDepot = (document.getElementById('repmap-depot')?document.getElementById('repmap-depot').checked:true) && !!(depot&&depot.lat&&depot.lng);
   const detailMode = document.getElementById('repmap-detail')?document.getElementById('repmap-detail').value:'auto';
@@ -12513,6 +12532,11 @@ async function dispoPlan(){
   setSyncState('syncing','Tagesplanung wird berechnet…');
   // Reihenfolge + Zeit je Ressource (ORS „Optimiert" oder Luftlinie)
   for(const r of R){ await dispoOptimizeRoute(r, speed, empty); }
+  // Die Zuordnung oben schätzt konservativ mit Luftlinie × Umwegfaktor (ROAD); die reale ORS-Route kann
+  // trotzdem darüber liegen (z. B. Einbahnstraßen, ungünstige Führung). Das NACH der Optimierung
+  // explizit markieren, statt es nur über den roten Balken zu zeigen — der Disponent muss wissen,
+  // dass diese Tour tatsächlich über der Arbeitszeit liegt (manuell Körbe verschieben nötig).
+  R.forEach(r=>{ r.overBudget = r.budget>0 && r.minGesamt>r.budget; });
   const usedOrs=R.some(r=>r._ors);
   setSyncState('ok','Synchronisiert');
   window.__dispoPlan={R, begr, cfg, ts:new Date(), usedOrs};
@@ -12635,11 +12659,13 @@ function dispoRenderResults(){
   const geplant=vals.filter(v=>v.status==='eingeplant').length;
   const verschoben=vals.filter(v=>v.status==='verschoben').length;
   const ausgelassen=vals.filter(v=>v.status==='ausgelassen').length;
+  const overN=plan.R.filter(r=>r.overBudget).length;
   const orsNote=plan.usedOrs?'Routen: <b>Optimiert (ORS-Fahrstrecken)</b>':'Routen: Schnell (Luftlinie)';
   kpiEl.innerHTML=`<div class="dispo-kpi"><div class="v" style="color:var(--green);">${geplant}</div><div class="l">geplant</div></div>
     <div class="dispo-kpi"><div class="v" style="color:var(--amber);">${verschoben}</div><div class="l">verschoben</div></div>
     <div class="dispo-kpi"><div class="v" style="color:var(--text3);">${ausgelassen}</div><div class="l">ausgelassen</div></div>
-    <div style="grid-column:1/-1;font-size:11px;color:var(--text3);margin-top:2px;">${orsNote}</div>`;
+    <div style="grid-column:1/-1;font-size:11px;color:var(--text3);margin-top:2px;">${orsNote}</div>
+    ${overN?`<div style="grid-column:1/-1;font-size:11px;color:var(--red);font-weight:600;margin-top:2px;">⚠ ${overN} Fahrzeug${overN===1?'':'e'} nach Routenberechnung über Arbeitszeit — Körbe manuell verschieben</div>`:''}`;
 
   const binById={}; bins.forEach(b=>binById[b.id]=b);
 
@@ -12662,7 +12688,7 @@ function dispoRenderResults(){
         </span>
       </div>
       <div class="dispo-bar"><div class="fill" style="width:${pct}%;background:${pct>=100?'var(--red)':dispoResColor(i)};"></div></div>
-      <div class="dispo-res-meta">Auslastung ${dispoFmtH(r.minGesamt)} / ${dispoFmtH(Math.round(budget))}${r.maxBins>0?` · ${r.route.length}/${r.maxBins} Körbe`:''}</div>
+      <div class="dispo-res-meta">Auslastung ${dispoFmtH(r.minGesamt)} / ${dispoFmtH(Math.round(budget))}${r.maxBins>0?` · ${r.route.length}/${r.maxBins} Körbe`:''}${r.overBudget?' · <b style="color:var(--red);">⚠ über Arbeitszeit (reale Route)</b>':''}</div>
       <table class="dispo-leistung">
         <tr class="h"><th>Leistung</th><th>Strecke</th><th>Dauer</th></tr>
         <tr><td>Fahrt</td><td>${r.km.toFixed(1)} km</td><td>${dispoFmtH(r.minFahrt)}</td></tr>
