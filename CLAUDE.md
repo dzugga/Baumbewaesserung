@@ -1,5 +1,7 @@
 # Baumbewaesserung
 
+> **Aktueller Projektstand / Handoff:** immer die in `PROJEKT-HANDOFF.md` oben datierte neueste Fassung lesen. Ältere Stände/Notizen ignorieren; im Zweifel gegen den echten Code verifizieren.
+
 ## Projektziel
 Web-App zur Planung und Dokumentation der kommunalen Baumbewässerung im Stadtgebiet.
 Zwei Frontends: Desktop-Planer (`index.html`) und mobile Fahrer-App (`mobil.html`).
