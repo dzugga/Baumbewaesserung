@@ -21,6 +21,7 @@ function _jsArg(s){
 }
 import { titelOf as orTitel, ELEM_GRUPPE_ORDER, ELEM_GRUPPE_LABEL, haeufigkeitOf as orHaeuf, objektartOf as orObjektart, lageOf as orLage } from './objektrollen.js'; // zentrale Rollen (Objekt + Lage, Reinigungs-Häufigkeit)
 import { initVersionCheck } from './version-check.js';
+import { buildShapefileZip, PRJ_ETRS89_UTM32N } from './geo-export.js';
 initVersionCheck();   // erkennt neue Deploys während die App offen ist → „Neu laden"-Banner
 
 function initializeApp(cfg){ return firebase.initializeApp(cfg); }
@@ -5140,6 +5141,10 @@ function openImport(){
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 15V3"/><polyline points="7 8 12 3 17 8"/><path d="M5 21h14"/></svg>
         Alle Objekte exportieren (Excel)
       </button>
+      <button class="btn btn-secondary" id="imp-shp" style="width:100%;margin-bottom:8px;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+        Als Shapefile exportieren (ZIP · ETRS89/UTM 32N)
+      </button>
       <div style="font-size:11px;color:var(--text3);line-height:1.6;">Die <b>erste Zeile</b> muss Spaltenüberschriften enthalten — Reihenfolge egal. Am einfachsten die Vorlage herunterladen, ausfüllen und importieren. Erkannt werden u. a. ${dlEsc(FL.name)}, ${dlEsc(FL.stadtteil)}, ${dlEsc(FL.art)}, ${dlEsc(FL.baumnr)}, ${dlEsc(FL.pflanzjahr)}, ${dlEsc(FL.pflanzzeitpunkt)}, ${dlEsc(FL.zustand)}, ${dlEsc(FL.wasser)}, ${dlEsc(FL.notiz)}, Kundenfelder sowie Koordinaten (Lat/Lng oder ETRS89/UTM).</div>
     </div></div>`;
   document.body.appendChild(m);
@@ -5149,6 +5154,7 @@ function openImport(){
   m.querySelector('#imp-btn').onclick=()=>{ close(); document.getElementById('excel-import-input').click(); };
   m.querySelector('#imp-tpl').onclick=()=>{ downloadImportTemplate(); };
   m.querySelector('#imp-export').onclick=()=>{ downloadObjectsExport(); };
+  m.querySelector('#imp-shp').onclick=()=>{ exportShapefile(); };
 }
 
 // Allgemein (ORS API-Key) – eigenes Menü unter „INFA-Admin“
@@ -8547,6 +8553,83 @@ function downloadObjectsExport(){
   const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Objekte');
   XLSX.writeFile(wb, ((currentProjectData?.name||'Objekte').replace(/[^\w-]+/g,'_'))+'_Export.xlsx');
   notify(`✓ ${list.length} Objekte exportiert`);
+}
+
+// ── Shapefile-Export (Punkte/Strecken/Flächen, ETRS89/UTM 32N) ───────────────
+// Reprojektion über das global geladene proj4 (CDN). EPSG:25832 einmalig registrieren.
+function _ensureUtm32(){
+  if(typeof proj4==='undefined') return false;
+  if(!proj4.defs('EPSG:25832')) proj4.defs('EPSG:25832','+proj=utm +zone=32 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs');
+  return true;
+}
+// Exportierte Attribute je Objekt (spiegelt den Excel-Export; Schlüssel bewusst kurz für DBF).
+function _shpAttrs(t){
+  const kf=_klasseFelder(t), ok=key=>!kf||kf.includes(key), gt=geomTypeOf(t);
+  const kl=objektklassen.find(x=>x.id===t.klasse);
+  const a={
+    name: orTitel(t,_containerByExt)||'',
+    stadtteil: ok('stadtteil')?(t.stadtteil||''):'',
+    baumnr: ok('baumnr')?(t.baumnr||''):'',
+    art: ok('art')?(t.art||''):'',
+    pflanzjahr: ok('pflanzjahr')?(t.pflanzjahr||''):'',
+    pflanzzeitpunkt: ok('pflanzzeitpunkt')?(t.pflanzzeitpunkt||''):'',
+    zustand: ok('zustand')?rankLabel('zustand',t.zustand):'',
+    wasser: ok('wasser')?rankLabel('wasser',t.wasser):'',
+    notiz: ok('notiz')?(t.notiz||''):'',
+    klasse: kl?kl.name:'',
+    geomtyp: gt,
+    menge: _effMenge(t)||'',
+    einheit: _effEinheit(t)||'',
+    baumId: t.baumId||'',
+    lat: (typeof t.lat==='number')?t.lat:'',
+    lng: (typeof t.lng==='number')?t.lng:'',
+  };
+  customFields.forEach(c=>{ if((ok(c.key)&&fieldAppliesTo(c,gt))){ const v=t[c.key]; if(v!=null&&v!=='') a[c.key]=v; } });
+  return a;
+}
+async function exportShapefile(){
+  if(!currentProjectId){ notify('Bitte zuerst ein Projekt öffnen'); return; }
+  if(!_ensureUtm32()){ notify('proj4 nicht geladen — Reprojektion nicht möglich'); return; }
+  notify('Shapefile wird erstellt …');
+  const reproject=(lng,lat)=>proj4('EPSG:25832',[lng,lat]);
+  const list=((_allTrees&&_allTrees.length)?_allTrees:trees).filter(isActive); // Voll-Export = Gesamtbestand, auch außerhalb eines Pilot-Ausschnitts
+
+  // Flächen-Bundle (importierte Geometrie in Storage) best-effort laden: extId -> Geometrie
+  const bundleGeom={};
+  try{
+    if(currentProjectData?.hatFlaechen && typeof storage!=='undefined'){
+      const url=await storage.ref(`objektgeom/${currentProjectData.orgId}/${currentProjectId}/flaechen.json`).getDownloadURL();
+      const fc=await (await fetch(url)).json();
+      (fc.features||[]).forEach(f=>{ const ext=f.properties&&f.properties.extId; if(ext&&f.geometry) bundleGeom[ext]=f.geometry; });
+    }
+  }catch(e){ console.warn('Flächen-Bundle für Export nicht ladbar', e); }
+
+  const punkte=[], strecken=[], flaechen=[]; let skipped=0;
+  for(const t of list){
+    const attrs=_shpAttrs(t);
+    let g=_treeGeom(t);
+    if((!g||!g.coordinates) && t.extId && bundleGeom[t.extId]) g=bundleGeom[t.extId];
+    const gt=g&&g.type;
+    if(gt==='Polygon'||gt==='MultiPolygon') flaechen.push({geometry:g, attrs});
+    else if(gt==='LineString'||gt==='MultiLineString') strecken.push({geometry:g, attrs});
+    else if(typeof t.lat==='number' && typeof t.lng==='number' && !(t.lat===0&&t.lng===0)) punkte.push({geometry:{type:'Point',coordinates:[t.lng,t.lat]}, attrs});
+    else skipped++;
+  }
+  const layers=[
+    {name:'punkte', shapeType:'Point', features:punkte},
+    {name:'strecken', shapeType:'PolyLine', features:strecken},
+    {name:'flaechen', shapeType:'Polygon', features:flaechen},
+  ].filter(l=>l.features.length);
+  if(!layers.length){ notify('Keine exportierbare Geometrie gefunden'); return; }
+
+  try{
+    const zip=buildShapefileZip(layers, {reproject, prj:PRJ_ETRS89_UTM32N});
+    const blob=new Blob([zip],{type:'application/zip'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+    a.download=((currentProjectData?.name||'Objekte').replace(/[^\wäöüÄÖÜß-]+/g,'_'))+'_Shapefile_'+new Date().toISOString().slice(0,10)+'.zip';
+    a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+    notify(`✓ Export: ${punkte.length} Punkte, ${strecken.length} Strecken, ${flaechen.length} Flächen${skipped?` · ${skipped} ohne Geometrie übersprungen`:''}`);
+  }catch(e){ console.warn('Shapefile-Export', e); notify(dlErr(e)); }
 }
 // Zahl robust parsen (auch Dezimal-Komma "52,28")
 function impNum(v){ if(v==null)return NaN; if(typeof v==='number')return v; return parseFloat(String(v).trim().replace(',','.')); }
