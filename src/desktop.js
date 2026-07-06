@@ -564,7 +564,7 @@ function renderPsList(){
       : '';
     return `<div class="ps-item" onclick="openProject('${d.id}')">
       ${orgCol}
-      <div class="ps-item-icon">${data.icon||'🌳'}</div>
+      <div class="ps-item-icon">${iconHtml(data.icon)}</div>
       <div class="ps-item-info">
         <div class="ps-item-name">${dlEsc(data.name||'')}</div>
         <div class="ps-item-meta">${meta}</div>
@@ -5029,12 +5029,19 @@ function toggleRoutePlanning(){
 
 // ─── OBJEKT-SYMBOLE (je Projekt-Standard, je Typ/Art überschreibbar) ─────────
 const PROJ_ICON_DEFAULT='🌳';
-const ICON_CHOICES=['🌳','🌲','🌴','🌿','🍀','🌸','🌷','🌻','🪴','🍂','🗑️','🚮','🪣','♻️','🧹','🐕','💧','⛲','🚿','🪑','🛝','⚽','🚏','🅷','🅿️','🚧','💡','📍','⭐','🚶','🚲','🚴','🛣️','🚗','🚂','🚸','🔗','🥾','🪜','🟫','🔲'];
+const ICON_CHOICES=['🌳','🌲','🌴','🌿','🍀','🌸','🌷','🌻','🪴','🍂','🗑️','🚮','🪣','♻️','🧹','🐕','💧','⛲','🚿','🪑','🛝','⚽','🚏','🅷','🅿️','🚧','💡','📍','⭐','🚶','🚲','🚴','🛣️','🚗','🚂','🚸','🔗','🥾','🪜','🟫','🔲','svg:absetzcontainer','svg:tonnenschrank'];
+// Eigene Inline-SVG-Symbole (Token 'svg:…'), da es dafür kein passendes Emoji gibt.
+// width/height=1em → skalieren mit der font-size der umgebenden Marker/Zeilen/Buttons.
+const CUSTOM_ICONS={
+  'svg:absetzcontainer':'<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="#e5e7eb" stroke="#374151" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-.15em"><path d="M3 8h18l-3 10H6z"/><path d="M9 8l-1 10M15 8l1 10M3 8l-1-2M21 8l1-2" fill="none"/></svg>',
+  'svg:tonnenschrank':'<svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="#e5e7eb" stroke="#374151" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-.15em"><rect x="4" y="7" width="16" height="12"/><path d="M3 6.4h18v1.1H3z" fill="#9ca3af"/><path d="M12 7v12M10.2 12v2M13.8 12v2M6 19v2M18 19v2" fill="none"/></svg>'
+};
+function iconHtml(v){ return CUSTOM_ICONS[v]||v||PROJ_ICON_DEFAULT; } // Emoji unverändert, Token → SVG
 function projIcon(){ return currentProjectData?.icon||PROJ_ICON_DEFAULT; }
 let _artIconMap=null; // Art-Name -> Symbol (aus artenList)
 function objIcon(tree){
   if(!_artIconMap){ _artIconMap={}; artenList.forEach(a=>{ if(a.icon&&a.name) _artIconMap[a.name]=a.icon; }); }
-  return (tree&&tree.art&&_artIconMap[tree.art])||projIcon();
+  return iconHtml((tree&&tree.art&&_artIconMap[tree.art])||projIcon());
 }
 // Symbol-Auswahl: Raster + freie Eingabe; allowDefault → „Projekt-Standard verwenden" (= Symbol entfernen)
 function pickIcon(current,cb,allowDefault){
@@ -5043,7 +5050,7 @@ function pickIcon(current,cb,allowDefault){
   m.innerHTML=`<div style="background:var(--surface);border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:340px;max-width:94vw;padding:16px 18px;">
     <div style="font-size:14px;font-weight:700;margin-bottom:10px;">Symbol wählen</div>
     <div style="display:grid;grid-template-columns:repeat(8,1fr);gap:5px;margin-bottom:12px;">
-      ${ICON_CHOICES.map(i=>`<button type="button" data-ic="${i}" style="height:34px;font-size:17px;padding:0;border:1.5px solid ${i===current?'var(--green)':'var(--border)'};border-radius:8px;background:${i===current?'var(--green-light)':'var(--bg)'};cursor:pointer;">${i}</button>`).join('')}
+      ${ICON_CHOICES.map(i=>`<button type="button" data-ic="${i}" style="height:34px;font-size:17px;padding:0;border:1.5px solid ${i===current?'var(--green)':'var(--border)'};border-radius:8px;background:${i===current?'var(--green-light)':'var(--bg)'};cursor:pointer;">${iconHtml(i)}</button>`).join('')}
     </div>
     <div style="display:flex;gap:6px;align-items:center;margin-bottom:12px;">
       <input id="ic-free" placeholder="Eigenes Symbol…" maxlength="4" style="flex:1;padding:7px 10px;font-size:14px;border:1px solid var(--border);border-radius:8px;background:var(--bg);font-family:inherit;">
@@ -5064,7 +5071,7 @@ function pickIcon(current,cb,allowDefault){
 }
 function pickProjIcon(){
   const btn=document.getElementById('s-proj-icon'); if(!btn) return;
-  pickIcon(btn.textContent.trim(),ic=>{ if(ic) btn.textContent=ic; },false);
+  pickIcon(btn.dataset.ic||btn.textContent.trim(),ic=>{ if(ic){ btn.dataset.ic=ic; btn.innerHTML=iconHtml(ic); } },false);
 }
 
 // ── Saison (Phase 2-Grundlage): Sommer-Zeitraum je Projekt; Winter = außerhalb ──
@@ -5082,7 +5089,7 @@ function openSettings(){
   document.getElementById('s-depot-lat').value=depot?.lat||'';
   document.getElementById('s-depot-lng').value=depot?.lng||'';
   document.getElementById('s-depot-mode').value=getDepotMode();
-  const _pi=document.getElementById('s-proj-icon'); if(_pi) _pi.textContent=projIcon();
+  const _pi=document.getElementById('s-proj-icon'); if(_pi){ _pi.dataset.ic=projIcon(); _pi.innerHTML=iconHtml(projIcon()); }
   const _ro=document.getElementById('s-route-opt'); if(_ro) _ro.value=getRouteOptMode();
   const _routeOn = getRoutePlanningEnabled();
   const _rtBtn = document.getElementById('s-toggle-route');
@@ -5278,7 +5285,7 @@ async function applySettings(){
   const addr=document.getElementById('s-depot-addr').value.trim();
   const updates={
     depotMode:document.getElementById('s-depot-mode').value,
-    icon:document.getElementById('s-proj-icon')?.textContent.trim()||PROJ_ICON_DEFAULT,
+    icon:document.getElementById('s-proj-icon')?.dataset.ic||PROJ_ICON_DEFAULT,
     routeOptMode:document.getElementById('s-route-opt')?.value||getRouteOptMode(),
     fuellgradAktiv:document.getElementById('s-fuellgrad')?.checked||false,
     clusterAktiv:document.getElementById('s-cluster')?.checked||false,
@@ -6097,7 +6104,7 @@ function renderArtenList(){
     const c=byId[a.id]||0;
     return `<tr style="border-top:1px solid var(--border);">
       <td style="padding:4px 8px 4px 12px;width:46px;">
-        <button type="button" ${ro?'disabled':`onclick="artSetIcon('${_jsArg(a.id)}')"`} title="${a.icon?'Eigenes Symbol — ändern':'Projekt-Standard — eigenes Symbol setzen'}" style="width:32px;height:32px;font-size:16px;padding:0;border:1.5px solid ${a.icon?'var(--green-mid)':'var(--border)'};border-radius:8px;background:${a.icon?'var(--green-light)':'var(--bg)'};cursor:${ro?'default':'pointer'};${a.icon?'':'opacity:.55;'}">${a.icon||projIcon()}</button>
+        <button type="button" ${ro?'disabled':`onclick="artSetIcon('${_jsArg(a.id)}')"`} title="${a.icon?'Eigenes Symbol — ändern':'Projekt-Standard — eigenes Symbol setzen'}" style="width:32px;height:32px;font-size:16px;padding:0;border:1.5px solid ${a.icon?'var(--green-mid)':'var(--border)'};border-radius:8px;background:${a.icon?'var(--green-light)':'var(--bg)'};cursor:${ro?'default':'pointer'};${a.icon?'':'opacity:.55;'}">${iconHtml(a.icon||projIcon())}</button>
       </td>
       <td style="padding:7px 12px;font-weight:500;">${dlEsc(a.name)}</td>
       ${showKl?`<td style="padding:7px 12px;">${ro?dlEsc(objektklassen.find(k=>k.id===a.klasse)?.name||'alle'):`<select onchange="artSetKlasse('${_jsArg(a.id)}',this.value)" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;max-width:140px;"><option value="">alle Klassen</option>${objektklassen.map(k=>`<option value="${dlEsc(k.id)}"${a.klasse===k.id?' selected':''}>${dlEsc(k.name)}</option>`).join('')}</select>`}</td>`:''}
