@@ -786,6 +786,15 @@ function maybeHealCount(field,n){
 
 // ─── PROJECT SETTINGS ─────────────────────────────────────────
 function getDepot(){ return currentProjectData?.depot||null; }
+// Betriebshof-Eintrag (mit Koordinaten) per Name aus der Betriebshof-Werteliste
+function _bhByName(name){ if(!name) return null; const v=(listValues.betriebshof||[]).find(x=>x.label===name); return (v&&v.lat!=null&&v.lng!=null)?{lat:+v.lat,lng:+v.lng,address:v.address||name}:null; }
+// Startpunkt einer Tour: 1) gesetzter Betriebshof, 2) häufigster Betriebshof ihrer Objekte, 3) Projekt-Depot
+function _tourDepot(tour){
+  let bh=_bhByName(tour&&tour.betriebshof); if(bh) return bh;
+  if(tour){ const cnt={}; for(const t of (trees||[])){ if(t.betriebshof && treeInTour(t,tour.id)) cnt[t.betriebshof]=(cnt[t.betriebshof]||0)+1; }
+    const top=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0]; if(top){ bh=_bhByName(top[0]); if(bh) return bh; } }
+  return getDepot();
+}
 // ORS-Key stadtscharf: liegt am Mandanten (orgs/{orgId}.orsKey). Legacy-Fallback: alter projektweiter Key.
 let currentOrgOrsKey = '';
 function getOrsKey(){ return currentOrgOrsKey || currentProjectData?.orsKey || ''; }
@@ -1453,7 +1462,7 @@ async function calculateAndSaveRoute(tourId){
   document.getElementById('route-info-text').textContent='Route wird berechnet…';
   document.getElementById('route-info-bar').classList.add('visible');
 
-  const depot=getDepot();
+  const depot=_tourDepot(tour); // Startpunkt = Betriebshof der Tour (Fallback: Projekt-Depot)
   const ordered=await computeTreeOrder(trs, depot);
   tourOrder[tourId]=ordered.map(t=>t.id);
 
@@ -2741,7 +2750,8 @@ function rebuildMarkersWithNumbers(){
 
 function renderDepotMarker(){
   if(depotMarker){map.removeLayer(depotMarker);depotMarker=null;}
-  const depot=getDepot();if(!depot?.lat)return;
+  const _t=activeTourOnMap?tours.find(x=>x.id===activeTourOnMap):null; // angezeigte Tour → deren Betriebshof als Startpunkt
+  const depot=_t?_tourDepot(_t):getDepot();if(!depot?.lat)return;
   const icon=L.divIcon({
     className:'',
     html:`<div class="depot-marker-wrap"><div class="depot-pulse"></div>
@@ -4908,6 +4918,8 @@ function openTourModal(id){
   }
   const sysSel=document.getElementById('t-system');
   if(sysSel){ sysSel.innerHTML='<option value="">— keines —</option>'+getReinigungssysteme().map(s=>`<option value="${dlEsc(s.id)}">${dlEsc(s.name)} (${_rsTypLabel(s.typ)})</option>`).join(''); sysSel.value=t?.reinigungssystem||''; }
+  const bhSel=document.getElementById('t-betriebshof');
+  if(bhSel){ bhSel.innerHTML='<option value="">— automatisch / Projekt-Depot —</option>'+(listValues.betriebshof||[]).map(b=>`<option value="${dlEsc(b.label)}">${dlEsc(b.label)}${b.lat==null?' (ohne Koordinaten)':''}</option>`).join(''); bhSel.value=t?.betriebshof||''; }
   const az=t&&typeof t.arbeitszeitMin==='number'&&t.arbeitszeitMin>0?t.arbeitszeitMin:0;
   document.getElementById('t-az-h').value=az?Math.floor(az/60):'';
   document.getElementById('t-az-m').value=az?az%60:'';
@@ -4944,7 +4956,7 @@ async function saveTour(){
   const interval=document.getElementById('t-interval').value||'';
   const gueltig=(window._tourGueltig||[]).filter(g=>g.from&&g.to).map(g=>({from:g.from,to:g.to}));
   const betriebstage=_WD.map(w=>w.n).filter(n=>(window._tourBt||[]).includes(n)); // stabile Reihenfolge Mo→So
-  const data={name,desc:document.getElementById('t-desc').value,color:selectedTourColor,zusatzzeiten,regeln:collectTourRegeln(),startDate,interval,betriebstage,gueltig,reinigungssystem:document.getElementById('t-system')?.value||''};
+  const data={name,desc:document.getElementById('t-desc').value,color:selectedTourColor,zusatzzeiten,regeln:collectTourRegeln(),startDate,interval,betriebstage,gueltig,reinigungssystem:document.getElementById('t-system')?.value||'',betriebshof:document.getElementById('t-betriebshof')?.value||''};
   try{
     if(editingTourId){
       data.arbeitszeitMin=arbeitszeitMin>0?arbeitszeitMin:firebase.firestore.FieldValue.delete();

@@ -1206,12 +1206,20 @@ async function naviStreetLine(stops){
   return null;
 }
 
+// Startpunkt der aktuellen Tour: gesetzter Betriebshof → häufigster Betriebshof der Tour-Objekte → Projekt-Depot.
+function _tourDepotM(){
+  const lv=(currentProjectData&&currentProjectData.listValues&&currentProjectData.listValues.betriebshof)||[];
+  const byName=n=>{ const v=lv.find(x=>x.label===n&&x.lat!=null&&x.lng!=null); return v?{lat:+v.lat,lng:+v.lng}:null; };
+  let d=byName(currentTour&&currentTour.betriebshof);
+  if(!d){ const cnt={}; (trees||[]).forEach(t=>{ if(t.betriebshof) cnt[t.betriebshof]=(cnt[t.betriebshof]||0)+1; }); const top=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0]; if(top) d=byName(top[0]); }
+  if(d) return d;
+  const pd=(currentProjectData||{}).depot; return (pd&&pd.lat!=null)?{lat:pd.lat,lng:pd.lng}:null;
+}
 async function getRouteWithDepot(pts){
   try{
-    const data = currentProjectData || {};
-    const depot=data.depot;
-    const depotMode=data.depotMode||'round';
-    if(depot?.lat&&depot?.lng){
+    const depot=_tourDepotM();
+    const depotMode=(currentProjectData||{}).depotMode||'round';
+    if(depot){
       const dp=[depot.lat,depot.lng];
       return depotMode==='round'?[dp,...pts,dp]:[dp,...pts];
     }
@@ -1222,8 +1230,8 @@ async function getRouteWithDepot(pts){
 async function drawDepotMarker(routeData){
   if(depotMarker){map.removeLayer(depotMarker);depotMarker=null;}
   try{
-    const depot=(currentProjectData||{}).depot;
-    if(!depot?.lat)return;
+    const depot=_tourDepotM();
+    if(!depot)return;
     const icon=L.divIcon({
       className:'',
       html:`<div style="width:32px;height:32px;border-radius:8px;background:#f59e0b;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;font-size:16px;">🏭</div>`,
