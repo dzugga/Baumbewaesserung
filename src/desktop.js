@@ -2203,6 +2203,11 @@ function _flStyleForTree(t, isLine){
     const c2=_bhColorOf(t)||'#cbd5e1';
     return isLine?{ color:c2, weight:6, opacity:0.95 }:{ color:c2, weight:2, fillColor:c2, fillOpacity:0.5 };
   }
+  // Modus „nach Segmentart einfärben" (Parallelen-Analyse: Einzeln/Parallel/Teiler)
+  if(_colorMode==='segart'){
+    const c2=SEGART_COLORS[(t&&t.segmentart)||'']||'#d1d5db';
+    return isLine?{ color:c2, weight:((t&&t.segmentart)==='Teiler')?6:4, opacity:0.95 }:{ color:c2, weight:2, fillColor:c2, fillOpacity:0.4 };
+  }
   // Modus „nach Soll-Häufigkeit einfärben" (wirksame Häufigkeit der gewählten Saison)
   if(_colorMode==='sollfreq'){
     const c2=_sollFreqColorFor(_sollFreqEff(t));
@@ -2332,6 +2337,7 @@ function renderDisplayPanel(){
     h+=rad('none','aus (Tourfarbe)')
       +(hasCont?rad('rk','Reinigungsklasse')+rad('haeuf','Reinigungshäufigkeit'):'')
       +(currentProjectData?.sollFeld?rad('sollfreq',dlEsc(_sollFeldLabel()||'Häufigkeit')+' (Sommer/Winter)'):'')
+      +((customFields.some(c=>c.key==='segmentart')||(trees||[]).some(t=>t.segmentart))?rad('segart','Segmentart (Parallelen)'):'')
       +((hasCont||currentProjectData?.sollFeld)?rad('plan','Planungs-Check (Soll/Plan)')+rad('overdue','Fälligkeit (überfällig)'):'')
       +(hasBh?rad('betriebshof','Betriebshof'):'');
   }
@@ -2412,6 +2418,15 @@ function _renderRkLegend(){
     el.innerHTML=`<div style="font-size:11px;font-weight:700;margin-bottom:6px;">${dlEsc(_sollFeldLabel()||'Häufigkeit')} · ${saison==='winter'?'Winter':'Sommer'}</div>`+saisonCtl+
       (vals.length?vals.map(v=>`<div style="display:flex;align-items:center;gap:7px;font-size:12px;margin-bottom:3px;"><span style="width:12px;height:12px;border-radius:3px;background:${_sollFreqColorFor(v)};flex:none;"></span>${fmt(v)} · <b>${counts.get(v)}</b></div>`).join(''):`<div style="font-size:12px;color:var(--text3);">keine Häufigkeiten gesetzt</div>`)+
       (none?`<div style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text3);margin-top:3px;"><span style="width:12px;height:12px;border-radius:3px;background:#d1d5db;flex:none;"></span>ohne Angabe · <b>${none}</b></div>`:'');
+  } else if(_colorMode==='segart'){
+    const counts={Einzeln:0,Parallel:0,Teiler:0}; let none=0,fixed=0;
+    (trees||[]).forEach(t=>{ if(!isActive(t)||_isContainer(t)||t.containerExtId||geomTypeOf(t)!=='linie') return;
+      const v=t.segmentart; if(!v||counts[v]==null){ none++; return; } counts[v]++; if(t.segmentartAuto===false) fixed++; });
+    el.style.display='block';
+    el.innerHTML=`<div style="font-size:11px;font-weight:700;margin-bottom:6px;">Segmentart (Parallelen)</div>`+
+      [['Einzeln','Einzeln'],['Parallel','Parallel (eine Seite)'],['Teiler','Teiler (beide Seiten)']].map(([k,l])=>`<div style="display:flex;align-items:center;gap:7px;font-size:12px;margin-bottom:3px;"><span style="width:14px;height:4px;border-radius:2px;background:${SEGART_COLORS[k]};flex:none;"></span>${l} · <b>${counts[k].toLocaleString('de-DE')}</b></div>`).join('')+
+      (none?`<div style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text3);margin-top:3px;"><span style="width:14px;height:4px;border-radius:2px;background:#d1d5db;flex:none;"></span>ohne Einstufung · <b>${none}</b></div>`:'')+
+      `<div style="font-size:10px;color:var(--text3);margin-top:4px;">${fixed?fixed+' manuell fixiert · ':''}Korrektur: Lasso → „Feld setzen" → Segmentart</div>`;
   } else if(_colorMode==='betriebshof'){
     const bhs=(listValues.betriebshof||[]);
     const counts={}; let none=0;
@@ -11666,7 +11681,7 @@ function lassoSetFieldDialog(){
     if(f&&f.type==='zahl') val=(String(val).trim()===''?'':(parseFloat(String(val).replace(',','.'))||0));
     close();
     setSyncState('syncing','Setzt Feld…');
-    try{ await _chunkedTreeUpdate(ids.map(id=>({id,data:{[key]:val}}))); notify(`✓ „${f?f.label:key}" für ${ids.length} Objekte gesetzt`); }
+    try{ await _chunkedTreeUpdate(ids.map(id=>({id,data:{[key]:val, ...(key==='segmentart'?{segmentartAuto:false}:{})}}))); notify(`✓ „${f?f.label:key}" für ${ids.length} Objekte gesetzt`); }
     catch(e){ console.warn('lassoSetField',e); notify(dlErr(e)); }
     setSyncState('ok','Synchronisiert');
     clearLassoSelection();
@@ -14105,6 +14120,119 @@ async function geomDocsImportRun(close){
     setTimeout(()=>{ if(close) close(); },1500);
   }catch(e){ setMsg('Fehler: '+(e.message||e)); notify('Fehler: '+(e.message||e)); if(run){run.disabled=false;run.style.opacity=1;} }
 }
+// ── Segmentart-Analyse: parallele Segmentlinien erkennen (Vorschlag für die Abschnitts-Migration) ──
+// 'Einzeln' = keine Parallele · 'Parallel' = Parallele auf EINER Seite · 'Teiler' = Parallelen auf
+// BEIDEN Seiten (Mittellinie, i. d. R. Fahrbahnteiler). Schreibt nur Vorschläge (segmentartAuto=true);
+// manuell fixierte Werte (per Lasso „Feld setzen" → segmentartAuto=false) werden nie überschrieben.
+const SEGART_COLORS={'Einzeln':'#9ca3af','Parallel':'#3b82f6','Teiler':'#dc2626'};
+function _segartClassify(maxDist, covMin){
+  const list=trees.filter(t=>isActive(t)&&!_isContainer(t)&&!t.containerExtId&&geomTypeOf(t)==='linie');
+  const geoms=[]; let latS=0,lngS=0,n0=0;
+  for(const t of list){ const g=_treeGeom(t); if(!g) continue;
+    const parts=g.type==='LineString'?[g.coordinates]:(g.type==='MultiLineString'?g.coordinates:null); if(!parts) continue;
+    geoms.push({t,parts}); for(const p of parts) for(const c of p){ lngS+=c[0]; latS+=c[1]; n0++; } }
+  if(!n0) return null;
+  const lat0=latS/n0, lng0=lngS/n0;
+  const kx=111320*Math.cos(lat0*Math.PI/180), ky=110540; // Grad → Meter (lokal, ausreichend genau)
+  const STEP=15; // Stützpunkt-Abstand in m
+  const items=geoms.map((gm,gi)=>{
+    const samples=[];
+    for(const part of gm.parts){
+      const pts=part.map(c=>[(c[0]-lng0)*kx,(c[1]-lat0)*ky]);
+      for(let i=0;i+1<pts.length;i++){
+        const [x1,y1]=pts[i],[x2,y2]=pts[i+1]; const dx=x2-x1,dy=y2-y1; const len=Math.hypot(dx,dy); if(len<0.5) continue;
+        const ux=dx/len, uy=dy/len, n=Math.max(1,Math.round(len/STEP));
+        for(let s=0;s<n;s++){ const f=(s+0.5)/n; samples.push({x:x1+dx*f,y:y1+dy*f,ux,uy}); }
+      }
+    }
+    return {t:gm.t, gi, samples};
+  });
+  const cell=Math.max(10,maxDist); const grid=new Map();
+  items.forEach((it)=>it.samples.forEach(s=>{ const k=Math.floor(s.x/cell)+'_'+Math.floor(s.y/cell); let a=grid.get(k); if(!a){a=[];grid.set(k,a);} a.push({gi:it.gi,x:s.x,y:s.y,ux:s.ux,uy:s.uy}); }));
+  const cosTol=Math.cos(20*Math.PI/180); // Richtungstoleranz 20° (auch gegenläufig parallel)
+  const res=new Map();
+  items.forEach(it=>{
+    let L=0,R=0; const tot=it.samples.length||1;
+    for(const s of it.samples){
+      const cx=Math.floor(s.x/cell), cy=Math.floor(s.y/cell);
+      let left=false,right=false;
+      for(let ax=cx-1;ax<=cx+1&&!(left&&right);ax++) for(let ay=cy-1;ay<=cy+1&&!(left&&right);ay++){
+        const a=grid.get(ax+'_'+ay); if(!a) continue;
+        for(const q of a){ if(q.gi===it.gi) continue;
+          if(Math.abs(s.ux*q.ux+s.uy*q.uy)<cosTol) continue;              // Richtung nicht parallel
+          const vx=q.x-s.x, vy=q.y-s.y;
+          if(Math.abs(vx*s.ux+vy*s.uy)>STEP) continue;                     // nicht querab (voraus/zurück)
+          const perp=s.ux*vy-s.uy*vx, ad=Math.abs(perp);
+          if(ad<2||ad>maxDist) continue;                                   // <2 m = eigene Fortsetzung/Knoten
+          if(perp>0) left=true; else right=true;
+          if(left&&right) break;
+        }
+      }
+      if(left)L++; if(right)R++;
+    }
+    const lc=L/tot, rc=R/tot;
+    res.set(it.t.id, (lc>=covMin&&rc>=covMin)?'Teiler':((lc>=covMin||rc>=covMin)?'Parallel':'Einzeln'));
+  });
+  return res;
+}
+async function segartAnalyseOpen(){
+  if(isReadonly()||!canEditObjects()) return notify('Nur Planer/Admins');
+  if(!currentProjectId) return notify('Kein Projekt geöffnet');
+  const nLin=trees.filter(t=>isActive(t)&&!_isContainer(t)&&!t.containerExtId&&geomTypeOf(t)==='linie').length;
+  if(!nLin) return notify('Keine Strecken-Objekte im Projekt');
+  const m=document.createElement('div');
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100001;display:flex;align-items:center;justify-content:center;padding:20px;';
+  m.innerHTML=`<div style="background:var(--surface);border-radius:10px;width:480px;max-width:94vw;overflow:hidden;">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;">Segmentart-Analyse (Parallelen)</div>
+    <div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px;font-size:13px;">
+      <div style="font-size:12px;color:var(--text3);">Erkennt je Strecke, ob parallele Nachbarlinien verlaufen: <b>Einzeln</b> / <b>Parallel</b> (eine Seite) / <b>Teiler</b> (beide Seiten, z. B. Fahrbahnteiler). Nur ein Vorschlag — manuell fixierte Werte bleiben unangetastet. Korrektur danach per Lasso → „Feld setzen".</div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;">
+        <label style="font-size:12px;color:var(--text2);">Max. Abstand (m)<input id="sa-dist" type="number" min="5" max="60" value="25" class="form-control" style="width:90px;margin-top:3px;"></label>
+        <label style="font-size:12px;color:var(--text2);">Mindest-Überdeckung (%)<input id="sa-cov" type="number" min="20" max="90" value="50" class="form-control" style="width:90px;margin-top:3px;"></label>
+      </div>
+      <button id="sa-run" class="btn btn-secondary" style="padding:7px 12px;">Analysieren (${nLin.toLocaleString('de-DE')} Strecken)</button>
+      <div id="sa-info" style="font-size:12px;color:var(--text2);white-space:pre-line;min-height:20px;"></div>
+    </div>
+    <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
+      <button id="sa-cancel" class="btn btn-secondary" style="padding:7px 12px;">Schließen</button>
+      <button id="sa-save" class="btn btn-primary" style="padding:7px 14px;opacity:.5;" disabled>Vorschlag speichern</button>
+    </div></div>`;
+  document.body.appendChild(m);
+  const close=()=>m.remove(); m.querySelector('#sa-cancel').onclick=close; m.addEventListener('click',e=>{ if(e.target===m) close(); });
+  const info=m.querySelector('#sa-info'), saveBtn=m.querySelector('#sa-save');
+  let _res=null;
+  m.querySelector('#sa-run').onclick=()=>{
+    const dist=Math.max(5,Math.min(60,parseFloat(m.querySelector('#sa-dist').value)||25));
+    const cov=Math.max(0.2,Math.min(0.9,(parseFloat(m.querySelector('#sa-cov').value)||50)/100));
+    info.textContent='Rechne…';
+    setTimeout(()=>{ try{
+      _res=_segartClassify(dist,cov);
+      if(!_res){ info.textContent='Keine Strecken mit Geometrie gefunden.'; return; }
+      const c={Einzeln:0,Parallel:0,Teiler:0}; let fixed=0, change=0;
+      _res.forEach((v,id)=>{ c[v]++; const t=trees.find(x=>x.id===id);
+        if(t&&t.segmentart&&t.segmentartAuto===false){ fixed++; return; }
+        if(!t||t.segmentart!==v) change++; });
+      info.textContent=`Einzeln: ${c.Einzeln.toLocaleString('de-DE')}\nParallel (eine Seite): ${c.Parallel.toLocaleString('de-DE')}\nTeiler (beide Seiten): ${c.Teiler.toLocaleString('de-DE')}\n\nZu schreiben: ${change.toLocaleString('de-DE')} · manuell fixiert (bleiben): ${fixed}`;
+      saveBtn.disabled=false; saveBtn.style.opacity=1;
+    }catch(e){ console.warn('Segmentart-Analyse',e); info.textContent='Fehler: '+(e.message||e); } },30);
+  };
+  saveBtn.onclick=async()=>{
+    if(!_res) return; saveBtn.disabled=true; saveBtn.style.opacity=.5;
+    try{
+      // Feld + Werteliste sicherstellen (einmalig)
+      if(!customFields.some(c=>c.key==='segmentart')){ customFields.push({key:'segmentart',label:'Segmentart',aktiv:true,type:'liste',geomTypes:['linie']}); }
+      const have=new Set((listValues.segmentart||[]).map(e=>e.label)); listValues.segmentart=listValues.segmentart||[];
+      ['Einzeln','Parallel','Teiler'].forEach(v=>{ if(!have.has(v)) listValues.segmentart.push({id:_genId(),label:v}); });
+      await saveListValues();
+      const ups=[]; _res.forEach((v,id)=>{ const t=trees.find(x=>x.id===id);
+        if(t&&t.segmentart&&t.segmentartAuto===false) return;   // manuell fixiert
+        if(!t||t.segmentart!==v||t.segmentartAuto!==true) ups.push({id,data:{segmentart:v,segmentartAuto:true}}); });
+      await _chunkedTreeUpdate(ups);
+      notify(`✓ Segmentart-Vorschlag gespeichert (${ups.length.toLocaleString('de-DE')} Strecken)`);
+      close(); setColorMode('segart'); // direkt zur Sichtprüfung einfärben
+    }catch(e){ console.warn('Segmentart speichern',e); notify(dlErr(e)); saveBtn.disabled=false; saveBtn.style.opacity=1; }
+  };
+}
 // Migration: flache Linien-Straßen → Abschnitt-Container + 4 Seiten (Fahrbahn/Gehweg L/R).
 // Räumt zuerst versehentlich eingespielte Container/Seiten weg (nicht _migrated), wandelt dann die
 // flachen Straßen an Ort und Stelle um; bisherige Tour-Zuordnung wandert auf die Fahrbahn-Seiten.
@@ -14202,7 +14330,7 @@ async function renderMandanten(){
       </div>
       <div style="font-size:11px;color:var(--text3);margin-top:6px;">Danach unter Admin → Benutzer Personen für den neuen Mandanten anlegen.</div>
     </div>
-    <div style="margin-bottom:16px;"><button class="btn btn-secondary" style="font-size:12px;padding:7px 12px;" onclick="flaechenImportOpen()">⬗ Flächen-Bundle einspielen</button> <button class="btn btn-secondary" style="font-size:12px;padding:7px 12px;" onclick="geomDocsImportOpen()">／ Geometrie-Datensätze einspielen</button> <button class="btn btn-secondary" style="font-size:12px;padding:7px 12px;" onclick="strMigOpen()">⇄ Straßen → Abschnitte</button> <span style="font-size:11px;color:var(--text3);">Bundle = importierte Flächen · Datensätze = Linien/Flächen mit Geometrie am Doc (z. B. Ahlen-Straßen).</span></div>
+    <div style="margin-bottom:16px;"><button class="btn btn-secondary" style="font-size:12px;padding:7px 12px;" onclick="flaechenImportOpen()">⬗ Flächen-Bundle einspielen</button> <button class="btn btn-secondary" style="font-size:12px;padding:7px 12px;" onclick="geomDocsImportOpen()">／ Geometrie-Datensätze einspielen</button> <button class="btn btn-secondary" style="font-size:12px;padding:7px 12px;" onclick="segartAnalyseOpen()">∥ Segmentart-Analyse</button> <button class="btn btn-secondary" style="font-size:12px;padding:7px 12px;" onclick="strMigOpen()">⇄ Straßen → Abschnitte</button> <span style="font-size:11px;color:var(--text3);">Bundle = importierte Flächen · Datensätze = Linien/Flächen mit Geometrie am Doc (z. B. Ahlen-Straßen).</span></div>
     ${orgs.map(o=>`<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 16px;margin-bottom:12px;">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
         <span style="font-size:14px;font-weight:700;">${dlEsc(o.name||o.id)}</span>
@@ -14473,7 +14601,7 @@ Object.assign(window,{
   openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,openBetriebshoefe,
   pickProjIcon,artSetIcon,artSetTime,artSetRate,setArtDefaultTime,artApplyTimeToAll,artSetKlasse,
   renderReinigungssysteme,rsAdd,rsUpdate,rsDelete,
-  renderMandanten,createOrgUi,moveProjectUi,setOrgNaviUi,checkBaumIdDuplicates,flaechenImportOpen,flaechenImportRun,geomDocsImportOpen,geomDocsImportRun,strMigOpen,flaechenTourGenOpen,flaechenTourGenRun,
+  renderMandanten,createOrgUi,moveProjectUi,setOrgNaviUi,checkBaumIdDuplicates,flaechenImportOpen,flaechenImportRun,geomDocsImportOpen,geomDocsImportRun,strMigOpen,segartAnalyseOpen,flaechenTourGenOpen,flaechenTourGenRun,
   addWmsLayer,deleteWmsLayer,editWmsLayer,cancelWmsEdit,renderWmsList,
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,setListMode,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,openObjFilterConfig,setObjFilterField,toggleTourCounts,toggleRouteNums,toggleVersatz,toggleTypeFilter,setTypeVisible,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
