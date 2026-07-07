@@ -14150,8 +14150,16 @@ function _segartClassify(maxDist, covMin){
   const cell=Math.max(10,maxDist); const grid=new Map();
   items.forEach((it)=>it.samples.forEach(s=>{ const k=Math.floor(s.x/cell)+'_'+Math.floor(s.y/cell); let a=grid.get(k); if(!a){a=[];grid.set(k,a);} a.push({gi:it.gi,x:s.x,y:s.y,ux:s.ux,uy:s.uy}); }));
   const cosTol=Math.cos(20*Math.PI/180); // Richtungstoleranz 20° (auch gegenläufig parallel)
+  return {items, grid, cell, cosTol, STEP};
+}
+// Klassifikation asynchron in Häppchen (UI bleibt bedienbar, Fortschritt sichtbar)
+async function _segartRun(maxDist, covMin, onProgress){
+  const prep=_segartClassify(maxDist, covMin);
+  if(!prep) return null;
+  const {items, grid, cell, cosTol, STEP}=prep;
   const res=new Map();
-  items.forEach(it=>{
+  for(let i=0;i<items.length;i++){
+    const it=items[i];
     let L=0,R=0; const tot=it.samples.length||1;
     for(const s of it.samples){
       const cx=Math.floor(s.x/cell), cy=Math.floor(s.y/cell);
@@ -14172,7 +14180,8 @@ function _segartClassify(maxDist, covMin){
     }
     const lc=L/tot, rc=R/tot;
     res.set(it.t.id, (lc>=covMin&&rc>=covMin)?'Teiler':((lc>=covMin||rc>=covMin)?'Parallel':'Einzeln'));
-  });
+    if(i%400===399 && onProgress){ onProgress(i+1, items.length); await new Promise(r=>setTimeout(r,0)); } // UI atmen lassen
+  }
   return res;
 }
 async function segartAnalyseOpen(){
@@ -14201,36 +14210,49 @@ async function segartAnalyseOpen(){
   const close=()=>m.remove(); m.querySelector('#sa-cancel').onclick=close; m.addEventListener('click',e=>{ if(e.target===m) close(); });
   const info=m.querySelector('#sa-info'), saveBtn=m.querySelector('#sa-save');
   let _res=null;
-  m.querySelector('#sa-run').onclick=()=>{
+  const runBtn2=m.querySelector('#sa-run');
+  runBtn2.onclick=async()=>{
     const dist=Math.max(5,Math.min(60,parseFloat(m.querySelector('#sa-dist').value)||25));
     const cov=Math.max(0.2,Math.min(0.9,(parseFloat(m.querySelector('#sa-cov').value)||50)/100));
-    info.textContent='Rechne…';
-    setTimeout(()=>{ try{
-      _res=_segartClassify(dist,cov);
-      if(!_res){ info.textContent='Keine Strecken mit Geometrie gefunden.'; return; }
+    runBtn2.disabled=true; runBtn2.style.opacity=.5; saveBtn.disabled=true; saveBtn.style.opacity=.5;
+    info.textContent='Bereite Analyse vor (Stützpunkte + Index)…';
+    await new Promise(r=>setTimeout(r,30)); // UI die Meldung zeichnen lassen
+    try{
+      _res=await _segartRun(dist,cov,(done,total)=>{ info.textContent=`Analysiere… ${done.toLocaleString('de-DE')} / ${total.toLocaleString('de-DE')} Strecken (${Math.round(done/total*100)} %)`; });
+      if(!_res){ info.textContent='Keine Strecken mit Geometrie gefunden.'; runBtn2.disabled=false; runBtn2.style.opacity=1; return; }
+      const byId=new Map(trees.map(t=>[t.id,t])); // O(1)-Zugriff statt find() je Ergebnis
       const c={Einzeln:0,Parallel:0,Teiler:0}; let fixed=0, change=0;
-      _res.forEach((v,id)=>{ c[v]++; const t=trees.find(x=>x.id===id);
+      _res.forEach((v,id)=>{ c[v]++; const t=byId.get(id);
         if(t&&t.segmentart&&t.segmentartAuto===false){ fixed++; return; }
         if(!t||t.segmentart!==v) change++; });
-      info.textContent=`Einzeln: ${c.Einzeln.toLocaleString('de-DE')}\nParallel (eine Seite): ${c.Parallel.toLocaleString('de-DE')}\nTeiler (beide Seiten): ${c.Teiler.toLocaleString('de-DE')}\n\nZu schreiben: ${change.toLocaleString('de-DE')} · manuell fixiert (bleiben): ${fixed}`;
+      info.textContent=`✓ Analyse abgeschlossen (${_res.size.toLocaleString('de-DE')} Strecken)\n\nEinzeln: ${c.Einzeln.toLocaleString('de-DE')}\nParallel (eine Seite): ${c.Parallel.toLocaleString('de-DE')}\nTeiler (beide Seiten): ${c.Teiler.toLocaleString('de-DE')}\n\nZu schreiben: ${change.toLocaleString('de-DE')} · manuell fixiert (bleiben): ${fixed}`;
       saveBtn.disabled=false; saveBtn.style.opacity=1;
-    }catch(e){ console.warn('Segmentart-Analyse',e); info.textContent='Fehler: '+(e.message||e); } },30);
+    }catch(e){ console.warn('Segmentart-Analyse',e); info.textContent='Fehler: '+(e.message||e); }
+    runBtn2.disabled=false; runBtn2.style.opacity=1;
   };
   saveBtn.onclick=async()=>{
-    if(!_res) return; saveBtn.disabled=true; saveBtn.style.opacity=.5;
+    if(!_res) return; saveBtn.disabled=true; saveBtn.style.opacity=.5; runBtn2.disabled=true; runBtn2.style.opacity=.5;
     try{
       // Feld + Werteliste sicherstellen (einmalig)
       if(!customFields.some(c=>c.key==='segmentart')){ customFields.push({key:'segmentart',label:'Segmentart',aktiv:true,type:'liste',geomTypes:['linie']}); }
       const have=new Set((listValues.segmentart||[]).map(e=>e.label)); listValues.segmentart=listValues.segmentart||[];
       ['Einzeln','Parallel','Teiler'].forEach(v=>{ if(!have.has(v)) listValues.segmentart.push({id:_genId(),label:v}); });
       await saveListValues();
-      const ups=[]; _res.forEach((v,id)=>{ const t=trees.find(x=>x.id===id);
+      const byId=new Map(trees.map(t=>[t.id,t]));
+      const ups=[]; _res.forEach((v,id)=>{ const t=byId.get(id);
         if(t&&t.segmentart&&t.segmentartAuto===false) return;   // manuell fixiert
         if(!t||t.segmentart!==v||t.segmentartAuto!==true) ups.push({id,data:{segmentart:v,segmentartAuto:true}}); });
-      await _chunkedTreeUpdate(ups);
+      _suppressTreeRender=true; // EIN Render am Ende statt je Batch (23k Updates)
+      try{
+        for(let i=0;i<ups.length;i+=400){
+          const b=db.batch(); ups.slice(i,i+400).forEach(u=>b.update(doc(db,'projects',currentProjectId,'trees',u.id),u.data)); await b.commit();
+          info.textContent=`Speichere… ${Math.min(i+400,ups.length).toLocaleString('de-DE')} / ${ups.length.toLocaleString('de-DE')}`;
+        }
+      } finally { _suppressTreeRender=false; if(_pendingTreeRender){ _pendingTreeRender=false; refreshMarkers(); renderListDebounced(); } }
+      info.textContent=`✓ Fertig: ${ups.length.toLocaleString('de-DE')} Strecken gespeichert.`;
       notify(`✓ Segmentart-Vorschlag gespeichert (${ups.length.toLocaleString('de-DE')} Strecken)`);
-      close(); setColorMode('segart'); // direkt zur Sichtprüfung einfärben
-    }catch(e){ console.warn('Segmentart speichern',e); notify(dlErr(e)); saveBtn.disabled=false; saveBtn.style.opacity=1; }
+      setTimeout(()=>{ close(); setColorMode('segart'); },800); // direkt zur Sichtprüfung einfärben
+    }catch(e){ console.warn('Segmentart speichern',e); info.textContent='Fehler: '+(e.message||e); notify(dlErr(e)); saveBtn.disabled=false; saveBtn.style.opacity=1; runBtn2.disabled=false; runBtn2.style.opacity=1; }
   };
 }
 // Migration: flache Linien-Straßen → Abschnitt-Container + 4 Seiten (Fahrbahn/Gehweg L/R).
