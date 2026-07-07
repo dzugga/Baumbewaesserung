@@ -9298,6 +9298,7 @@ async function doImport(){
             datum:'',tourId:'',tourIds:[],history:[],
             wasser:'mittel', zustand:'mittel',   // Default nur fürs NEUE Objekt; fields überschreibt, wenn Zelle einen Wert hatte
             ...fields,
+            ...(r.geomType==='linie'?{extId:'shp-'+String(counter).padStart(5,'0')}:{}), // Strecken: extId für spätere Abschnitt+Seiten-Umwandlung (Container-Verknüpfung)
             baumId:'B-'+String(counter).padStart(5,'0'), createdAt:serverTimestamp(),
             orgId: currentProjectData?.orgId || currentOrg,
           });
