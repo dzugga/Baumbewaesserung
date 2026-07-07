@@ -2626,22 +2626,40 @@ function cancelDraw(){
 }
 async function finishDraw(){
   const type=_drawMode, pts=_drawPts.slice();
-  cancelDraw();
-  if(type==='flaeche' && pts.length<3){ notify('Mindestens 3 Punkte für eine Fläche'); return; }
+  if(type==='flaeche' && pts.length<3){ notify('Mindestens 3 Punkte für eine Fläche'); return; } // Zeichnung NICHT verwerfen → weiter Punkte setzen möglich
   if(type==='linie' && pts.length<2){ notify('Mindestens 2 Punkte für eine Strecke'); return; }
   let geom, menge, einheit;
   if(type==='flaeche'){ const ring=pts.map(p=>[+p[1].toFixed(7),+p[0].toFixed(7)]); ring.push(ring[0].slice()); geom={type:'Polygon',coordinates:[ring]}; menge=Math.round(_geoArea(pts)); einheit='m2'; }
   else { geom={type:'LineString',coordinates:pts.map(p=>[+p[1].toFixed(7),+p[0].toFixed(7)])}; menge=Math.round(_geoLen(pts)); einheit='m'; }
+  cancelDraw();
   setSyncState('syncing','Speichert…');
+  let ref;
   try{
-    const baumId=await getNextBaumId();
-    const ref=await addDoc(collection(db,'projects',currentProjectId,'trees'),{
+    // Geometrie ZUERST sichern (eigene Auto-ID, OHNE Zähler-Transaktion) → keine Contention bei parallelem
+    // Zeichnen, die gezeichnete Form geht nie verloren. Die fortlaufende Objekt-ID wird danach entkoppelt vergeben.
+    ref=await addDoc(collection(db,'projects',currentProjectId,'trees'),{
       name:type==='flaeche'?'Neue Fläche':'Neue Strecke', geomType:type, geomStr:JSON.stringify(geom), menge, einheit, // GeoJSON als String — Firestore kann keine verschachtelten Arrays
-      zustand:'mittel', wasser:'mittel', tourId:'', tourIds:[], notiz:'', baumId, history:[], createdAt:serverTimestamp(),
+      zustand:'mittel', wasser:'mittel', tourId:'', tourIds:[], notiz:'', baumId:'', history:[], createdAt:serverTimestamp(),
     });
-    notify(`✓ ${type==='flaeche'?'Fläche '+_fmtArea(menge):'Strecke '+_fmtLen(menge)} angelegt`);
-    setTimeout(()=>{ try{ renderDrawnGeoms(); }catch(_){} selectTree(ref.id,false); }, 350);
-  }catch(e){ notify('Fehler: '+e.message); }
+  }catch(e){
+    console.warn('finishDraw speichern', e); setSyncState('ok','Synchronisiert');
+    notify('Speichern fehlgeschlagen — Zeichnung bleibt erhalten, bitte „Fertig" erneut.');
+    _restoreDraw(type, pts); // Punkte wieder anbieten statt verwerfen
+    return;
+  }
+  setSyncState('ok','Synchronisiert');
+  notify(`✓ ${type==='flaeche'?'Fläche '+_fmtArea(menge):'Strecke '+_fmtLen(menge)} angelegt`);
+  setTimeout(()=>{ try{ renderDrawnGeoms(); }catch(_){} selectTree(ref.id,false); }, 350);
+  _assignBaumIdSafe(ref.id); // fortlaufende Objekt-ID entkoppelt + konfliktfest nachvergeben
+}
+// Nach Speicherfehler: Zeichenmodus mit den bereits gesetzten Punkten wieder aufnehmen (kein Verlust).
+function _restoreDraw(type, pts){ startDraw(type); _drawPts=pts.slice(); _drawRender(); }
+// Objekt-ID (fortlaufend) nachträglich vergeben — die Transaktion auf dem Projekt-Doc kann bei
+// parallelem Zeichnen konkurrieren; hier mit Backoff wiederholen. Scheitert sie ganz, bleibt baumId leer
+// (Objekt existiert mit Geometrie) und wird später nachgezogen — nie Datenverlust.
+async function _assignBaumIdSafe(treeId, attempt=0){
+  try{ const baumId=await getNextBaumId(); await updateDoc(doc(db,'projects',currentProjectId,'trees',treeId),{baumId}); }
+  catch(e){ if(attempt<6){ setTimeout(()=>_assignBaumIdSafe(treeId,attempt+1), 500*(attempt+1)); return; } console.warn('Objekt-ID-Vergabe noch ausstehend für', treeId, e); }
 }
 
 async function renderFlaechen(){
@@ -11279,10 +11297,55 @@ function renderLassoActions(){
     ${btn('add','➕ Zu „'+tn+'“ hinzufügen','rgba(255,255,255,.18)')}
     ${btn('move','➡ Nach „'+tn+'“ verschieben','rgba(255,255,255,.18)')}
     ${btn('unplan','⊘ Aus Tour(en) entfernen','rgba(255,255,255,.18)')}
+    <button onclick="lassoSetFieldDialog()" style="padding:4px 11px;font-size:12px;font-weight:600;border:none;border-radius:var(--radius-sm);background:rgba(255,255,255,.18);color:#fff;cursor:pointer;white-space:nowrap;" title="Ein Feld (z. B. Betriebshof) für die Auswahl setzen">✎ Feld setzen…</button>
     <button onclick="clearLassoSelection()" style="padding:4px 11px;font-size:12px;border:1px solid rgba(255,255,255,.4);background:transparent;color:#fff;border-radius:var(--radius-sm);cursor:pointer;white-space:nowrap;">Auswahl aufheben</button>`;
   bar.classList.add('visible');
 }
 
+// Bulk: ein Feld für die gesamte Lasso-Auswahl setzen (z. B. Betriebshof beim Verschieben von Grenzen).
+function lassoSetFieldDialog(){
+  if(isReadonly()) return notify('Nur Lesezugriff');
+  const ids=[...lassoSelection]; if(!ids.length) return notify('Nichts ausgewählt');
+  const fields=[{key:'stadtteil',label:FL.stadtteil,type:'liste'},{key:'art',label:FL.art,type:'art'},
+    ...customFields.map(c=>({key:c.key,label:c.label,type:c.type||'liste'}))];
+  const m=document.createElement('div');
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  m.innerHTML=`<div style="background:var(--surface);border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:340px;max-width:94vw;padding:16px 18px;">
+    <div style="font-size:14px;font-weight:700;margin-bottom:10px;">Feld setzen — ${ids.length} Objekt(e)</div>
+    <label class="form-label">Feld</label>
+    <select id="lsf-field" class="form-control" style="margin-bottom:10px;">${fields.map(f=>`<option value="${dlEsc(f.key)}">${dlEsc(f.label)}</option>`).join('')}</select>
+    <label class="form-label">Wert</label>
+    <div id="lsf-valwrap" style="margin-bottom:14px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button type="button" id="lsf-cancel" class="btn btn-secondary" style="padding:6px 12px;font-size:12px;">Abbrechen</button>
+      <button type="button" id="lsf-ok" class="btn btn-primary" style="padding:6px 12px;font-size:12px;">Setzen</button>
+    </div>
+  </div>`;
+  document.body.appendChild(m);
+  const close=()=>m.remove();
+  const fsel=m.querySelector('#lsf-field'), vwrap=m.querySelector('#lsf-valwrap');
+  const renderVal=()=>{
+    const f=fields.find(x=>x.key===fsel.value)||fields[0];
+    if(f.type==='art') vwrap.innerHTML=`<select id="lsf-val" class="form-control">${['',...artenList.map(a=>a.name)].map(n=>`<option value="${dlEsc(n)}">${n?dlEsc(n):'— leeren —'}</option>`).join('')}</select>`;
+    else if(f.type==='zahl') vwrap.innerHTML=`<input id="lsf-val" type="number" step="any" class="form-control" placeholder="Zahl (leer = leeren)">`;
+    else if(f.type==='text') vwrap.innerHTML=`<input id="lsf-val" type="text" class="form-control" placeholder="Text (leer = leeren)">`;
+    else vwrap.innerHTML=`<select id="lsf-val" class="form-control">${_listOptions(f.key,'')}</select>`;
+  };
+  renderVal(); fsel.onchange=renderVal;
+  m.querySelector('#lsf-cancel').onclick=close;
+  m.addEventListener('click',e=>{ if(e.target===m) close(); });
+  m.querySelector('#lsf-ok').onclick=async()=>{
+    const key=fsel.value, f=fields.find(x=>x.key===key);
+    let val=m.querySelector('#lsf-val').value;
+    if(f&&f.type==='zahl') val=(String(val).trim()===''?'':(parseFloat(String(val).replace(',','.'))||0));
+    close();
+    setSyncState('syncing','Setzt Feld…');
+    try{ await _chunkedTreeUpdate(ids.map(id=>({id,data:{[key]:val}}))); notify(`✓ „${f?f.label:key}" für ${ids.length} Objekte gesetzt`); }
+    catch(e){ console.warn('lassoSetField',e); notify(dlErr(e)); }
+    setSyncState('ok','Synchronisiert');
+    clearLassoSelection();
+  };
+}
 // Aktion auf die Vorauswahl anwenden: 'add' | 'move' | 'unplan'
 async function lassoAction(mode){
   let targets=[...lassoSelection].map(id=>trees.find(t=>t.id===id)).filter(Boolean);
@@ -14066,7 +14129,7 @@ Object.assign(window,{
   rankAdd,rankRename,rankSetColor,rankSetZahl,rankSetZahlWinter,rankMove,rankMerge,rankDelete,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
-  importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,clearLassoSelection,
+  importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,
   createProject,openProject,showProjectScreen,psSetOrgFilter,setSiTab,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,
