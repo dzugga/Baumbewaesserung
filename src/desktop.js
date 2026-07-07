@@ -3540,7 +3540,7 @@ function openDetail(id){
     ${drow(FL.art,tree.art,'font-style:italic;')}
     ${drow(FL.pflanzjahr,tree.pflanzjahr)}
     ${drow(FL.pflanzzeitpunkt||'Pflanzzeitpunkt',tree.pflanzzeitpunkt)}
-    ${customFields.filter(c=>fieldAppliesTo(c,geomTypeOf(tree))).map(c=>drow(c.label,tree[c.key])).join('')}
+    ${customFields.filter(c=>fieldAppliesTo(c,geomTypeOf(tree)) && !(geomTypeOf(tree)==='flaeche' && _FLAECHE_PLAN_KEYS.includes(c.key))).map(c=>drow(c.label,tree[c.key])).join('')}
 
     ${(tree.containerExtId)?(()=>{
       const c=_containerOf(tree);
@@ -4151,7 +4151,12 @@ function renderCustomFieldInputs(tree){
   const kf=_klasseFelder(tree);
   wrap.innerHTML=customFields.filter(c=>fieldAppliesTo(c,gt) && (!kf||kf.includes(c.key))).map(c=>{
     const cur=((tree?tree[c.key]:'')||'');
-    return `<div class="form-group"><label class="form-label">${dlEsc(c.label)}</label><select class="form-control" id="f-${c.key}">${_listOptions(c.key,cur)}</select></div>`;
+    const inp = (c.type==='zahl')
+      ? `<input type="number" step="any" class="form-control" id="f-${c.key}" value="${dlEsc(cur)}">`
+      : (c.type==='text')
+      ? `<input type="text" class="form-control" id="f-${c.key}" value="${dlEsc(cur)}">`
+      : `<select class="form-control" id="f-${c.key}">${_listOptions(c.key,cur)}</select>`;
+    return `<div class="form-group"><label class="form-label">${dlEsc(c.label)}</label>${inp}</div>`;
   }).join('');
 }
 
@@ -4261,7 +4266,7 @@ async function saveTree(){
   const _hRow=document.getElementById('row-f-haeufigkeit');
   if(_hRow&&_hRow.style.display!=='none'){ const hv=(document.getElementById('f-haeufigkeit').value||'').trim(); data.haeufigkeit=hv===''?null:(parseFloat(hv.replace(',','.'))||0); }
   // Nur tatsächlich angezeigte Kundenfelder schreiben — sonst würden für den Typ ausgeblendete Felder überschrieben
-  customFields.forEach(c=>{ const el=document.getElementById('f-'+c.key); if(el) data[c.key]=el.value; });
+  customFields.forEach(c=>{ const el=document.getElementById('f-'+c.key); if(!el) return; const v=el.value; data[c.key]= (c.type==='zahl') ? (String(v).trim()===''?'':(parseFloat(String(v).replace(',','.'))||0)) : v; });
   try{
     if(editingTreeId){
       await updateDoc(doc(db,'projects',currentProjectId,'trees',editingTreeId),data);
@@ -6482,17 +6487,24 @@ async function buildListFromObjects(fieldKey){
   await saveListValues(); renderFieldCatalog();
   notify(`✓ ${added} Wert(e) aus Objekten ergänzt`);
 }
-// Kundenfelder (max. 5, frei benennbar; ebenfalls Wertelisten)
+// Reservierte Feld-Schlüssel (Standard-/System-Felder) — Kundenfeld-Schlüssel dürfen nicht kollidieren
+const _RESERVED_FIELD_KEYS=['name','stadtteil','baumnr','baumId','art','pflanzjahr','pflanzzeitpunkt','zustand','wasser','notiz','menge','einheit','lat','lng','geomType','geom','geomStr','klasse','extId','containerExtId','containerTyp','tourId','tourIds','datum','aktiv','orgId','history','fotos','dokumente','lastStatus','lastReason','lastNote','lastDriver','lastReportAt','lastFuellgrad'];
+// Felder, die der kuratierte „Reinigungsplan"-Block im Detail-Sheet (Flächen) bereits zeigt → nicht zusätzlich als generische Kundenfeld-Zeile (Doppelanzeige vermeiden)
+const _FLAECHE_PLAN_KEYS=['belag','teilflaechen','objektart','objektnummer','betriebshof','fahrzeug','haeufigkeitS','haeufigkeitW','sommerTage','winterTage','reinigungsflaecheListe'];
+// Kundenfelder: frei benennbar, eigener Schlüssel, Typ Liste | Zahl | Text (beliebig viele)
 async function addCustomField(){
   if(isReadonly()) return;
-  if(customFields.length>=5){ notify('Maximal 5 Kundenfelder'); return; }
   const label=(prompt('Bezeichnung des neuen Kundenfeldes:','')||'').trim(); if(!label) return;
-  const used=new Set(customFields.map(c=>c.key));
-  let key=''; for(let i=1;i<=5;i++){ if(!used.has('feld'+i)){ key='feld'+i; break; } }
-  if(!key){ notify('Maximal 5 Kundenfelder'); return; }
-  customFields.push({key,label,aktiv:true});
-  await saveListValues(); renderFieldCatalog(); notify('✓ Kundenfeld angelegt');
+  const ty=(prompt('Feldtyp — „liste“ (Auswahl), „zahl“ oder „text“:','liste')||'liste').trim().toLowerCase();
+  const type=['liste','zahl','text'].includes(ty)?ty:'liste';
+  const used=new Set([...customFields.map(c=>c.key), ..._RESERVED_FIELD_KEYS]);
+  let base=label.toLowerCase().replace(/[äöü]/g,m=>({'ä':'ae','ö':'oe','ü':'ue'}[m])).replace(/ß/g,'ss').replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,24)||'feld';
+  let key=base, i=2; while(used.has(key)) key=base+'_'+(i++);
+  customFields.push({key,label,aktiv:true,type});
+  await saveListValues(); renderFieldCatalog(); notify('✓ Kundenfeld angelegt ('+type+')');
 }
+// Typ eines Kundenfeldes (Alt-Felder ohne type = 'liste')
+function _cfType(key){ const c=customFields.find(x=>x.key===key); return (c&&c.type)||'liste'; }
 // Geometrietyp-Scope eines Kundenfeldes umschalten (leere Liste = gilt für alle)
 async function cfGeomToggle(fieldKey, gt, checked){
   if(isReadonly()) return;
@@ -6756,6 +6768,20 @@ function _fieldCatalogCard(fieldKey, title, opts={}){
       ${['punkt','linie','flaeche'].map(gt=>`<label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" ${fieldAppliesTo(cf,gt)?'checked':''} onchange="cfGeomToggle('${fieldKey}','${gt}',this.checked)" style="margin:0;cursor:pointer;">${{punkt:'Punkt',linie:'Linie',flaeche:'Fläche'}[gt]}</label>`).join('')}
       <span style="color:var(--text3);font-size:11px;">(alle aktiv = überall sichtbar)</span>
     </div>`:'';
+  const type = cf ? (cf.type||'liste') : 'liste';
+  if(type!=='liste'){
+    // Zahl/Text: keine Werteliste — Werte werden direkt am Objekt erfasst. Nur Info + Feld-Aktionen.
+    let seen=new Set(); for(const t of trees){ const v=(t[fieldKey]==null?'':t[fieldKey]).toString().trim(); if(v) seen.add(v); }
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:14px;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
+        <div style="font-size:14px;font-weight:700;">${dlEsc(title)}</div>
+        <span style="font-size:11px;color:var(--text3);background:var(--surface2);padding:2px 7px;border-radius:5px;">${type==='zahl'?'Zahl':'Text'} · ${seen.size} versch.</span>
+        ${!ro?`<button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" onclick="renameCustomField('${fieldKey}')">Feld umbenennen</button><button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;color:#c0392b;" onclick="removeCustomField('${fieldKey}')">Feld entfernen</button>`:''}
+      </div>
+      ${geomScopeUI}
+      <div style="color:var(--text3);font-size:12px;padding:2px 0;">${type==='zahl'?'Zahlenfeld':'Freitextfeld'} — die Werte werden direkt am Objekt erfasst (keine Auswahlliste). Als Filter und in Exporten dennoch verfügbar.</div>
+    </div>`;
+  }
   const counts=Object.create(null);  // Häufigkeiten in 1 Durchlauf statt O(Werte×Objekte)
   for(const t of trees){ const v=(t[fieldKey]||'').toString().trim(); if(v) counts[v]=(counts[v]||0)+1; }
   const rows=vals.map(e=>{
@@ -6818,7 +6844,7 @@ function _fieldTile(key,label,opts={}){
       <div style="font-size:14px;font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(label)}</div>
       ${opts.badge?`<span style="font-size:10px;color:var(--text3);background:var(--surface2);padding:2px 6px;border-radius:5px;white-space:nowrap;">${opts.badge}</span>`:''}
     </div>
-    <div style="font-size:12px;color:var(--text3);margin-top:8px;">${locked?'Rang &amp; Farbe — folgt im nächsten Schritt':`${vCount} Wert${vCount===1?'':'e'} · ${oCount} Objekt${oCount===1?'':'e'}`}</div>
+    <div style="font-size:12px;color:var(--text3);margin-top:8px;">${locked?'Rang &amp; Farbe — folgt im nächsten Schritt':`${(()=>{const ty=_cfType(key);return (ty==='zahl'||ty==='text')?(ty==='zahl'?'Zahl':'Text'):`${vCount} Wert${vCount===1?'':'e'}`;})()} · ${oCount} Objekt${oCount===1?'':'e'}`}</div>
     ${locked?'':`<div style="font-size:11px;color:var(--green);margin-top:6px;font-weight:600;">Öffnen →</div>`}
   </div>`;
 }
