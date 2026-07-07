@@ -5396,6 +5396,73 @@ async function applySettings(){
   notify('Einstellungen gespeichert — Route neu berechnen wenn gewünscht');
 }
 
+// Betriebshöfe verwalten (self-service): Name + Adresse→Koordinaten (Startpunkt) + Farbe.
+// Gespeichert als Werteliste des Feldes „betriebshof" (Werte tragen zusätzlich lat/lng/address/color),
+// damit Objekt-Zuordnung, Filter und Bulk-Umsetzung dieselbe Liste nutzen.
+async function openBetriebshoefe(){
+  if(!currentProjectId){ notify('Kein Projekt geöffnet'); return; }
+  if(isReadonly()) return notify('Nur Lesezugriff');
+  if(!customFields.some(c=>c.key==='betriebshof')) customFields.push({key:'betriebshof',label:'Betriebshof',aktiv:true,type:'liste'});
+  const bhs=JSON.parse(JSON.stringify(listValues.betriebshof||[]));
+  const m=document.createElement('div'); m.id='bh-modal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;';
+  m.innerHTML=`<div style="background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow-md);width:660px;max-width:96vw;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+      <div><div style="font-size:15px;font-weight:700;">Betriebshöfe</div><div style="font-size:12px;color:var(--text3);margin-top:2px;">Name, Adresse (→ Startpunkt der Touren) und Farbe. Objekte und Touren werden diesen Betriebshöfen zugeordnet.</div></div>
+      <button id="bh-x" style="border:none;background:none;font-size:22px;color:var(--text2);cursor:pointer;line-height:1;">×</button>
+    </div>
+    <div id="bh-list" style="overflow:auto;padding:10px 18px;flex:1;"></div>
+    <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:space-between;">
+      <button id="bh-add" class="btn btn-secondary" style="padding:8px 14px;">+ Betriebshof</button>
+      <div style="display:flex;gap:8px;"><button id="bh-cancel" class="btn btn-secondary" style="padding:8px 14px;">Abbrechen</button><button id="bh-save" class="btn btn-primary" style="padding:8px 16px;font-weight:700;">Speichern</button></div>
+    </div>
+  </div>`;
+  document.body.appendChild(m);
+  const close=()=>m.remove();
+  const listEl=m.querySelector('#bh-list');
+  const render=()=>{
+    if(!bhs.length){ listEl.innerHTML='<div style="color:var(--text3);font-size:13px;padding:10px 0;">Noch keine Betriebshöfe. Unten „+ Betriebshof".</div>'; return; }
+    listEl.innerHTML=bhs.map((b,i)=>`<div style="display:flex;gap:8px;align-items:center;border:1px solid var(--border);border-radius:8px;padding:9px 10px;margin-bottom:8px;flex-wrap:wrap;">
+      <input type="color" data-i="${i}" data-k="color" value="${b.color||'#2d6a4f'}" style="width:30px;height:30px;padding:0;border:1px solid var(--border);border-radius:6px;cursor:pointer;" title="Farbe">
+      <input data-i="${i}" data-k="label" value="${dlEsc(b.label||'')}" placeholder="Name" class="form-control" style="flex:1;min-width:110px;padding:6px 9px;font-size:13px;">
+      <input data-i="${i}" data-k="address" value="${dlEsc(b.address||'')}" placeholder="Adresse (für Startpunkt)" class="form-control" style="flex:2;min-width:150px;padding:6px 9px;font-size:13px;">
+      <button data-geo="${i}" class="btn btn-secondary" style="padding:6px 10px;font-size:12px;white-space:nowrap;">📍 Suchen</button>
+      <span data-coord="${i}" style="font-size:11px;min-width:120px;color:${b.lat!=null?'var(--green)':'var(--text3)'};">${b.lat!=null?(+b.lat).toFixed(5)+', '+(+b.lng).toFixed(5):'keine Koordinaten'}</span>
+      <button data-del="${i}" class="btn btn-secondary" style="padding:6px 10px;font-size:12px;color:#c0392b;">Löschen</button>
+    </div>`).join('');
+    listEl.querySelectorAll('input[data-k]').forEach(inp=>inp.oninput=()=>{ bhs[+inp.dataset.i][inp.dataset.k]=inp.value; });
+    listEl.querySelectorAll('[data-del]').forEach(btn=>btn.onclick=()=>{ bhs.splice(+btn.dataset.del,1); render(); });
+    listEl.querySelectorAll('[data-geo]').forEach(btn=>btn.onclick=async()=>{
+      const i=+btn.dataset.geo, addr=(bhs[i].address||'').trim(); if(!addr){ notify('Bitte Adresse eingeben'); return; }
+      const old=btn.textContent; btn.textContent='…'; btn.disabled=true;
+      try{ const r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(addr)}`,{headers:{'Accept-Language':'de'}}); const d=await r.json();
+        if(d&&d[0]){ bhs[i].lat=+parseFloat(d[0].lat).toFixed(6); bhs[i].lng=+parseFloat(d[0].lon).toFixed(6); }
+        else notify('Adresse nicht gefunden');
+      }catch(e){ console.warn('geocode',e); notify('Geocoding fehlgeschlagen'); }
+      render();
+    });
+  };
+  render();
+  m.querySelector('#bh-x').onclick=close; m.querySelector('#bh-cancel').onclick=close;
+  m.addEventListener('click',e=>{ if(e.target===m) close(); });
+  m.querySelector('#bh-add').onclick=()=>{ bhs.push({id:_genId(),label:'',color:'#2d6a4f'}); render(); };
+  m.querySelector('#bh-save').onclick=async()=>{
+    const names=bhs.map(b=>(b.label||'').trim());
+    if(names.some(n=>!n)){ notify('Jeder Betriebshof braucht einen Namen'); return; }
+    if(new Set(names.map(n=>n.toLowerCase())).size!==names.length){ notify('Namen müssen eindeutig sein'); return; }
+    // Umbenennungen an die Objekte weiterreichen (Zuordnung bleibt erhalten)
+    const origById={}; (listValues.betriebshof||[]).forEach(b=>{ if(b.id) origById[b.id]=b.label; });
+    const renames=bhs.filter(b=>b.id&&origById[b.id]!=null&&origById[b.id]!==b.label.trim()).map(b=>({from:origById[b.id],to:b.label.trim()}));
+    bhs.forEach(b=>b.label=b.label.trim());
+    listValues.betriebshof=bhs;
+    try{
+      await saveListValues();
+      for(const r of renames){ const ups=((_allTrees&&_allTrees.length?_allTrees:trees)||[]).filter(t=>(t.betriebshof||'')===r.from).map(t=>({id:t.id,data:{betriebshof:r.to}})); if(ups.length) await _chunkedTreeUpdate(ups); }
+      notify('✓ Betriebshöfe gespeichert'); close();
+      if(currentView==='baeume') renderFieldCatalog();
+    }catch(e){ console.warn('Betriebshöfe speichern',e); notify(dlErr(e)); }
+  };
+}
 // Projekte – eigenes Menü unter „Verwaltung"
 function openProjekte(){
   if(!currentProjectId){ notify('Kein Projekt geöffnet'); return; }
@@ -14217,7 +14284,7 @@ Object.assign(window,{
   focusTour,focusTourAndSwitch,
   startPlacement,cancelMode,setDepotOnMap,startDraw,finishDraw,cancelDraw,
   startAssignMode,setAssignTour,cancelAssign,assignTreeToTour,
-  openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,
+  openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,openBetriebshoefe,
   pickProjIcon,artSetIcon,artSetTime,artSetRate,setArtDefaultTime,artApplyTimeToAll,artSetKlasse,
   renderReinigungssysteme,rsAdd,rsUpdate,rsDelete,
   renderMandanten,createOrgUi,moveProjectUi,setOrgNaviUi,checkBaumIdDuplicates,flaechenImportOpen,flaechenImportRun,geomDocsImportOpen,geomDocsImportRun,strMigOpen,flaechenTourGenOpen,flaechenTourGenRun,
