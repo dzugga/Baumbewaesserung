@@ -341,7 +341,7 @@ let depotMarker = null;
 
 // ─── MAP ──────────────────────────────────────────────────────
 const L = window.L;
-const map = L.map('map',{zoomControl:false,attributionControl:true}).setView([52.279,8.047],13);
+const map = L.map('map',{zoomControl:false,attributionControl:true,zoomSnap:0.5,zoomDelta:0.5,wheelPxPerZoomLevel:120}).setView([52.279,8.047],13);
 map.attributionControl.setPosition('bottomright').setPrefix(false);
 // Basis-Ebenen: amtliche basemap.de (BKG) in Farbe + Graustufen — kostenfrei, kommerziell/
 // kommunal nutzbar (CC BY 4.0), DSGVO-konform. Ersetzt OSM-Kachelserver + Esri-Satellit.
