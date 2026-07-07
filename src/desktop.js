@@ -9726,8 +9726,8 @@ function _siCompute(){
   if(!from||!to){ const m=kiComputeRange('month'); from=m.from; to=m.to; }   // „Gesamt" nicht sinnvoll → Monat
   const dc=_seasonDayCounts(from,to), nS=dc.s, nW=dc.w;
   const refSaison=nW>nS?'winter':'sommer';
-  const _fmtD=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-  const _siRef=_fmtD(to); // Referenzdatum (Periodenende) für die Gültigkeits-Prüfung der Touren
+  // Referenzdatum (Periodenende) für die Gültigkeits-Prüfung der Touren — kiComputeRange liefert Strings (YYYY-MM-DD)
+  const _siRef=(to instanceof Date)?(to.getFullYear()+'-'+String(to.getMonth()+1).padStart(2,'0')+'-'+String(to.getDate()).padStart(2,'0')):(''+to).slice(0,10);
   const ist=_siIstCount(from,to);
   const rows=_siBaseList().map(t=>{
     const sS=sollFreqProWoche(t,'sommer'), sW=sollFreqProWoche(t,'winter');
