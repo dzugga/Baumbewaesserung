@@ -8967,8 +8967,17 @@ async function importShapefile(input){
   try{ res=await readShapefileZip(await file.arrayBuffer(), {proj4}); }
   catch(e){ console.warn('Shapefile lesen', e); notify('Fehler beim Lesen: '+(e.message||e)); return; }
   (res.warnings||[]).forEach(w=>notify('⚠ '+w));
-  const feats=(res.layers||[]).flatMap(l=>l.features);
+  let feats=(res.layers||[]).flatMap(l=>l.features);
   if(!feats.length){ notify('Keine lesbaren Geometrien im ZIP gefunden'+(res.warnings.length?' — siehe Hinweise':'')); return; }
+  // Mehrere Ebenen ODER gemischte Geometrietypen (z. B. Knoten-Kanten-Modell: Punkte + Linien)
+  // → auswählen lassen, was übernommen wird (Knoten-Punkte typischerweise abwählen).
+  const _cat=f=>{ const t=f.geometry.type; return t==='Point'?'punkt':(t==='LineString'||t==='MultiLineString')?'linie':'flaeche'; };
+  const _cats=new Set(feats.map(_cat));
+  if((res.layers||[]).length>1 || _cats.size>1){
+    feats=await _shpPickFeatures(res.layers);
+    if(feats===null) return;                                  // abgebrochen
+    if(!feats.length){ notify('Nichts ausgewählt'); return; }
+  }
   // Kopfzeile = Vereinigung aller DBF-Spalten (Reihenfolge der ersten Ebene zuerst)
   const cols=[]; (res.layers||[]).forEach(l=>(l.fields||[]).forEach(f=>{ if(!cols.includes(f)) cols.push(f); }));
   feats.forEach(f=>Object.keys(f.attrs||{}).forEach(k=>{ if(!cols.includes(k)) cols.push(k); }));
@@ -9048,6 +9057,38 @@ function showImportMapping(autoMap){
   };
 }
 
+// Ebenen-/Typ-Auswahl beim Shapefile-Import: je Ebene und Geometrietyp an-/abwählbar
+// (Knoten-Kanten-Modell: die Knoten-Punkte i. d. R. abwählen, nur die Segmentlinien übernehmen).
+function _shpPickFeatures(layers){
+  return new Promise(resolve=>{
+    const groups=[];
+    (layers||[]).forEach(l=>{
+      const c={punkt:[],linie:[],flaeche:[]};
+      l.features.forEach(f=>{ const t=f.geometry.type; (t==='Point'?c.punkt:(t==='LineString'||t==='MultiLineString')?c.linie:c.flaeche).push(f); });
+      [['linie','Strecken (Linien)'],['flaeche','Flächen'],['punkt','Punkte']].forEach(([k,lab])=>{ if(c[k].length) groups.push({label:`${l.name} — ${lab}`, feats:c[k], on:true}); });
+    });
+    const m=document.createElement('div');
+    m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;';
+    m.innerHTML=`<div style="background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow-md);width:460px;max-width:96vw;overflow:hidden;">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--border);"><div style="font-size:15px;font-weight:700;">Was soll importiert werden?</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:2px;">Das ZIP enthält mehrere Ebenen/Geometrietypen. Bei Knoten-Kanten-Daten die Knoten-<b>Punkte</b> abwählen — nur die Segment-<b>Linien</b> übernehmen.</div></div>
+      <div style="padding:12px 18px;">
+        ${groups.map((g,i)=>`<label style="display:flex;align-items:center;gap:9px;font-size:13px;padding:6px 0;cursor:pointer;"><input type="checkbox" data-g="${i}" checked style="width:16px;height:16px;cursor:pointer;"><span style="flex:1;">${dlEsc(g.label)}</span><span style="color:var(--text3);font-variant-numeric:tabular-nums;">${g.feats.length}</span></label>`).join('')}
+      </div>
+      <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
+        <button id="shp-cancel" class="btn btn-secondary" style="padding:8px 14px;">Abbrechen</button>
+        <button id="shp-ok" class="btn btn-primary" style="padding:8px 18px;font-weight:700;">Weiter</button>
+      </div></div>`;
+    document.body.appendChild(m);
+    const done=v=>{ m.remove(); resolve(v); };
+    m.querySelector('#shp-cancel').onclick=()=>done(null);
+    m.addEventListener('click',e=>{ if(e.target===m) done(null); });
+    m.querySelector('#shp-ok').onclick=()=>{
+      const sel=[...m.querySelectorAll('input[data-g]')].filter(cb=>cb.checked).map(cb=>groups[+cb.dataset.g]);
+      done(sel.flatMap(g=>g.feats));
+    };
+  });
+}
 // Shapefile-Geometrie an eine Import-Zeile hängen: Punkt → lat/lng; Linie → Strecke; Polygon → Fläche.
 // _pv = Repräsentationspunkt NUR für die Vorschau-Karte (wird nicht gespeichert).
 function _impAttachGeom(o, g){
@@ -9171,15 +9212,23 @@ function renderImportPreview(){
   const withC=_importRows.filter(r=>(r.lat!=null&&r.lng!=null)||r._pv);
   let inDE=0; const pts=[];
   if(_impLayer) _impLayer.clearLayers();
+  const _cv=_impMap?L.canvas({padding:0.3}):null; // Canvas: auch tausende Segmente flüssig
   withC.forEach(r=>{
     const la=r._pv?r._pv[0]:(_importSwap?r.lng:r.lat), lo=r._pv?r._pv[1]:(_importSwap?r.lat:r.lng);
     if(impInDE(la,lo)) inDE++;
-    if(_impLayer){ L.circleMarker([la,lo],{radius:4,color:'#1d4ed8',fillColor:'#1d4ed8',fillOpacity:.6,weight:1}).addTo(_impLayer); }
+    if(_impLayer){
+      if(r.geomStr){ // Strecken/Flächen: echte Geometrie zeichnen (nicht nur den Repräsentationspunkt)
+        try{ L.geoJSON(JSON.parse(r.geomStr),{renderer:_cv,style:{color:'#1d4ed8',weight:2,opacity:.8,fillColor:'#1d4ed8',fillOpacity:.15}}).addTo(_impLayer); }catch(_){}
+      } else {
+        L.circleMarker([la,lo],{renderer:_cv,radius:4,color:'#1d4ed8',fillColor:'#1d4ed8',fillOpacity:.6,weight:1}).addTo(_impLayer);
+      }
+    }
     pts.push([la,lo]);
   });
   const out=withC.length-inDE;
   const sum=document.getElementById('imp-summary');
-  if(sum) sum.textContent=`${_importRows.length} Zeilen · ${withC.length} mit Koordinaten · ${_importRows.length-withC.length} ohne · ${inDE} in Deutschland`+(_importTourCols.length?` · Tour-Zuordnung über Spalten: ${_importTourCols.join(', ')}`:'');
+  const _nL=_importRows.filter(r=>r.geomType==='linie').length, _nF=_importRows.filter(r=>r.geomType==='flaeche').length;
+  if(sum) sum.textContent=`${_importRows.length} Zeilen · ${withC.length} mit Koordinaten · ${_importRows.length-withC.length} ohne · ${inDE} in Deutschland`+((_nL||_nF)?` · Geometrie: ${_nL?_nL+' Strecken':''}${_nL&&_nF?', ':''}${_nF?_nF+' Flächen':''}`:'')+(_importTourCols.length?` · Tour-Zuordnung über Spalten: ${_importTourCols.join(', ')}`:'');
   const warn=document.getElementById('imp-warn');
   if(warn){
     if(out>0){ warn.style.display='block'; warn.textContent=`⚠ ${out} Objekt(e) liegen außerhalb Deutschlands — Koordinaten evtl. vertauscht. Schalter oben nutzen und Karte prüfen.`; }
