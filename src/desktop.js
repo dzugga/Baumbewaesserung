@@ -788,6 +788,8 @@ function maybeHealCount(field,n){
 function getDepot(){ return currentProjectData?.depot||null; }
 // Betriebshof-Eintrag (mit Koordinaten) per Name aus der Betriebshof-Werteliste
 function _bhByName(name){ if(!name) return null; const v=(listValues.betriebshof||[]).find(x=>x.label===name); return (v&&v.lat!=null&&v.lng!=null)?{lat:+v.lat,lng:+v.lng,address:v.address||name}:null; }
+// Farbe des Betriebshofs eines Objekts (fürs Einfärben nach Betriebshof)
+function _bhColorOf(t){ if(!t||!t.betriebshof) return null; const v=(listValues.betriebshof||[]).find(x=>x.label===t.betriebshof); return (v&&v.color)||null; }
 // Startpunkt einer Tour: 1) gesetzter Betriebshof, 2) häufigster Betriebshof ihrer Objekte, 3) Projekt-Depot
 function _tourDepot(tour){
   let bh=_bhByName(tour&&tour.betriebshof); if(bh) return bh;
@@ -1681,6 +1683,7 @@ function makeMarker(tree){
     color=tour?tour.color:'#6b6760';
   }
   if(_isCheckMode(_colorMode)){ const b=_checkBucket(tree); if(b) color=_checkColor(_colorMode,b); }  // Plan-/Fälligkeits-Check überschreibt Tourfarbe
+  else if(_colorMode==='betriebshof'){ const c=_bhColorOf(tree); if(c) color=c; else color='#cbd5e1'; }  // Einfärben nach Betriebshof
   const num=getRouteNum(tree.id);
   const isHighlighted=selectedTreeId===tree.id;
   const isPreselected=lassoSelection.size>0 && lassoSelection.has(tree.id); // Lasso-Vorauswahl
@@ -2183,6 +2186,11 @@ function _flStyleForTree(t, isLine){
     const c2=h==null?'#e5e7eb':_haeufColor(h);
     return isLine?{ color:c2, weight:6, opacity:0.95 }:{ color:c2, weight:2, fillColor:c2, fillOpacity:0.5 };
   }
+  // Modus „nach Betriebshof einfärben"
+  if(_colorMode==='betriebshof'){
+    const c2=_bhColorOf(t)||'#cbd5e1';
+    return isLine?{ color:c2, weight:6, opacity:0.95 }:{ color:c2, weight:2, fillColor:c2, fillOpacity:0.5 };
+  }
   // Modus „Plan-/Fälligkeits-Check": nach Status einfärben
   if(_isCheckMode(_colorMode)){
     const c2=_checkColor(_colorMode,_checkBucket(t));
@@ -2250,7 +2258,7 @@ function setColorMode(mode){
   const m=document.getElementById('color-mode-menu'); if(m) m.style.display='none';
   // Check-Modus: Clustering aus (Cluster würde die Status-Farbe verdecken); zurück: Projekt-Standard wiederherstellen.
   // applyClusterMode(...,true) schaltet die Ebene um UND zeichnet die Marker neu (einfärben).
-  if(_isCheckMode(mode)||_isCheckMode(prev)) applyClusterMode(_effectiveCluster(), true);
+  if(_isCheckMode(mode)||_isCheckMode(prev)||mode==='betriebshof'||prev==='betriebshof') applyClusterMode(_effectiveCluster(), true); // Marker neu einfärben (Betriebshof/Check wirken auf Punkte)
   _applyFlaechenFilterVisibility(); // im Check-Modus ausgeblendete Flächen beim Zurückschalten wieder einblenden
   _applyFlaechenSelection(); _renderRkLegend(); _updateCheckBtns(); renderMapStatus();
 }
@@ -2300,10 +2308,14 @@ function renderDisplayPanel(){
   h+=chk(_showRouteNums,'toggleRouteNums()','Routennummern ein/aus');
   if((listValues.betriebshof||[]).some(b=>b.lat!=null)) h+=chk(_showBetriebshoefe,'toggleBetriebshoefe()','Betriebshöfe ein/aus');
   if(hasCont) h+=chk(_versatzOn,'toggleVersatz()','Objekte nach Lage versetzt');
-  if(hasCont || currentProjectData?.sollFeld){
+  const hasBh=(listValues.betriebshof||[]).length>0;
+  if(hasCont || currentProjectData?.sollFeld || hasBh){
     h+=`<div style="font-size:12px;font-weight:600;margin:10px 0 2px;border-top:1px solid var(--border);padding-top:8px;">Einfärben nach</div>`;
     const rad=(val,label)=>`<label style="display:flex;align-items:center;gap:8px;font-size:13px;padding:3px 0;cursor:pointer;"><input type="radio" name="dp-cm" ${_colorMode===val?'checked':''} onchange="setColorMode('${val}')" style="margin:0;cursor:pointer;"><span>${label}</span></label>`;
-    h+=rad('none','aus (Tourfarbe)')+(hasCont?rad('rk','Reinigungsklasse')+rad('haeuf','Reinigungshäufigkeit'):'')+rad('plan','Planungs-Check (Soll/Plan)')+rad('overdue','Fälligkeit (überfällig)');
+    h+=rad('none','aus (Tourfarbe)')
+      +(hasCont?rad('rk','Reinigungsklasse')+rad('haeuf','Reinigungshäufigkeit'):'')
+      +((hasCont||currentProjectData?.sollFeld)?rad('plan','Planungs-Check (Soll/Plan)')+rad('overdue','Fälligkeit (überfällig)'):'')
+      +(hasBh?rad('betriebshof','Betriebshof'):'');
   }
   if(!ro){
     const rls=currentProjectData?.routeLineStyle==='solid'?'solid':'dashed';
