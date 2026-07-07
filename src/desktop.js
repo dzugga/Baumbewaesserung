@@ -644,7 +644,7 @@ async function openProject(projectId){
   if(unsubProjects){ unsubProjects(); unsubProjects=null; } // Projekt-Listener stoppen (spart Hintergrund-Reads)
   _routesCache={};_routesLoadedFor=null; // Routen-Cache für neues Projekt verwerfen
   _cityFitDone=false; // Karte beim Öffnen einmal auf die Stadt zoomen
-  if(_flaechenLayer){ map.removeLayer(_flaechenLayer); _flaechenLayer=null; } _flaechenLayerKey=''; _flaechenBundle=null; _flaechenBundleKey=''; // Flächen des alten Projekts verwerfen
+  if(_flaechenLayer){ map.removeLayer(_flaechenLayer); _flaechenLayer=null; } _flaechenLayerKey=''; _flaechenBundle=null; _flaechenBundleKey=''; _flGeomByExt={}; // Flächen des alten Projekts verwerfen
   currentProjectId=projectId;
   window._tourHistoryCache=null;   // Historie des alten Projekts verwerfen
   _dataViewProject=null;           // Controlling/Dashboard für neues Projekt neu aufbauen
@@ -1444,6 +1444,7 @@ async function calculateAndSaveRoute(tourId){
   if(!getRoutePlanningEnabled()){ notify('Reihenfolgeplanung ist deaktiviert'); return; }
   if(isOverviewTour(tourId)){ notify('Übersichten erhalten keine Route'); return; }
   const tour=tours.find(t=>t.id===tourId);if(!tour)return;
+  await _ensureFlaechenGeom(); // importierte Flächen fürs Routing verfügbar machen (Zentroid als Stopp)
   const trs=_routableTrees(tourId); // Punkte + Flächen/Linien (Stellvertreter-Koordinate)
   if(trs.length<1){notify('Keine Objekte in dieser Tour');return;}
 
@@ -2024,6 +2025,7 @@ function refreshMarkers(){
 
 // ── Flächen-Geometrie (Phase 1): Bundle aus Storage laden + als Canvas-Polygone rendern ──
 let _flaechenLayer=null, _flaechenLayerKey='', _flaechenBundle=null, _flaechenBundleKey='', _flaechenBusy=false, _flaechenByExt={}, _flaechenSelExt='';
+let _flGeomByExt={}; // extId -> Roh-Geometrie importierter Flächen (fürs Routing: Zentroid als Stopp)
 const FL_NEUTRAL='#000'; // Standardfarbe ohne Tour-Auswahl (wie Punktobjekte: erst bei Auswahl eingefärbt)
 // Projekt-konfigurierbare Standard-Darstellung der Geometrie (ohne Tour-Auswahl): Farbe/Stärke/Transparenz je Typ
 const _GEOM_STYLE_DEF={ abschnitt:{color:'#000000',weight:4,opacity:0.85,fillOpacity:0.2}, linie:{color:'#000000',weight:4,opacity:0.85,fillOpacity:0.2}, flaeche:{color:'#000000',weight:1,opacity:0.85,fillOpacity:0.2}, punkt:{color:'#000000',weight:1,opacity:0.85,fillOpacity:0.2} };
@@ -2413,10 +2415,25 @@ function _typeShown(t){ return _typeFilter[_objCategory(t)]!==false; }
 function _routePoint(t){
   if(!t) return null;
   if(t.lat&&t.lng) return [t.lat,t.lng];
-  const g=_treeGeom(t); if(!g) return null;
+  const g=_treeGeom(t) || (t.extId?_flGeomByExt[t.extId]:null); if(!g) return null; // importierte Fläche: Zentroid aus dem Bundle
   if(g.type==='Polygon'){ const ring=g.coordinates[0]||[]; const r=ring.length>1?ring.slice(0,-1):ring; let la=0,ln=0,n=0; for(const c of r){ la+=c[1]; ln+=c[0]; n++; } return n?[la/n,ln/n]:null; }
+  if(g.type==='MultiPolygon'){ const ring=(g.coordinates[0]&&g.coordinates[0][0])||[]; const r=ring.length>1?ring.slice(0,-1):ring; let la=0,ln=0,n=0; for(const c of r){ la+=c[1]; ln+=c[0]; n++; } return n?[la/n,ln/n]:null; }
   if(g.type==='LineString'){ const pts=(g.coordinates||[]).map(c=>[c[1],c[0]]); return pts.length?pts[Math.floor(pts.length/2)]:null; }
   return null;
+}
+// Bundle-Geometrie (extId->Geometrie) fürs Routing sicherstellen, falls die Karte sie noch nicht geladen hat
+// (z. B. Berechnen aus der Touren-Ansicht). Lädt das Storage-Bundle einmalig nach.
+async function _ensureFlaechenGeom(){
+  if(Object.keys(_flGeomByExt).length) return;                       // schon geladen (Karte gerendert)
+  if(!currentProjectData?.orgId) return;
+  if(!(trees||[]).some(t=>t.extId && !_treeGeom(t))) return;         // keine Fläche ohne Doc-Geometrie → nichts zu tun
+  try{
+    let url=await storage.ref(`objektgeom/${currentProjectData.orgId}/${currentProjectId}/flaechen.json`).getDownloadURL();
+    url+=(url.includes('?')?'&':'?')+'v='+(currentProjectData.geomVersion||'');
+    const r=await fetch(url); if(!r.ok) return;
+    const fc=await r.json();
+    (fc.features||[]).forEach(f=>{ const ext=f.properties&&f.properties.extId; if(ext&&f.geometry) _flGeomByExt[ext]=f.geometry; });
+  }catch(e){ console.warn('Flächen-Geometrie fürs Routing nicht ladbar', e); }
 }
 // Tour-Objekte für die Routenberechnung: Punkte + Geometrie (mit Stellvertreter-Koordinate als flache Kopie, id bleibt)
 function _routableTrees(tourId){
@@ -2631,11 +2648,11 @@ async function renderFlaechen(){
   try{
     if(_flaechenLayer){ map.removeLayer(_flaechenLayer); _flaechenLayer=null; }
     const byExt={}; trees.forEach(t=>{ if(t.extId) byExt[t.extId]=t; });
-    _flaechenByExt={}; _flaechenSelExt='';
+    _flaechenByExt={}; _flaechenSelExt=''; _flGeomByExt={};
     _flaechenLayer=L.geoJSON(bundle, {
       renderer: L.canvas({ padding:0.5 }),
       style: f=>_flStyleFor(f.properties&&f.properties.extId),
-      onEachFeature:(f,layer)=>{ const ext=f.properties&&f.properties.extId; if(ext) _flaechenByExt[ext]=layer;
+      onEachFeature:(f,layer)=>{ const ext=f.properties&&f.properties.extId; if(ext){ _flaechenByExt[ext]=layer; _flGeomByExt[ext]=f.geometry; }
         // Baum ERST beim Klick auflösen (nicht zur Render-Zeit — Flächen-Trees laden ggf. später,
         // und die Ebene wird bei gleichem Key nicht neu gebaut). So bleibt die Fläche immer anklickbar.
         const _t=()=>trees.find(x=>x.extId===ext);
