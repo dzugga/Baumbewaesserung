@@ -2298,6 +2298,7 @@ function renderDisplayPanel(){
   h+=chk(routesVisible,'toggleRouteLines()','Routenlinien ein/aus');
   h+=chk(_showTourCounts,'toggleTourCounts()','Tourhäufigkeit ein/aus');
   h+=chk(_showRouteNums,'toggleRouteNums()','Routennummern ein/aus');
+  if((listValues.betriebshof||[]).some(b=>b.lat!=null)) h+=chk(_showBetriebshoefe,'toggleBetriebshoefe()','Betriebshöfe ein/aus');
   if(hasCont) h+=chk(_versatzOn,'toggleVersatz()','Objekte nach Lage versetzt');
   if(hasCont || currentProjectData?.sollFeld){
     h+=`<div style="font-size:12px;font-weight:600;margin:10px 0 2px;border-top:1px solid var(--border);padding-top:8px;">Einfärben nach</div>`;
@@ -2748,9 +2749,26 @@ function rebuildMarkersWithNumbers(){
   setMarkerVisibility();
 }
 
+let _bhLayer=null, _showBetriebshoefe=true;
+function toggleBetriebshoefe(){ _showBetriebshoefe=!_showBetriebshoefe; renderDepotMarker(); }
 function renderDepotMarker(){
   if(depotMarker){map.removeLayer(depotMarker);depotMarker=null;}
-  const _t=activeTourOnMap?tours.find(x=>x.id===activeTourOnMap):null; // angezeigte Tour → deren Betriebshof als Startpunkt
+  if(_bhLayer){ map.removeLayer(_bhLayer); _bhLayer=null; }
+  // Alle Betriebshöfe (mit Koordinaten): gleiches 🏭-Symbol, je Betriebshof-Farbe; Startpunkt der angezeigten Tour hervorgehoben.
+  const bhs=(listValues.betriebshof||[]).filter(b=>b.lat!=null&&b.lng!=null);
+  if(bhs.length){
+    if(!_showBetriebshoefe) return;
+    const activeName=(activeTourOnMap && (tours.find(t=>t.id===activeTourOnMap)||{}).betriebshof)||null;
+    _bhLayer=L.layerGroup();
+    bhs.forEach(b=>{ const col=b.color||'#f59e0b'; const start=activeName&&b.label===activeName;
+      const icon=L.divIcon({className:'',html:`<div style="width:34px;height:34px;border-radius:10px;background:${col};border:3px solid ${start?'#111827':'#fff'};box-shadow:0 2px 8px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;font-size:17px;">🏭</div>`,iconSize:[34,34],iconAnchor:[17,17]});
+      L.marker([+b.lat,+b.lng],{icon,zIndexOffset:1000}).addTo(_bhLayer).bindTooltip(`<b>${dlEsc(b.label||'Betriebshof')}</b>${start?' · Start dieser Tour':''}`,{direction:'top',offset:[0,-18]});
+    });
+    _bhLayer.addTo(map);
+    return;
+  }
+  // Fallback: kein Betriebshof gepflegt → Einzel-Projekt-Depot (Startpunkt der angezeigten Tour)
+  const _t=activeTourOnMap?tours.find(x=>x.id===activeTourOnMap):null;
   const depot=_t?_tourDepot(_t):getDepot();if(!depot?.lat)return;
   const icon=L.divIcon({
     className:'',
@@ -14291,7 +14309,7 @@ Object.assign(window,{
   rankAdd,rankRename,rankSetColor,rankSetZahl,rankSetZahlWinter,rankMove,rankMerge,rankDelete,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
-  importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,
+  importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,
   createProject,openProject,showProjectScreen,psSetOrgFilter,setSiTab,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,
