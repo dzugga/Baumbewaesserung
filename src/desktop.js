@@ -790,6 +790,16 @@ function getDepot(){ return currentProjectData?.depot||null; }
 function _bhByName(name){ if(!name) return null; const v=(listValues.betriebshof||[]).find(x=>x.label===name); return (v&&v.lat!=null&&v.lng!=null)?{lat:+v.lat,lng:+v.lng,address:v.address||name}:null; }
 // Farbe des Betriebshofs eines Objekts (fürs Einfärben nach Betriebshof)
 function _bhColorOf(t){ if(!t||!t.betriebshof) return null; const v=(listValues.betriebshof||[]).find(x=>x.label===t.betriebshof); return (v&&v.color)||null; }
+// Einfärben nach Soll-Häufigkeit: wirksame Häufigkeit der gewählten Saison → Farbe des passenden
+// Listenwerts (Werte mit gleicher wirksamer Häufigkeit teilen so automatisch eine Farbe, z. B. im Winter).
+function _sollFreqEff(t){ return (currentProjectData&&currentProjectData.sollFeld)?sollFreqProWoche(t,_curCheckSaison()):null; }
+function _sollFreqColorFor(v){
+  if(v==null) return '#d1d5db';
+  const sf=currentProjectData&&currentProjectData.sollFeld; if(!sf) return '#d1d5db';
+  const saison=_curCheckSaison();
+  const e=rankList(sf).find(x=>{ const raw=(saison==='winter'&&x.zahlWinter!=null&&x.zahlWinter!=='')?x.zahlWinter:x.zahl; return parseFloat(raw)===v; });
+  return (e&&e.farbe)||'#9ca3af';
+}
 // Startpunkt einer Tour: 1) gesetzter Betriebshof, 2) häufigster Betriebshof ihrer Objekte, 3) Projekt-Depot
 function _tourDepot(tour){
   let bh=_bhByName(tour&&tour.betriebshof); if(bh) return bh;
@@ -1684,6 +1694,7 @@ function makeMarker(tree){
   }
   if(_isCheckMode(_colorMode)){ const b=_checkBucket(tree); if(b) color=_checkColor(_colorMode,b); }  // Plan-/Fälligkeits-Check überschreibt Tourfarbe
   else if(_colorMode==='betriebshof'){ const c=_bhColorOf(tree); if(c) color=c; else color='#cbd5e1'; }  // Einfärben nach Betriebshof
+  else if(_colorMode==='sollfreq'){ color=_sollFreqColorFor(_sollFreqEff(tree)); }                       // Einfärben nach Soll-Häufigkeit (Saison)
   const num=getRouteNum(tree.id);
   const isHighlighted=selectedTreeId===tree.id;
   const isPreselected=lassoSelection.size>0 && lassoSelection.has(tree.id); // Lasso-Vorauswahl
@@ -2191,6 +2202,11 @@ function _flStyleForTree(t, isLine){
     const c2=_bhColorOf(t)||'#cbd5e1';
     return isLine?{ color:c2, weight:6, opacity:0.95 }:{ color:c2, weight:2, fillColor:c2, fillOpacity:0.5 };
   }
+  // Modus „nach Soll-Häufigkeit einfärben" (wirksame Häufigkeit der gewählten Saison)
+  if(_colorMode==='sollfreq'){
+    const c2=_sollFreqColorFor(_sollFreqEff(t));
+    return isLine?{ color:c2, weight:6, opacity:0.95 }:{ color:c2, weight:2, fillColor:c2, fillOpacity:0.5 };
+  }
   // Modus „Plan-/Fälligkeits-Check": nach Status einfärben
   if(_isCheckMode(_colorMode)){
     const c2=_checkColor(_colorMode,_checkBucket(t));
@@ -2258,7 +2274,7 @@ function setColorMode(mode){
   const m=document.getElementById('color-mode-menu'); if(m) m.style.display='none';
   // Check-Modus: Clustering aus (Cluster würde die Status-Farbe verdecken); zurück: Projekt-Standard wiederherstellen.
   // applyClusterMode(...,true) schaltet die Ebene um UND zeichnet die Marker neu (einfärben).
-  if(_isCheckMode(mode)||_isCheckMode(prev)||mode==='betriebshof'||prev==='betriebshof') applyClusterMode(_effectiveCluster(), true); // Marker neu einfärben (Betriebshof/Check wirken auf Punkte)
+  if(_isCheckMode(mode)||_isCheckMode(prev)||mode==='betriebshof'||prev==='betriebshof'||mode==='sollfreq'||prev==='sollfreq') applyClusterMode(_effectiveCluster(), true); // Marker neu einfärben (Betriebshof/Häufigkeit/Check wirken auf Punkte)
   _applyFlaechenFilterVisibility(); // im Check-Modus ausgeblendete Flächen beim Zurückschalten wieder einblenden
   _applyFlaechenSelection(); _renderRkLegend(); _updateCheckBtns(); renderMapStatus();
 }
@@ -2314,6 +2330,7 @@ function renderDisplayPanel(){
     const rad=(val,label)=>`<label style="display:flex;align-items:center;gap:8px;font-size:13px;padding:3px 0;cursor:pointer;"><input type="radio" name="dp-cm" ${_colorMode===val?'checked':''} onchange="setColorMode('${val}')" style="margin:0;cursor:pointer;"><span>${label}</span></label>`;
     h+=rad('none','aus (Tourfarbe)')
       +(hasCont?rad('rk','Reinigungsklasse')+rad('haeuf','Reinigungshäufigkeit'):'')
+      +(currentProjectData?.sollFeld?rad('sollfreq',dlEsc(_sollFeldLabel()||'Häufigkeit')+' (Sommer/Winter)'):'')
       +((hasCont||currentProjectData?.sollFeld)?rad('plan','Planungs-Check (Soll/Plan)')+rad('overdue','Fälligkeit (überfällig)'):'')
       +(hasBh?rad('betriebshof','Betriebshof'):'');
   }
@@ -2382,6 +2399,18 @@ function _renderRkLegend(){
       </div>`+saisonCtl+tolCtl+
       cm.buckets.map(b=>{ const on=_checkShow.has(b[0]); return `<div onclick="checkToggleStatus('${b[0]}')" title="Ein-/ausblenden" style="display:flex;align-items:center;gap:7px;font-size:12px;margin-bottom:3px;cursor:pointer;opacity:${on?1:0.38};"><span style="width:12px;height:12px;border-radius:3px;background:${b[1]};flex:none;"></span>${b[2]} · <b>${counts[b[0]]}</b></div>`; }).join('')+
       `<div style="font-size:10px;color:var(--text3);margin-top:4px;">Zeile klicken = aus-/einblenden · ${cm.note}${noteExtra}</div>`;
+  } else if(_colorMode==='sollfreq'){
+    // Einfärben nach Soll-Häufigkeit: wirksame Häufigkeit je gewählter Saison, Farben aus der geordneten Liste
+    const saison=_curCheckSaison();
+    const counts=new Map(); let none=0;
+    (trees||[]).forEach(t=>{ if(!isActive(t)||_isContainer(t)) return; const v=_sollFreqEff(t); if(v==null) none++; else counts.set(v,(counts.get(v)||0)+1); });
+    const vals=[...counts.keys()].sort((a,b)=>b-a);
+    const fmt=v=>Number.isInteger(v)?v+'×/Woche':(v===0.25?'alle 4 Wochen':v.toLocaleString('de-DE')+'×/Woche');
+    const saisonCtl=`<div style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text2);margin:0 0 6px;flex-wrap:wrap;">Saison ${[['auto','Auto'],['sommer','Sommer'],['winter','Winter']].map(o=>`<button onclick="setCheckSaison('${o[0]}')" style="font-size:10px;border:1px solid var(--border);border-radius:5px;background:${_checkSaison===o[0]?'var(--green-light)':'var(--bg)'};color:${_checkSaison===o[0]?'var(--green)':'var(--text2)'};cursor:pointer;padding:1px 6px;font-family:inherit;">${o[1]}</button>`).join('')}</div>`;
+    el.style.display='block';
+    el.innerHTML=`<div style="font-size:11px;font-weight:700;margin-bottom:6px;">${dlEsc(_sollFeldLabel()||'Häufigkeit')} · ${saison==='winter'?'Winter':'Sommer'}</div>`+saisonCtl+
+      (vals.length?vals.map(v=>`<div style="display:flex;align-items:center;gap:7px;font-size:12px;margin-bottom:3px;"><span style="width:12px;height:12px;border-radius:3px;background:${_sollFreqColorFor(v)};flex:none;"></span>${fmt(v)} · <b>${counts.get(v)}</b></div>`).join(''):`<div style="font-size:12px;color:var(--text3);">keine Häufigkeiten gesetzt</div>`)+
+      (none?`<div style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text3);margin-top:3px;"><span style="width:12px;height:12px;border-radius:3px;background:#d1d5db;flex:none;"></span>ohne Angabe · <b>${none}</b></div>`:'');
   } else if(_colorMode==='betriebshof'){
     const bhs=(listValues.betriebshof||[]);
     const counts={}; let none=0;
