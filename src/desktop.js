@@ -8565,6 +8565,7 @@ async function saveDriverAssignment(tourId,driver){
 
 // ─── EXCEL IMPORT (mit Vorschau/Koordinaten-Kontrolle) ───────
 let _importRows=[], _importSwap=false, _impMap=null, _impLayer=null, _importNew={}, _importTourCols=[];
+let _impRows=null; // Roh-Zeilen (inkl. Kopfzeile) zwischen Zuordnungs-Schritt und Parsing
 // Spaltenüberschriften normalisieren (Umlaute/Sonderzeichen/Groß-klein egal)
 function _normH(s){ return String(s==null?'':s).toLowerCase().replace(/ß/g,'ss').replace(/ä/g,'a').replace(/ö/g,'o').replace(/ü/g,'u').replace(/[^a-z0-9]/g,''); }
 // Excel-Spaltenüberschriften → Feldschlüssel (Reihenfolge egal, Label ODER Alias erlaubt)
@@ -8798,19 +8799,93 @@ async function importExcel(input){
   input.value='';
   if(rows.length<2){ notify('Keine Datenzeilen gefunden'); return; }
   const map=buildImportMapping(rows[0]);
-  if(map.name==null){ notify('Spalte „'+FL.name+'" nicht gefunden — bitte Überschriften prüfen (Vorlage nutzen).'); return; }
-  const [c0,c1]=map._coord;
+  _impRows=rows;
+  showImportMapping(map); // Zuordnungs-Schritt (Auto-Erkennung vorbelegt) → danach Vorschau
+}
+
+// Eindeutigen Kundenfeld-Schlüssel aus einem Label ableiten (für „als neues Kundenfeld anlegen")
+function _slugFieldKey(label){
+  const used=new Set([...customFields.map(c=>c.key), ..._RESERVED_FIELD_KEYS]);
+  let base=String(label||'').toLowerCase().replace(/[äöü]/g,m=>({'ä':'ae','ö':'oe','ü':'ue'}[m])).replace(/ß/g,'ss').replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,24)||'feld';
+  let key=base,i=2; while(used.has(key)) key=base+'_'+(i++); return key;
+}
+
+// Zuordnungs-Schritt: jede Eingangsspalte einem Zielfeld zuordnen (vorbelegt aus der Auto-Erkennung).
+function showImportMapping(autoMap){
+  const rows=_impRows||[]; const headers=rows[0]||[];
+  const std=[['name',FL.name],['stadtteil',FL.stadtteil],['art',FL.art],['baumnr',FL.baumnr],['pflanzjahr',FL.pflanzjahr],['pflanzzeitpunkt',FL.pflanzzeitpunkt],['zustand',FL.zustand],['wasser',FL.wasser],['notiz',FL.notiz],['klasse','Objektklasse'],['baumId','Objekt-ID'],['_coord0','Koordinate 1'],['_coord1','Koordinate 2']];
+  const cf=customFields.map(c=>[c.key,c.label]);
+  const curFor=(i)=>{
+    if(autoMap._coord&&autoMap._coord[0]===i) return '_coord0';
+    if(autoMap._coord&&autoMap._coord[1]===i) return '_coord1';
+    for(const [k] of std){ if(k[0]!=='_' && autoMap[k]===i) return k; }
+    for(const [k] of cf){ if(autoMap[k]===i) return k; }
+    const n=_normH(headers[i]); if(n && tours.some(t=>!t.uebersicht&&_normH(t.name)===n)) return '__tour__';
+    return '';
+  };
+  const sample=(i)=>{ for(let r=1;r<rows.length;r++){ const v=rows[r]&&rows[r][i]; if(v!=null&&String(v).trim()!=='') return String(v).slice(0,26); } return ''; };
+  const opt=(sel)=>'<option value=""'+(sel===''?' selected':'')+'>— ignorieren —</option>'
+    +'<optgroup label="Standardfelder">'+std.map(([k,l])=>`<option value="${k}"${sel===k?' selected':''}>${dlEsc(l)}</option>`).join('')+'</optgroup>'
+    +(cf.length?'<optgroup label="Kundenfelder">'+cf.map(([k,l])=>`<option value="${k}"${sel===k?' selected':''}>${dlEsc(l)}</option>`).join('')+'</optgroup>':'')
+    +`<option value="__tour__"${sel==='__tour__'?' selected':''}>Tour-Zuordnung (ja/nein-Spalte)</option>`
+    +`<option value="__new__"${sel==='__new__'?' selected':''}>➕ als neues Kundenfeld anlegen</option>`;
+  const m=document.createElement('div'); m.id='import-map-modal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;';
+  m.innerHTML=`<div style="background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow-md);width:720px;max-width:96vw;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--border);"><div style="font-size:15px;font-weight:700;">Import — Feld-Zuordnung</div>
+      <div style="font-size:12px;color:var(--text3);margin-top:2px;">${headers.length} Spalten · vorbelegt aus der Auto-Erkennung. Nur ändern, was nicht passt.</div></div>
+    <div style="overflow:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead><tr style="background:var(--surface2);color:var(--text2);text-align:left;position:sticky;top:0;"><th style="padding:6px 14px;font-size:10px;">SPALTE</th><th style="padding:6px 12px;font-size:10px;">BEISPIEL</th><th style="padding:6px 14px;font-size:10px;">ZIELFELD</th></tr></thead>
+        <tbody>${headers.map((h,i)=>`<tr style="border-top:1px solid var(--border);"><td style="padding:7px 14px;font-weight:600;">${dlEsc(String(h||('Spalte '+(i+1))))}</td><td style="padding:7px 12px;color:var(--text3);white-space:nowrap;max-width:170px;overflow:hidden;text-overflow:ellipsis;">${dlEsc(sample(i))}</td><td style="padding:7px 14px;"><select data-col="${i}" class="form-control" style="padding:5px 8px;font-size:12px;">${opt(curFor(i))}</select></td></tr>`).join('')}</tbody>
+      </table>
+    </div>
+    <div id="imp-map-warn" style="display:none;padding:8px 18px;background:var(--red-light);color:var(--red);font-size:12px;font-weight:600;"></div>
+    <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:space-between;">
+      <button id="imp-map-x" class="btn btn-secondary" style="padding:8px 16px;">Abbrechen</button>
+      <button id="imp-map-go" class="btn btn-primary" style="padding:8px 18px;font-weight:700;">Weiter zur Vorschau</button>
+    </div>
+  </div>`;
+  document.body.appendChild(m);
+  const warn=t=>{ const w=m.querySelector('#imp-map-warn'); w.style.display='block'; w.textContent=t; };
+  m.querySelector('#imp-map-x').onclick=()=>m.remove();
+  m.querySelector('#imp-map-go').onclick=async()=>{
+    const sels=[...m.querySelectorAll('select[data-col]')].map(s=>({i:+s.dataset.col, v:s.value}));
+    const seen={};
+    for(const {i,v} of sels){ if(v&&v!=='__tour__'&&v!=='__new__'&&v!=='_coord0'&&v!=='_coord1'){ if(seen[v]!=null){ warn('Feld ist mehreren Spalten zugeordnet — bitte eindeutig.'); return; } seen[v]=i; } }
+    if(!sels.some(s=>s.v==='name')){ warn('Bitte eine Spalte dem Feld „'+FL.name+'" zuordnen.'); return; }
+    // Neue Kundenfelder anlegen (Typ Text; später unter Felder & Listen änderbar)
+    const newKeyByCol={};
+    for(const {i,v} of sels){ if(v==='__new__'){ const label=String(headers[i]||('Feld '+(i+1))).trim()||('Feld '+(i+1)); const key=_slugFieldKey(label); customFields.push({key,label,aktiv:true,type:'text'}); newKeyByCol[i]=key; } }
+    if(Object.keys(newKeyByCol).length){ try{ await saveListValues(); }catch(e){ notify(dlErr(e)); return; } }
+    const map={ _coord:[null,null], _ignore:new Set() };
+    for(const {i,v} of sels){
+      if(v===''){ map._ignore.add(i); continue; }
+      if(v==='__tour__') continue;               // Tour-Spalten erkennt der Parser selbst
+      if(v==='_coord0'){ map._coord[0]=i; continue; }
+      if(v==='_coord1'){ map._coord[1]=i; continue; }
+      if(v==='__new__'){ map[newKeyByCol[i]]=i; continue; }
+      map[v]=i;
+    }
+    m.remove();
+    _parseImportAndPreview(_impRows, map);
+  };
+}
+
+// Parsen mit der bestätigten Zuordnung → bestehende Koordinaten-/Dubletten-Vorschau.
+function _parseImportAndPreview(rows, map){
+  const [c0,c1]=map._coord||[null,null];
   const get=(row,k)=> map[k]!=null ? row[map[k]] : undefined;
-  // Tour-Spalten: noch freie Spalte, deren Überschrift = Name einer angelegten ECHTEN Tour → ja/x/1 ordnet zu
-  const _used=new Set([...Object.values(map).filter(v=>typeof v==='number'), ...(map._coord||[])]);
+  const _used=new Set([...Object.keys(map).filter(k=>k!=='_coord'&&k!=='_ignore').map(k=>map[k]).filter(v=>typeof v==='number'), ...((map._coord||[]).filter(v=>v!=null))]);
+  const _ign=map._ignore||new Set();
   const tourCols=[];
-  (rows[0]||[]).forEach((h,i)=>{ if(_used.has(i)) return; const n=_normH(h); if(!n) return; const t=tours.find(x=>!x.uebersicht && _normH(x.name)===n); if(t) tourCols.push({i,id:t.id,name:t.name}); });
+  (rows[0]||[]).forEach((h,i)=>{ if(_used.has(i)||_ign.has(i)) return; const n=_normH(h); if(!n) return; const t=tours.find(x=>!x.uebersicht && _normH(x.name)===n); if(t) tourCols.push({i,id:t.id,name:t.name}); });
   _importTourCols=tourCols.map(c=>c.name);
   const parsed=[];
-  const _klByName=new Map(objektklassen.map(k=>[_normH(k.name),k])); // Objektklasse-Spalte (Name) → Klasse
+  const _klByName=new Map(objektklassen.map(k=>[_normH(k.name),k]));
   for(let i=1;i<rows.length;i++){
     const row=rows[i]; if(!row||!row.length) continue;
-    if(row.every(c=>c==null||String(c).trim()==='')) continue; // Leerzeile
+    if(row.every(c=>c==null||String(c).trim()==='')) continue;
     const {lat,lng}=(c0!=null&&c1!=null)?impCoords(impNum(row[c0]),impNum(row[c1])):{lat:null,lng:null};
     const _klRaw=String(get(row,'klasse')??'').trim(); const _kl=_klRaw?_klByName.get(_normH(_klRaw)):null;
     const o={
@@ -8826,8 +8901,7 @@ async function importExcel(input){
       baumId:String(get(row,'baumId')??'').trim(),
       lat, lng,
     };
-    if(map.klasse!=null) o.klasse=_kl?_kl.id:''; // nur bei vorhandener Spalte (sonst bestehende Klasse beim Upsert nicht überschreiben)
-    // Kundenfelder nur schreiben, wenn sie zur Objektklasse gehören (Klassen-Scope)
+    if(map.klasse!=null) o.klasse=_kl?_kl.id:'';
     const _kf=(_kl&&Array.isArray(_kl.felder)&&_kl.felder.length)?_kl.felder:null;
     customFields.forEach(c=>{ if(map[c.key]!=null && (!_kf||_kf.includes(c.key))) o[c.key]=String(row[map[c.key]]??'').trim(); });
     if(tourCols.length){ const tids=[]; for(const tc of tourCols){ if(_truthyImport(row[tc.i])) tids.push(tc.id); } o.tourIds=tids; }
@@ -8836,7 +8910,6 @@ async function importExcel(input){
   if(!parsed.length){ notify('Keine Datenzeilen gefunden'); return; }
   _importRows=parsed;
   _importNew=detectNewListValues(parsed);
-  // Auto-Empfehlung: tauschen, wenn dadurch mehr Punkte in DE liegen
   let normalIn=0, swapIn=0;
   parsed.forEach(r=>{ if(r.lat!=null&&r.lng!=null){ if(impInDE(r.lat,r.lng))normalIn++; if(impInDE(r.lng,r.lat))swapIn++; } });
   _importSwap = swapIn>normalIn;
