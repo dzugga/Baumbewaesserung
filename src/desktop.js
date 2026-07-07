@@ -2242,6 +2242,7 @@ function setColorMode(mode){
   // Check-Modus: Clustering aus (Cluster würde die Status-Farbe verdecken); zurück: Projekt-Standard wiederherstellen.
   // applyClusterMode(...,true) schaltet die Ebene um UND zeichnet die Marker neu (einfärben).
   if(_isCheckMode(mode)||_isCheckMode(prev)) applyClusterMode(_effectiveCluster(), true);
+  _applyFlaechenFilterVisibility(); // im Check-Modus ausgeblendete Flächen beim Zurückschalten wieder einblenden
   _applyFlaechenSelection(); _renderRkLegend(); _updateCheckBtns(); renderMapStatus();
 }
 // ── „Darstellung"-Panel: Sichtbarkeit, Einfärben, Standard-Stile gebündelt ──
