@@ -5306,6 +5306,7 @@ async function geocodeDepot(){
 }
 
 async function applySettings(){
+  if(!canEditObjects()){ notify('Keine Berechtigung: Projekteinstellungen können nur Planer/Admins speichern (aktuelle Anmeldung: nur Melden).'); return; }
   const lat=parseFloat(document.getElementById('s-depot-lat').value)||null;
   const lng=parseFloat(document.getElementById('s-depot-lng').value)||null;
   const addr=document.getElementById('s-depot-addr').value.trim();
@@ -5322,7 +5323,9 @@ async function applySettings(){
     sommerBis:_ttmmToMmdd(document.getElementById('s-saison-bis')?.value)||SAISON_DEFAULT.bis,
   };
   if(lat&&lng) updates.depot={lat,lng,address:addr||`${lat.toFixed(5)}, ${lng.toFixed(5)}`};
-  await saveProjectSettings(updates);
+  try{
+    await saveProjectSettings(updates);
+  }catch(e){ console.warn('applySettings', e); notify(dlErr(e)); return; }
   _listMode = updates.listAbschnitteDefault ? 'abschnitte' : 'objekte'; // neuen Standard sofort anwenden
   document.getElementById('active-project-name').textContent=updates.name;
   closeSettings();renderDepotMarker();
@@ -14115,6 +14118,9 @@ firebase.auth().onAuthStateChanged(async (user)=>{
     try{ const tok=await user.getIdTokenResult(); currentUser=user; currentRole=tok.claims.role||''; currentCap=tok.claims.cap||''; currentOrg=tok.claims.orgId||''; currentName=tok.claims.name||user.email||''; }
     catch(e){ currentRole=''; currentCap=''; currentOrg=''; }
     if(!currentRole){ showLogin('Dieses Konto hat keine Berechtigung. Bitte an den Administrator wenden.'); return; }
+    // Fahrer-Zugänge (cap 'driver') haben im Planungsmanager nichts zu suchen → gar nicht erst aufbauen.
+    // (Die Rules blockieren Schreibvorgänge ohnehin; hier zusätzlich UI-seitig sperren.)
+    if(currentCap==='driver'){ showLogin('Dieses Konto ist ein Fahrer-Zugang und hat keinen Zugriff auf den Planungsmanager. Bitte die Fahrer-App nutzen oder mit einem Planer-/Admin-Konto anmelden.'); return; }
     await loadRoles();
     hideLogin(); updateUserChip(); applyModulePermissions(); initProjectScreen();
   } else {
