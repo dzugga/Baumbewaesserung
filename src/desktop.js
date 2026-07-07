@@ -2382,6 +2382,14 @@ function _renderRkLegend(){
       </div>`+saisonCtl+tolCtl+
       cm.buckets.map(b=>{ const on=_checkShow.has(b[0]); return `<div onclick="checkToggleStatus('${b[0]}')" title="Ein-/ausblenden" style="display:flex;align-items:center;gap:7px;font-size:12px;margin-bottom:3px;cursor:pointer;opacity:${on?1:0.38};"><span style="width:12px;height:12px;border-radius:3px;background:${b[1]};flex:none;"></span>${b[2]} · <b>${counts[b[0]]}</b></div>`; }).join('')+
       `<div style="font-size:10px;color:var(--text3);margin-top:4px;">Zeile klicken = aus-/einblenden · ${cm.note}${noteExtra}</div>`;
+  } else if(_colorMode==='betriebshof'){
+    const bhs=(listValues.betriebshof||[]);
+    const counts={}; let none=0;
+    (trees||[]).forEach(t=>{ if(!isActive(t)) return; const n=(t.betriebshof||'').trim(); if(n) counts[n]=(counts[n]||0)+1; else none++; });
+    el.style.display='block';
+    el.innerHTML=`<div style="font-size:11px;font-weight:700;margin-bottom:6px;">Betriebshöfe</div>`+
+      bhs.map(b=>`<div style="display:flex;align-items:center;gap:7px;font-size:12px;margin-bottom:3px;"><span style="width:12px;height:12px;border-radius:3px;background:${dlEsc(b.color||'#cbd5e1')};flex:none;"></span>${dlEsc(b.label||'—')} · <b>${counts[b.label]||0}</b></div>`).join('')+
+      (none?`<div style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text3);margin-top:3px;"><span style="width:12px;height:12px;border-radius:3px;background:#cbd5e1;flex:none;"></span>ohne Betriebshof · <b>${none}</b></div>`:'');
   } else { el.style.display='none'; el.innerHTML=''; }
 }
 // Bounds aller Flächen der aktuell ausgewählten Touren (für „einpassen")
