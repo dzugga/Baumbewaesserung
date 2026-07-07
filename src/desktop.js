@@ -5499,6 +5499,8 @@ async function openBetriebshoefe(){
       await saveListValues();
       for(const r of renames){ const ups=((_allTrees&&_allTrees.length?_allTrees:trees)||[]).filter(t=>(t.betriebshof||'')===r.from).map(t=>({id:t.id,data:{betriebshof:r.to}})); if(ups.length) await _chunkedTreeUpdate(ups); }
       notify('✓ Betriebshöfe gespeichert'); close();
+      try{ renderDepotMarker(); }catch(_){}                 // Karte sofort aktualisieren (neue/geänderte Betriebshof-Marker)
+      const _dp=document.getElementById('display-panel'); if(_dp&&_dp.style.display==='block'){ try{ renderDisplayPanel(); }catch(_){} } // Toggle „Betriebshöfe" ggf. einblenden
       if(currentView==='baeume') renderFieldCatalog();
     }catch(e){ console.warn('Betriebshöfe speichern',e); notify(dlErr(e)); }
   };
