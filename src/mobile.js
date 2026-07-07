@@ -60,6 +60,7 @@ function orderBy(field, dir='asc'){ return ref => ref.orderBy(field, dir); }
 const fbApp = initializeApp(firebaseConfig);
 initAppCheck();
 const db = getFirestore(fbApp);
+const storage = firebase.storage();
 
 // ─── NAVIGATIONS-/KARTEN-ENDPUNKTE ────────────────────────────
 // Routing über OpenRouteService (eigener Mandanten-Key, DSGVO-freundlich, Server in DE) –
@@ -431,6 +432,9 @@ async function startBewässerungLogin(name, pid, tid) {
       if(el) el.style.display='';
     });
     switchTab('map');
+
+    // Importierte Flächen-Geometrie (Storage-Bundle) laden → Polygone + Rückmeldung wie gezeichnete Flächen
+    await loadFlaechenGeom();
 
     // Cache trees
     cacheTreesLocally(pid, tid, trees);
@@ -1048,6 +1052,7 @@ function renderMarkers() {
 
 // Gezeichnete Geometrie (Flächen/Strecken am Doc, geomStr) der Tour auf der Karte zeigen
 let geomLayers={};
+let _flBundle={}; // extId -> Geometrie importierter Flächen (aus dem Storage-Bundle flaechen.json)
 function _geomOf(o){
   if(!o) return null;
   if(o.geom && o.geom.coordinates) return o.geom;          // Alt-Feld (GeoJSON-Objekt)
@@ -1059,6 +1064,7 @@ function _mGeom(t){
   if(!t) return null;
   const own=_geomOf(t); if(own) return own;
   if(t.containerExtId){ const c=_getContainer(t.containerExtId); if(c) return _geomOf(c); }
+  if(t.extId && _flBundle[t.extId]) return _flBundle[t.extId]; // importierte Fläche (Storage-Bundle)
   return null;
 }
 // Navigations-/Stopp-Punkt eines Objekts: Punkt=Koordinate, Fläche=Zentroid, Linie=Mittelpunkt (stabil).
@@ -1067,6 +1073,7 @@ function navPoint(t){
   if(t.lat&&t.lng) return [t.lat,t.lng];
   const g=_mGeom(t); if(!g) return null;
   if(g.type==='Polygon'){ const ring=g.coordinates[0]||[]; const r=ring.length>1?ring.slice(0,-1):ring; let la=0,ln=0,n=0; for(const c of r){ la+=c[1]; ln+=c[0]; n++; } return n?[la/n,ln/n]:null; }
+  if(g.type==='MultiPolygon'){ const ring=(g.coordinates[0]&&g.coordinates[0][0])||[]; const r=ring.length>1?ring.slice(0,-1):ring; let la=0,ln=0,n=0; for(const c of r){ la+=c[1]; ln+=c[0]; n++; } return n?[la/n,ln/n]:null; }
   if(g.type==='LineString'){ const pts=(g.coordinates||[]).map(c=>[c[1],c[0]]); return pts.length?pts[Math.floor(pts.length/2)]:null; }
   return null;
 }
@@ -1095,12 +1102,35 @@ function renderTourGeoms(){
     const col = st==='bewaessert'?'#16a34a':st==='nicht'?'#991b1b':(ready?'#f59e0b':(currentTour?.color||'#2d6a4f'));
     let layer;
     if(g.type==='Polygon'){ const ll=(g.coordinates[0]||[]).map(c=>[c[1],c[0]]); if(ll.length<3) return; layer=L.polygon(ll,{color:col,weight:2,fillColor:col,fillOpacity:st?0.45:0.25}); }
+    else if(g.type==='MultiPolygon'){ layer=L.geoJSON(g,{style:{color:col,weight:2,fillColor:col,fillOpacity:st?0.45:0.25}}); } // importierte Flächen (mehrteilig, ggf. mit Löchern)
     else if(g.type==='LineString'){ const ll=(g.coordinates||[]).map(c=>[c[1],c[0]]); if(ll.length<2) return; _hasLine=true; layer=L.polyline(ll,{color:col,weight:ready?8:5,opacity:.9}); }
     if(!layer) return;
     layer.on('click',()=>openSheet(t.id));
     layer.addTo(map); geomLayers[t.id]=layer;
   });
   const fb=document.getElementById('btn-follow'); if(fb) fb.style.display=_hasLine?'':'none';
+}
+
+// Importierte Flächen-Geometrie (Storage-Bundle) für die Tour laden: extId -> Geometrie.
+// Nur die extIds der Tour cachen (nicht das ganze Bundle) → kleiner Offline-Cache.
+async function loadFlaechenGeom(){
+  _flBundle={};
+  const extIds=new Set((trees||[]).filter(t=>t.extId && !_geomOf(t)).map(t=>t.extId));
+  if(!extIds.size) return;
+  // Online: Bundle aus Storage holen, auf die Tour-extIds filtern
+  try{
+    if(currentProjectData?.orgId){
+      const url=await storage.ref(`objektgeom/${currentProjectData.orgId}/${currentProjectId}/flaechen.json`).getDownloadURL();
+      const r=await fetch(url);
+      if(r.ok){
+        const fc=await r.json();
+        (fc.features||[]).forEach(f=>{ const ext=f.properties&&f.properties.extId; if(ext&&extIds.has(ext)&&f.geometry) _flBundle[ext]=f.geometry; });
+        return;
+      }
+    }
+  }catch(e){ console.warn('Flächen-Bundle (online) nicht ladbar', e); }
+  // Offline: aus dem Tour-Cache (flgeom der letzten Online-Sitzung)
+  try{ const c=await loadCachedBundle(currentProjectId,currentTourId); if(c&&c.flgeom) _flBundle=c.flgeom; }catch(_){}
 }
 
 async function drawRoute(){
@@ -2292,6 +2322,7 @@ async function cacheTreesLocally(projectId, tourId, treesData){
       tour: currentTour || null,
       reasons: reasons || [],
       route: _routeForCache || null,
+      flgeom: _flBundle || {},
       cachedAt: new Date().toISOString()
     });
   } catch(e){ console.warn('Cache write failed:', e); }
