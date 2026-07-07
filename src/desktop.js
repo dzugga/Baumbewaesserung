@@ -644,7 +644,7 @@ async function openProject(projectId){
   if(unsubProjects){ unsubProjects(); unsubProjects=null; } // Projekt-Listener stoppen (spart Hintergrund-Reads)
   _routesCache={};_routesLoadedFor=null; // Routen-Cache für neues Projekt verwerfen
   _cityFitDone=false; // Karte beim Öffnen einmal auf die Stadt zoomen
-  if(_flaechenLayer){ map.removeLayer(_flaechenLayer); _flaechenLayer=null; } _flaechenLayerKey=''; _flaechenBundle=null; _flaechenBundleKey=''; _flGeomByExt={}; // Flächen des alten Projekts verwerfen
+  if(_flaechenLayer){ map.removeLayer(_flaechenLayer); _flaechenLayer=null; } _flaechenLayerKey=''; _flaechenBundle=null; _flaechenBundleKey=''; _flGeomByExt={}; if(_flNumLayer){ try{ map.removeLayer(_flNumLayer); }catch(_){} _flNumLayer=null; } // Flächen des alten Projekts verwerfen
   currentProjectId=projectId;
   window._tourHistoryCache=null;   // Historie des alten Projekts verwerfen
   _dataViewProject=null;           // Controlling/Dashboard für neues Projekt neu aufbauen
@@ -1504,7 +1504,7 @@ async function calculateAndSaveRoute(tourId){
 
   // Draw on map
   drawSavedRoute(tourId, routeData);
-  rebuildMarkersWithNumbers();renderDrawnGeoms();renderList();renderLegend();
+  rebuildMarkersWithNumbers();renderDrawnGeoms();renderFlaechenNumbers();renderList();renderLegend();
   updateRouteInfoBar();
   setSyncState('ok','Route gespeichert');
   notify(`✓ Route gespeichert — ${km.toFixed(1)} km`);
@@ -2007,6 +2007,7 @@ function toggleRouteNums(){
   _showRouteNums=!_showRouteNums;
   remakeMarkers(Object.keys(mapMarkers)); // Routennummern auf Punkt-Markern neu — ohne Routen-Reload (Linie bleibt)
   renderDrawnGeoms();                      // Routennummern auf Abschnitten/Seiten
+  renderFlaechenNumbers();                 // Routennummern auf importierten Flächen
 }
 
 function refreshMarkers(){
@@ -2026,6 +2027,7 @@ function refreshMarkers(){
 // ── Flächen-Geometrie (Phase 1): Bundle aus Storage laden + als Canvas-Polygone rendern ──
 let _flaechenLayer=null, _flaechenLayerKey='', _flaechenBundle=null, _flaechenBundleKey='', _flaechenBusy=false, _flaechenByExt={}, _flaechenSelExt='';
 let _flGeomByExt={}; // extId -> Roh-Geometrie importierter Flächen (fürs Routing: Zentroid als Stopp)
+let _flNumLayer=null; // Routennummern-Badges auf importierten Flächen (eigene Ebene, wie _placeNum bei gezeichneter Geometrie)
 const FL_NEUTRAL='#000'; // Standardfarbe ohne Tour-Auswahl (wie Punktobjekte: erst bei Auswahl eingefärbt)
 // Projekt-konfigurierbare Standard-Darstellung der Geometrie (ohne Tour-Auswahl): Farbe/Stärke/Transparenz je Typ
 const _GEOM_STYLE_DEF={ abschnitt:{color:'#000000',weight:4,opacity:0.85,fillOpacity:0.2}, linie:{color:'#000000',weight:4,opacity:0.85,fillOpacity:0.2}, flaeche:{color:'#000000',weight:1,opacity:0.85,fillOpacity:0.2}, punkt:{color:'#000000',weight:1,opacity:0.85,fillOpacity:0.2} };
@@ -2194,6 +2196,24 @@ function _flStyleFor(extId){
 function _applyFlaechenSelection(){
   if(_flaechenLayer) _flaechenLayer.eachLayer(l=>{ const ext=l.feature&&l.feature.properties&&l.feature.properties.extId; if(ext&&l.setStyle) l.setStyle(_flStyleFor(ext)); });
   for(const id in _drawnById){ const t=trees.find(x=>x.id===id), l=_drawnById[id]; if(t&&l&&l.setStyle) l.setStyle(_flStyleForTree(t, t.geomType==='linie')); }
+  renderFlaechenNumbers();
+}
+// Routennummern auf importierten Bundle-Flächen (Zentroid) — nutzt denselben Toggle (_showRouteNums)
+// und dieselbe Reihenfolge (tourOrder der EINEN angezeigten Tour) wie Marker/gezeichnete Geometrie.
+function renderFlaechenNumbers(){
+  if(_flNumLayer){ try{ map.removeLayer(_flNumLayer); }catch(_){} _flNumLayer=null; }
+  if(!_showRouteNums) return;
+  if(_typeFilter && _typeFilter.flaeche===false) return;           // Flächen ausgeblendet → keine Nummern
+  if(!activeTourOnMap || !tourOrder[activeTourOnMap]) return;       // Nummern nur bei genau einer angezeigten Tour
+  const col=(tours.find(t=>t.id===activeTourOnMap)||{}).color || FL_NEUTRAL;
+  const grp=L.layerGroup(); let any=false;
+  tourOrder[activeTourOnMap].forEach((id,i)=>{
+    const t=trees.find(x=>x.id===id); if(!t||!isActive(t)) return;
+    if(_treeGeom(t) || !(t.extId && _flGeomByExt[t.extId])) return; // nur reine Bundle-Flächen (Doc-Geometrie nummeriert renderDrawnGeoms)
+    const p=_routePoint(t); if(!p) return;
+    L.marker(p,{interactive:false,icon:L.divIcon({className:'',html:'<div style="min-width:18px;height:18px;border-radius:9px;background:'+col+';border:2px solid #fff;color:#fff;font:700 10px/14px monospace;text-align:center;padding:0 3px;box-shadow:0 0 2px rgba(0,0,0,.6);">'+(i+1)+'</div>',iconSize:[18,18],iconAnchor:[9,9]})}).addTo(grp); any=true;
+  });
+  if(any) _flNumLayer=grp.addTo(map);
 }
 // Karten-Modus „nach Reinigungsklasse einfärben" umschalten
 function _updateColorBtns(){
