@@ -747,6 +747,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 <!-- BAUM MODAL -->
 <style>
   /* Objekt-Formular kompakt (alles möglichst auf einen Blick) */
+  /* Objekt-Formular: Hintergrund durchklickbar (Karte bleibt sichtbar/bedienbar), per Titelleiste verschiebbar */
+  #tree-modal{background:transparent;pointer-events:none;}
+  #tree-modal .modal{pointer-events:auto;box-shadow:0 10px 40px rgba(0,0,0,.35);}
+  #tree-modal .modal-header{cursor:move;user-select:none;}
   #tree-modal .form-group{margin-bottom:8px;}
   #tree-modal .form-label{font-size:10px;margin-bottom:3px;}
   #tree-modal .form-control{padding:7px 10px;font-size:13px;}

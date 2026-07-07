@@ -4139,7 +4139,7 @@ function openAddTree(lat,lng){
   else info.style.display='none';
   fillTourSelect(activeTourOnMap||'');
   const danger=document.getElementById('tree-danger'); if(danger) danger.style.display='none';
-  document.getElementById('tree-modal').classList.add('open');
+  document.getElementById('tree-modal').classList.add('open'); _initTreeModalDrag(); _resetTreeModalPos();
 }
 
 // Typ/Art-Dropdown aus der projekteigenen Arten-Liste füllen (keine Freitexteingabe)
@@ -4259,10 +4259,20 @@ async function openEditTree(id){
   } else {
     if(archBtn){ archBtn.textContent='Inaktiv setzen'; archBtn.onclick=archiveTreeFromModal; }
   }
-  document.getElementById('tree-modal').classList.add('open');
+  document.getElementById('tree-modal').classList.add('open'); _initTreeModalDrag(); _resetTreeModalPos();
 }
 function closeTreeModal(){ document.getElementById('tree-modal').classList.remove('open');editingTreeId=null;
   const danger=document.getElementById('tree-danger'); if(danger) danger.style.display='none'; }
+// Objekt-Formular per Titelleiste verschiebbar (Karte bleibt sichtbar). Position beim Öffnen zurücksetzen.
+let _treeDrag={x:0,y:0}, _treeDragInit=false;
+function _resetTreeModalPos(){ _treeDrag={x:0,y:0}; const mb=document.querySelector('#tree-modal .modal'); if(mb) mb.style.transform=''; }
+function _initTreeModalDrag(){
+  if(_treeDragInit) return; const mb=document.querySelector('#tree-modal .modal'), h=document.querySelector('#tree-modal .modal-header'); if(!mb||!h) return; _treeDragInit=true;
+  let sx,sy,ox,oy,drag=false;
+  h.addEventListener('mousedown',e=>{ if(e.target.closest('button')) return; drag=true; sx=e.clientX; sy=e.clientY; ox=_treeDrag.x; oy=_treeDrag.y; e.preventDefault(); });
+  window.addEventListener('mousemove',e=>{ if(!drag) return; _treeDrag.x=ox+(e.clientX-sx); _treeDrag.y=oy+(e.clientY-sy); mb.style.transform=`translate(${_treeDrag.x}px,${_treeDrag.y}px)`; });
+  window.addEventListener('mouseup',()=>{ drag=false; });
+}
 
 async function saveTree(){
   const name=document.getElementById('f-name').value.trim();
