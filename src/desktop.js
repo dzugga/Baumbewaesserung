@@ -760,7 +760,7 @@ function subscribeToProject(){
       const changes=snap.docChanges();
       // Erstladung/Projektwechsel (alles neu) → Voll-Aufbau; sonst nur Geändertes anfassen
       if(Object.keys(mapMarkers).length===0 || changes.length>=snap.size) refreshMarkers();
-      else { diffMarkers(changes); try{ renderDrawnGeoms(); }catch(_){} } // gezeichnete Geometrie bei Teil-Updates mitziehen
+      else { diffMarkers(changes); try{ renderDrawnGeoms(); }catch(_){} try{ _applyFlaechenSelection(); }catch(_){} } // gezeichnete + importierte Geometrie bei Teil-Updates mitziehen (gelöschte Flächen ausblenden)
       renderListDebounced();
     }
     maybeFitCity(); // beim ersten Laden auf die Stadt zoomen
@@ -1001,6 +1001,12 @@ async function saveProjectSettings(data){
   await updateDoc(doc(db,'projects',currentProjectId),data);
 }
 
+// Storage-Präfix rekursiv leeren (Firebase Storage kennt keine „Ordner"): alle Objekte + Unterpräfixe löschen.
+async function _deleteStoragePrefix(path){
+  const res=await storage.ref(path).listAll();
+  await Promise.all(res.items.map(i=>i.delete().catch(()=>{})));
+  for(const p of res.prefixes){ await _deleteStoragePrefix(p.fullPath); }
+}
 async function confirmDeleteProject(){
   if(!currentProjectId||!currentProjectData)return;
 
@@ -1013,7 +1019,7 @@ async function confirmDeleteProject(){
     </div>
     <div style="padding:16px 20px;font-size:13px;color:var(--text2);line-height:1.7;">
       Projekt <b style="color:var(--text);">${currentProjectData.name}</b> wirklich löschen?<br>
-      <span style="color:var(--red);">Alle Objekte, Touren, Routen und Historiendaten werden unwiderruflich gelöscht.</span>
+      <span style="color:var(--red);">Alle Objekte, Touren, Routen, Historiendaten, Objektarten, Auto-Planungen sowie Geometrie- und Fotodateien werden unwiderruflich gelöscht.</span>
     </div>
     <div style="padding:6px 20px 8px;">
       <input id="delete-confirm-input" class="form-control" placeholder='Projektname eingeben zur Bestätigung' style="border-color:var(--red-light);">
@@ -1047,9 +1053,10 @@ async function confirmDeleteProject(){
   setSyncState('syncing','Projekt wird gelöscht…');
   try{
     const pid=currentProjectId;
+    const org=currentProjectData.orgId||currentOrg;
 
     // Alle Unter-Sammlungen löschen — in Sammel-Batches (<=450) statt einzeln
-    const subcollections=['trees','tours','routes','reasons','tourHistory'];
+    const subcollections=['trees','tours','routes','reasons','tourHistory','arten','planVarianten'];
     let allDocs=[];
     for(const sub of subcollections){
       const snap=await getDocs(collection(db,'projects',pid,sub));
@@ -1064,6 +1071,13 @@ async function confirmDeleteProject(){
 
     // Projekt-Dokument selbst löschen
     await deleteDoc(doc(db,'projects',pid));
+
+    // Storage best-effort leeren (Waisen vermeiden): Geometrie-Bundle + Fotos/Dokumente des Projekts.
+    // Scheitert das (Rechte/nicht vorhanden), blockiert es das Löschen nicht.
+    if(org){
+      try{ await _deleteStoragePrefix(`objektgeom/${org}/${pid}`); }catch(e){ console.warn('Storage objektgeom löschen', e); }
+      try{ await _deleteStoragePrefix(`objektdokumente/${org}/${pid}`); }catch(e){ console.warn('Storage objektdokumente löschen', e); }
+    }
 
     setSyncState('ok','Synchronisiert');
     notify('Projekt gelöscht');
@@ -2167,7 +2181,13 @@ function _flStyleForTree(t, isLine){
   const gs=_geomStyleFor(_objCategory(t)); // projekt-konfigurierbare Standard-Darstellung (Farbe/Stärke/Transparenz)
   return isLine?{ color:gs.color, weight:gs.weight, opacity:gs.opacity }:{ color:gs.color, weight:gs.weight, fillColor:gs.color, fillOpacity:gs.fillOpacity };
 }
-function _flStyleFor(extId){ return _flStyleForTree(trees.find(x=>x.extId===extId)); }
+function _flStyleFor(extId){
+  // Bundle-Polygon nur zeichnen, wenn ein aktives Objekt dazu existiert (Gesamtbestand, pilot-scope-neutral).
+  // Gelöschtes oder archiviertes Objekt → Geometrie unsichtbar (kein „Geist-Polygon" bis zum Re-Import).
+  const full=(_allTrees||[]).find(x=>x.extId===extId);
+  if(!full || full.aktiv===false) return { stroke:false, fill:false };
+  return _flStyleForTree(trees.find(x=>x.extId===extId));
+}
 // Flächen folgen der Tour-Auswahl (gleiche Logik wie Punktobjekte) – Stil je Polygon neu setzen.
 function _applyFlaechenSelection(){
   if(_flaechenLayer) _flaechenLayer.eachLayer(l=>{ const ext=l.feature&&l.feature.properties&&l.feature.properties.extId; if(ext&&l.setStyle) l.setStyle(_flStyleFor(ext)); });
@@ -8756,6 +8776,7 @@ function showImportPreview(){
     </div>
     <div id="imp-warn" style="display:none;padding:8px 18px;background:var(--red-light);color:var(--red);font-size:12px;font-weight:600;"></div>
     <div id="imp-newvals" style="display:none;padding:8px 18px;background:var(--green-light);color:var(--text2);font-size:11px;line-height:1.5;border-bottom:1px solid var(--border);"></div>
+    <div id="imp-hint" style="display:none;padding:8px 18px;background:var(--surface2);color:var(--text2);font-size:11px;line-height:1.5;border-bottom:1px solid var(--border);"></div>
     <div style="padding:10px 18px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border);">
       <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
         <input type="checkbox" id="imp-swap"> Längen-/Breitengrad tauschen (lat ↔ lng)
@@ -8810,6 +8831,17 @@ function renderImportPreview(){
     else { warn.style.display='none'; }
   }
   if(_impMap && pts.length){ try{ _impMap.fitBounds(L.latLngBounds(pts),{padding:[30,30],maxZoom:15}); }catch(e){} }
+  // Immer angezeigter Hinweis: Abgleich läuft NUR über die Objekt-ID → Zeilen ohne ID werden neu angelegt (Dubletten-Gefahr bei Re-Import derselben Quelle).
+  const hintEl=document.getElementById('imp-hint');
+  if(hintEl){
+    const existIds=new Set(((_allTrees&&_allTrees.length?_allTrees:trees)||[]).filter(t=>t.baumId).map(t=>t.baumId));
+    const upd=_importRows.filter(r=>r.baumId && existIds.has(r.baumId)).length;
+    const noId=_importRows.filter(r=>!r.baumId).length;
+    const neu=_importRows.length-upd;
+    let h=`🛈 Abgleich über die Objekt-ID: <b>${upd}</b> Zeile(n) aktualisieren vorhandene Objekte, <b>${neu}</b> werden neu angelegt.`;
+    if(noId>0) h+=`<br><b style="color:var(--red);">${noId} Zeile(n) ohne Objekt-ID</b> werden immer neu angelegt — bei erneutem Import derselben Datei entstehen Dubletten. Für ein Update zuerst „Alle Objekte exportieren" und die Objekt-ID-Spalte behalten.`;
+    hintEl.style.display='block'; hintEl.innerHTML=h;
+  }
 }
 
 async function doImport(){
