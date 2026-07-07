@@ -8717,6 +8717,7 @@ async function saveDriverAssignment(tourId,driver){
 let _importRows=[], _importSwap=false, _impMap=null, _impLayer=null, _importNew={}, _importTourCols=[];
 let _impRows=null; // Roh-Zeilen (inkl. Kopfzeile) zwischen Zuordnungs-Schritt und Parsing
 let _impGeoms=null; // je Datenzeile die GeoJSON-Geometrie (Shapefile-Import); null bei Excel
+let _impLastMap=null; // zuletzt bestätigte Feld-Zuordnung (für „Zurück" aus der Vorschau)
 // Spaltenüberschriften normalisieren (Umlaute/Sonderzeichen/Groß-klein egal)
 function _normH(s){ return String(s==null?'':s).toLowerCase().replace(/ß/g,'ss').replace(/ä/g,'a').replace(/ö/g,'o').replace(/ü/g,'u').replace(/[^a-z0-9]/g,''); }
 // Excel-Spaltenüberschriften → Feldschlüssel (Reihenfolge egal, Label ODER Alias erlaubt)
@@ -9001,6 +9002,7 @@ function showImportMapping(autoMap){
   const std=[['name',FL.name],['stadtteil',FL.stadtteil],['art',FL.art],['baumnr',FL.baumnr],['pflanzjahr',FL.pflanzjahr],['pflanzzeitpunkt',FL.pflanzzeitpunkt],['zustand',FL.zustand],['wasser',FL.wasser],['notiz',FL.notiz],['klasse','Objektklasse'],['baumId','Objekt-ID'],['_coord0','Koordinate 1'],['_coord1','Koordinate 2']];
   const cf=customFields.map(c=>[c.key,c.label]);
   const curFor=(i)=>{
+    if(autoMap._ignore&&autoMap._ignore.has&&autoMap._ignore.has(i)) return ''; // bei „Zurück": explizit Ignoriertes bleibt ignoriert
     if(autoMap._coord&&autoMap._coord[0]===i) return '_coord0';
     if(autoMap._coord&&autoMap._coord[1]===i) return '_coord1';
     for(const [k] of std){ if(k[0]!=='_' && autoMap[k]===i) return k; }
@@ -9053,6 +9055,7 @@ function showImportMapping(autoMap){
       map[v]=i;
     }
     m.remove();
+    _impLastMap=map; // für „Zurück" aus der Vorschau merken
     _parseImportAndPreview(_impRows, map);
   };
 }
@@ -9181,6 +9184,7 @@ function showImportPreview(){
     </div>
     <div id="imp-map" style="flex:1;min-height:320px;"></div>
     <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
+      <button id="imp-back" style="margin-right:auto;padding:8px 16px;border:1.5px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;font-weight:600;">← Zurück zur Zuordnung</button>
       <button id="imp-cancel" style="padding:8px 16px;border:1.5px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;font-weight:600;">Abbrechen</button>
       <button id="imp-go" style="padding:8px 18px;border:none;border-radius:6px;background:var(--green);color:#fff;cursor:pointer;font-weight:700;">Importieren</button>
     </div>
@@ -9197,6 +9201,7 @@ function showImportPreview(){
   sw.onchange=()=>{ _importSwap=sw.checked; renderImportPreview(); };
   document.getElementById('imp-x').onclick=closeImportPreview;
   document.getElementById('imp-cancel').onclick=closeImportPreview;
+  document.getElementById('imp-back').onclick=()=>{ closeImportPreview(); showImportMapping(_impLastMap||buildImportMapping((_impRows||[[]])[0])); };
   document.getElementById('imp-go').onclick=doImport;
   m.onclick=e=>{ if(e.target===m)closeImportPreview(); };
   // Karte initialisieren
