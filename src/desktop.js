@@ -5206,11 +5206,7 @@ function saisonFor(date){ const s=getSaison(); let md; if(date instanceof Date) 
 function openSettings(){
   // Hide bottom route bar to avoid overlap
   document.getElementById('route-info-bar')?.classList.remove('visible');
-  const depot=getDepot();
-  document.getElementById('s-depot-addr').value=depot?.address||'';
-  document.getElementById('s-depot-lat').value=depot?.lat||'';
-  document.getElementById('s-depot-lng').value=depot?.lng||'';
-  document.getElementById('s-depot-mode').value=getDepotMode();
+  const _dm=document.getElementById('s-depot-mode'); if(_dm) _dm.value=getDepotMode(); // Betriebshof-Standorte: Verwaltung → Betriebshöfe
   const _pi=document.getElementById('s-proj-icon'); if(_pi){ _pi.dataset.ic=projIcon(); _pi.innerHTML=iconHtml(projIcon()); }
   const _ro=document.getElementById('s-route-opt'); if(_ro) _ro.value=getRouteOptMode();
   const _routeOn = getRoutePlanningEnabled();
@@ -5231,11 +5227,6 @@ function openSettings(){
   const _sb=document.getElementById('s-saison-bis'); if(_sb) _sb.value=_mmddToTtmm(getSaison().bis);
   loadReasons();
   renderDriverAssignment();
-  const el=document.getElementById('depot-status');
-  el.textContent=depot?.lat?`✓ ${depot.address||depot.lat.toFixed(5)+', '+depot.lng.toFixed(5)}`:'Noch kein Betriebshof gesetzt';
-  el.style.color=depot?.lat?'var(--green)':'var(--text3)';
-  document.getElementById('geocode-result').style.display='none';
-  document.getElementById('geocode-error').style.display='none';
   renderWmsList();
   document.getElementById('settings-panel').classList.add('open');
 }
@@ -5408,11 +5399,8 @@ async function geocodeDepot(){
 
 async function applySettings(){
   if(!canEditObjects()){ notify('Keine Berechtigung: Projekteinstellungen können nur Planer/Admins speichern (aktuelle Anmeldung: nur Melden).'); return; }
-  const lat=parseFloat(document.getElementById('s-depot-lat').value)||null;
-  const lng=parseFloat(document.getElementById('s-depot-lng').value)||null;
-  const addr=document.getElementById('s-depot-addr').value.trim();
   const updates={
-    depotMode:document.getElementById('s-depot-mode').value,
+    depotMode:document.getElementById('s-depot-mode')?.value||getDepotMode(),
     icon:document.getElementById('s-proj-icon')?.dataset.ic||PROJ_ICON_DEFAULT,
     routeOptMode:document.getElementById('s-route-opt')?.value||getRouteOptMode(),
     fuellgradAktiv:document.getElementById('s-fuellgrad')?.checked||false,
@@ -5423,7 +5411,6 @@ async function applySettings(){
     sommerVon:_ttmmToMmdd(document.getElementById('s-saison-von')?.value)||SAISON_DEFAULT.von,
     sommerBis:_ttmmToMmdd(document.getElementById('s-saison-bis')?.value)||SAISON_DEFAULT.bis,
   };
-  if(lat&&lng) updates.depot={lat,lng,address:addr||`${lat.toFixed(5)}, ${lng.toFixed(5)}`};
   try{
     await saveProjectSettings(updates);
   }catch(e){ console.warn('applySettings', e); notify(dlErr(e)); return; }
@@ -6983,7 +6970,7 @@ function renderFieldOverview(el){
   tiles+=_fieldTile('stadtteil', FL.stadtteil);
   tiles+=_fieldTile('pflanzjahr', FL.pflanzjahr);
   tiles+=_fieldTile('pflanzzeitpunkt', FL.pflanzzeitpunkt);
-  customFields.forEach(c=>{ tiles+=_fieldTile(c.key, c.label, {badge:'Kundenfeld'}); });
+  customFields.forEach(c=>{ if(c.key==='betriebshof') return; tiles+=_fieldTile(c.key, c.label, {badge:'Kundenfeld'}); }); // Betriebshof zentral unter Verwaltung → Betriebshöfe
   tiles+=_fieldTile('zustand', FL.zustand, {badge:'Rang & Farbe'});
   tiles+=_fieldTile('wasser', FL.wasser, {badge:'Rang & Farbe'});
   const labelFields=[['name','Anlage / Straße'],['stadtteil','Stadtteil'],['baumnr','Objektnummer'],['art','Typ / Art'],['pflanzjahr','Jahr'],['pflanzzeitpunkt','Zeitpunkt'],['zustand','Zustand'],['wasser','Priorität'],['notiz','Notiz'],['datum','Letzte Bearb.']];
