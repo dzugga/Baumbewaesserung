@@ -22,6 +22,7 @@ function _jsArg(s){
 import { titelOf as orTitel, ELEM_GRUPPE_ORDER, ELEM_GRUPPE_LABEL, haeufigkeitOf as orHaeuf, objektartOf as orObjektart, lageOf as orLage } from './objektrollen.js'; // zentrale Rollen (Objekt + Lage, Reinigungs-Häufigkeit)
 import { initVersionCheck } from './version-check.js';
 import { buildShapefileZip, PRJ_ETRS89_UTM32N } from './geo-export.js';
+import { readShapefileZip } from './geo-import.js';
 initVersionCheck();   // erkennt neue Deploys während die App offen ist → „Neu laden"-Banner
 
 function initializeApp(cfg){ return firebase.initializeApp(cfg); }
@@ -5283,37 +5284,41 @@ function closeSettings(){
   // Restore route bar
   updateRouteInfoBar(); document.getElementById('settings-panel').classList.remove('open'); }
 
-// Import (Excel) – eigenes Menü unter „Verwaltung“
+// Import / Export – eigenes Menü unter „Verwaltung“ (klar getrennte Bereiche)
 function openImport(){
   const m=document.createElement('div');
   m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;';
-  m.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:440px;max-width:94vw;overflow:hidden;">
+  const sec=t=>`<div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:.05em;text-transform:uppercase;margin:0 0 8px;">${t}</div>`;
+  m.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:460px;max-width:94vw;overflow:hidden;">
     <div style="padding:16px 20px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;display:flex;justify-content:space-between;align-items:center;">Import / Export<button id="imp-x" style="border:none;background:none;cursor:pointer;font-size:20px;line-height:1;color:var(--text3);">×</button></div>
     <div style="padding:18px 20px;">
-      <button class="btn btn-secondary" id="imp-tpl" style="width:100%;margin-bottom:8px;">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 3v12"/><polyline points="7 10 12 15 17 10"/><path d="M5 21h14"/></svg>
-        Importvorlage herunterladen
-      </button>
+      ${sec('Import')}
       <button class="btn btn-secondary" id="imp-btn" style="width:100%;margin-bottom:8px;">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-        Excel importieren
+        Excel / CSV importieren
       </button>
+      <button class="btn btn-secondary" id="imp-shp-in" style="width:100%;margin-bottom:6px;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+        Shapefile importieren (ZIP · Punkte/Strecken/Flächen)
+      </button>
+      <div style="font-size:11px;color:var(--text3);line-height:1.6;margin-bottom:14px;">Nach der Dateiwahl folgt die <b>Feld-Zuordnung</b> (Spalte → Feld, vorbelegt) und eine Vorschau. <a href="#" id="imp-tpl" style="color:var(--green);">Importvorlage (Excel) herunterladen</a></div>
+      ${sec('Export')}
       <button class="btn btn-secondary" id="imp-export" style="width:100%;margin-bottom:8px;">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 15V3"/><polyline points="7 8 12 3 17 8"/><path d="M5 21h14"/></svg>
         Alle Objekte exportieren (Excel)
       </button>
-      <button class="btn btn-secondary" id="imp-shp" style="width:100%;margin-bottom:8px;">
+      <button class="btn btn-secondary" id="imp-shp" style="width:100%;">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
         Als Shapefile exportieren (ZIP · ETRS89/UTM 32N)
       </button>
-      <div style="font-size:11px;color:var(--text3);line-height:1.6;">Die <b>erste Zeile</b> muss Spaltenüberschriften enthalten — Reihenfolge egal. Am einfachsten die Vorlage herunterladen, ausfüllen und importieren. Erkannt werden u. a. ${dlEsc(FL.name)}, ${dlEsc(FL.stadtteil)}, ${dlEsc(FL.art)}, ${dlEsc(FL.baumnr)}, ${dlEsc(FL.pflanzjahr)}, ${dlEsc(FL.pflanzzeitpunkt)}, ${dlEsc(FL.zustand)}, ${dlEsc(FL.wasser)}, ${dlEsc(FL.notiz)}, Kundenfelder sowie Koordinaten (Lat/Lng oder ETRS89/UTM).</div>
     </div></div>`;
   document.body.appendChild(m);
   const close=()=>m.remove();
   m.querySelector('#imp-x').onclick=close;
   m.addEventListener('click',e=>{ if(e.target===m) close(); });
   m.querySelector('#imp-btn').onclick=()=>{ close(); document.getElementById('excel-import-input').click(); };
-  m.querySelector('#imp-tpl').onclick=()=>{ downloadImportTemplate(); };
+  m.querySelector('#imp-shp-in').onclick=()=>{ close(); document.getElementById('shape-import-input').click(); };
+  m.querySelector('#imp-tpl').onclick=e=>{ e.preventDefault(); downloadImportTemplate(); };
   m.querySelector('#imp-export').onclick=()=>{ downloadObjectsExport(); };
   m.querySelector('#imp-shp').onclick=()=>{ exportShapefile(); };
 }
@@ -8711,6 +8716,7 @@ async function saveDriverAssignment(tourId,driver){
 // ─── EXCEL IMPORT (mit Vorschau/Koordinaten-Kontrolle) ───────
 let _importRows=[], _importSwap=false, _impMap=null, _impLayer=null, _importNew={}, _importTourCols=[];
 let _impRows=null; // Roh-Zeilen (inkl. Kopfzeile) zwischen Zuordnungs-Schritt und Parsing
+let _impGeoms=null; // je Datenzeile die GeoJSON-Geometrie (Shapefile-Import); null bei Excel
 // Spaltenüberschriften normalisieren (Umlaute/Sonderzeichen/Groß-klein egal)
 function _normH(s){ return String(s==null?'':s).toLowerCase().replace(/ß/g,'ss').replace(/ä/g,'a').replace(/ö/g,'o').replace(/ü/g,'u').replace(/[^a-z0-9]/g,''); }
 // Excel-Spaltenüberschriften → Feldschlüssel (Reihenfolge egal, Label ODER Alias erlaubt)
@@ -8944,8 +8950,33 @@ async function importExcel(input){
   input.value='';
   if(rows.length<2){ notify('Keine Datenzeilen gefunden'); return; }
   const map=buildImportMapping(rows[0]);
-  _impRows=rows;
+  _impRows=rows; _impGeoms=null;
   showImportMapping(map); // Zuordnungs-Schritt (Auto-Erkennung vorbelegt) → danach Vorschau
+}
+
+// Shapefile-ZIP importieren: Geometrie aus .shp (reprojiziert), Attribute aus .dbf →
+// dieselbe Feld-Zuordnung + Vorschau wie beim Excel-Import. Linien werden Strecken,
+// Polygone Flächen (Geometrie am Objekt, geomStr), Punkte bekommen lat/lng.
+async function importShapefile(input){
+  if(!currentProjectId){notify('Bitte zuerst ein Projekt öffnen');return;}
+  const file=input.files[0]; if(!file) return;
+  input.value='';
+  if(typeof proj4==='undefined'){ notify('proj4 nicht geladen — Reprojektion nicht möglich'); return; }
+  notify('Shapefile wird eingelesen…');
+  let res;
+  try{ res=await readShapefileZip(await file.arrayBuffer(), {proj4}); }
+  catch(e){ console.warn('Shapefile lesen', e); notify('Fehler beim Lesen: '+(e.message||e)); return; }
+  (res.warnings||[]).forEach(w=>notify('⚠ '+w));
+  const feats=(res.layers||[]).flatMap(l=>l.features);
+  if(!feats.length){ notify('Keine lesbaren Geometrien im ZIP gefunden'+(res.warnings.length?' — siehe Hinweise':'')); return; }
+  // Kopfzeile = Vereinigung aller DBF-Spalten (Reihenfolge der ersten Ebene zuerst)
+  const cols=[]; (res.layers||[]).forEach(l=>(l.fields||[]).forEach(f=>{ if(!cols.includes(f)) cols.push(f); }));
+  feats.forEach(f=>Object.keys(f.attrs||{}).forEach(k=>{ if(!cols.includes(k)) cols.push(k); }));
+  const rows=[cols, ...feats.map(f=>cols.map(c=>f.attrs?f.attrs[c]:''))];
+  _impRows=rows;
+  _impGeoms=feats.map(f=>f.geometry); // parallel zu den Datenzeilen
+  const map=buildImportMapping(rows[0]);
+  showImportMapping(map);
 }
 
 // Eindeutigen Kundenfeld-Schlüssel aus einem Label ableiten (für „als neues Kundenfeld anlegen")
@@ -9017,6 +9048,25 @@ function showImportMapping(autoMap){
   };
 }
 
+// Shapefile-Geometrie an eine Import-Zeile hängen: Punkt → lat/lng; Linie → Strecke; Polygon → Fläche.
+// _pv = Repräsentationspunkt NUR für die Vorschau-Karte (wird nicht gespeichert).
+function _impAttachGeom(o, g){
+  const ll=c=>[c[1],c[0]];
+  if(g.type==='Point'){ o.lat=g.coordinates[1]; o.lng=g.coordinates[0]; return; }
+  if(g.type==='LineString'||g.type==='MultiLineString'){
+    const parts=g.type==='LineString'?[g.coordinates]:g.coordinates;
+    let len=0; parts.forEach(p=>len+=_geoLen(p.map(ll)));
+    o.geomType='linie'; o.geomStr=JSON.stringify(g); o.menge=Math.round(len); o.einheit='m';
+    const mid=parts[0]; o._pv=ll(mid[Math.floor(mid.length/2)]); o.lat=null; o.lng=null; return;
+  }
+  if(g.type==='Polygon'||g.type==='MultiPolygon'){
+    const polys=g.type==='Polygon'?[g.coordinates]:g.coordinates;
+    let area=0; polys.forEach(p=>area+=_geoArea((p[0]||[]).map(ll)));
+    o.geomType='flaeche'; o.geomStr=JSON.stringify(g); o.menge=Math.round(area); o.einheit='m2';
+    const r=(polys[0][0]||[]); let la=0,ln=0,n=0; for(const c of r.slice(0,-1)){ la+=c[1]; ln+=c[0]; n++; }
+    if(n){ o._pv=[la/n,ln/n]; } o.lat=null; o.lng=null;
+  }
+}
 // Parsen mit der bestätigten Zuordnung → bestehende Koordinaten-/Dubletten-Vorschau.
 function _parseImportAndPreview(rows, map){
   const [c0,c1]=map._coord||[null,null];
@@ -9029,8 +9079,9 @@ function _parseImportAndPreview(rows, map){
   const parsed=[];
   const _klByName=new Map(objektklassen.map(k=>[_normH(k.name),k]));
   for(let i=1;i<rows.length;i++){
-    const row=rows[i]; if(!row||!row.length) continue;
-    if(row.every(c=>c==null||String(c).trim()==='')) continue;
+    const row=rows[i]||[];
+    const geo=_impGeoms?_impGeoms[i-1]:null; // Shapefile: Geometrie zählt — auch bei leeren Attributen nicht überspringen
+    if(!geo){ if(!row.length) continue; if(row.every(c=>c==null||String(c).trim()==='')) continue; }
     const {lat,lng}=(c0!=null&&c1!=null)?impCoords(impNum(row[c0]),impNum(row[c1])):{lat:null,lng:null};
     const _klRaw=String(get(row,'klasse')??'').trim(); const _kl=_klRaw?_klByName.get(_normH(_klRaw)):null;
     const o={
@@ -9050,6 +9101,7 @@ function _parseImportAndPreview(rows, map){
     const _kf=(_kl&&Array.isArray(_kl.felder)&&_kl.felder.length)?_kl.felder:null;
     customFields.forEach(c=>{ if(map[c.key]!=null && (!_kf||_kf.includes(c.key))) o[c.key]=String(row[map[c.key]]??'').trim(); });
     if(tourCols.length){ const tids=[]; for(const tc of tourCols){ if(_truthyImport(row[tc.i])) tids.push(tc.id); } o.tourIds=tids; }
+    if(geo) _impAttachGeom(o, geo); // Shapefile: Geometrie/Repräsentationspunkt/Menge ans Objekt
     parsed.push(o);
   }
   if(!parsed.length){ notify('Keine Datenzeilen gefunden'); return; }
@@ -9116,11 +9168,11 @@ function showImportPreview(){
 }
 
 function renderImportPreview(){
-  const withC=_importRows.filter(r=>r.lat!=null&&r.lng!=null);
+  const withC=_importRows.filter(r=>(r.lat!=null&&r.lng!=null)||r._pv);
   let inDE=0; const pts=[];
   if(_impLayer) _impLayer.clearLayers();
   withC.forEach(r=>{
-    const la=_importSwap?r.lng:r.lat, lo=_importSwap?r.lat:r.lng;
+    const la=r._pv?r._pv[0]:(_importSwap?r.lng:r.lat), lo=r._pv?r._pv[1]:(_importSwap?r.lat:r.lng);
     if(impInDE(la,lo)) inDE++;
     if(_impLayer){ L.circleMarker([la,lo],{radius:4,color:'#1d4ed8',fillColor:'#1d4ed8',fillOpacity:.6,weight:1}).addTo(_impLayer); }
     pts.push([la,lo]);
@@ -9175,6 +9227,7 @@ async function doImport(){
         // eine leere Zelle darf beim Update den Bestandswert nicht auf „mittel" überschreiben.
         if(r.wasser) fields.wasser=r.wasser;
         if(r.zustand) fields.zustand=r.zustand;
+        if(r.geomType){ fields.geomType=r.geomType; fields.geomStr=r.geomStr; if(r.menge!=null) fields.menge=r.menge; if(r.einheit) fields.einheit=r.einheit; } // Shapefile: Strecke/Fläche
         customFields.forEach(c=>{ if(r[c.key]!=null) fields[c.key]=r[c.key]; });
         const exist = r.baumId && byBaumId.get(r.baumId);
         // Tour-Zuordnung aus ja/nein-Tag-Spalten (nur wenn Tour-Spalten vorhanden waren).
@@ -14347,7 +14400,7 @@ Object.assign(window,{
   rankAdd,rankRename,rankSetColor,rankSetZahl,rankSetZahlWinter,rankMove,rankMerge,rankDelete,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
-  importExcel,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,
+  importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,
   createProject,openProject,showProjectScreen,psSetOrgFilter,setSiTab,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,
