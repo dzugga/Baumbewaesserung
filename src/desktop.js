@@ -14411,26 +14411,33 @@ function renderSegmentnetz(){
     ${ro?'<div style="font-size:12px;color:#92400e;background:#fef3c7;border-radius:8px;padding:8px 12px;">Nur Planer/Admins können das Segmentnetz verarbeiten.</div>':''}`;
 }
 // Schritt 2: regelbasierte Umwandlung flacher Segmente → Abschnitt + Seiten (projektbezogen)
+// Je Segmentart: welche Seiten (nur Fahrbahn / Fahrbahn+Gehweg / nur Abschnitt / nicht umwandeln)
+// + optional eine Reinigungsklasse (nur wenn der Kunde welche pflegt — sonst nicht zwingend).
 async function segmentUmwandelnOpen(){
   if(isReadonly()||!canEditObjects()) return notify('Nur Planer/Admins');
   if(!currentProjectId) return notify('Kein Projekt geöffnet');
   const cand=_segLineCandidates();
   if(!cand.length) return notify('Keine unbearbeiteten Linien-Segmente vorhanden');
-  const RULE_LABEL={fbLR:'Fahrbahn links + rechts',none:'nur Abschnitt (keine Seiten)',skip:'nicht umwandeln'};
+  const RULE_LABEL={fb:'Fahrbahn links + rechts',fbgw:'Fahrbahn + Gehweg links + rechts',none:'nur Abschnitt (keine Seiten)',skip:'nicht umwandeln'};
+  const FB=[['fahrbahn_l','Fahrbahn links','Fahrbahn'],['fahrbahn_r','Fahrbahn rechts','Fahrbahn']];
+  const GW=[['gehweg_l','Gehweg links','Gehweg'],['gehweg_r','Gehweg rechts','Gehweg']];
+  const sidesFor=rule=> rule==='fb'?FB : rule==='fbgw'?[...FB,...GW] : [];
   const buckets=[['Einzeln','Einzeln'],['Parallel','Parallel'],['Teiler','Teiler'],['','ohne Einstufung']];
-  const def={Einzeln:'fbLR',Parallel:'fbLR',Teiler:'skip','':'fbLR'};
+  const def={Einzeln:'fb',Parallel:'fb',Teiler:'skip','':'fb'};
   const cnt={Einzeln:0,Parallel:0,Teiler:0,'':0}; cand.forEach(t=>{ const v=t.segmentart; cnt[v!=null&&cnt[v]!=null?v:'']++; });
+  const hasRk=reinigungsklassen.length>0;
+  const rkOpts=`<option value="">— ohne Reinigungsklasse —</option>`+reinigungsklassen.map(r=>`<option value="${dlEsc(r.id)}">${dlEsc(r.name)}</option>`).join('');
   const m=document.createElement('div');
   m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100001;display:flex;align-items:center;justify-content:center;padding:20px;';
-  m.innerHTML=`<div style="background:var(--surface);border-radius:10px;width:520px;max-width:94vw;overflow:hidden;">
+  m.innerHTML=`<div style="background:var(--surface);border-radius:10px;width:${hasRk?620:520}px;max-width:94vw;overflow:hidden;">
     <div style="padding:14px 18px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;">Zu Abschnitten umwandeln</div>
     <div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px;font-size:13px;">
-      <div style="font-size:12px;color:var(--text3);">Je Segmentart eine Regel. „Fahrbahn links + rechts" legt einen Abschnitt mit zwei Fahrbahn-Seiten an; „nicht umwandeln" lässt das Segment als einfache Linie.</div>
-      ${buckets.filter(([k])=>cnt[k]>0).map(([k,l])=>`<label style="display:flex;align-items:center;gap:10px;">
-        <span style="width:130px;">${l} <span style="color:var(--text3);">(${cnt[k].toLocaleString('de-DE')})</span></span>
-        <select class="form-control" data-bucket="${k}" style="flex:1;padding:5px 8px;font-size:13px;">${Object.entries(RULE_LABEL).map(([rv,rl])=>`<option value="${rv}"${def[k]===rv?' selected':''}>${rl}</option>`).join('')}</select>
-      </label>`).join('')}
-      <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-top:2px;"><input type="checkbox" id="sm-gehweg"> Zusätzlich Gehweg-Seiten (links + rechts) anlegen</label>
+      <div style="font-size:12px;color:var(--text3);">Je Segmentart festlegen, welche Seiten entstehen. „Fahrbahn links + rechts" = nur Fahrbahn (Stadt reinigt nur die Fahrbahn); „Fahrbahn + Gehweg" zusätzlich Gehwege. ${hasRk?'Optional je Segmentart eine Reinigungsklasse zuweisen (der Abschnitt erbt daraus die Häufigkeit).':'Reinigungsklassen sind in diesem Projekt nicht gepflegt — nicht erforderlich.'}</div>
+      ${buckets.filter(([k])=>cnt[k]>0).map(([k,l])=>`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span style="width:120px;flex:none;">${l} <span style="color:var(--text3);">(${cnt[k].toLocaleString('de-DE')})</span></span>
+        <select class="form-control" data-bucket="${k}" data-kind="rule" style="flex:1;min-width:180px;padding:5px 8px;font-size:13px;">${Object.entries(RULE_LABEL).map(([rv,rl])=>`<option value="${rv}"${def[k]===rv?' selected':''}>${rl}</option>`).join('')}</select>
+        ${hasRk?`<select class="form-control" data-bucket="${k}" data-kind="rk" style="width:190px;flex:none;padding:5px 8px;font-size:13px;">${rkOpts}</select>`:''}
+      </div>`).join('')}
       <div id="sm2-info" style="font-size:12px;color:var(--text2);white-space:pre-line;min-height:18px;"></div>
     </div>
     <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
@@ -14440,30 +14447,27 @@ async function segmentUmwandelnOpen(){
   document.body.appendChild(m);
   const close=()=>m.remove(); m.querySelector('#sm2-cancel').onclick=close; m.addEventListener('click',e=>{ if(e.target===m) close(); });
   const info=m.querySelector('#sm2-info');
-  const rules=()=>{ const r={}; m.querySelectorAll('select[data-bucket]').forEach(s=>r[s.dataset.bucket]=s.value); return r; };
-  const preview=()=>{ const r=rules(); const gw=m.querySelector('#sm-gehweg').checked; let abschn=0,seiten=0,skip=0;
-    buckets.forEach(([k])=>{ const n=cnt[k]||0; if(!n) return; const rr=r[k]||def[k]; if(rr==='skip'){ skip+=n; return; } abschn+=n; if(rr==='fbLR') seiten+=n*(gw?4:2); });
+  const ruleOf=k=>{ const s=m.querySelector(`select[data-bucket="${k}"][data-kind="rule"]`); return s?s.value:def[k]; };
+  const rkOf=k=>{ const s=m.querySelector(`select[data-bucket="${k}"][data-kind="rk"]`); return s?s.value:''; };
+  const preview=()=>{ let abschn=0,seiten=0,skip=0;
+    buckets.forEach(([k])=>{ const n=cnt[k]||0; if(!n) return; const rr=ruleOf(k); if(rr==='skip'){ skip+=n; return; } abschn+=n; seiten+=n*sidesFor(rr).length; });
     info.textContent=`Ergibt: ${abschn.toLocaleString('de-DE')} Abschnitte · ${seiten.toLocaleString('de-DE')} Seiten · ${skip.toLocaleString('de-DE')} nicht umgewandelt`; };
-  m.querySelectorAll('select[data-bucket]').forEach(s=>s.onchange=preview); m.querySelector('#sm-gehweg').onchange=preview; preview();
+  m.querySelectorAll('select[data-kind="rule"]').forEach(s=>s.onchange=preview); preview();
   m.querySelector('#sm2-run').onclick=async()=>{
-    const r=rules(); const gw=m.querySelector('#sm-gehweg').checked;
-    const work=cand.filter(t=>{ const k=(t.segmentart!=null&&cnt[t.segmentart]!=null)?t.segmentart:''; return (r[k]||def[k])!=='skip'; });
+    const work=cand.filter(t=>{ const k=(t.segmentart!=null&&cnt[t.segmentart]!=null)?t.segmentart:''; return ruleOf(k)!=='skip'; });
     if(!work.length){ notify('Nichts umzuwandeln'); return; }
     if(!await _confirmBox('Umwandeln', `${work.length.toLocaleString('de-DE')} Segmente werden zu Abschnitten. Das erzeugt viele neue Objekte und lässt sich nur manuell rückgängig machen.\n\nFortfahren?`, 'Umwandeln','Abbrechen')) return;
     const btn=m.querySelector('#sm2-run'); btn.disabled=true; btn.style.opacity=.5;
     const col=db.collection('projects').doc(currentProjectId).collection('trees');
-    const SIDES={fbLR:[['fahrbahn_l','Fahrbahn links','Fahrbahn'],['fahrbahn_r','Fahrbahn rechts','Fahrbahn']]};
-    const GW=[['gehweg_l','Gehweg links','Gehweg'],['gehweg_r','Gehweg rechts','Gehweg']];
     try{
       _suppressTreeRender=true;
       for(let i=0;i<work.length;i+=80){
         const b=db.batch();
         for(const s of work.slice(i,i+80)){
-          const k=(s.segmentart!=null&&cnt[s.segmentart]!=null)?s.segmentart:''; const rr=r[k]||def[k];
+          const k=(s.segmentart!=null&&cnt[s.segmentart]!=null)?s.segmentart:''; const rr=ruleOf(k); const rk=rkOf(k);
           const oldT=(s.tourIds&&s.tourIds.length)?s.tourIds:(s.tourId?[s.tourId]:[]);
-          b.update(col.doc(s.id),{containerTyp:'strecke',art:'Straßenabschnitt',tourIds:[],tourId:'',_migrated:true});
-          let sides=[]; if(rr==='fbLR'){ sides=[...SIDES.fbLR]; if(gw) sides=[...sides,...GW]; }
-          sides.forEach(([element,label,art],idx)=>{ const tids=(element.startsWith('fahrbahn'))?oldT:[]; b.set(col.doc(),{ name:label, element, elementLabel:label, art, geomType:'linie', containerExtId:s.extId, baumId:(s.baumId||('S-'+s.extId))+'-'+element, orgId:s.orgId||currentProjectData?.orgId||'', aktiv:true, tourIds:tids, tourId:tids[0]||'', history:[], _migrated:true, createdAt:firebase.firestore.FieldValue.serverTimestamp() }); });
+          b.update(col.doc(s.id),{containerTyp:'strecke',art:'Straßenabschnitt',tourIds:[],tourId:'',reinigungsklasse:rk||'',_migrated:true});
+          sidesFor(rr).forEach(([element,label,art])=>{ const tids=element.startsWith('fahrbahn')?oldT:[]; b.set(col.doc(),{ name:label, element, elementLabel:label, art, geomType:'linie', containerExtId:s.extId, baumId:(s.baumId||('S-'+s.extId))+'-'+element, orgId:s.orgId||currentProjectData?.orgId||'', aktiv:true, tourIds:tids, tourId:tids[0]||'', history:[], _migrated:true, createdAt:firebase.firestore.FieldValue.serverTimestamp() }); });
         }
         await b.commit(); info.textContent=`Wandle um… ${Math.min(i+80,work.length).toLocaleString('de-DE')} / ${work.length.toLocaleString('de-DE')}`;
       }
