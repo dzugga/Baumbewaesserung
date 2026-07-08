@@ -2232,9 +2232,16 @@ function _flStyleFor(extId){
   return _flStyleForTree(trees.find(x=>x.extId===extId));
 }
 // Flächen folgen der Tour-Auswahl (gleiche Logik wie Punktobjekte) – Stil je Polygon neu setzen.
-function _applyFlaechenSelection(){
+function _applyFlaechenSelection(onlyId){
+  if(onlyId){ // Schnellpfad (Klick-Auswahl): NUR das eine Objekt neu stylen — bei 22k-Netzen sonst Sekunden je Klick
+    const l=_drawnById[onlyId]; const t=trees.find(x=>x.id===onlyId);
+    if(t&&l&&l.setStyle) l.setStyle(_flStyleForTree(t, t.geomType==='linie'));
+    if(t&&t.extId&&_flaechenByExt[t.extId]&&_flaechenByExt[t.extId].setStyle){ try{ _flaechenByExt[t.extId].setStyle(_flStyleFor(t.extId)); }catch(_){} }
+    return;
+  }
+  const _byId=new Map(trees.map(t=>[t.id,t])); // O(1)-Zugriff statt find() je Layer
   if(_flaechenLayer) _flaechenLayer.eachLayer(l=>{ const ext=l.feature&&l.feature.properties&&l.feature.properties.extId; if(ext&&l.setStyle) l.setStyle(_flStyleFor(ext)); });
-  for(const id in _drawnById){ const t=trees.find(x=>x.id===id), l=_drawnById[id]; if(t&&l&&l.setStyle) l.setStyle(_flStyleForTree(t, t.geomType==='linie')); }
+  for(const id in _drawnById){ const t=_byId.get(id), l=_drawnById[id]; if(t&&l&&l.setStyle) l.setStyle(_flStyleForTree(t, t.geomType==='linie')); }
   renderFlaechenNumbers();
 }
 // Routennummern auf importierten Bundle-Flächen (Zentroid) — nutzt denselben Toggle (_showRouteNums)
@@ -2643,9 +2650,8 @@ function renderDrawnGeoms(){
     if(!layer) return;
     layer.on('click',()=>{
       if(assignMode&&!lassoDrawing){
-        if(_isContainer(t)){ _ausstattungOf(t.extId).forEach(s=>lassoSelection.add(s.id)); renderLassoActions(); } // Abschnitt → alle Seiten vorwählen
-        else toggleLassoSelect(t.id);
-        _applyFlaechenSelection();
+        if(_isContainer(t)){ _ausstattungOf(t.extId).forEach(s=>lassoSelection.add(s.id)); renderLassoActions(); _applyFlaechenSelection(t.id); } // Abschnitt → alle Seiten vorwählen (Container-Linie neu stylen)
+        else toggleLassoSelect(t.id); // stylt selbst nur das eine Objekt (schnell)
       } else if(!assignMode){ if(_isContainer(t)) openAbschnitt(t.id); else selectTree(t.id,false); }
     });
     layer.on('contextmenu',e=>{ L.DomEvent.stopPropagation(e); try{ e.originalEvent&&e.originalEvent.preventDefault(); }catch(_){} showTreeTourContextMenu(t, e); }); // Rechtsklick → nur Objekt-Menü (Frei-Menü unterdrückt)
@@ -11617,7 +11623,7 @@ function remakeMarkers(ids){
 function toggleLassoSelect(id){
   if(lassoSelection.has(id)) lassoSelection.delete(id); else lassoSelection.add(id);
   remakeMarkers([id]);
-  _applyFlaechenSelection();
+  _applyFlaechenSelection(id); // nur das angeklickte Objekt neu stylen (schnell bei großen Netzen)
   renderLassoActions();
 }
 
