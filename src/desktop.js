@@ -1159,19 +1159,26 @@ function nearestNeighborTSP(pts,startLat,startLng){
 
 // ─── Reihenfolge-Optimierung (Option B: ORS-Matrix + 2-opt) ──────────
 // Echte Fahrzeiten-Matrix von ORS holen (NxN, Sekunden). Limit: 50 Orte.
+// fetch mit hartem Timeout — ORS-Endpunkte hängen zeitweise (502/Gateway); ohne Timeout fror die Berechnung minutenlang ein
+const ORS_TIMEOUT_MS=12000;
+function _orsFetch(url, body){
+  const key=getOrsKey();
+  const ac=new AbortController(); const to=setTimeout(()=>ac.abort(), ORS_TIMEOUT_MS);
+  return fetch(url,{method:'POST',headers:{'Content-Type':'application/json','Authorization':key},body:JSON.stringify(body),signal:ac.signal}).finally(()=>clearTimeout(to));
+}
+function _orsCatch(e, ctx){ // einheitliche Meldung; Timeout deutlich benennen
+  console.warn(ctx, e);
+  if(e&&e.name==='AbortError') notify('⚠ Straßen-Routing antwortet nicht (Zeitüberschreitung) — Luftlinie verwendet. Bitte später erneut berechnen.');
+}
 async function fetchOrsMatrix(coords){
   const key=getOrsKey(); if(!key) return null;
   if(coords.length>50) return null; // ORS-Free: max 50×50
   try{
-    const res=await fetch('https://api.openrouteservice.org/v2/matrix/driving-car',{
-      method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':key},
-      body:JSON.stringify({locations:coords, metrics:['duration']})
-    });
-    if(!res.ok){ console.warn('ORS matrix error:',res.status, await res.text()); return null; }
+    const res=await _orsFetch('https://api.openrouteservice.org/v2/matrix/driving-car',{locations:coords, metrics:['duration']});
+    if(!res.ok){ console.warn('ORS matrix error:',res.status, await res.text()); _orsNotice(res.status); return null; }
     const data=await res.json();
     return data.durations||null;
-  }catch(e){ console.warn('ORS matrix failed:',e); return null; }
+  }catch(e){ _orsCatch(e,'ORS matrix failed:'); return null; }
 }
 
 // ORS-Optimierungs-Endpunkt (Vroom): optimierte Reihenfolge für VIELE Stopps (jenseits der 50×50-Matrix).
@@ -1182,17 +1189,13 @@ async function fetchOrsOptimization(trs, depot, roundTrip){
   const vehicle={id:1, profile:'driving-car'};
   if(depot){ vehicle.start=[depot.lng,depot.lat]; if(roundTrip) vehicle.end=[depot.lng,depot.lat]; }
   try{
-    const res=await fetch('https://api.openrouteservice.org/optimization',{
-      method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':key},
-      body:JSON.stringify({jobs, vehicles:[vehicle]})
-    });
-    if(!res.ok){ console.warn('ORS optimization error:',res.status, await res.text()); return null; }
+    const res=await _orsFetch('https://api.openrouteservice.org/optimization',{jobs, vehicles:[vehicle]});
+    if(!res.ok){ console.warn('ORS optimization error:',res.status, await res.text()); _orsNotice(res.status); return null; }
     const data=await res.json();
     const steps=data?.routes?.[0]?.steps; if(!steps) return null;
     const order=steps.filter(s=>s.type==='job').map(s=>trs[s.job-1]).filter(Boolean);
     return order.length===trs.length ? order : (order.length?order:null);
-  }catch(e){ console.warn('ORS optimization failed:',e); return null; }
+  }catch(e){ _orsCatch(e,'ORS optimization failed:'); return null; }
 }
 
 // Greedy Nearest-Neighbor anhand einer Kostenmatrix, Start bei startIdx
@@ -1267,9 +1270,12 @@ async function computeTreeOrder(trs, depot){
 }
 
 // ORS-Fehler sichtbar machen (statt stummer Luftlinie): Grund benennen, damit klar ist, warum kein Straßen-Routing kam
+let _orsNoticeAt=0;
 function _orsNotice(status){
-  if(status===401||status===403) notify('⚠ ORS lehnt den API-Key ab ('+status+') — Luftlinie verwendet. Key unter Admin → Allgemein prüfen (typisch ~56 Zeichen).');
+  const now=Date.now(); if(now-_orsNoticeAt<4000) return; _orsNoticeAt=now; // nicht mehrfach je Berechnung spammen
+  if(status===401||status===403) notify('⚠ ORS lehnt den API-Key ab ('+status+') — Luftlinie verwendet. Key unter Admin → Allgemein prüfen.');
   else if(status===429) notify('⚠ ORS-Kontingent/Rate-Limit erreicht (429) — Luftlinie verwendet. Später erneut berechnen.');
+  else if(status>=500) notify('⚠ ORS-Routing-Dienst momentan gestört ('+status+') — Luftlinie verwendet. Bitte später erneut berechnen.');
   else notify('⚠ Straßen-Routing fehlgeschlagen (ORS '+status+') — Luftlinie verwendet.');
 }
 async function fetchOrsRoute(coords){
@@ -1279,11 +1285,7 @@ async function fetchOrsRoute(coords){
   try{
     // If fits in one request, send directly
     if(coords.length<=CHUNK){
-      const res=await fetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson',{
-        method:'POST',
-        headers:{'Content-Type':'application/json','Authorization':key},
-        body:JSON.stringify({coordinates:coords,instructions:false})
-      });
+      const res=await _orsFetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson',{coordinates:coords,instructions:false});
       if(!res.ok){console.warn('ORS error:',res.status,await res.text()); _orsNotice(res.status); return null;}
       return await res.json();
     }
@@ -1301,11 +1303,7 @@ async function fetchOrsRoute(coords){
     let _firstErr=null;
     for(const chunk of chunks){
       if(chunk.length<2)continue;
-      const res=await fetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson',{
-        method:'POST',
-        headers:{'Content-Type':'application/json','Authorization':key},
-        body:JSON.stringify({coordinates:chunk,instructions:false})
-      });
+      const res=await _orsFetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson',{coordinates:chunk,instructions:false});
       if(!res.ok){console.warn('ORS chunk error:',res.status); if(_firstErr==null)_firstErr=res.status; continue;}
       const geo=await res.json();
       if(!geo?.features?.[0])continue;
@@ -1327,7 +1325,7 @@ async function fetchOrsRoute(coords){
         properties:{summary:{distance:totalDistance,duration:totalDuration}}
       }]
     };
-  }catch(e){console.warn('ORS fetch failed:',e); notify('⚠ Straßen-Routing nicht erreichbar (Netzwerk) — Luftlinie verwendet.'); return null;}
+  }catch(e){ console.warn('ORS fetch failed:',e); if(e&&e.name==='AbortError') _orsCatch(e,'ORS directions timeout'); else notify('⚠ Straßen-Routing nicht erreichbar (Netzwerk) — Luftlinie verwendet.'); return null; }
 }
 
 // ─── ROUTENLINIEN EIN-/AUSBLENDEN ─────────────────────────────
@@ -1469,6 +1467,25 @@ async function loadSavedRoutes(force=false){
 }
 
 // Manually triggered: recalculate + save route for one tour via ORS
+// Kleiner Ja/Nein-Bestätigungsdialog (Promise<boolean>)
+function _confirmBox(title, msg, okLabel, cancelLabel){
+  return new Promise(resolve=>{
+    const m=document.createElement('div');
+    m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100002;display:flex;align-items:center;justify-content:center;padding:20px;';
+    m.innerHTML=`<div style="background:var(--surface);border-radius:10px;width:400px;max-width:94vw;overflow:hidden;box-shadow:var(--shadow-md);">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;">${dlEsc(title||'Bestätigen')}</div>
+      <div style="padding:16px 18px;font-size:13px;color:var(--text2);white-space:pre-line;line-height:1.5;">${dlEsc(msg||'')}</div>
+      <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
+        <button id="cb-cancel" class="btn btn-secondary" style="padding:7px 14px;">${dlEsc(cancelLabel||'Abbrechen')}</button>
+        <button id="cb-ok" class="btn btn-primary" style="padding:7px 16px;font-weight:700;">${dlEsc(okLabel||'OK')}</button>
+      </div></div>`;
+    document.body.appendChild(m);
+    const done=v=>{ m.remove(); resolve(v); };
+    m.querySelector('#cb-cancel').onclick=()=>done(false);
+    m.querySelector('#cb-ok').onclick=()=>done(true);
+    m.addEventListener('click',e=>{ if(e.target===m) done(false); });
+  });
+}
 async function calculateAndSaveRoute(tourId){
   if(isReadonly()){ notify('Nur Lesezugriff'); return; }
   if(!getRoutePlanningEnabled()){ notify('Reihenfolgeplanung ist deaktiviert'); return; }
@@ -1477,6 +1494,11 @@ async function calculateAndSaveRoute(tourId){
   await _ensureFlaechenGeom(); // importierte Flächen fürs Routing verfügbar machen (Zentroid als Stopp)
   const trs=_routableTrees(tourId); // Punkte + Flächen/Linien (Stellvertreter-Koordinate)
   if(trs.length<1){notify('Keine Objekte in dieser Tour');return;}
+  // Warnung bei sehr großen Touren: viele ORS-Anfragen → dauert lange + belastet das Kontingent
+  if(trs.length>250 && getOrsKey() && getRouteOptMode()==='matrix'){
+    const ok=await _confirmBox('Große Tour', `Diese Tour hat ${trs.length.toLocaleString('de-DE')} Stopps. Die optimierte Straßen-Routenberechnung kann mehrere Minuten dauern und viel vom ORS-Kontingent verbrauchen.\n\nFortfahren?`, 'Berechnen', 'Abbrechen');
+    if(!ok) return;
+  }
 
   setSyncState('syncing','Route wird berechnet…');
   document.getElementById('route-spinner').classList.add('visible');
