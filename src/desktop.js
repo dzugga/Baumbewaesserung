@@ -1409,13 +1409,14 @@ function drawSavedRoute(tourId, routeData){
   if(geojson){
     layer=L.geoJSON(geojson,{pane:'routeline',interactive:false,style:{color:tour.color,weight:3,opacity:.9,dashArray:_routeDash('3 8')}}).addTo(map);
   } else {
-    // Draw straight-line fallback from saved order
+    // Draw straight-line fallback from saved order — Stellvertreter-Punkt statt roher lat/lng
+    // (Strecken/Flächen haben keine Koordinaten am Doc → sonst null-Punkte in Leaflet)
     const orderedTrees=routeData.orderIds
       .map(id=>trees.find(t=>t.id===id))
       .filter(Boolean);
-    const depot=getDepot();
-    let pts=orderedTrees.map(t=>[t.lat,t.lng]);
-    if(depot){const dp=[depot.lat,depot.lng];pts=getDepotMode()==='round'?[dp,...pts,dp]:[dp,...pts];}
+    const depot=_tourDepot(tour); // Startpunkt = Betriebshof der Tour (Fallback Projekt-Depot)
+    let pts=orderedTrees.map(t=>_routePoint(t)).filter(Boolean);
+    if(depot&&depot.lat!=null){const dp=[depot.lat,depot.lng];pts=getDepotMode()==='round'?[dp,...pts,dp]:[dp,...pts];}
     layer=L.polyline(pts,{pane:'routeline',interactive:false,color:tour.color,weight:3,opacity:.7,dashArray:_routeDash('8 5')}).addTo(map);
   }
   const _split=geojson?_computeRouteSplit(geojson,tourId):null;
