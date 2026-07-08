@@ -4388,7 +4388,9 @@ async function saveTree(){
   const _hRow=document.getElementById('row-f-haeufigkeit');
   if(_hRow&&_hRow.style.display!=='none'){ const hv=(document.getElementById('f-haeufigkeit').value||'').trim(); data.haeufigkeit=hv===''?null:(parseFloat(hv.replace(',','.'))||0); }
   // Nur tatsächlich angezeigte Kundenfelder schreiben — sonst würden für den Typ ausgeblendete Felder überschrieben
-  customFields.forEach(c=>{ const el=document.getElementById('f-'+c.key); if(!el) return; const v=el.value; data[c.key]= (c.type==='zahl') ? (String(v).trim()===''?'':(parseFloat(String(v).replace(',','.'))||0)) : v; });
+  customFields.forEach(c=>{ const el=document.getElementById('f-'+c.key); if(!el) return; const v=el.value; data[c.key]= (c.type==='zahl') ? (String(v).trim()===''?'':(parseFloat(String(v).replace(',','.'))||0)) : v;
+    if(c.key==='segmentart'){ const old=editingTreeId?((trees.find(t=>t.id===editingTreeId)||{}).segmentart||''):''; if(data[c.key]!==old) data.segmentartAuto=false; } // Einzel-Korrektur fixieren (Analyse überschreibt nicht)
+  });
   try{
     if(editingTreeId){
       await updateDoc(doc(db,'projects',currentProjectId,'trees',editingTreeId),data);
