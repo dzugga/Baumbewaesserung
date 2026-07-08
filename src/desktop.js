@@ -2637,7 +2637,9 @@ function renderDrawnGeoms(){
     }
     let layer;
     if(g.type==='Polygon'){ const ll=(g.coordinates[0]||[]).map(c=>[c[1],c[0]]); if(ll.length<3) return; layer=L.polygon(ll,_opt(_flStyleForTree(t,false))); }
+    else if(g.type==='MultiPolygon'){ const mp=(g.coordinates||[]).map(poly=>(poly||[]).map(ring=>ring.map(c=>[c[1],c[0]]))); if(!mp.length) return; layer=L.polygon(mp,_opt(_flStyleForTree(t,false))); }
     else if(g.type==='LineString'){ const ll=(g.coordinates||[]).map(c=>[c[1],c[0]]); if(ll.length<2) return; layer=L.polyline(ll,_opt(_flStyleForTree(t,true))); }
+    else if(g.type==='MultiLineString'){ const ml=(g.coordinates||[]).map(p=>p.map(c=>[c[1],c[0]])).filter(p=>p.length>=2); if(!ml.length) return; layer=L.polyline(ml,_opt(_flStyleForTree(t,true))); }
     if(!layer) return;
     layer.on('click',()=>{
       if(assignMode&&!lassoDrawing){
