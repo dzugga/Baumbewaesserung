@@ -499,7 +499,6 @@ map.on('click',closeBasemapPanel); // Klick auf die Karte schließt das Auswahlf
 const _msInput=document.getElementById('map-search-input');
 if(_msInput){
   _msInput.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); doMapSearch(); } });
-  _msInput.addEventListener('input',()=>{ const c=document.getElementById('map-search-clear'); if(c) c.style.display=_msInput.value?'block':'none'; });
 }
 document.getElementById('map-search-clear')?.addEventListener('click',clearMapSearch);
 document.getElementById('map-search-toggle')?.addEventListener('click',()=>{ document.getElementById('map-search')?.classList.remove('collapsed'); _msInput?.focus(); });
@@ -4734,8 +4733,8 @@ function gotoSearchResult(r){
 function clearMapSearch(){
   const inp=document.getElementById('map-search-input'); if(inp) inp.value='';
   const box=document.getElementById('map-search-results'); if(box) box.style.display='none';
-  const cl=document.getElementById('map-search-clear'); if(cl) cl.style.display='none';
   if(_searchMarker){ map.removeLayer(_searchMarker); _searchMarker=null; }
+  document.getElementById('map-search')?.classList.add('collapsed'); // Leeren klappt das Feld gleich ein (zurück zum Lupen-Symbol)
 }
 
 

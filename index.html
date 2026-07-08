@@ -237,6 +237,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 #map-search.collapsed{width:auto;}
 #map-search.collapsed .ms-box,#map-search.collapsed #map-search-results{display:none;}
 #map-search:not(.collapsed) .ms-toggle{display:none;}
+#map-search:not(.collapsed) .ms-clear{display:inline-flex;align-items:center;} /* × immer sichtbar, solange ausgeklappt → Feld lässt sich auch leer einklappen */
 .ms-toggle{display:flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-md);color:var(--text2);cursor:pointer;}
 .ms-toggle:hover{color:var(--text);}
 #dispo-tools{position:absolute;top:14px;left:14px;z-index:1001;display:flex;flex-direction:column;gap:8px;align-items:flex-start;width:300px;max-width:60%;}
