@@ -12310,7 +12310,6 @@ function _initDispoControls(){
   document.getElementById('dispo-search-toggle').onclick=()=>{ document.getElementById('dispo-search').classList.remove('collapsed'); document.getElementById('dispo-search-input').focus(); };
   const di=document.getElementById('dispo-search-input');
   di.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); doDispoSearch(); } else if(e.key==='Escape'){ clearDispoSearch(); document.getElementById('dispo-search').classList.add('collapsed'); } });
-  di.addEventListener('input',()=>{ const c=document.getElementById('dispo-search-clear'); if(c) c.style.display=di.value?'block':'none'; });
   document.getElementById('dispo-search-clear').onclick=clearDispoSearch;
   document.getElementById('dispo-search-results').addEventListener('click',e=>{ const it=e.target.closest('.ms-item'); if(!it) return; const box=document.getElementById('dispo-search-results'); const r=box._results?.[+it.dataset.idx]; if(r) gotoDispoResult(r); });
   document.getElementById('dispo-fit').onclick=dispoFitBins;
@@ -13448,8 +13447,8 @@ function gotoDispoResult(r){
 function clearDispoSearch(){
   const inp=document.getElementById('dispo-search-input'); if(inp) inp.value='';
   const box=document.getElementById('dispo-search-results'); if(box) box.style.display='none';
-  const cl=document.getElementById('dispo-search-clear'); if(cl) cl.style.display='none';
   if(_dispoSearchMarker&&dispoMap){ dispoMap.removeLayer(_dispoSearchMarker); _dispoSearchMarker=null; }
+  document.getElementById('dispo-search')?.classList.add('collapsed'); // Leeren klappt das Feld gleich ein (zurück zum Lupen-Symbol)
 }
 function dispoFitBins(){
   if(!dispoMap) return;

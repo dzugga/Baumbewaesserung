@@ -243,6 +243,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 #dispo-tools{position:absolute;top:14px;left:14px;z-index:1001;display:flex;flex-direction:column;gap:8px;align-items:flex-start;width:300px;max-width:60%;}
 #dispo-search.collapsed .ms-box,#dispo-search.collapsed #dispo-search-results{display:none;}
 #dispo-search:not(.collapsed) #dispo-search-toggle{display:none;}
+#dispo-search:not(.collapsed) .ms-clear{display:inline-flex;align-items:center;} /* × immer sichtbar, solange ausgeklappt → auch leer einklappbar */
 #dispo-routes.off{color:var(--text3);background:var(--surface2);}
 .ms-box{display:flex;align-items:center;gap:7px;background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:7px 10px;box-shadow:var(--shadow-md);}
 .ms-box input{flex:1;min-width:0;border:none;outline:none;background:none;font-family:inherit;font-size:13px;color:var(--text);}
