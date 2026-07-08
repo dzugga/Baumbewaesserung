@@ -7478,7 +7478,7 @@ function renderTourenGrid(){
       <td style="padding:10px 16px;text-align:right;color:var(--text2);font-size:12px;">${km}</td>
       <td style="padding:10px 16px;text-align:right;font-size:12px;">
         <div style="color:var(--text2);">${driveZeit} <span style="color:var(--text3);font-size:10px;">Fahrt</span></div>
-        <div style="color:var(--text2);">${bewZeit} <span style="color:var(--text3);font-size:10px;">Bew.</span></div>${zusLine}
+        <div style="color:var(--text2);">${bewZeit} <span style="color:var(--text3);font-size:10px;">Tätigkeit</span></div>${zusLine}
         <div style="font-weight:600;color:var(--text);">${gesamtZeit} <span style="color:var(--text3);font-size:10px;">Gesamt</span></div>${restBlock}
       </td>
       <td style="padding:10px 16px;">
