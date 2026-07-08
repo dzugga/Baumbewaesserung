@@ -1266,6 +1266,12 @@ async function computeTreeOrder(trs, depot){
   return ordered;
 }
 
+// ORS-Fehler sichtbar machen (statt stummer Luftlinie): Grund benennen, damit klar ist, warum kein Straßen-Routing kam
+function _orsNotice(status){
+  if(status===401||status===403) notify('⚠ ORS lehnt den API-Key ab ('+status+') — Luftlinie verwendet. Key unter Admin → Allgemein prüfen (typisch ~56 Zeichen).');
+  else if(status===429) notify('⚠ ORS-Kontingent/Rate-Limit erreicht (429) — Luftlinie verwendet. Später erneut berechnen.');
+  else notify('⚠ Straßen-Routing fehlgeschlagen (ORS '+status+') — Luftlinie verwendet.');
+}
 async function fetchOrsRoute(coords){
   const key=getOrsKey();if(!key)return null;
   const CHUNK=48; // ORS max is 50, use 48 to be safe with overlap
@@ -1278,7 +1284,7 @@ async function fetchOrsRoute(coords){
         headers:{'Content-Type':'application/json','Authorization':key},
         body:JSON.stringify({coordinates:coords,instructions:false})
       });
-      if(!res.ok){console.warn('ORS error:',res.status,await res.text());return null;}
+      if(!res.ok){console.warn('ORS error:',res.status,await res.text()); _orsNotice(res.status); return null;}
       return await res.json();
     }
 
@@ -1292,6 +1298,7 @@ async function fetchOrsRoute(coords){
     let totalDistance=0;
     let totalDuration=0;
 
+    let _firstErr=null;
     for(const chunk of chunks){
       if(chunk.length<2)continue;
       const res=await fetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson',{
@@ -1299,7 +1306,7 @@ async function fetchOrsRoute(coords){
         headers:{'Content-Type':'application/json','Authorization':key},
         body:JSON.stringify({coordinates:chunk,instructions:false})
       });
-      if(!res.ok){console.warn('ORS chunk error:',res.status);continue;}
+      if(!res.ok){console.warn('ORS chunk error:',res.status); if(_firstErr==null)_firstErr=res.status; continue;}
       const geo=await res.json();
       if(!geo?.features?.[0])continue;
       const lineCoords=geo.features[0].geometry.coordinates;
@@ -1310,7 +1317,7 @@ async function fetchOrsRoute(coords){
       totalDuration+=geo.features[0].properties.summary.duration||0;
     }
 
-    if(mergedCoords.length<2)return null;
+    if(mergedCoords.length<2){ if(_firstErr!=null)_orsNotice(_firstErr); return null; }
 
     // Return merged GeoJSON
     return {
@@ -1320,7 +1327,7 @@ async function fetchOrsRoute(coords){
         properties:{summary:{distance:totalDistance,duration:totalDuration}}
       }]
     };
-  }catch(e){console.warn('ORS fetch failed:',e);return null;}
+  }catch(e){console.warn('ORS fetch failed:',e); notify('⚠ Straßen-Routing nicht erreichbar (Netzwerk) — Luftlinie verwendet.'); return null;}
 }
 
 // ─── ROUTENLINIEN EIN-/AUSBLENDEN ─────────────────────────────
