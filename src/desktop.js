@@ -14430,9 +14430,13 @@ async function segmentUmwandelnOpen(){
   const cnt={Einzeln:0,Parallel:0,Teiler:0,'':0}; cand.forEach(t=>{ const v=t.segmentart; cnt[v!=null&&cnt[v]!=null?v:'']++; });
   const bucketOf=t=>{ const v=t.segmentart; return (v!=null&&cnt[v]!=null)?v:''; };
   const hasRk=reinigungsklassen.length>0;
-  // Quellfelder für „Klasse je Segment": Kundenfelder mit Werteliste (z. B. RK) — Segmentart ist die
-  // Geometrie-Achse (Achse A), kein Klassen-Indikator, daher hier ausgeschlossen.
-  const srcFields=customFields.filter(c=>c.key!=='segmentart'&&(listValues[c.key]||[]).length);
+  // Quellfelder für „Klasse je Segment": Felder mit Werteliste, die als Klassen-Indikator taugen —
+  // Standard-Listen Zustand/Priorität (oft umbenannt, z. B. „RK") + Kundenfelder. Segmentart (Geometrie-
+  // Achse) und Betriebshof (Zuständigkeit) sind keine Klassen-Indikatoren → ausgeschlossen.
+  const srcFields=[
+    {key:'zustand',label:FL.zustand},{key:'wasser',label:FL.wasser},
+    ...customFields.filter(c=>c.key!=='segmentart'&&c.key!=='betriebshof').map(c=>({key:c.key,label:c.label}))
+  ].filter(f=>(listValues[f.key]||[]).length);
   const canClass=hasRk&&srcFields.length>0;
   const defSrc=(srcFields.find(c=>/rk|reinig|klasse/i.test(c.key+' '+c.label))||srcFields[0]||{}).key||'';
   const fieldVals=key=>{ const rl=rankList(key); return rl.length?rl:(listValues[key]||[]); };
