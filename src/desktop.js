@@ -14410,69 +14410,109 @@ function renderSegmentnetz(){
     ${step(3,'Gehweg-Seiten ergänzen (optional)','Nur wo tatsächlich Gehwege gereinigt werden: auf der Karte per Lasso die Abschnitte auswählen und „＋ Gehweg-Seiten" wählen — so entstehen keine flächendeckenden Leer-Seiten.'+btn('Auf der Karte auswählen',"switchView('karte');setTimeout(startAssignMode,150)"))}
     ${ro?'<div style="font-size:12px;color:#92400e;background:#fef3c7;border-radius:8px;padding:8px 12px;">Nur Planer/Admins können das Segmentnetz verarbeiten.</div>':''}`;
 }
-// Schritt 2: regelbasierte Umwandlung flacher Segmente → Abschnitt + Seiten (projektbezogen)
-// Je Segmentart: welche Seiten (nur Fahrbahn / Fahrbahn+Gehweg / nur Abschnitt / nicht umwandeln)
-// + optional eine Reinigungsklasse (nur wenn der Kunde welche pflegt — sonst nicht zwingend).
+// Schritt 2: Umwandlung flacher Segmente → Abschnitt + Seiten (projektbezogen).
+// Zwei Achsen: (A) welche Segmentarten umgewandelt werden (Teiler i. d. R. nicht),
+// (B) welche Seiten + Häufigkeit — entweder fest (Fahrbahn L+R, optional Gehweg) ODER
+// je Segment aus seiner REINIGUNGSKLASSE abgeleitet (die Klasse ist der Indikator:
+// abgedeckte Element-Gruppen = zu erzeugende Seiten; Gehweg leer = kein Gehweg).
+const _GSIDES={fahrbahn:[['fahrbahn_l','Fahrbahn links'],['fahrbahn_r','Fahrbahn rechts']],gehweg:[['gehweg_l','Gehweg links'],['gehweg_r','Gehweg rechts']],radweg:[['radweg_l','Radweg links'],['radweg_r','Radweg rechts']],mittelinsel:[['mittelinsel','Mittelinsel']],parkstreifen:[['parkstreifen','Parkstreifen']],gruenstreifen:[['gruenstreifen','Grünstreifen']]};
+const _GART={fahrbahn:'Fahrbahn',gehweg:'Gehweg',radweg:'Radweg',mittelinsel:'Mittelinsel',parkstreifen:'Parkstreifen',gruenstreifen:'Grünstreifen'};
+function _rkCoveredSides(cls){ if(!cls||!cls.freq) return []; return ELEM_GRUPPE_ORDER.filter(g=>cls.freq[g]!=null&&cls.freq[g]!=='').flatMap(g=>(_GSIDES[g]||[]).map(([el,lb])=>[el,lb,_GART[g]||lb])); }
 async function segmentUmwandelnOpen(){
   if(isReadonly()||!canEditObjects()) return notify('Nur Planer/Admins');
   if(!currentProjectId) return notify('Kein Projekt geöffnet');
   const cand=_segLineCandidates();
   if(!cand.length) return notify('Keine unbearbeiteten Linien-Segmente vorhanden');
-  const RULE_LABEL={fb:'Fahrbahn links + rechts',fbgw:'Fahrbahn + Gehweg links + rechts',none:'nur Abschnitt (keine Seiten)',skip:'nicht umwandeln'};
   const FB=[['fahrbahn_l','Fahrbahn links','Fahrbahn'],['fahrbahn_r','Fahrbahn rechts','Fahrbahn']];
   const GW=[['gehweg_l','Gehweg links','Gehweg'],['gehweg_r','Gehweg rechts','Gehweg']];
-  const sidesFor=rule=> rule==='fb'?FB : rule==='fbgw'?[...FB,...GW] : [];
   const buckets=[['Einzeln','Einzeln'],['Parallel','Parallel'],['Teiler','Teiler'],['','ohne Einstufung']];
-  const def={Einzeln:'fb',Parallel:'fb',Teiler:'skip','':'fb'};
+  const convDef={Einzeln:true,Parallel:true,Teiler:false,'':true};
   const cnt={Einzeln:0,Parallel:0,Teiler:0,'':0}; cand.forEach(t=>{ const v=t.segmentart; cnt[v!=null&&cnt[v]!=null?v:'']++; });
+  const bucketOf=t=>{ const v=t.segmentart; return (v!=null&&cnt[v]!=null)?v:''; };
   const hasRk=reinigungsklassen.length>0;
-  const rkOpts=`<option value="">— ohne Reinigungsklasse —</option>`+reinigungsklassen.map(r=>`<option value="${dlEsc(r.id)}">${dlEsc(r.name)}</option>`).join('');
+  // Quellfelder für „Klasse je Segment": Kundenfelder mit Werteliste (z. B. RK)
+  const srcFields=customFields.filter(c=>(listValues[c.key]||[]).length);
+  const canClass=hasRk&&srcFields.length>0;
+  const defSrc=(srcFields.find(c=>/rk|reinig|klasse/i.test(c.key+' '+c.label))||srcFields[0]||{}).key||'';
+  const fieldVals=key=>{ const rl=rankList(key); return rl.length?rl:(listValues[key]||[]); };
   const m=document.createElement('div');
   m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100001;display:flex;align-items:center;justify-content:center;padding:20px;';
-  m.innerHTML=`<div style="background:var(--surface);border-radius:10px;width:${hasRk?620:520}px;max-width:94vw;overflow:hidden;">
+  m.innerHTML=`<div style="background:var(--surface);border-radius:10px;width:600px;max-width:94vw;max-height:90vh;overflow:auto;">
     <div style="padding:14px 18px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;">Zu Abschnitten umwandeln</div>
-    <div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px;font-size:13px;">
-      <div style="font-size:12px;color:var(--text3);">Je Segmentart festlegen, welche Seiten entstehen. „Fahrbahn links + rechts" = nur Fahrbahn (Stadt reinigt nur die Fahrbahn); „Fahrbahn + Gehweg" zusätzlich Gehwege. ${hasRk?'Optional je Segmentart eine Reinigungsklasse zuweisen (der Abschnitt erbt daraus die Häufigkeit).':'Reinigungsklassen sind in diesem Projekt nicht gepflegt — nicht erforderlich.'}</div>
-      ${buckets.filter(([k])=>cnt[k]>0).map(([k,l])=>`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <span style="width:120px;flex:none;">${l} <span style="color:var(--text3);">(${cnt[k].toLocaleString('de-DE')})</span></span>
-        <select class="form-control" data-bucket="${k}" data-kind="rule" style="flex:1;min-width:180px;padding:5px 8px;font-size:13px;">${Object.entries(RULE_LABEL).map(([rv,rl])=>`<option value="${rv}"${def[k]===rv?' selected':''}>${rl}</option>`).join('')}</select>
-        ${hasRk?`<select class="form-control" data-bucket="${k}" data-kind="rk" style="width:190px;flex:none;padding:5px 8px;font-size:13px;">${rkOpts}</select>`:''}
-      </div>`).join('')}
-      <div id="sm2-info" style="font-size:12px;color:var(--text2);white-space:pre-line;min-height:18px;"></div>
+    <div style="padding:16px 18px;display:flex;flex-direction:column;gap:12px;font-size:13px;">
+      <div>
+        <div style="font-weight:700;margin-bottom:6px;">A · Welche Segmentarten umwandeln?</div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:6px;">Teiler (Mittellinien) bleiben i. d. R. außen vor.</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px 18px;">${buckets.filter(([k])=>cnt[k]>0).map(([k,l])=>`<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" data-conv="${k}" ${convDef[k]?'checked':''} style="margin:0;cursor:pointer;">${l} <span style="color:var(--text3);">(${cnt[k].toLocaleString('de-DE')})</span></label>`).join('')}</div>
+      </div>
+      <div style="border-top:1px solid var(--border);padding-top:10px;">
+        <div style="font-weight:700;margin-bottom:6px;">B · Welche Seiten &amp; Häufigkeit?</div>
+        <select id="sm2-mode" class="form-control" style="padding:5px 8px;font-size:13px;margin-bottom:8px;">
+          <option value="fest">Feste Seiten für alle</option>
+          <option value="klasse"${canClass?'':' disabled'}>Aus Reinigungsklasse je Segment${canClass?'':' — erst Klassen + Feld anlegen'}</option>
+        </select>
+        <div id="sm2-fest"><label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" id="sm2-gehweg"> zusätzlich Gehweg links + rechts (sonst nur Fahrbahn)</label></div>
+        <div id="sm2-klasse" style="display:none;">
+          <label style="font-size:12px;color:var(--text2);">Klasse je Segment aus Feld
+            <select id="sm2-src" class="form-control" style="width:auto;display:inline-block;padding:4px 8px;font-size:13px;margin-left:6px;">${srcFields.map(c=>`<option value="${dlEsc(c.key)}"${c.key===defSrc?' selected':''}>${dlEsc(c.label)}</option>`).join('')}</select>
+          </label>
+          <div style="font-size:11px;color:var(--text3);margin:6px 0 4px;">Jedem Feldwert eine Reinigungsklasse zuordnen — die abgedeckten Gruppen der Klasse (Fahrbahn/Gehweg …) bestimmen die erzeugten Seiten:</div>
+          <div id="sm2-map" style="display:flex;flex-direction:column;gap:5px;"></div>
+        </div>
+      </div>
+      <div id="sm2-info" style="font-size:12px;color:var(--text2);white-space:pre-line;min-height:18px;border-top:1px solid var(--border);padding-top:8px;"></div>
     </div>
-    <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
+    <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:0;background:var(--surface);">
       <button id="sm2-cancel" class="btn btn-secondary" style="padding:7px 12px;">Abbrechen</button>
       <button id="sm2-run" class="btn btn-primary" style="padding:7px 14px;">Umwandeln</button>
     </div></div>`;
   document.body.appendChild(m);
   const close=()=>m.remove(); m.querySelector('#sm2-cancel').onclick=close; m.addEventListener('click',e=>{ if(e.target===m) close(); });
   const info=m.querySelector('#sm2-info');
-  const ruleOf=k=>{ const s=m.querySelector(`select[data-bucket="${k}"][data-kind="rule"]`); return s?s.value:def[k]; };
-  const rkOf=k=>{ const s=m.querySelector(`select[data-bucket="${k}"][data-kind="rk"]`); return s?s.value:''; };
-  const preview=()=>{ let abschn=0,seiten=0,skip=0;
-    buckets.forEach(([k])=>{ const n=cnt[k]||0; if(!n) return; const rr=ruleOf(k); if(rr==='skip'){ skip+=n; return; } abschn+=n; seiten+=n*sidesFor(rr).length; });
-    info.textContent=`Ergibt: ${abschn.toLocaleString('de-DE')} Abschnitte · ${seiten.toLocaleString('de-DE')} Seiten · ${skip.toLocaleString('de-DE')} nicht umgewandelt`; };
-  m.querySelectorAll('select[data-kind="rule"]').forEach(s=>s.onchange=preview); preview();
+  const modeSel=m.querySelector('#sm2-mode'), srcSel=m.querySelector('#sm2-src'), mapBox=m.querySelector('#sm2-map');
+  const convOf=k=>{ const c=m.querySelector(`input[data-conv="${k}"]`); return c?c.checked:convDef[k]; };
+  const buildMap=()=>{ const key=srcSel?srcSel.value:''; const vals=fieldVals(key);
+    mapBox.innerHTML=vals.map(v=>{ const guess=reinigungsklassen.find(r=>r.name===v.label||r.name===v.id); return `<label style="display:flex;align-items:center;gap:8px;"><span style="width:120px;flex:none;">${dlEsc(v.label)}</span><select class="form-control" data-mapval="${dlEsc(v.id||v.label)}" style="flex:1;padding:4px 8px;font-size:13px;"><option value="">— keine (nicht umwandeln) —</option>${reinigungsklassen.map(r=>`<option value="${dlEsc(r.id)}"${guess&&guess.id===r.id?' selected':''}>${dlEsc(r.name)} (${ELEM_GRUPPE_ORDER.filter(g=>r.freq&&r.freq[g]!=null&&r.freq[g]!=='').map(g=>_GART[g]).join('+')||'—'})</option>`).join('')}</select></label>`; }).join(''); };
+  const mapOf=()=>{ const o={}; mapBox.querySelectorAll('select[data-mapval]').forEach(s=>o[s.dataset.mapval]=s.value); return o; };
+  const resolveClass=(t,key,map,vals)=>{ const val=t[key]; const e=vals.find(x=>x.id===val||x.label===val); if(!e) return null; return _rkById(map[e.id||e.label]||''); };
+  const preview=()=>{
+    const work=cand.filter(t=>convOf(bucketOf(t)));
+    if(modeSel.value==='klasse'){ const key=srcSel.value, map=mapOf(), vals=fieldVals(key); let ab=0,se=0,un=0;
+      work.forEach(t=>{ const cls=resolveClass(t,key,map,vals); if(!cls){ un++; return; } ab++; se+=_rkCoveredSides(cls).length; });
+      info.textContent=`Ergibt: ${ab.toLocaleString('de-DE')} Abschnitte · ${se.toLocaleString('de-DE')} Seiten · ${un.toLocaleString('de-DE')} ohne Klassen-Zuordnung (übersprungen)`;
+    } else { const gw=m.querySelector('#sm2-gehweg').checked; const per=gw?4:2;
+      info.textContent=`Ergibt: ${work.length.toLocaleString('de-DE')} Abschnitte · ${(work.length*per).toLocaleString('de-DE')} Seiten`; }
+  };
+  const syncMode=()=>{ const kl=modeSel.value==='klasse'; m.querySelector('#sm2-fest').style.display=kl?'none':''; m.querySelector('#sm2-klasse').style.display=kl?'':'none'; if(kl&&!mapBox.innerHTML) buildMap(); preview(); };
+  modeSel.onchange=syncMode; if(srcSel) srcSel.onchange=()=>{ buildMap(); preview(); };
+  m.querySelector('#sm2-gehweg').onchange=preview; m.querySelectorAll('input[data-conv]').forEach(c=>c.onchange=preview);
+  mapBox.addEventListener('change',preview);
+  if(canClass) buildMap();
+  preview();
   m.querySelector('#sm2-run').onclick=async()=>{
-    const work=cand.filter(t=>{ const k=(t.segmentart!=null&&cnt[t.segmentart]!=null)?t.segmentart:''; return ruleOf(k)!=='skip'; });
-    if(!work.length){ notify('Nichts umzuwandeln'); return; }
-    if(!await _confirmBox('Umwandeln', `${work.length.toLocaleString('de-DE')} Segmente werden zu Abschnitten. Das erzeugt viele neue Objekte und lässt sich nur manuell rückgängig machen.\n\nFortfahren?`, 'Umwandeln','Abbrechen')) return;
+    const mode=modeSel.value, gw=m.querySelector('#sm2-gehweg').checked;
+    const key=srcSel?srcSel.value:'', map=mapOf(), vals=fieldVals(key);
+    const plan=cand.filter(t=>convOf(bucketOf(t))).map(t=>{
+      if(mode==='klasse'){ const cls=resolveClass(t,key,map,vals); return cls?{t,rk:cls.id,sides:_rkCoveredSides(cls)}:null; }
+      return {t,rk:'',sides:gw?[...FB,...GW]:FB};
+    }).filter(Boolean);
+    if(!plan.length){ notify(mode==='klasse'?'Keine Segmente mit Klassen-Zuordnung':'Nichts umzuwandeln'); return; }
+    if(!await _confirmBox('Umwandeln', `${plan.length.toLocaleString('de-DE')} Segmente werden zu Abschnitten. Das erzeugt viele neue Objekte und lässt sich nur manuell rückgängig machen.\n\nFortfahren?`, 'Umwandeln','Abbrechen')) return;
     const btn=m.querySelector('#sm2-run'); btn.disabled=true; btn.style.opacity=.5;
     const col=db.collection('projects').doc(currentProjectId).collection('trees');
     try{
       _suppressTreeRender=true;
-      for(let i=0;i<work.length;i+=80){
+      for(let i=0;i<plan.length;i+=70){
         const b=db.batch();
-        for(const s of work.slice(i,i+80)){
-          const k=(s.segmentart!=null&&cnt[s.segmentart]!=null)?s.segmentart:''; const rr=ruleOf(k); const rk=rkOf(k);
+        for(const {t:s,rk,sides} of plan.slice(i,i+70)){
           const oldT=(s.tourIds&&s.tourIds.length)?s.tourIds:(s.tourId?[s.tourId]:[]);
           b.update(col.doc(s.id),{containerTyp:'strecke',art:'Straßenabschnitt',tourIds:[],tourId:'',reinigungsklasse:rk||'',_migrated:true});
-          sidesFor(rr).forEach(([element,label,art])=>{ const tids=element.startsWith('fahrbahn')?oldT:[]; b.set(col.doc(),{ name:label, element, elementLabel:label, art, geomType:'linie', containerExtId:s.extId, baumId:(s.baumId||('S-'+s.extId))+'-'+element, orgId:s.orgId||currentProjectData?.orgId||'', aktiv:true, tourIds:tids, tourId:tids[0]||'', history:[], _migrated:true, createdAt:firebase.firestore.FieldValue.serverTimestamp() }); });
+          sides.forEach(([element,label,art])=>{ const tids=element.startsWith('fahrbahn')?oldT:[]; b.set(col.doc(),{ name:label, element, elementLabel:label, art, geomType:'linie', containerExtId:s.extId, baumId:(s.baumId||('S-'+s.extId))+'-'+element, orgId:s.orgId||currentProjectData?.orgId||'', aktiv:true, tourIds:tids, tourId:tids[0]||'', history:[], _migrated:true, createdAt:firebase.firestore.FieldValue.serverTimestamp() }); });
         }
-        await b.commit(); info.textContent=`Wandle um… ${Math.min(i+80,work.length).toLocaleString('de-DE')} / ${work.length.toLocaleString('de-DE')}`;
+        await b.commit(); info.textContent=`Wandle um… ${Math.min(i+70,plan.length).toLocaleString('de-DE')} / ${plan.length.toLocaleString('de-DE')}`;
       }
-      info.textContent=`✓ Fertig: ${work.length.toLocaleString('de-DE')} Abschnitte. Bitte Routen neu berechnen.`;
-      notify('✓ Umwandlung fertig — '+work.length+' Abschnitte');
+      info.textContent=`✓ Fertig: ${plan.length.toLocaleString('de-DE')} Abschnitte. Bitte Routen neu berechnen.`;
+      notify('✓ Umwandlung fertig — '+plan.length+' Abschnitte');
       setTimeout(()=>{ close(); renderSegmentnetz(); },900);
     }catch(e){ console.warn('segmentUmwandeln',e); info.textContent='Fehler: '+(e.message||e); notify(dlErr(e)); btn.disabled=false; btn.style.opacity=1; }
     finally{ _suppressTreeRender=false; if(_pendingTreeRender){ _pendingTreeRender=false; refreshMarkers(); try{ renderDrawnGeoms(); }catch(_){} } }
