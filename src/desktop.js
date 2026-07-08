@@ -9879,12 +9879,30 @@ function _siBaseList(){
     .filter(t=>!_siState.typ || _objTypBucket(t)===_siState.typ)
     .filter(t=>!q || matchTerms((t.name||'')+' '+(t.stadtteil||'')+' '+(t.baumId||''), q));
 }
-// Erklär-Tooltips für die Soll-Ist-Spaltenköpfe (Berechnungsgrundlage)
+// Erklär-Popover für die Soll-Ist-Spaltenköpfe (Berechnungsgrundlage)
 const _SI_TIP={
-  'Soll/Wo':'Vorgabe-Häufigkeit pro Woche aus dem Soll-Feld — die „Zahl" des am Objekt gewählten Listenwerts (z. B. wöchentlich = 1). Saisonabhängig: im gewählten Zeitraum überwiegt Sommer oder Winter, entsprechend gilt der Sommer- bzw. Winter-Wert.',
-  'Plan (Touren)':'Tatsächlich eingeplante Häufigkeit pro Woche = Summe der Wochen-Einsätze aller Touren, denen das Objekt zugeordnet ist (Betriebstage der Tour × Faktor des Rhythmus, z. B. „jede 2. Woche" = 0,5). Vergleich mit Soll/Wo ergibt: unter / passt / über.',
-  'Ist / Soll':'Ist = Anzahl der „erledigt"-Meldungen im gewählten Zeitraum. Soll = erwartete Anzahl im selben Zeitraum (Soll/Wo hochgerechnet auf die Wochen, Sommer/Winter-Tage gewichtet). Ampel: unter 85 % = unter, 85–115 % = passt, über 115 % = über.',
+  sollwo:{t:'Soll/Wo',d:'Vorgabe-Häufigkeit pro Woche aus dem Soll-Feld — die „Zahl" des am Objekt gewählten Listenwerts (z. B. wöchentlich = 1). Saisonabhängig: im gewählten Zeitraum überwiegt Sommer oder Winter, entsprechend gilt der Sommer- bzw. Winter-Wert.'},
+  plan:{t:'Plan (Touren)',d:'Tatsächlich eingeplante Häufigkeit pro Woche = Summe der Wochen-Einsätze aller Touren, denen das Objekt zugeordnet ist (Betriebstage der Tour × Faktor des Rhythmus, z. B. „jede 2. Woche" = 0,5). Vergleich mit Soll/Wo ergibt: unter / passt / über.'},
+  ist:{t:'Ist / Soll',d:'Ist = Anzahl der „erledigt"-Meldungen im gewählten Zeitraum. Soll = erwartete Anzahl im selben Zeitraum (Soll/Wo hochgerechnet auf die Wochen, Sommer/Winter-Tage gewichtet). Ampel: unter 85 % = unter, 85–115 % = passt, über 115 % = über.'},
 };
+const _SI_TIP_CODE={'Soll/Wo':'sollwo','Plan (Touren)':'plan','Ist / Soll':'ist'};
+function _siInfo(ev, code){
+  ev.stopPropagation();
+  const ex=document.getElementById('si-info-pop'); const wasCode=ex&&ex.dataset.code; if(ex) ex.remove();
+  if(wasCode===code) return;  // erneuter Klick auf dasselbe ⓘ → schließen
+  const info=_SI_TIP[code]; if(!info) return;
+  const r=ev.currentTarget.getBoundingClientRect();
+  const p=document.createElement('div'); p.id='si-info-pop'; p.dataset.code=code;
+  p.style.cssText='position:fixed;z-index:100003;max-width:300px;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-md);padding:11px 13px;font-size:12px;line-height:1.5;color:var(--text);text-transform:none;font-weight:400;letter-spacing:normal;';
+  p.innerHTML=`<div style="font-weight:700;margin-bottom:4px;">${dlEsc(info.t)}</div><div style="color:var(--text2);">${dlEsc(info.d)}</div>`;
+  document.body.appendChild(p);
+  let left=Math.max(8,Math.min(r.left,window.innerWidth-p.offsetWidth-12));
+  let top=r.bottom+6; if(top+p.offsetHeight>window.innerHeight-8) top=Math.max(8,r.top-p.offsetHeight-6);
+  p.style.left=left+'px'; p.style.top=top+'px';
+  const close=e=>{ if(e&&e.target&&e.target.closest&&e.target.closest('#si-info-pop')) return; const el=document.getElementById('si-info-pop'); if(el) el.remove(); document.removeEventListener('click',close,true); document.removeEventListener('keydown',esc,true); };
+  const esc=e=>{ if(e.key==='Escape') close(); };
+  setTimeout(()=>{ document.addEventListener('click',close,true); document.addEventListener('keydown',esc,true); },0);
+}
 // Kernberechnung: je Objekt Soll (×/Wo + Zeitraum), Plan (Touren) und Ist (Meldungen)
 function _siCompute(){
   const r=kiComputeRange(_siState.period,_siState.from,_siState.to);
@@ -9973,8 +9991,8 @@ function renderSollIstView(){
     tableEl.innerHTML=`<div style="font-size:12px;color:var(--text3);margin:2px 0 6px;">${statusActive?`${sorted.length.toLocaleString('de-DE')} von ${withSoll.length.toLocaleString('de-DE')} (Status-Filter aktiv)`:`${withSoll.length.toLocaleString('de-DE')} Objekte mit Soll`}${kein?` · ${kein.toLocaleString('de-DE')} ohne Soll`:''}${shown.length<sorted.length?` · Anzeige auf ${cap} begrenzt`:''} — Zeitraum ${nS+nW} Tage (${nS} Sommer/${nW} Winter). Klick → Karte.</div>
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead><tr style="background:var(--surface2);">${['Objekt',FL.stadtteil,'Typ','Soll/Wo','Plan (Touren)','Ist / Soll'].map((h,i)=>{
-          const tip=_SI_TIP[h];
-          const ic=tip?` <span title="${dlEsc(tip)}" style="cursor:help;font-weight:400;text-transform:none;opacity:.6;">ⓘ</span>`:'';
+          const code=_SI_TIP_CODE[h];
+          const ic=code?` <span onclick="_siInfo(event,'${code}')" title="Info" style="cursor:pointer;font-weight:400;text-transform:none;opacity:.55;">ⓘ</span>`:'';
           return `<th style="padding:7px 10px;text-align:${i>=3?'right':'left'};font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);white-space:nowrap;">${dlEsc(h)}${ic}</th>`;
         }).join('')}</tr></thead>
         <tbody>${trows||`<tr><td colspan="6" style="padding:16px;color:var(--text3);">Keine Objekte mit Soll im Filter.</td></tr>`}</tbody>
@@ -14707,7 +14725,7 @@ Object.assign(window,{
   rankAdd,rankRename,rankSetColor,rankSetZahl,rankSetZahlWinter,rankMove,rankMerge,rankDelete,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
-  importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleRequiredFeld,
+  importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleRequiredFeld,_siInfo,
   createProject,openProject,showProjectScreen,psSetOrgFilter,setSiTab,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,
