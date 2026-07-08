@@ -261,6 +261,7 @@ const MODULES = [
   {key:'planung',     label:'Planung (Karte)'},
   {key:'disposition', label:'Disposition (automatisiert)'},
   {key:'einsatzplaner', label:'Einsatzplaner'},
+  {key:'nachrichten', label:'Nachrichten'},
   {key:'dashboard',   label:'Dashboard'},
   {key:'controlling', label:'Controlling'},
   {key:'ki',          label:'KI-Analysen'},
@@ -284,12 +285,17 @@ const _mods = (keys)=>Object.fromEntries(_allModKeys.map(k=>[k, keys.includes(k)
 const BUILTIN_ROLES = {
   superadmin: {name:'Superadmin', baseType:'admin', modules:_mods(_allModKeys), builtin:true},
   orgadmin:   {name:'Org-Admin',  baseType:'admin', modules:_mods(_allModKeys.filter(k=>k!=='admin')), builtin:true},
-  planer:     {name:'Planer',     baseType:'editor', modules:_mods(['planung','disposition','einsatzplaner','dashboard','controlling','ki','objekte','touren','import','wms','einsatzleiter']), builtin:true},
+  planer:     {name:'Planer',     baseType:'editor', modules:_mods(['planung','disposition','einsatzplaner','nachrichten','dashboard','controlling','ki','objekte','touren','import','wms','einsatzleiter']), builtin:true},
   erfasser:   {name:'Erfasser',   baseType:'editor', modules:_mods(['erfassung','objekte']), builtin:true},
   fahrer:     {name:'Fahrer',     baseType:'driver', modules:_mods(['mobil']), builtin:true},
 };
 let rolesCache = {};   // roleKey -> {name, baseType, modules, builtin}
-function roleModules(roleKey){ const r=rolesCache[roleKey]||BUILTIN_ROLES[roleKey]; return r?r.modules:{}; }
+function roleModules(roleKey){
+  const r=rolesCache[roleKey]||BUILTIN_ROLES[roleKey]; if(!r) return {};
+  const bi=BUILTIN_ROLES[roleKey];
+  if(bi){ const m={...(r.modules||{})}; _allModKeys.forEach(k=>{ if(m[k]===undefined) m[k]=!!bi.modules[k]; }); return m; } // neue Modul-Keys (z. B. nachrichten) an Vorlagen-Rollen sofort nachziehen
+  return r.modules||{};
+}
 // Modul projektscharf abschaltbar: projects/{id}.modules[key]===false → aus (fehlt/true → an).
 function projectAllowsModule(key){ const m=currentProjectData&&currentProjectData.modules; return !m || m[key]!==false; }
 function canUseModule(key){
