@@ -14430,8 +14430,9 @@ async function segmentUmwandelnOpen(){
   const cnt={Einzeln:0,Parallel:0,Teiler:0,'':0}; cand.forEach(t=>{ const v=t.segmentart; cnt[v!=null&&cnt[v]!=null?v:'']++; });
   const bucketOf=t=>{ const v=t.segmentart; return (v!=null&&cnt[v]!=null)?v:''; };
   const hasRk=reinigungsklassen.length>0;
-  // Quellfelder für „Klasse je Segment": Kundenfelder mit Werteliste (z. B. RK)
-  const srcFields=customFields.filter(c=>(listValues[c.key]||[]).length);
+  // Quellfelder für „Klasse je Segment": Kundenfelder mit Werteliste (z. B. RK) — Segmentart ist die
+  // Geometrie-Achse (Achse A), kein Klassen-Indikator, daher hier ausgeschlossen.
+  const srcFields=customFields.filter(c=>c.key!=='segmentart'&&(listValues[c.key]||[]).length);
   const canClass=hasRk&&srcFields.length>0;
   const defSrc=(srcFields.find(c=>/rk|reinig|klasse/i.test(c.key+' '+c.label))||srcFields[0]||{}).key||'';
   const fieldVals=key=>{ const rl=rankList(key); return rl.length?rl:(listValues[key]||[]); };
