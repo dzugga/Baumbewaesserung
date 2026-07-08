@@ -11672,6 +11672,9 @@ function lassoSetFieldDialog(){
     else if(f.type==='text') vwrap.innerHTML=`<input id="lsf-val" type="text" class="form-control" placeholder="Text (leer = leeren)">`;
     else vwrap.innerHTML=`<select id="lsf-val" class="form-control">${_listOptions(f.key,'')}</select>`;
   };
+  // Kontext: ist die Karte nach einem Feld eingefärbt, dieses Feld vorauswählen (z. B. Segmentart-Korrektur, Betriebshof-Grenzen)
+  const _pre=_colorMode==='segart'?'segmentart':(_colorMode==='betriebshof'?'betriebshof':null);
+  if(_pre && fields.some(f=>f.key===_pre)) fsel.value=_pre;
   renderVal(); fsel.onchange=renderVal;
   m.querySelector('#lsf-cancel').onclick=close;
   m.addEventListener('click',e=>{ if(e.target===m) close(); });
