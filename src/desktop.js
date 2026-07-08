@@ -262,6 +262,7 @@ const MODULES = [
   {key:'disposition', label:'Disposition (automatisiert)'},
   {key:'einsatzplaner', label:'Einsatzplaner'},
   {key:'nachrichten', label:'Nachrichten'},
+  {key:'segmentnetz', label:'Segmentnetz'},
   {key:'dashboard',   label:'Dashboard'},
   {key:'controlling', label:'Controlling'},
   {key:'ki',          label:'KI-Analysen'},
@@ -285,7 +286,7 @@ const _mods = (keys)=>Object.fromEntries(_allModKeys.map(k=>[k, keys.includes(k)
 const BUILTIN_ROLES = {
   superadmin: {name:'Superadmin', baseType:'admin', modules:_mods(_allModKeys), builtin:true},
   orgadmin:   {name:'Org-Admin',  baseType:'admin', modules:_mods(_allModKeys.filter(k=>k!=='admin')), builtin:true},
-  planer:     {name:'Planer',     baseType:'editor', modules:_mods(['planung','disposition','einsatzplaner','nachrichten','dashboard','controlling','ki','objekte','touren','import','wms','einsatzleiter']), builtin:true},
+  planer:     {name:'Planer',     baseType:'editor', modules:_mods(['planung','disposition','einsatzplaner','nachrichten','segmentnetz','dashboard','controlling','ki','objekte','touren','import','wms','einsatzleiter']), builtin:true},
   erfasser:   {name:'Erfasser',   baseType:'editor', modules:_mods(['erfassung','objekte']), builtin:true},
   fahrer:     {name:'Fahrer',     baseType:'driver', modules:_mods(['mobil']), builtin:true},
 };
@@ -5722,6 +5723,7 @@ function switchView(v){
   const einsatzplaner=document.getElementById('view-einsatzplaner'); if(einsatzplaner) einsatzplaner.style.display=v==='einsatzplaner'?'flex':'none';
   if(verwaltung) verwaltung.style.display=v==='verwaltung'?'block':'none';
   const vReinig=document.getElementById('view-reinigungssysteme'); if(vReinig) vReinig.style.display=v==='reinigungssysteme'?'block':'none';
+  const vSeg=document.getElementById('view-segmentnetz'); if(vSeg) vSeg.style.display=v==='segmentnetz'?'block':'none';
   const vNachr=document.getElementById('view-nachrichten'); if(vNachr) vNachr.style.display=v==='nachrichten'?'flex':'none';
   // „Planen“-Button nur im manuellen Planungs-Modus (Karte) zeigen
   const planenBtn=document.getElementById('btn-planen');
@@ -5750,6 +5752,7 @@ function switchView(v){
   if(v==='kiconfig') renderKiConfig();
   if(v==='handbuch') renderHandbuch();
   if(v==='wmskarten') renderWmsList();
+  if(v==='segmentnetz') renderSegmentnetz();
   if(v==='mandanten') renderMandanten();
   if(v==='systeminfo') renderSystemInfo();
   if(v==='disposition') initDispo();
@@ -11757,6 +11760,7 @@ function renderLassoActions(){
     ${btn('move','➡ Nach „'+tn+'“ verschieben','rgba(255,255,255,.18)')}
     ${btn('unplan','⊘ Aus Tour(en) entfernen','rgba(255,255,255,.18)')}
     <button onclick="lassoSetFieldDialog()" style="padding:4px 11px;font-size:12px;font-weight:600;border:none;border-radius:var(--radius-sm);background:rgba(255,255,255,.18);color:#fff;cursor:pointer;white-space:nowrap;" title="Ein Feld (z. B. Betriebshof) für die Auswahl setzen">✎ Feld setzen…</button>
+    <button onclick="lassoAddGehwege()" style="padding:4px 11px;font-size:12px;font-weight:600;border:none;border-radius:var(--radius-sm);background:rgba(255,255,255,.18);color:#fff;cursor:pointer;white-space:nowrap;" title="Gehweg links + rechts für die ausgewählten Straßenabschnitte anlegen">＋ Gehweg-Seiten</button>
     <button onclick="clearLassoSelection()" style="padding:4px 11px;font-size:12px;border:1px solid rgba(255,255,255,.4);background:transparent;color:#fff;border-radius:var(--radius-sm);cursor:pointer;white-space:nowrap;">Auswahl aufheben</button>`;
   bar.classList.add('visible');
 }
@@ -14379,6 +14383,121 @@ async function segartAnalyseOpen(){
 // Räumt zuerst versehentlich eingespielte Container/Seiten weg (nicht _migrated), wandelt dann die
 // flachen Straßen an Ort und Stelle um; bisherige Tour-Zuordnung wandert auf die Fahrbahn-Seiten.
 // Idempotent: migrierte Docs tragen _migrated=true und werden beim Aufräumen verschont.
+// ─── Bereich „Segmentnetz" (Verwaltung): geführter Ablauf Import → Analyse → Umwandlung → Gehwege ──
+function _segLineCandidates(){ // flache Linien-Segmente des offenen Projekts, noch nicht umgewandelt
+  return (trees||[]).filter(t=>!t.containerTyp&&!t.containerExtId&&geomTypeOf(t)==='linie'&&t.geomStr&&t.extId&&!t._migrated);
+}
+function renderSegmentnetz(){
+  const el=document.getElementById('segmentnetz-body'); if(!el) return;
+  if(!currentProjectId){ el.innerHTML='<div style="color:var(--text3);font-size:13px;">Kein Projekt geöffnet.</div>'; return; }
+  const ro=isReadonly()||!canEditObjects();
+  const cand=_segLineCandidates();
+  const nAbschn=(trees||[]).filter(t=>t.containerTyp==='strecke').length;
+  // Segmentart-Verteilung (nur nicht-umgewandelte Linien)
+  const c={Einzeln:0,Parallel:0,Teiler:0,'':0};
+  cand.forEach(t=>{ const v=t.segmentart; c[v!=null&&c[v]!=null?v:'']++; });
+  const anyLines=cand.length>0||nAbschn>0;
+  const step=(n,title,body)=>`<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:12px;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;"><span style="width:24px;height:24px;border-radius:50%;background:var(--green);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">${n}</span><div style="font-size:14px;font-weight:700;">${title}</div></div>
+    <div style="font-size:12px;color:var(--text2);line-height:1.5;">${body}</div></div>`;
+  const btn=(label,call,primary)=>`<button class="btn ${primary?'btn-primary':'btn-secondary'}" style="padding:7px 13px;font-size:12px;margin-top:8px;" ${ro?'disabled':''} onclick="${call}">${label}</button>`;
+  el.innerHTML=`
+    <div style="font-size:17px;font-weight:700;margin-bottom:4px;">Segmentnetz</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:16px;">Straßensegmente (Linien) zu Reinigungs-Abschnitten mit Seiten verarbeiten — in vier Schritten. ${anyLines?`Aktuell: <b>${cand.length.toLocaleString('de-DE')}</b> unbearbeitete Segmente · <b>${nAbschn.toLocaleString('de-DE')}</b> Abschnitte.`:'Dieses Projekt hat noch keine Linien-Segmente — zuerst ein Segmentnetz importieren.'}</div>
+    ${step(0,'Segmentnetz importieren','Ein Shapefile-ZIP mit dem Straßennetz einlesen (Linien werden Strecken-Objekte). '+btn('Zum Import','openImport()'))}
+    ${step(1,'Segmentart bestimmen','Erkennt je Segment, ob parallele Nachbarlinien verlaufen: <b>Einzeln</b> / <b>Parallel</b> / <b>Teiler</b> (Mittellinie, z. B. Fahrbahnteiler). Nur ein Vorschlag — per Lasso „Feld setzen" korrigierbar.<br><span style="color:var(--text3);">Verteilung: Einzeln '+c.Einzeln+' · Parallel '+c.Parallel+' · Teiler '+c.Teiler+(c['']?` · ohne ${c['']}`:'')+`</span>`+btn('Analyse öffnen','segartAnalyseOpen()',true)+' '+btn('Auf Karte prüfen (einfärben)',"setColorMode('segart');switchView('karte')"))}
+    ${step(2,'Zu Abschnitten umwandeln','Erzeugt je Segment einen Straßenabschnitt mit Seiten — <b>regelbasiert je Segmentart</b> (Einzeln/Parallel → Fahrbahn links + rechts, Teiler → nicht umwandeln). Gehwege optional. Mit Vorschau.'+btn('Umwandlung öffnen','segmentUmwandelnOpen()',true))}
+    ${step(3,'Gehweg-Seiten ergänzen (optional)','Nur wo tatsächlich Gehwege gereinigt werden: auf der Karte per Lasso die Abschnitte auswählen und „＋ Gehweg-Seiten" wählen — so entstehen keine flächendeckenden Leer-Seiten.'+btn('Auf der Karte auswählen',"switchView('karte');setTimeout(startAssignMode,150)"))}
+    ${ro?'<div style="font-size:12px;color:#92400e;background:#fef3c7;border-radius:8px;padding:8px 12px;">Nur Planer/Admins können das Segmentnetz verarbeiten.</div>':''}`;
+}
+// Schritt 2: regelbasierte Umwandlung flacher Segmente → Abschnitt + Seiten (projektbezogen)
+async function segmentUmwandelnOpen(){
+  if(isReadonly()||!canEditObjects()) return notify('Nur Planer/Admins');
+  if(!currentProjectId) return notify('Kein Projekt geöffnet');
+  const cand=_segLineCandidates();
+  if(!cand.length) return notify('Keine unbearbeiteten Linien-Segmente vorhanden');
+  const RULE_LABEL={fbLR:'Fahrbahn links + rechts',none:'nur Abschnitt (keine Seiten)',skip:'nicht umwandeln'};
+  const buckets=[['Einzeln','Einzeln'],['Parallel','Parallel'],['Teiler','Teiler'],['','ohne Einstufung']];
+  const def={Einzeln:'fbLR',Parallel:'fbLR',Teiler:'skip','':'fbLR'};
+  const cnt={Einzeln:0,Parallel:0,Teiler:0,'':0}; cand.forEach(t=>{ const v=t.segmentart; cnt[v!=null&&cnt[v]!=null?v:'']++; });
+  const m=document.createElement('div');
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100001;display:flex;align-items:center;justify-content:center;padding:20px;';
+  m.innerHTML=`<div style="background:var(--surface);border-radius:10px;width:520px;max-width:94vw;overflow:hidden;">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;">Zu Abschnitten umwandeln</div>
+    <div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px;font-size:13px;">
+      <div style="font-size:12px;color:var(--text3);">Je Segmentart eine Regel. „Fahrbahn links + rechts" legt einen Abschnitt mit zwei Fahrbahn-Seiten an; „nicht umwandeln" lässt das Segment als einfache Linie.</div>
+      ${buckets.filter(([k])=>cnt[k]>0).map(([k,l])=>`<label style="display:flex;align-items:center;gap:10px;">
+        <span style="width:130px;">${l} <span style="color:var(--text3);">(${cnt[k].toLocaleString('de-DE')})</span></span>
+        <select class="form-control" data-bucket="${k}" style="flex:1;padding:5px 8px;font-size:13px;">${Object.entries(RULE_LABEL).map(([rv,rl])=>`<option value="${rv}"${def[k]===rv?' selected':''}>${rl}</option>`).join('')}</select>
+      </label>`).join('')}
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-top:2px;"><input type="checkbox" id="sm-gehweg"> Zusätzlich Gehweg-Seiten (links + rechts) anlegen</label>
+      <div id="sm2-info" style="font-size:12px;color:var(--text2);white-space:pre-line;min-height:18px;"></div>
+    </div>
+    <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
+      <button id="sm2-cancel" class="btn btn-secondary" style="padding:7px 12px;">Abbrechen</button>
+      <button id="sm2-run" class="btn btn-primary" style="padding:7px 14px;">Umwandeln</button>
+    </div></div>`;
+  document.body.appendChild(m);
+  const close=()=>m.remove(); m.querySelector('#sm2-cancel').onclick=close; m.addEventListener('click',e=>{ if(e.target===m) close(); });
+  const info=m.querySelector('#sm2-info');
+  const rules=()=>{ const r={}; m.querySelectorAll('select[data-bucket]').forEach(s=>r[s.dataset.bucket]=s.value); return r; };
+  const preview=()=>{ const r=rules(); const gw=m.querySelector('#sm-gehweg').checked; let abschn=0,seiten=0,skip=0;
+    buckets.forEach(([k])=>{ const n=cnt[k]||0; if(!n) return; const rr=r[k]||def[k]; if(rr==='skip'){ skip+=n; return; } abschn+=n; if(rr==='fbLR') seiten+=n*(gw?4:2); });
+    info.textContent=`Ergibt: ${abschn.toLocaleString('de-DE')} Abschnitte · ${seiten.toLocaleString('de-DE')} Seiten · ${skip.toLocaleString('de-DE')} nicht umgewandelt`; };
+  m.querySelectorAll('select[data-bucket]').forEach(s=>s.onchange=preview); m.querySelector('#sm-gehweg').onchange=preview; preview();
+  m.querySelector('#sm2-run').onclick=async()=>{
+    const r=rules(); const gw=m.querySelector('#sm-gehweg').checked;
+    const work=cand.filter(t=>{ const k=(t.segmentart!=null&&cnt[t.segmentart]!=null)?t.segmentart:''; return (r[k]||def[k])!=='skip'; });
+    if(!work.length){ notify('Nichts umzuwandeln'); return; }
+    if(!await _confirmBox('Umwandeln', `${work.length.toLocaleString('de-DE')} Segmente werden zu Abschnitten. Das erzeugt viele neue Objekte und lässt sich nur manuell rückgängig machen.\n\nFortfahren?`, 'Umwandeln','Abbrechen')) return;
+    const btn=m.querySelector('#sm2-run'); btn.disabled=true; btn.style.opacity=.5;
+    const col=db.collection('projects').doc(currentProjectId).collection('trees');
+    const SIDES={fbLR:[['fahrbahn_l','Fahrbahn links','Fahrbahn'],['fahrbahn_r','Fahrbahn rechts','Fahrbahn']]};
+    const GW=[['gehweg_l','Gehweg links','Gehweg'],['gehweg_r','Gehweg rechts','Gehweg']];
+    try{
+      _suppressTreeRender=true;
+      for(let i=0;i<work.length;i+=80){
+        const b=db.batch();
+        for(const s of work.slice(i,i+80)){
+          const k=(s.segmentart!=null&&cnt[s.segmentart]!=null)?s.segmentart:''; const rr=r[k]||def[k];
+          const oldT=(s.tourIds&&s.tourIds.length)?s.tourIds:(s.tourId?[s.tourId]:[]);
+          b.update(col.doc(s.id),{containerTyp:'strecke',art:'Straßenabschnitt',tourIds:[],tourId:'',_migrated:true});
+          let sides=[]; if(rr==='fbLR'){ sides=[...SIDES.fbLR]; if(gw) sides=[...sides,...GW]; }
+          sides.forEach(([element,label,art],idx)=>{ const tids=(element.startsWith('fahrbahn'))?oldT:[]; b.set(col.doc(),{ name:label, element, elementLabel:label, art, geomType:'linie', containerExtId:s.extId, baumId:(s.baumId||('S-'+s.extId))+'-'+element, orgId:s.orgId||currentProjectData?.orgId||'', aktiv:true, tourIds:tids, tourId:tids[0]||'', history:[], _migrated:true, createdAt:firebase.firestore.FieldValue.serverTimestamp() }); });
+        }
+        await b.commit(); info.textContent=`Wandle um… ${Math.min(i+80,work.length).toLocaleString('de-DE')} / ${work.length.toLocaleString('de-DE')}`;
+      }
+      info.textContent=`✓ Fertig: ${work.length.toLocaleString('de-DE')} Abschnitte. Bitte Routen neu berechnen.`;
+      notify('✓ Umwandlung fertig — '+work.length+' Abschnitte');
+      setTimeout(()=>{ close(); renderSegmentnetz(); },900);
+    }catch(e){ console.warn('segmentUmwandeln',e); info.textContent='Fehler: '+(e.message||e); notify(dlErr(e)); btn.disabled=false; btn.style.opacity=1; }
+    finally{ _suppressTreeRender=false; if(_pendingTreeRender){ _pendingTreeRender=false; refreshMarkers(); try{ renderDrawnGeoms(); }catch(_){} } }
+  };
+}
+// Schritt 3: Gehweg-Seiten für die ausgewählten Abschnitte ergänzen (Lasso)
+async function lassoAddGehwege(){
+  if(isReadonly()||!canEditObjects()) return notify('Nur Planer/Admins');
+  const sel=[...lassoSelection].map(id=>trees.find(t=>t.id===id)).filter(Boolean);
+  const extIds=new Set(); sel.forEach(t=>{ if(t.containerTyp&&t.extId) extIds.add(t.extId); else if(t.containerExtId) extIds.add(t.containerExtId); });
+  if(!extIds.size) return notify('Keine Straßenabschnitte in der Auswahl');
+  const col=db.collection('projects').doc(currentProjectId).collection('trees');
+  let created=0;
+  setSyncState('syncing','Ergänze Gehwege…');
+  try{
+    for(const ext of extIds){
+      const cont=trees.find(t=>t.extId===ext&&t.containerTyp); if(!cont) continue;
+      const have=new Set(_ausstattungOf(ext).map(s=>s.element));
+      const toAdd=[['gehweg_l','Gehweg links'],['gehweg_r','Gehweg rechts']].filter(([e])=>!have.has(e));
+      if(!toAdd.length) continue;
+      const b=db.batch();
+      toAdd.forEach(([element,label])=>{ b.set(col.doc(),{ name:label, element, elementLabel:label, art:'Gehweg', geomType:'linie', containerExtId:ext, baumId:(cont.baumId||('S-'+ext))+'-'+element, orgId:cont.orgId||currentProjectData?.orgId||'', aktiv:true, tourIds:[], tourId:'', history:[], _migrated:true, createdAt:firebase.firestore.FieldValue.serverTimestamp() }); created++; });
+      await b.commit();
+    }
+    notify(`✓ ${created} Gehweg-Seite(n) ergänzt`);
+  }catch(e){ console.warn('lassoAddGehwege',e); notify(dlErr(e)); }
+  setSyncState('ok','Synchronisiert');
+  clearLassoSelection();
+}
 async function strMigOpen(){
   if(currentRole!=='superadmin'){ notify('Nur Superadmin'); return; }
   let projs=[];
@@ -14743,7 +14862,7 @@ Object.assign(window,{
   openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,openBetriebshoefe,
   pickProjIcon,artSetIcon,artSetTime,artSetRate,setArtDefaultTime,artApplyTimeToAll,artSetKlasse,
   renderReinigungssysteme,rsAdd,rsUpdate,rsDelete,
-  renderMandanten,createOrgUi,moveProjectUi,setOrgNaviUi,checkBaumIdDuplicates,flaechenImportOpen,flaechenImportRun,geomDocsImportOpen,geomDocsImportRun,strMigOpen,segartAnalyseOpen,flaechenTourGenOpen,flaechenTourGenRun,
+  renderMandanten,createOrgUi,moveProjectUi,setOrgNaviUi,checkBaumIdDuplicates,flaechenImportOpen,flaechenImportRun,geomDocsImportOpen,geomDocsImportRun,strMigOpen,segartAnalyseOpen,renderSegmentnetz,segmentUmwandelnOpen,lassoAddGehwege,flaechenTourGenOpen,flaechenTourGenRun,
   addWmsLayer,deleteWmsLayer,editWmsLayer,cancelWmsEdit,renderWmsList,
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,setListMode,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,openObjFilterConfig,setObjFilterField,toggleTourCounts,toggleRouteNums,toggleVersatz,toggleTypeFilter,setTypeVisible,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
