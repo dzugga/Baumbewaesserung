@@ -877,6 +877,7 @@ function populateErfForm(t) {
   const sel = _erfFieldSel(t);
   if (wrap) wrap.innerHTML = _customE().filter(c => sel.includes(c.key)).map(c=>`<div class="field-group"><label class="field-label">${esc(c.label)}</label><select class="field-input" id="f-${c.key}">${_listOptsE(c.key, t ? t[c.key] : '')}</select></div>`).join('');
   applyErfFieldVisibility(t);
+  _erfMarkRequired();
 }
 
 // ─── MODUS 1: NEUER BAUM ─────────────────────────────────────
@@ -932,6 +933,24 @@ function collectFormEdits() {
   _customE().forEach(c=>{ const el=document.getElementById('f-'+c.key); if(el) o[c.key]=el.value; });
   return o;
 }
+// Pflichtfelder (Projekt-Konfiguration „Felder & Listen") — nur sichtbare Felder werden erzwungen
+function _erfReqLabel(key){ const c=(currentProjectData?.customFields||[]).find(x=>x.key===key); if(c) return c.label||key; const L=currentProjectData?.fieldLabels||{}; const def={stadtteil:'Stadtteil',baumnr:'Objektnummer',art:'Typ / Art',pflanzjahr:'Jahr',pflanzzeitpunkt:'Zeitpunkt',zustand:'Zustand',wasser:'Priorität',notiz:'Notiz'}; return L[key]||def[key]||key; }
+function _erfMissingRequired(){
+  const req=Array.isArray(currentProjectData?.requiredFields)?currentProjectData.requiredFields:[];
+  const miss=[];
+  for(const key of req){ const el=document.getElementById('f-'+key); if(!el) continue; const grp=el.closest('.field-group'); if(grp&&grp.style.display==='none') continue; if(String(el.value==null?'':el.value).trim()==='') miss.push(_erfReqLabel(key)); }
+  return miss;
+}
+function _erfMarkRequired(){
+  const req=new Set(Array.isArray(currentProjectData?.requiredFields)?currentProjectData.requiredFields:[]);
+  document.querySelectorAll('#form-sheet .field-group').forEach(g=>{
+    const inp=g.querySelector('input,select,textarea'); const lab=g.querySelector('.field-label'); if(!inp||!lab) return;
+    const id=inp.id||''; if(!id.startsWith('f-')) return;
+    const need=req.has(id.slice(2)); const star=lab.querySelector('.req-star');
+    if(need&&!star) lab.insertAdjacentHTML('beforeend','<span class="req-star" style="color:#dc2626;"> *</span>');
+    else if(!need&&star) star.remove();
+  });
+}
 
 // Eigenschaften des gewählten Baums bearbeiten (Koordinaten-Reiter) –
 // nutzt dieselbe Maske wie „Neues Objekt“.
@@ -954,6 +973,7 @@ async function saveKoordEdits() {
   if (!selectedTree) { closeFormSheet(); return; }
   const edits = collectFormEdits();
   if (!edits.name) { toast('⚠ Bitte einen Namen eingeben'); return; }
+  { const m=_erfMissingRequired(); if(m.length){ toast('⚠ Pflichtfelder fehlen: '+m.join(', ')); return; } }
   const tree = selectedTree;
   const orgId = tree.orgId || currentProjectData?.orgId || currentOrg;
   const photoBlobs = pendingPhotos.map(p => p.blob);
@@ -1001,6 +1021,7 @@ async function saveOverviewEdits() {
   if (!tree) { closeFormSheet(); return; }
   const edits = collectFormEdits();
   if (!edits.name) { toast('⚠ Bitte einen Namen eingeben'); return; }
+  { const m=_erfMissingRequired(); if(m.length){ toast('⚠ Pflichtfelder fehlen: '+m.join(', ')); return; } }
   if (!tree.id) { toast('⚠ Objekt noch nicht synchronisiert — bitte später bearbeiten'); return; }
   const orgId = tree.orgId || currentProjectData?.orgId || currentOrg;
   const photoBlobs = pendingPhotos.map(p => p.blob);
@@ -1037,6 +1058,7 @@ async function saveOverviewEdits() {
 async function saveNewTree() {
   const name = document.getElementById('f-name').value.trim();
   if (!name) { toast('⚠ Bitte einen Namen eingeben'); return; }
+  { const m=_erfMissingRequired(); if(m.length){ toast('⚠ Pflichtfelder fehlen: '+m.join(', ')); return; } }
   if (!pendingCoords) { toast('⚠ Keine Koordinaten'); return; }
 
   const btn = document.getElementById('btn-form-save');

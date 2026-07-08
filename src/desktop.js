@@ -4265,7 +4265,7 @@ function openAddTree(lat,lng){
   else info.style.display='none';
   fillTourSelect(activeTourOnMap||'');
   const danger=document.getElementById('tree-danger'); if(danger) danger.style.display='none';
-  document.getElementById('tree-modal').classList.add('open'); _initTreeModalDrag(); _resetTreeModalPos();
+  document.getElementById('tree-modal').classList.add('open'); _initTreeModalDrag(); _resetTreeModalPos(); _markRequiredLabels();
 }
 
 // Typ/Art-Dropdown aus der projekteigenen Arten-Liste füllen (keine Freitexteingabe)
@@ -4385,7 +4385,7 @@ async function openEditTree(id){
   } else {
     if(archBtn){ archBtn.textContent='Inaktiv setzen'; archBtn.onclick=archiveTreeFromModal; }
   }
-  document.getElementById('tree-modal').classList.add('open'); _initTreeModalDrag(); _resetTreeModalPos();
+  document.getElementById('tree-modal').classList.add('open'); _initTreeModalDrag(); _resetTreeModalPos(); _markRequiredLabels();
 }
 function closeTreeModal(){ document.getElementById('tree-modal').classList.remove('open');editingTreeId=null;
   const danger=document.getElementById('tree-danger'); if(danger) danger.style.display='none'; }
@@ -4403,6 +4403,8 @@ function _initTreeModalDrag(){
 async function saveTree(){
   const name=document.getElementById('f-name').value.trim();
   if(!name){alert('Bitte einen Namen eingeben.');return;}
+  const _miss=_missingRequiredInForm();
+  if(_miss.length){ alert('Bitte diese Pflichtfelder ausfüllen:\n\n• '+_miss.join('\n• ')); return; }
   setSyncState('syncing','Speichert…');
   const artVal=(document.getElementById('f-art').value||'').trim();
   const artIdVal=artenList.find(a=>a.name===artVal)?.id||null;
@@ -7077,6 +7079,38 @@ function _fieldTile(key,label,opts={}){
     ${locked?'':`<div style="font-size:11px;color:var(--green);margin-top:6px;font-weight:600;">Öffnen →</div>`}
   </div>`;
 }
+// Pflichtfelder (Feld-Schlüssel) je Projekt; „name" ist immer Pflicht und NICHT in der Liste
+function _requiredFields(){ return Array.isArray(currentProjectData?.requiredFields)?currentProjectData.requiredFields:[]; }
+function _reqFieldLabel(key){ const c=customFields.find(x=>x.key===key); if(c) return c.label||key; return FL[key]||key; }
+async function toggleRequiredFeld(key,checked){
+  if(isReadonly()||!currentProjectId) return;
+  let arr=_requiredFields().slice();
+  if(checked){ if(!arr.includes(key)) arr.push(key); } else { arr=arr.filter(k=>k!==key); }
+  if(currentProjectData) currentProjectData.requiredFields=arr;
+  try{ await updateDoc(doc(db,'projects',currentProjectId),{requiredFields:arr}); notify('✓ Pflichtfelder gespeichert'); }
+  catch(e){ console.warn('requiredFields speichern',e); notify(dlErr(e)); }
+}
+// Fehlende Pflichtfelder im Objekt-Formular (nur sichtbare Felder werden erzwungen) → Labels der Lücken
+function _missingRequiredInForm(){
+  const miss=[];
+  for(const key of _requiredFields()){
+    const el=document.getElementById('f-'+key); if(!el) continue;             // für diesen Objekttyp ausgeblendet → nicht erzwingen
+    const row=el.closest('.form-group'); if(row && row.style.display==='none') continue;
+    if(String(el.value==null?'':el.value).trim()==='') miss.push(_reqFieldLabel(key));
+  }
+  return miss;
+}
+// Pflicht-Sterne (*) an die Labels der aktuell erforderlichen, sichtbaren Felder setzen
+function _markRequiredLabels(){
+  const req=new Set(_requiredFields());
+  document.querySelectorAll('#tree-modal .form-group').forEach(g=>{
+    const inp=g.querySelector('input,select,textarea'); const lab=g.querySelector('.form-label'); if(!inp||!lab) return;
+    const id=inp.id||''; if(!id.startsWith('f-')) return;
+    const need=req.has(id.slice(2)); const star=lab.querySelector('.req-star');
+    if(need&&!star) lab.insertAdjacentHTML('beforeend','<span class="req-star" style="color:#dc2626;"> *</span>');
+    else if(!need&&star) star.remove();
+  });
+}
 function renderFieldOverview(el){
   const ro=isReadonly();
   let tiles='';
@@ -7102,6 +7136,16 @@ function renderFieldOverview(el){
     <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">Welche Stammdaten die Fahrer-App (Detail-Ansicht) und die Erfassungs-App (Bearbeiten-Maske) zeigen. Koordinaten und Routen-Nr. sind in der Fahrer-App immer dabei; Anlage/Straße, Zustand, Priorität/Bedarf und Notiz werden ohnehin direkt erfasst.</div>
     <div style="display:flex;flex-wrap:wrap;gap:9px 18px;">
       ${mobilCand.map(([k,l])=>`<label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" ${mobilSel.includes(k)?'checked':''} onchange="toggleMobilFeld('${k}',this.checked)" style="margin:0;cursor:pointer;">${dlEsc(l)}</label>`).join('')}
+    </div>`;
+  // Pflichtfelder bei Neuanlage/Bearbeiten (Karte + Erfassungs-App; Import ausgenommen)
+  const pflichtCand=[['stadtteil',FL.stadtteil||'Stadtteil'],['baumnr',FL.baumnr||'Objektnummer'],['art',FL.art||'Typ / Art'],['pflanzjahr',FL.pflanzjahr||'Jahr'],['pflanzzeitpunkt',FL.pflanzzeitpunkt||'Zeitpunkt'],['zustand',FL.zustand||'Zustand'],['wasser',FL.wasser||'Priorität'],['notiz',FL.notiz||'Notiz'],...customFields.map(c=>[c.key,c.label])];
+  const reqSel=_requiredFields();
+  const pflichtSection = ro ? '' : `
+    <div style="font-size:13px;font-weight:700;margin:26px 0 4px;">Pflichtfelder bei Neuanlage</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">Diese Felder müssen beim Anlegen und Bearbeiten eines Objekts ausgefüllt sein (Karte und Erfassungs-App). „${dlEsc(FL.name||'Anlage / Straße')}" ist immer Pflicht. Der Massen-Import ist ausgenommen. Felder, die für einen Objekttyp ausgeblendet sind, werden nicht erzwungen.</div>
+    <div style="display:flex;flex-wrap:wrap;gap:9px 18px;">
+      <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--text3);"><input type="checkbox" checked disabled style="margin:0;">${dlEsc(FL.name||'Anlage / Straße')} (immer)</label>
+      ${pflichtCand.map(([k,l])=>`<label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="checkbox" ${reqSel.includes(k)?'checked':''} onchange="toggleRequiredFeld('${k}',this.checked)" style="margin:0;cursor:pointer;">${dlEsc(l)}</label>`).join('')}
     </div>`;
   // Objektklassen (Stage 1: nur Definition — Zuordnung & Scoping folgen)
   const klassenSection = ro ? '' : `
@@ -7155,6 +7199,7 @@ function renderFieldOverview(el){
     ${klassenSection}
     ${rkSection}
     ${mobilSection}
+    ${pflichtSection}
     ${labelGrid}
   </div>`;
 }
@@ -14652,7 +14697,7 @@ Object.assign(window,{
   rankAdd,rankRename,rankSetColor,rankSetZahl,rankSetZahlWinter,rankMove,rankMerge,rankDelete,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
-  importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,
+  importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleRequiredFeld,
   createProject,openProject,showProjectScreen,psSetOrgFilter,setSiTab,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,
