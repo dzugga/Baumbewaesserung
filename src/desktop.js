@@ -9879,6 +9879,12 @@ function _siBaseList(){
     .filter(t=>!_siState.typ || _objTypBucket(t)===_siState.typ)
     .filter(t=>!q || matchTerms((t.name||'')+' '+(t.stadtteil||'')+' '+(t.baumId||''), q));
 }
+// Erklär-Tooltips für die Soll-Ist-Spaltenköpfe (Berechnungsgrundlage)
+const _SI_TIP={
+  'Soll/Wo':'Vorgabe-Häufigkeit pro Woche aus dem Soll-Feld — die „Zahl" des am Objekt gewählten Listenwerts (z. B. wöchentlich = 1). Saisonabhängig: im gewählten Zeitraum überwiegt Sommer oder Winter, entsprechend gilt der Sommer- bzw. Winter-Wert.',
+  'Plan (Touren)':'Tatsächlich eingeplante Häufigkeit pro Woche = Summe der Wochen-Einsätze aller Touren, denen das Objekt zugeordnet ist (Betriebstage der Tour × Faktor des Rhythmus, z. B. „jede 2. Woche" = 0,5). Vergleich mit Soll/Wo ergibt: unter / passt / über.',
+  'Ist / Soll':'Ist = Anzahl der „erledigt"-Meldungen im gewählten Zeitraum. Soll = erwartete Anzahl im selben Zeitraum (Soll/Wo hochgerechnet auf die Wochen, Sommer/Winter-Tage gewichtet). Ampel: unter 85 % = unter, 85–115 % = passt, über 115 % = über.',
+};
 // Kernberechnung: je Objekt Soll (×/Wo + Zeitraum), Plan (Touren) und Ist (Meldungen)
 function _siCompute(){
   const r=kiComputeRange(_siState.period,_siState.from,_siState.to);
@@ -9966,7 +9972,11 @@ function renderSollIstView(){
   } else if(tableEl){
     tableEl.innerHTML=`<div style="font-size:12px;color:var(--text3);margin:2px 0 6px;">${statusActive?`${sorted.length.toLocaleString('de-DE')} von ${withSoll.length.toLocaleString('de-DE')} (Status-Filter aktiv)`:`${withSoll.length.toLocaleString('de-DE')} Objekte mit Soll`}${kein?` · ${kein.toLocaleString('de-DE')} ohne Soll`:''}${shown.length<sorted.length?` · Anzeige auf ${cap} begrenzt`:''} — Zeitraum ${nS+nW} Tage (${nS} Sommer/${nW} Winter). Klick → Karte.</div>
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
-        <thead><tr style="background:var(--surface2);">${['Objekt',FL.stadtteil,'Typ','Soll/Wo','Plan (Touren)','Ist / Soll'].map((h,i)=>`<th style="padding:7px 10px;text-align:${i>=3?'right':'left'};font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);white-space:nowrap;">${dlEsc(h)}</th>`).join('')}</tr></thead>
+        <thead><tr style="background:var(--surface2);">${['Objekt',FL.stadtteil,'Typ','Soll/Wo','Plan (Touren)','Ist / Soll'].map((h,i)=>{
+          const tip=_SI_TIP[h];
+          const ic=tip?` <span title="${dlEsc(tip)}" style="cursor:help;font-weight:400;text-transform:none;opacity:.6;">ⓘ</span>`:'';
+          return `<th style="padding:7px 10px;text-align:${i>=3?'right':'left'};font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);white-space:nowrap;">${dlEsc(h)}${ic}</th>`;
+        }).join('')}</tr></thead>
         <tbody>${trows||`<tr><td colspan="6" style="padding:16px;color:var(--text3);">Keine Objekte mit Soll im Filter.</td></tr>`}</tbody>
       </table>`;
     tableEl.onclick=e=>{ const tr=e.target.closest('[data-treeid]'); if(tr){ selectTree(tr.dataset.treeid); switchView('karte'); } };
