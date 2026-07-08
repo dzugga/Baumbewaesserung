@@ -11166,8 +11166,8 @@ function renderDetailTable(reported,skipCache){
   const count=document.getElementById('ctrl-table-count');
   if(!head||!body)return;
 
-  const cols=['#','Projekt','Anlage/Straße','Baumnr.','Stadtteil','Tour','Status','Grund','Fahrer','Datum',''];
-  head.innerHTML=cols.map(h=>`<th style="padding:8px 12px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);white-space:nowrap;">${h}</th>`).join('');
+  const cols=['#','Projekt',FL.name,FL.baumnr,FL.stadtteil,'Tour','Status','Grund','Fahrer','Datum',''];
+  head.innerHTML=cols.map(h=>`<th style="padding:8px 12px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);white-space:nowrap;">${dlEsc(h)}</th>`).join('');
   if(count) count.textContent=`${reported.length} Meldungen`;
 
   if(reported.length===0){
@@ -11363,7 +11363,7 @@ async function showHistoryDetail(histId){
     <div style="overflow:auto;flex:1;">
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead style="background:var(--surface2);position:sticky;top:0;">
-          <tr>${['Anlage/Straße','Baumnr.','Status','Grund','Fahrer'].map(h=>`<th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text2);">${h}</th>`).join('')}</tr>
+          <tr>${[FL.name,FL.baumnr,'Status','Grund','Fahrer'].map(h=>`<th style="padding:8px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text2);">${dlEsc(h)}</th>`).join('')}</tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>
