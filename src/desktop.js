@@ -882,12 +882,17 @@ function bewMinutes(arg){
   if(Array.isArray(arg)) return arg.reduce((s,t)=>s+artBewMin(t),0);
   return (arg||0)*getBewDuration();
 }
-// Bearbeitungsminuten einer Tour. Bei System-Grundlage sind die Linien-Abschnitte bereits über die
-// Reinigungsgeschwindigkeit (Strecke ÷ km/h) erfasst → nicht zusätzlich per Aufwandssatz zählen
-// (keine Doppelzählung); Punkt-/Flächenobjekte zählen weiter mit.
+// Tätigkeitsminuten einer Tour. Bei System-Grundlage IST die Reinigung die Tätigkeit: Linien-Strecke ÷
+// Geschwindigkeit (statt Fahrt) + Aufwandssatz der Punkt-/Flächenobjekte. Der Aufwandssatz der Linien
+// zählt hier NICHT zusätzlich (Strecke steckt schon in der Reinigungszeit → keine Doppelzählung).
+// Ohne System (Route-Grundlage): Aufwandssatz aller Objekte.
 function tourBewMin(tid, treeList){
   const list=treeList||[];
-  if(_tourEffSource(tid)==='system') return bewMinutes(list.filter(t=>geomTypeOf(t)!=='linie'));
+  if(_tourEffSource(tid)==='system'){
+    const sp=_tourSpeedKmh(tid), wm=_tourWorkMeters(tid);
+    const reinMin = sp>0 ? (wm*3.6/sp)/60 : 0; // Reinigungszeit der Linien (Sekunden→Minuten)
+    return reinMin + bewMinutes(list.filter(t=>geomTypeOf(t)!=='linie'));
+  }
   return bewMinutes(list);
 }
 function fmtBewTime(arg){
@@ -1706,8 +1711,10 @@ function tourMetrics(tid){
   else if(t && typeof t.routeKm==='number'){ routeKm=t.routeKm; routeDur=t.routeDriveSec||0; }
   const src=_tourEffSource(tid);
   if(src==='system'){
-    const wm=_tourWorkMeters(tid), sp=_tourSpeedKmh(tid), reinKm=wm/1000;
-    return {km:reinKm, durationSec:wm*3.6/sp, routeKm, reinKm, routeReinKm, routeLeerKm, source:'system', estimated:(routeKm==null)};
+    const reinKm=_tourWorkMeters(tid)/1000;
+    // System-Grundlage: Reinigungszeit zählt als TÄTIGKEIT (siehe tourBewMin), NICHT als Fahrt.
+    // Ohne Route → keine Fahrzeit (durationSec 0) und keine Route-/Anfahrt-Kilometer.
+    return {km:reinKm, durationSec:0, routeKm:null, reinKm, routeReinKm:null, routeLeerKm:null, source:'system', estimated:false};
   }
   if(src==='route') return {km:routeKm, durationSec:routeDur, routeKm, reinKm:null, routeReinKm, routeLeerKm, source:'route', estimated:false};
   return null;
@@ -3286,10 +3293,10 @@ function renderLegend(){
             <div style="width:${100-dw}%;background:var(--green-mid);"></div>
           </div>
           <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);">
-            <span>${_tm.source==='system'?'Reinigung':'Fahrt'} ${fmtDuration(_tm.durationSec)}</span><span>Tätigkeit ${fmtMin(Math.round(tourBewMin(t.id,members)))}</span>
+            ${_tm.source==='system'?`<span style="color:var(--text3);">ohne Route</span>`:`<span>Fahrt ${fmtDuration(_tm.durationSec)}</span>`}<span>Tätigkeit ${fmtMin(bewMin)}</span>
           </div>
           <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:1px;">
-            <span>${_tm.km.toFixed(1)} km${_tm.estimated?' <span title="Zeit aus dem Reinigungssystem geschätzt — ohne Route">≈</span>':''}</span><span>${cnt} Objekte</span>
+            <span>${_tm.km.toFixed(1)} km${_tm.source==='system'?' Reinigung':''}</span><span>${cnt} Objekte</span>
           </div>${(()=>{const z=tourZusatzMin(t);const rz=tourRestzeit(t,members,_tm.durationSec);let out='';
           if(z>0) out+=`<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:1px;"><span>Zusatztätigkeiten</span><span>${fmtMin(z)}</span></div>`;
           if(rz) out+=`<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:1px;border-top:1px solid var(--border);padding-top:2px;"><span>Arbeitszeit ${fmtMin(rz.azMin)}</span><span style="font-weight:700;color:${rz.restMin<0?'var(--red)':'var(--green-strong,#15803d)'};" title="Arbeitszeit − Fahrt − Tätigkeit − Zusatz">Restzeit ${fmtMin(rz.restMin)}</span></div>`;
@@ -7683,8 +7690,8 @@ function renderTourenGrid(){
     const _m=tourMetrics(tour.id);
     const kmVal   = _m ? _m.km          : null;
     const driveVal= _m ? _m.durationSec : null;
-    const km=kmVal!=null?kmVal.toFixed(1)+' km'+(_m&&_m.estimated?' ≈':''):'–';
-    const driveZeit=(driveVal!=null)?fmtDuration(driveVal):'–';
+    const km=kmVal!=null?kmVal.toFixed(1)+' km':'–';
+    const driveZeit=(driveVal!=null&&driveVal>0)?fmtDuration(driveVal):'–'; // System: keine Fahrt (Zeit steckt in der Tätigkeit)
     const _bewMin=_m?Math.round(tourBewMin(tour.id,treesInTour)):0;
     const bewZeit=_m?fmtMin(_bewMin):'–';
     const _zusMin=tourZusatzMin(tour);
@@ -8019,7 +8026,7 @@ async function printTourMap(){
   const km=(routeData&&typeof routeData.km==='number')?routeData.km:(tourRoutes[tourId]&&tourRoutes[tourId].km);
   const zus=tourZusatzMin(tour);
   const _flM2=flTrees0.reduce((s,t)=>s+(parseFloat(t.menge)||0),0);
-  const kennz=`${stops.length} Objekte${_flM2?` · ${_repNum(Math.round(_flM2))} m²`:''}${km!=null?` · ${km.toFixed(1)} km`:''}${driveSec?` · ${fmtDuration(driveSec)} Fahrt`:''}${stopsTrees.length?` · gesamt ${fmtMin(Math.round(driveSec/60)+Math.round(tourBewMin(tourId,stopsTrees))+zus)}`:''}`;
+  const kennz=`${stops.length} Objekte${_flM2?` · ${_repNum(Math.round(_flM2))} m²`:''}${km!=null?` · ${km.toFixed(1)} km`:''}${driveSec?` · ${fmtDuration(driveSec)} Fahrt`:''}${stopsTrees.length?` · gesamt ${fmtTotalTime(driveSec,stopsTrees,zus)}`:''}`;
   baseAttr=baseAttr+' · Route: OpenRouteService';
   const titleSub='Kartenausdruck · '+dlEsc(currentProjectData?.name||'')+' · '+dlEsc(dashFmtDE(new Date()));
   const color=tour.color;
