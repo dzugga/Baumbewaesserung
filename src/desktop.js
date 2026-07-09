@@ -11996,6 +11996,12 @@ async function lassoAction(mode){
       return;
     }
   }
+  // Entfernen: nur Objekte anfassen/zählen, die wirklich in einer Tour sind (z. B. bei einem Abschnitt
+  // wurden evtl. nur die Fahrbahn-Seiten verplant — Gehweg/Radweg dürfen nicht als „entfernt" zählen)
+  if(mode==='unplan'){
+    targets=targets.filter(t=>realTourIds(t).length>0);
+    if(!targets.length){ notify('⚠ Nichts entfernt — die Auswahl war in keiner Tour'); renderLassoActions(); return; }
+  }
   // Betroffene echte Touren merken → deren gespeicherte Route ist danach veraltet (Zusammenstellung geändert)
   const _affectedTours=new Set(); if(mode==='add'||mode==='move') _affectedTours.add(tourId);
   targets.forEach(t=>realTourIds(t).forEach(x=>_affectedTours.add(x)));
