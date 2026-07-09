@@ -800,6 +800,13 @@ function subscribeToProject(){
       renderListDebounced();
     }
     maybeFitCity(); // beim ersten Laden auf die Stadt zoomen
+    // Bundle-Geometrie (importierte Linien-Segmente ohne geomStr) einmal nachladen und neu zeichnen
+    if(!Object.keys(_flGeomByExt).length && (trees||[]).some(t=>t.extId&&geomTypeOf(t)==='linie'&&!t.geomStr&&!(t.geom&&t.geom.coordinates))){
+      _ensureFlaechenGeom().then(()=>{
+        try{ renderDrawnGeoms(); renderFlaechenNumbers(); renderListDebounced(); }catch(_){}
+        if(!_cityFitDone && currentView==='karte' && !activeTours.size && _drawnLayer){ try{ const b=_drawnLayer.getBounds(); if(b.isValid()){ map.fitBounds(b,{padding:[40,40],maxZoom:16}); _cityFitDone=true; } }catch(_){} }
+      });
+    }
     if(document.getElementById('project-loading')){ _setLoadOverlaySub(`${_allTrees.length.toLocaleString('de-DE')} Objekte geladen`); _hideLoadOverlay(); } // A2: Overlay weg, sobald gerendert
     if(currentView==='baeume'){
       const artenTab=document.getElementById('baeume-arten');
@@ -2533,9 +2540,11 @@ function _fmtArea(m2){ return m2>=10000?(m2/10000).toFixed(2).replace('.',',')+'
 // Geometrie am Doc rendern (Fläche=Polygon, Strecke=Linie) — getrennt vom Import-Bundle
 // Gezeichnete Geometrie liegt als JSON-String am Doc (geomStr) — Firestore kann keine verschachtelten Arrays
 function _treeGeom(t){ if(!t) return null; if(t.geom&&t.geom.coordinates) return t.geom; if(t.geomStr){ try{ return JSON.parse(t.geomStr); }catch(_){ return null; } }
+  if(t.extId && _flGeomByExt[t.extId]) return _flGeomByExt[t.extId]; // Geometrie aus dem Storage-Bundle (importierte Segmente/Flächen — kein geomStr am Doc)
   const c=_containerOf(t); if(c) return _treeGeom(c); // Seite ohne eigene Geometrie erbt vom Abschnitt-Container
   return null; }
-function _hasDrawnGeom(t){ return !!(t && (t.geomStr || (t.geom&&t.geom.coordinates) || (t&&t.containerExtId&&_containerOf(t)))); }
+// Zeichenbare Geometrie: Doc-Geometrie, Container-Seite ODER Bundle-LINIE (Bundle-Flächen laufen über _flaechenLayer → hier ausgenommen, sonst doppelt gezeichnet)
+function _hasDrawnGeom(t){ return !!(t && (t.geomStr || (t.geom&&t.geom.coordinates) || (t.extId&&_flGeomByExt[t.extId]&&geomTypeOf(t)==='linie') || (t.containerExtId&&_containerOf(t)))); }
 // ── Container / Ausstattung (Straßenabschnitt mit Seiten) ────────────────────────────
 // Abschnitt = Container (Feld containerTyp, z. B. 'strecke') trägt Linie + Länge. Die Seiten
 // (Fahrbahn/Gehweg links/rechts …) referenzieren ihn über containerExtId und ERBEN Geometrie +
@@ -2604,6 +2613,17 @@ async function _ensureFlaechenGeom(){
     const fc=await r.json();
     (fc.features||[]).forEach(f=>{ const ext=f.properties&&f.properties.extId; if(ext&&f.geometry) _flGeomByExt[ext]=f.geometry; });
   }catch(e){ console.warn('Flächen-Geometrie fürs Routing nicht ladbar', e); }
+}
+// Geometrie-Bundle je Projekt (Storage) — importierte Segmente/Flächen als EINE Datei statt geomStr je Doc.
+// Merge mit vorhandenem Bundle über extId; Admin/Superadmin (Storage-Rules). Gibt die Feature-Anzahl zurück.
+async function _uploadGeomBundle(newFeats){
+  const ref=storage.ref(`objektgeom/${currentProjectData.orgId}/${currentProjectId}/flaechen.json`);
+  const byExt={};
+  try{ const url=await ref.getDownloadURL(); const r=await fetch(url); if(r.ok){ const fc=await r.json(); (fc.features||[]).forEach(f=>{ const e=f.properties&&f.properties.extId; if(e) byExt[e]=f; }); } }catch(_){/* noch kein Bundle → neu */}
+  newFeats.forEach(f=>{ const e=f.properties&&f.properties.extId; if(e) byExt[e]=f; });
+  const fc={type:'FeatureCollection',features:Object.values(byExt)};
+  await ref.putString(JSON.stringify(fc),'raw',{contentType:'application/json'});
+  return Object.keys(byExt).length;
 }
 // Tour-Objekte für die Routenberechnung: Punkte + Geometrie (mit Stellvertreter-Koordinate als flache Kopie, id bleibt)
 function _routableTrees(tourId){
@@ -2839,10 +2859,12 @@ async function renderFlaechen(){
     if(_flaechenLayer){ map.removeLayer(_flaechenLayer); _flaechenLayer=null; }
     const byExt={}; trees.forEach(t=>{ if(t.extId) byExt[t.extId]=t; });
     _flaechenByExt={}; _flaechenSelExt=''; _flGeomByExt={};
+    (bundle.features||[]).forEach(f=>{ const e=f.properties&&f.properties.extId; if(e&&f.geometry) _flGeomByExt[e]=f.geometry; }); // ALLE Bundle-Geometrien (auch Linien) für renderDrawnGeoms/Routing
     _flaechenLayer=L.geoJSON(bundle, {
       renderer: L.canvas({ padding:0.5 }),
+      filter: f=>((f.geometry&&f.geometry.type)||'').indexOf('Polygon')>=0, // nur Flächen hier; Linien zeichnet renderDrawnGeoms (sonst doppelt)
       style: f=>_flStyleFor(f.properties&&f.properties.extId),
-      onEachFeature:(f,layer)=>{ const ext=f.properties&&f.properties.extId; if(ext){ _flaechenByExt[ext]=layer; _flGeomByExt[ext]=f.geometry; }
+      onEachFeature:(f,layer)=>{ const ext=f.properties&&f.properties.extId; if(ext){ _flaechenByExt[ext]=layer; }
         // Baum ERST beim Klick auflösen (nicht zur Render-Zeit — Flächen-Trees laden ggf. später,
         // und die Ebene wird bei gleichem Key nicht neu gebaut). So bleibt die Fläche immer anklickbar.
         const _t=()=>trees.find(x=>x.extId===ext);
@@ -9419,6 +9441,7 @@ async function doImport(){
     // Objekte außerhalb des Pilot-Ausschnitts Dubletten an.
     const _impSrc=(_allTrees&&_allTrees.length)?_allTrees:trees;
     const byBaumId=new Map(_impSrc.filter(t=>t.baumId).map(t=>[t.baumId,t]));
+    const _impBundleFeats=[]; // importierte Geometrie → Storage-Bundle (nicht geomStr je Doc)
     const CH=450; // Firestore-Batch-Limit ist 500
     for(let i=0;i<_importRows.length;i+=CH){
       const batch=db.batch();
@@ -9433,7 +9456,7 @@ async function doImport(){
         // eine leere Zelle darf beim Update den Bestandswert nicht auf „mittel" überschreiben.
         if(r.wasser) fields.wasser=r.wasser;
         if(r.zustand) fields.zustand=r.zustand;
-        if(r.geomType){ fields.geomType=r.geomType; fields.geomStr=r.geomStr; if(r.menge!=null) fields.menge=r.menge; if(r.einheit) fields.einheit=r.einheit; } // Shapefile: Strecke/Fläche
+        if(r.geomType){ fields.geomType=r.geomType; if(r.menge!=null) fields.menge=r.menge; if(r.einheit) fields.einheit=r.einheit; } // Shapefile: Strecke/Fläche — Geometrie kommt ins Storage-Bundle (kein geomStr am Doc)
         customFields.forEach(c=>{ if(r[c.key]!=null) fields[c.key]=r[c.key]; });
         const exist = r.baumId && byBaumId.get(r.baumId);
         // Tour-Zuordnung aus ja/nein-Tag-Spalten (nur wenn Tour-Spalten vorhanden waren).
@@ -9443,24 +9466,40 @@ async function doImport(){
           const merged=[...new Set([...r.tourIds, ...ueb])];
           fields.tourIds=merged; fields.tourId=merged[0]||'';
         }
-        if(exist){ batch.update(colRef.doc(exist.id), fields); updated++; }
-        else {
+        let _ext=null;
+        if(exist){
+          if(r.geomType){ _ext = exist.extId || ('shp-'+exist.id.slice(0,12)); fields.extId=_ext; }
+          batch.update(colRef.doc(exist.id), fields); updated++;
+        } else {
           counter++;
+          if(r.geomType) _ext='shp-'+String(counter).padStart(5,'0'); // extId = Bundle-Schlüssel + Container-Verknüpfung (Abschnitt/Seiten)
           batch.set(colRef.doc(),{
             datum:'',tourId:'',tourIds:[],history:[],
             wasser:'mittel', zustand:'mittel',   // Default nur fürs NEUE Objekt; fields überschreibt, wenn Zelle einen Wert hatte
             ...fields,
-            ...(r.geomType==='linie'?{extId:'shp-'+String(counter).padStart(5,'0')}:{}), // Strecken: extId für spätere Abschnitt+Seiten-Umwandlung (Container-Verknüpfung)
+            ...(_ext?{extId:_ext}:{}),
             baumId:'B-'+String(counter).padStart(5,'0'), createdAt:serverTimestamp(),
             orgId: currentProjectData?.orgId || currentOrg,
           });
           imported++;
         }
+        if(_ext && r.geomStr){ try{ _impBundleFeats.push({type:'Feature',properties:{extId:_ext},geometry:JSON.parse(r.geomStr)}); }catch(_){} }
       }
       if(btn) btn.textContent=`Verarbeitet… ${Math.min(imported+updated,_importRows.length)}/${_importRows.length}`;
       await batch.commit();
     }
     await updateDoc(projRef,{lastBaumId:counter}); // Zähler einmal final setzen
+    // Importierte Geometrie als EINE Storage-Datei ablegen (statt geomStr je Doc → schnelles Öffnen, wenig Reads)
+    if(_impBundleFeats.length){
+      try{
+        if(btn) btn.textContent='Geometrie wird gespeichert…';
+        await _uploadGeomBundle(_impBundleFeats);
+        const gv=String(Date.now()); const hasPoly=_impBundleFeats.some(f=>/Polygon/.test((f.geometry&&f.geometry.type)||''));
+        await updateDoc(projRef,{geomVersion:gv, ...(hasPoly?{hatFlaechen:true}:{})});
+        if(currentProjectData){ currentProjectData.geomVersion=gv; if(hasPoly) currentProjectData.hatFlaechen=true; }
+        _flGeomByExt={}; _flaechenLayerKey=''; // Neuladen des Bundles erzwingen
+      }catch(e){ console.warn('Geometrie-Bundle hochladen',e); notify('⚠ Geometrie-Bundle konnte nicht gespeichert werden ('+(e.code||e.message||e)+') — nur Admin/Superadmin dürfen das.'); }
+    }
     // Neue Listenwerte (außer Typ/Art — das übernimmt buildArten) anlegen
     let lvChanged=false;
     Object.entries(_importNew||{}).forEach(([k,vals])=>{
@@ -14359,6 +14398,7 @@ async function _segartRun(maxDist, covMin, onProgress){
 async function segartAnalyseOpen(){
   if(isReadonly()||!canEditObjects()) return notify('Nur Planer/Admins');
   if(!currentProjectId) return notify('Kein Projekt geöffnet');
+  await _ensureFlaechenGeom(); // Bundle-Geometrie sicherstellen (importierte Segmente ohne geomStr)
   const nLin=trees.filter(t=>isActive(t)&&!_isContainer(t)&&!t.containerExtId&&geomTypeOf(t)==='linie').length;
   if(!nLin) return notify('Keine Strecken-Objekte im Projekt');
   const m=document.createElement('div');
@@ -14433,7 +14473,7 @@ async function segartAnalyseOpen(){
 // Idempotent: migrierte Docs tragen _migrated=true und werden beim Aufräumen verschont.
 // ─── Bereich „Segmentnetz" (Verwaltung): geführter Ablauf Import → Analyse → Umwandlung → Gehwege ──
 function _segLineCandidates(){ // flache Linien-Segmente des offenen Projekts, noch nicht umgewandelt
-  return (trees||[]).filter(t=>!t.containerTyp&&!t.containerExtId&&geomTypeOf(t)==='linie'&&t.geomStr&&t.extId&&!t._migrated);
+  return (trees||[]).filter(t=>!t.containerTyp&&!t.containerExtId&&geomTypeOf(t)==='linie'&&_treeGeom(t)&&t.extId&&!t._migrated); // Geometrie aus Doc ODER Bundle
 }
 function renderSegmentnetz(){
   const el=document.getElementById('segmentnetz-body'); if(!el) return;
@@ -14469,6 +14509,7 @@ function _rkCoveredSides(cls){ if(!cls||!cls.freq) return []; return ELEM_GRUPPE
 async function segmentUmwandelnOpen(){
   if(isReadonly()||!canEditObjects()) return notify('Nur Planer/Admins');
   if(!currentProjectId) return notify('Kein Projekt geöffnet');
+  await _ensureFlaechenGeom(); // Bundle-Geometrie sicherstellen (importierte Segmente ohne geomStr)
   const cand=_segLineCandidates();
   if(!cand.length) return notify('Keine unbearbeiteten Linien-Segmente vorhanden');
   const FB=[['fahrbahn_l','Fahrbahn links','Fahrbahn'],['fahrbahn_r','Fahrbahn rechts','Fahrbahn']];
