@@ -755,6 +755,14 @@ function syncDataViewToProject(){
   },60);
 }
 
+// Projekt-Umschalter in der Kopfzeile: vor dem Wechsel rückfragen (versehentlicher Klick soll die
+// laufende Planung/Ansicht nicht wegwerfen). Ohne offenes Projekt direkt zur Übersicht.
+async function confirmProjectSwitch(){
+  if(!currentProjectId){ showProjectScreen(); return; }
+  const ok=await _confirmBox('Projekt wechseln', `Das Projekt „${currentProjectData?.name||''}" wird geschlossen und die Projektübersicht geöffnet.\n\nFortfahren?`, 'Projekt wechseln', 'Abbrechen');
+  if(ok) showProjectScreen();
+}
+
 function showProjectScreen(){
   _hideLoadOverlay();
   if(unsubTours){unsubTours();unsubTours=null;}
@@ -15234,7 +15242,7 @@ Object.assign(window,{
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleRequiredFeld,toggleRawSeg,_siInfo,
-  createProject,openProject,showProjectScreen,psSetOrgFilter,setSiTab,
+  createProject,openProject,showProjectScreen,confirmProjectSwitch,psSetOrgFilter,setSiTab,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,

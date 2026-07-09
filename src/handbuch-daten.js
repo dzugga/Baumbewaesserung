@@ -30,7 +30,7 @@ export const HANDBUCH = [
     icon: '🖥️',
     sections: [
       { title: 'Projekt öffnen & wechseln', keywords: ['projekt', 'öffnen', 'wechseln', 'stadt'],
-        text: 'Nach der Anmeldung erscheint die Projektliste der eigenen Stadt (Superadmin: aller Städte). Projekt anklicken → die Karte öffnet sich und zoomt automatisch auf das Stadtgebiet.\nZurück zur Projektwahl über das Avatar-Menü oben rechts.' },
+        text: 'Nach der Anmeldung erscheint die Projektliste der eigenen Stadt (Superadmin: aller Städte). Projekt anklicken → die Karte öffnet sich und zoomt automatisch auf das Stadtgebiet.\nZurück zur Projektwahl über den Projektnamen in der Kopfzeile — mit Sicherheitsrückfrage, damit ein versehentlicher Klick die aktuelle Ansicht nicht schließt.' },
       { title: 'Weitere Apps öffnen', keywords: ['apps', 'öffnen', 'link', 'fahrer-app', 'erfassung', 'einsatzleiter'],
         text: 'Über das Menü „Apps" in der Kopfzeile lassen sich die anderen Apps der Suite direkt öffnen — jeweils in einem neuen Browser-Tab: Fahrer-App, Erfassung und Einsatzleiter (Live).' },
       { imgs:[{src:'/handbuch/desktop-karte.jpg',cap:'Karte mit Tour-Markern, Legende und Objektliste (Demodaten)'}], title: 'Karte: Marker & Tour-Auswahl', keywords: ['karte', 'marker', 'tour anzeigen', 'mehrfachauswahl', 'gelb', 'zähler', 'legende'],
