@@ -804,6 +804,7 @@ function subscribeToProject(){
       if(Object.keys(mapMarkers).length===0 || changes.length>=snap.size) refreshMarkers();
       else { diffMarkers(changes); try{ renderDrawnGeoms(); }catch(_){} try{ _applyFlaechenSelection(); }catch(_){} } // gezeichnete + importierte Geometrie bei Teil-Updates mitziehen (gelöschte Flächen ausblenden)
       renderListDebounced();
+      _refreshTourPanelsDebounced(); // Kennzahlen-Panel + Legende folgen Mitglieder-Änderungen (Zeit/Strecke je zeitBasis live)
     }
     maybeFitCity(); // beim ersten Laden auf die Stadt zoomen
     // Bundle-Geometrie (importierte Linien-Segmente ohne geomStr) einmal nachladen und neu zeichnen
@@ -824,6 +825,19 @@ function subscribeToProject(){
     setSyncState('ok','Synchronisiert');
     autoMigrateTourIds(); // tourId → tourIds[] still im Hintergrund
   });
+}
+
+// Kennzahlen-Panel (Sidebar) + Tour-Legende nach Objekt-Änderungen nachziehen — debounced, damit
+// Batch-Zuweisungen (viele Snapshot-Ticks) nur EIN Re-Render auslösen. Nötig v. a. bei Zeitbasis
+// „System": Zeit/Strecke hängen direkt an den Tour-Mitgliedern (keine Route als Puffer).
+let _panelRefreshTimer=null;
+function _refreshTourPanelsDebounced(){
+  clearTimeout(_panelRefreshTimer);
+  _panelRefreshTimer=setTimeout(()=>{
+    try{ updateRouteInfoBar(); }catch(_){}
+    try{ renderLegend(); }catch(_){}
+    if(currentView==='touren'){ try{ renderTourenGrid(); }catch(_){} }
+  },250);
 }
 
 // Gespeicherten Projekt-Zähler aktualisieren (1 Write nur bei Abweichung; nur Planer/Admin)
@@ -12183,6 +12197,7 @@ async function lassoAction(mode){
   renderDrawnGeoms(); // Geometrie-Objekte mit neuer Tour-Zuordnung umfärben
   rebuildAssignPills();
   renderLassoActions();
+  _refreshTourPanelsDebounced(); // Zeit/Strecke im Kennzahlen-Panel + Legende sofort nachziehen (v. a. Zeitbasis „System")
   setSyncState('ok','Synchronisiert');
   const verb=mode==='add'?`→ „${tour?.name||'Tour'}“ hinzugefügt`:mode==='move'?`→ „${tour?.name||'Tour'}“ verschoben`:'aus Tour(en) entfernt';
   notify(`✓ ${targets.length} Objekte ${verb}${schonDrin?` · ${schonDrin} übersprungen (bereits in der Tour)`:''}`);
@@ -14687,7 +14702,7 @@ async function segartAnalyseOpen(){
           const b=db.batch(); ups.slice(i,i+400).forEach(u=>b.update(doc(db,'projects',currentProjectId,'trees',u.id),u.data)); await b.commit();
           info.textContent=`Speichere… ${Math.min(i+400,ups.length).toLocaleString('de-DE')} / ${ups.length.toLocaleString('de-DE')}`;
         }
-      } finally { _suppressTreeRender=false; if(_pendingTreeRender){ _pendingTreeRender=false; refreshMarkers(); renderListDebounced(); } }
+      } finally { _suppressTreeRender=false; if(_pendingTreeRender){ _pendingTreeRender=false; refreshMarkers(); renderListDebounced(); _refreshTourPanelsDebounced(); } }
       info.textContent=`✓ Fertig: ${ups.length.toLocaleString('de-DE')} Strecken gespeichert.`;
       notify(`✓ Segmentart-Vorschlag gespeichert (${ups.length.toLocaleString('de-DE')} Strecken)`);
       setTimeout(()=>{ close(); setColorMode('segart'); },800); // direkt zur Sichtprüfung einfärben
@@ -14836,7 +14851,7 @@ async function segmentUmwandelnOpen(){
       notify('✓ Umwandlung fertig — '+plan.length+' Abschnitte');
       setTimeout(()=>{ close(); renderSegmentnetz(); },900);
     }catch(e){ console.warn('segmentUmwandeln',e); info.textContent='Fehler: '+(e.message||e); notify(dlErr(e)); btn.disabled=false; btn.style.opacity=1; }
-    finally{ _suppressTreeRender=false; if(_pendingTreeRender){ _pendingTreeRender=false; refreshMarkers(); try{ renderDrawnGeoms(); }catch(_){} } }
+    finally{ _suppressTreeRender=false; if(_pendingTreeRender){ _pendingTreeRender=false; refreshMarkers(); try{ renderDrawnGeoms(); }catch(_){} _refreshTourPanelsDebounced(); } }
   };
 }
 // Schritt 3: Gehweg-Seiten für die ausgewählten Abschnitte ergänzen (Lasso)
