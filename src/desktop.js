@@ -1086,85 +1086,102 @@ async function confirmDeleteProject(){
   if(!currentProjectId||!currentProjectData)return;
 
   // Custom confirm dialog with cancel focused
+  const pname=currentProjectData.name;
   const modal=document.createElement('div');
   modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9998;display:flex;align-items:center;justify-content:center;';
-  modal.innerHTML=`<div style="background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow-md);width:420px;max-width:90vw;overflow:hidden;">
+  modal.innerHTML=`<div style="background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow-md);width:470px;max-width:92vw;overflow:hidden;">
     <div style="padding:18px 20px 10px;border-bottom:1px solid var(--border);">
-      <div style="font-size:16px;font-weight:700;color:var(--red);">⚠ Projekt löschen</div>
+      <div style="font-size:16px;font-weight:700;color:var(--red);">⚠ Projekt löschen oder leeren</div>
     </div>
-    <div style="padding:16px 20px;font-size:13px;color:var(--text2);line-height:1.7;">
-      Projekt <b style="color:var(--text);">${currentProjectData.name}</b> wirklich löschen?<br>
-      <span style="color:var(--red);">Alle Objekte, Touren, Routen, Historiendaten, Objektarten, Auto-Planungen sowie Geometrie- und Fotodateien werden unwiderruflich gelöscht.</span>
+    <div style="padding:14px 20px 6px;">
+      <label style="display:block;border:1.5px solid var(--border);border-radius:8px;padding:11px 13px;margin-bottom:9px;cursor:pointer;">
+        <div style="display:flex;gap:9px;align-items:flex-start;">
+          <input type="radio" name="del-mode" value="content" checked style="margin-top:3px;flex:0 0 auto;">
+          <div><div style="font-weight:600;color:var(--text);font-size:13px;">Nur Inhalte löschen</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:3px;line-height:1.6;">Objekte, Abschnitte, Geometrie, Fotos, Routen, Auto-Planungen und die Touren-Historie werden gelöscht. <b style="color:var(--text2);">Touren, Objektarten, Gründe und alle Feld-/Listen-Einstellungen bleiben erhalten</b> — ideal für einen Neu-Import.</div></div>
+        </div>
+      </label>
+      <label style="display:block;border:1.5px solid var(--border);border-radius:8px;padding:11px 13px;cursor:pointer;">
+        <div style="display:flex;gap:9px;align-items:flex-start;">
+          <input type="radio" name="del-mode" value="full" style="margin-top:3px;flex:0 0 auto;">
+          <div><div style="font-weight:600;color:var(--red);font-size:13px;">Projekt vollständig entfernen</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:3px;line-height:1.6;">Zusätzlich Touren, Objektarten, Gründe und das Projekt selbst. Das Projekt verschwindet aus der Übersicht. Unwiderruflich.</div></div>
+        </div>
+      </label>
     </div>
-    <div style="padding:6px 20px 8px;">
+    <div style="padding:4px 20px 8px;">
       <input id="delete-confirm-input" class="form-control" placeholder='Projektname eingeben zur Bestätigung' style="border-color:var(--red-light);">
-      <div style="font-size:11px;color:var(--text3);margin-top:4px;">Gib <b>${currentProjectData.name}</b> ein um zu bestätigen</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px;">Gib <b>${dlEsc(pname)}</b> ein um zu bestätigen</div>
     </div>
     <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
       <button id="del-proj-cancel" style="padding:8px 16px;border:1.5px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;font-size:13px;font-weight:600;">Abbrechen</button>
-      <button id="del-proj-ok" style="padding:8px 16px;border:none;border-radius:6px;background:var(--red);color:#fff;cursor:pointer;font-size:13px;font-weight:600;" disabled>Projekt löschen</button>
+      <button id="del-proj-ok" style="padding:8px 16px;border:none;border-radius:6px;background:var(--red);color:#fff;cursor:pointer;font-size:13px;font-weight:600;" disabled>Inhalte löschen</button>
     </div>
   </div>`;
   document.body.appendChild(modal);
 
-  // Enable delete button only when name matches
   const input=modal.querySelector('#delete-confirm-input');
   const delBtn=modal.querySelector('#del-proj-ok');
-  input.oninput=()=>{
-    delBtn.disabled=input.value.trim()!==currentProjectData.name;
-    delBtn.style.opacity=delBtn.disabled?'0.4':'1';
-  };
-
+  const modeOf=()=>modal.querySelector('input[name="del-mode"]:checked').value;
+  const syncBtn=()=>{ delBtn.disabled=input.value.trim()!==pname; delBtn.style.opacity=delBtn.disabled?'0.4':'1'; delBtn.textContent=modeOf()==='full'?'Projekt entfernen':'Inhalte löschen'; };
+  input.oninput=syncBtn;
+  modal.querySelectorAll('input[name="del-mode"]').forEach(r=>{ r.onchange=syncBtn; });
+  syncBtn();
   setTimeout(()=>modal.querySelector('#del-proj-cancel').focus(),50);
 
-  const confirmed=await new Promise(resolve=>{
-    modal.querySelector('#del-proj-cancel').onclick=()=>{modal.remove();resolve(false);};
-    delBtn.onclick=()=>{if(!delBtn.disabled){modal.remove();resolve(true);}};
-    modal.onclick=e=>{if(e.target===modal){modal.remove();resolve(false);}};
+  const res=await new Promise(resolve=>{
+    modal.querySelector('#del-proj-cancel').onclick=()=>{modal.remove();resolve(null);};
+    delBtn.onclick=()=>{if(!delBtn.disabled){const m=modeOf();modal.remove();resolve(m);}};
+    modal.onclick=e=>{if(e.target===modal){modal.remove();resolve(null);}};
   });
-  if(!confirmed)return;
+  if(!res)return;
+  await _runProjectDeletion(res);
+}
 
-  // Show progress
+// Zweistufiges Löschen: 'content' = nur Objekt-/Abschnittdaten (Konfiguration + Touren bleiben),
+// 'full' = alles inkl. Touren/Objektarten/Gründe + Projekt-Dokument. Beide entfernen die
+// objektbezogenen Storage-Dateien (Geometrie-Bundle + Fotos). Fortschritt + Verlassen-Warnung.
+async function _runProjectDeletion(mode){
+  if(!currentProjectId||!currentProjectData) return;
+  const full=mode==='full';
   _deleteInProgress=true; // beforeunload-Warnung aktiv
-  setSyncState('syncing','Projekt wird gelöscht…');
+  setSyncState('syncing', full?'Projekt wird entfernt…':'Inhalte werden gelöscht…');
   try{
     const pid=currentProjectId;
     const org=currentProjectData.orgId||currentOrg;
-
-    // Alle Unter-Sammlungen laden (parallel) → Referenzen sammeln
-    const subcollections=['trees','tours','routes','reasons','tourHistory','arten','planVarianten'];
+    // Stufe 1 behält Touren/Objektarten/Gründe (Konfiguration); Stufe 2 löscht auch diese.
+    const subcollections=full ? ['trees','tours','routes','reasons','tourHistory','arten','planVarianten']
+                              : ['trees','routes','tourHistory','planVarianten'];
     const snaps=await Promise.all(subcollections.map(sub=>getDocs(collection(db,'projects',pid,sub)).catch(()=>({docs:[]}))));
     const allDocs=[]; snaps.forEach(s=>s.docs.forEach(d=>allDocs.push(d.ref)));
     // Lösch-Batches (<=450) mit begrenzter Nebenläufigkeit committen — deutlich schneller als nacheinander
     const CH=450; const commits=[];
     for(let i=0;i<allDocs.length;i+=CH){ const slice=allDocs.slice(i,i+CH); commits.push(()=>{ const b=db.batch(); slice.forEach(ref=>b.delete(ref)); return b.commit(); }); }
-    let _done=0;
-    const _pool=async(tasks,limit)=>{ let idx=0; const run=async()=>{ while(idx<tasks.length){ await tasks[idx++](); _done++; setSyncState('syncing',`Projekt wird gelöscht… ${Math.min(_done*CH,allDocs.length).toLocaleString('de-DE')} / ${allDocs.length.toLocaleString('de-DE')}`); } }; await Promise.all(Array.from({length:Math.min(limit,tasks.length||1)},run)); };
+    let _done=0; const lbl=full?'Projekt wird entfernt':'Inhalte werden gelöscht';
+    const _pool=async(tasks,limit)=>{ let idx=0; const run=async()=>{ while(idx<tasks.length){ await tasks[idx++](); _done++; setSyncState('syncing',`${lbl}… ${Math.min(_done*CH,allDocs.length).toLocaleString('de-DE')} / ${allDocs.length.toLocaleString('de-DE')}`); } }; await Promise.all(Array.from({length:Math.min(limit,tasks.length||1)},run)); };
     await _pool(commits, 12);
 
-    // Projekt-Dokument selbst löschen
-    await deleteDoc(doc(db,'projects',pid));
-
     // Storage best-effort leeren (Waisen vermeiden): Geometrie-Bundle + Fotos/Dokumente des Projekts.
-    // Scheitert das (Rechte/nicht vorhanden), blockiert es das Löschen nicht.
+    // In beiden Stufen, da beide alle Objekte entfernen. Scheitert es, blockiert es das Löschen nicht.
     if(org){
       try{ await _deleteStoragePrefix(`objektgeom/${org}/${pid}`); }catch(e){ console.warn('Storage objektgeom löschen', e); }
       try{ await _deleteStoragePrefix(`objektdokumente/${org}/${pid}`); }catch(e){ console.warn('Storage objektdokumente löschen', e); }
     }
 
-    setSyncState('ok','Synchronisiert');
-    notify('Projekt gelöscht');
-
-    // Reset to project screen
-    currentProjectId=null;
-    currentProjectData=null;
-    trees=[];
-    _allTrees=[];
-    tours=[];
-    tourRoutes={};
-    tourOrder={};
-    closeSettings();
-    showProjectScreen();
+    if(full){
+      await deleteDoc(doc(db,'projects',pid)); // Projekt-Dokument (inkl. Feld-/Listen-Einstellungen) zuletzt löschen
+      setSyncState('ok','Synchronisiert');
+      notify('Projekt gelöscht');
+      currentProjectId=null; currentProjectData=null; trees=[]; _allTrees=[]; tours=[]; tourRoutes={}; tourOrder={};
+      closeSettings();
+      showProjectScreen();
+    }else{
+      // Konfiguration + Touren bleiben, Projekt bleibt offen → lokale Geometrie-/Routen-Caches verwerfen
+      _flGeomByExt={}; _flaechenBundle=null; _flaechenBundleKey=''; _geomBboxCache={}; _viewportCull=false;
+      _routesCache={}; _routesLoadedFor=null;
+      setSyncState('ok','Synchronisiert');
+      notify('✓ Inhalte gelöscht — Konfiguration bleibt erhalten');
+    }
   }catch(e){
     setSyncState('ok','Synchronisiert');
     notify('Fehler beim Löschen: '+e.message);
@@ -5756,7 +5773,7 @@ function openProjekte(){
       <div style="font-size:11px;color:var(--text3);margin:-4px 0 8px;line-height:1.5;">Legt fest, welche Reiter ein <b>einzelnes Projekt</b> anbietet (z. B. „Disposition" nur in passenden Projekten) — unabhängig von den mandantenweiten Rollen-Rechten. Projekt wählen, Haken setzen — wird unten mit <b>„Speichern"</b> gesichert.</div>
       <select id="prj-mod-target" class="form-control" style="width:100%;margin-bottom:8px;font-size:13px;"><option>Lade…</option></select>
       <div id="prj-mods" style="display:grid;grid-template-columns:1fr 1fr;gap:3px 12px;margin-bottom:6px;"></div>`:''}
-      <button class="btn btn-danger" id="prj-del" style="width:100%;margin-top:16px;">Projekt löschen</button>
+      <button class="btn btn-danger" id="prj-del" style="width:100%;margin-top:16px;">Projekt löschen oder leeren …</button>
     </div>
     <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
       <button id="prj-cancel" class="btn btn-secondary">Abbrechen</button>
