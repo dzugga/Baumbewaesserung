@@ -2361,6 +2361,7 @@ function checkMenuGoDq(){ const m=document.getElementById('check-menu'); if(m) m
 function setColorMode(mode){
   const prev=_colorMode;
   if(_isCheckMode(mode) && mode!==prev) _checkShow=new Set(CHECK_MODES[mode].buckets.map(b=>b[0]));   // beim Einschalten: alle Status sichtbar
+  if(mode==='segart') _ensureSegartValues(); // „Ausschluss" & Co. in „Feld setzen" verfügbar machen
   _colorMode=mode; _updateColorBtns();
   const m=document.getElementById('color-mode-menu'); if(m) m.style.display='none';
   // Check-Modus: Clustering aus (Cluster würde die Status-Farbe verdecken); zurück: Projekt-Standard wiederherstellen.
@@ -2505,12 +2506,12 @@ function _renderRkLegend(){
       (vals.length?vals.map(v=>`<div style="display:flex;align-items:center;gap:7px;font-size:12px;margin-bottom:3px;"><span style="width:12px;height:12px;border-radius:3px;background:${_sollFreqColorFor(v)};flex:none;"></span>${fmt(v)} · <b>${counts.get(v)}</b></div>`).join(''):`<div style="font-size:12px;color:var(--text3);">keine Häufigkeiten gesetzt</div>`)+
       (none?`<div style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text3);margin-top:3px;"><span style="width:12px;height:12px;border-radius:3px;background:#d1d5db;flex:none;"></span>ohne Angabe · <b>${none}</b></div>`:'');
   } else if(_colorMode==='segart'){
-    const counts={Einzeln:0,Parallel:0,Teiler:0}; let none=0,fixed=0;
+    const counts={Einzeln:0,Parallel:0,Teiler:0,Ausschluss:0}; let none=0,fixed=0;
     (trees||[]).forEach(t=>{ if(!isActive(t)||_isContainer(t)||t.containerExtId||geomTypeOf(t)!=='linie') return;
       const v=t.segmentart; if(!v||counts[v]==null){ none++; return; } counts[v]++; if(t.segmentartAuto===false) fixed++; });
     el.style.display='block';
     el.innerHTML=`<div style="font-size:11px;font-weight:700;margin-bottom:6px;">Segmentart (Parallelen)</div>`+
-      [['Einzeln','Einzeln'],['Parallel','Parallel (eine Seite)'],['Teiler','Teiler (beide Seiten)']].map(([k,l])=>`<div style="display:flex;align-items:center;gap:7px;font-size:12px;margin-bottom:3px;"><span style="width:14px;height:4px;border-radius:2px;background:${SEGART_COLORS[k]};flex:none;"></span>${l} · <b>${counts[k].toLocaleString('de-DE')}</b></div>`).join('')+
+      [['Einzeln','Einzeln'],['Parallel','Parallel (eine Seite)'],['Teiler','Teiler (beide Seiten)'],['Ausschluss','Ausschluss (Autobahn etc.)']].map(([k,l])=>`<div style="display:flex;align-items:center;gap:7px;font-size:12px;margin-bottom:3px;"><span style="width:14px;height:4px;border-radius:2px;background:${SEGART_COLORS[k]};flex:none;"></span>${l} · <b>${counts[k].toLocaleString('de-DE')}</b></div>`).join('')+
       (none?`<div style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text3);margin-top:3px;"><span style="width:14px;height:4px;border-radius:2px;background:#d1d5db;flex:none;"></span>ohne Einstufung · <b>${none}</b></div>`:'')+
       `<div style="font-size:10px;color:var(--text3);margin-top:4px;">${fixed?fixed+' manuell fixiert · ':''}Korrektur: Lasso → „Feld setzen" → Segmentart</div>`;
   } else if(_colorMode==='betriebshof'){
@@ -14377,7 +14378,18 @@ async function geomDocsImportRun(close){
 // 'Einzeln' = keine Parallele · 'Parallel' = Parallele auf EINER Seite · 'Teiler' = Parallelen auf
 // BEIDEN Seiten (Mittellinie, i. d. R. Fahrbahnteiler). Schreibt nur Vorschläge (segmentartAuto=true);
 // manuell fixierte Werte (per Lasso „Feld setzen" → segmentartAuto=false) werden nie überschrieben.
-const SEGART_COLORS={'Einzeln':'#9ca3af','Parallel':'#3b82f6','Teiler':'#dc2626'};
+const SEGART_COLORS={'Einzeln':'#9ca3af','Parallel':'#3b82f6','Teiler':'#dc2626','Ausschluss':'#111827'};
+const _SEGART_VALUES=['Einzeln','Parallel','Teiler','Ausschluss']; // Ausschluss = z. B. Autobahn/Bundesstraße → nie umwandeln
+// Segmentart-Werteliste sicherstellen (inkl. „Ausschluss"), damit sie in „Feld setzen" wählbar ist
+async function _ensureSegartValues(){
+  if(!customFields.some(c=>c.key==='segmentart')) return; // Feld entsteht erst mit der Analyse
+  listValues.segmentart=listValues.segmentart||[];
+  const have=new Set(listValues.segmentart.map(e=>e.label));
+  const miss=_SEGART_VALUES.filter(v=>!have.has(v));
+  if(!miss.length) return;
+  miss.forEach(v=>listValues.segmentart.push({id:_genId(),label:v}));
+  try{ await saveListValues(); }catch(_){}
+}
 function _segartClassify(maxDist, covMin){
   const list=trees.filter(t=>isActive(t)&&!_isContainer(t)&&!t.containerExtId&&geomTypeOf(t)==='linie');
   const geoms=[]; let latS=0,lngS=0,n0=0;
@@ -14441,6 +14453,7 @@ async function segartAnalyseOpen(){
   if(isReadonly()||!canEditObjects()) return notify('Nur Planer/Admins');
   if(!currentProjectId) return notify('Kein Projekt geöffnet');
   await _ensureFlaechenGeom(); // Bundle-Geometrie sicherstellen (importierte Segmente ohne geomStr)
+  await _ensureSegartValues(); // Werteliste inkl. „Ausschluss" bereitstellen
   const nLin=trees.filter(t=>isActive(t)&&!_isContainer(t)&&!t.containerExtId&&geomTypeOf(t)==='linie').length;
   if(!nLin) return notify('Keine Strecken-Objekte im Projekt');
   const m=document.createElement('div');
@@ -14490,7 +14503,7 @@ async function segartAnalyseOpen(){
       // Feld + Werteliste sicherstellen (einmalig)
       if(!customFields.some(c=>c.key==='segmentart')){ customFields.push({key:'segmentart',label:'Segmentart',aktiv:true,type:'liste',geomTypes:['linie']}); }
       const have=new Set((listValues.segmentart||[]).map(e=>e.label)); listValues.segmentart=listValues.segmentart||[];
-      ['Einzeln','Parallel','Teiler'].forEach(v=>{ if(!have.has(v)) listValues.segmentart.push({id:_genId(),label:v}); });
+      _SEGART_VALUES.forEach(v=>{ if(!have.has(v)) listValues.segmentart.push({id:_genId(),label:v}); });
       await saveListValues();
       const byId=new Map(trees.map(t=>[t.id,t]));
       const ups=[]; _res.forEach((v,id)=>{ const t=byId.get(id);
@@ -14556,9 +14569,9 @@ async function segmentUmwandelnOpen(){
   if(!cand.length) return notify('Keine unbearbeiteten Linien-Segmente vorhanden');
   const FB=[['fahrbahn_l','Fahrbahn links','Fahrbahn'],['fahrbahn_r','Fahrbahn rechts','Fahrbahn']];
   const GW=[['gehweg_l','Gehweg links','Gehweg'],['gehweg_r','Gehweg rechts','Gehweg']];
-  const buckets=[['Einzeln','Einzeln'],['Parallel','Parallel'],['Teiler','Teiler'],['','ohne Einstufung']];
-  const convDef={Einzeln:true,Parallel:true,Teiler:false,'':true};
-  const cnt={Einzeln:0,Parallel:0,Teiler:0,'':0}; cand.forEach(t=>{ const v=t.segmentart; cnt[v!=null&&cnt[v]!=null?v:'']++; });
+  const buckets=[['Einzeln','Einzeln'],['Parallel','Parallel'],['Teiler','Teiler'],['Ausschluss','Ausschluss (Autobahn etc.)'],['','ohne Einstufung']];
+  const convDef={Einzeln:true,Parallel:true,Teiler:false,Ausschluss:false,'':true};
+  const cnt={Einzeln:0,Parallel:0,Teiler:0,Ausschluss:0,'':0}; cand.forEach(t=>{ const v=t.segmentart; cnt[v!=null&&cnt[v]!=null?v:'']++; });
   const bucketOf=t=>{ const v=t.segmentart; return (v!=null&&cnt[v]!=null)?v:''; };
   const hasRk=reinigungsklassen.length>0;
   // Quellfelder für „Klasse je Segment": Felder mit Werteliste, die als Klassen-Indikator taugen —
