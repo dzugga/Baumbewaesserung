@@ -2840,7 +2840,13 @@ function renderDrawnGeoms(){
     if(_selHi && layer.bringToFront) try{ layer.bringToFront(); }catch(_){}
     layer.on('click',()=>{
       if(assignMode&&!lassoDrawing){
-        if(_isContainer(t)){ _ausstattungOf(t.extId).forEach(s=>lassoSelection.add(s.id)); renderLassoActions(); _applyFlaechenSelection(t.id); } // Abschnitt → alle Seiten vorwählen (Container-Linie neu stylen)
+        if(_isContainer(t)){ // Abschnitt-Klick = Toggle: alle Seiten vorwählen; sind schon alle drin → wieder abwählen
+          const sideIds=_ausstattungOf(t.extId).map(s=>s.id);
+          const allIn=sideIds.length>0 && sideIds.every(id=>lassoSelection.has(id));
+          sideIds.forEach(id=>{ if(allIn) lassoSelection.delete(id); else lassoSelection.add(id); });
+          renderLassoActions(); _applyFlaechenSelection(t.id);
+          sideIds.forEach(id=>{ if(_drawnById[id]) _applyFlaechenSelection(id); }); // versetzte Seiten-Linien (falls gezeichnet) mit umstylen
+        }
         else toggleLassoSelect(t.id); // stylt selbst nur das eine Objekt (schnell)
       } else if(!assignMode){ if(_isContainer(t)) openAbschnitt(t.id); else selectTree(t.id,false); }
     });
@@ -12003,6 +12009,34 @@ function clearLassoSelection(){
   renderLassoActions();
 }
 
+// Zeitvorschau der aktuellen Auswahl auf Basis der Ziel-Tour: mit Reinigungssystem = Strecke ÷
+// Geschwindigkeit (Tätigkeit) + Aufwandssatz der Punkt-/Flächenobjekte; sonst Aufwandssatz aller.
+// Mit Arbeitszeit der Tour zusätzlich „Restzeit danach" (nur NEUE Objekte zählen dazu).
+function _lassoZeitPreview(tour){
+  if(!tour||tour.uebersicht) return '';
+  const sel=[...lassoSelection].map(id=>trees.find(t=>t.id===id)).filter(t=>t&&isActive(t));
+  if(!sel.length) return '';
+  const sp=_tourSpeedKmh(tour.id);
+  const useSys=sp>0&&(tour.zeitBasis||'auto')!=='route';
+  const _minOf=list=>{
+    if(!useSys) return bewMinutes(list);
+    const lm=list.filter(t=>geomTypeOf(t)==='linie').reduce((s,t)=>s+_effMenge(t),0);
+    return (lm*3.6/sp)/60 + bewMinutes(list.filter(t=>geomTypeOf(t)!=='linie'));
+  };
+  const parts=[];
+  if(useSys){ const lm=sel.filter(t=>geomTypeOf(t)==='linie').reduce((s,t)=>s+_effMenge(t),0); if(lm>0) parts.push((lm/1000).toFixed(1).replace('.',',')+' km'); }
+  parts.push(fmtMin(Math.round(_minOf(sel)))+' Tätigkeit');
+  let restTxt='';
+  if(typeof tour.arbeitszeitMin==='number'&&tour.arbeitszeitMin>0){
+    const members=trees.filter(t=>isActive(t)&&treeInTour(t,tour.id));
+    const m=tourMetrics(tour.id);
+    const used=Math.round((m?m.durationSec:0)/60)+Math.round(tourBewMin(tour.id,members))+tourZusatzMin(tour);
+    const neu=sel.filter(t=>!treeInTour(t,tour.id));
+    const rest=tour.arbeitszeitMin-used-Math.round(_minOf(neu));
+    restTxt=` · danach Restzeit <b style="color:${rest<0?'#fecaca':'#bbf7d0'};">${fmtMin(rest)}</b>`;
+  }
+  return `<span style="font-size:11px;font-weight:600;background:rgba(255,255,255,.12);padding:3px 9px;border-radius:20px;white-space:nowrap;" title="Zeitvorschau der Auswahl für „${dlEsc(tour.name||'')}" — ${useSys?'Reinigungssystem '+sp+' km/h (+ Aufwandssatz für Punkte/Flächen)':'Aufwandssatz je Objektart'}${(typeof tour.arbeitszeitMin==='number'&&tour.arbeitszeitMin>0)?'; Restzeit = Arbeitszeit − bisherige Auslastung − neue Objekte der Auswahl':''}">⏱ ${parts.join(' · ')}${restTxt}</span>`;
+}
 // Aktionsleiste unter dem Planen-Banner: erscheint, sobald etwas ausgewählt ist
 function renderLassoActions(){
   const bar=document.getElementById('lasso-action-bar'); if(!bar) return;
@@ -12013,6 +12047,7 @@ function renderLassoActions(){
   const btn=(act,label,bg)=>`<button onclick="lassoAction('${act}')" style="padding:4px 11px;font-size:12px;font-weight:600;border:none;border-radius:var(--radius-sm);background:${bg};color:#fff;cursor:pointer;white-space:nowrap;">${label}</button>`;
   const _st=_lassoStandorte();
   bar.innerHTML=`<span style="font-weight:700;">${n} ausgewählt${_st<n?` <span style="font-weight:600;color:#fde68a;" title="Mehrere Datensätze liegen auf demselben Punkt">· nur ${_st} Standorte!</span>`:''}</span>
+    ${_lassoZeitPreview(tour)}
     ${btn('add','➕ Zu „'+tn+'“ hinzufügen','rgba(255,255,255,.18)')}
     ${btn('move','➡ Nach „'+tn+'“ verschieben','rgba(255,255,255,.18)')}
     ${btn('unplan','⊘ Aus Tour(en) entfernen','rgba(255,255,255,.18)')}
