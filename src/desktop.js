@@ -6876,6 +6876,42 @@ async function addReinigungsklasse(){
   reinigungsklassen.push({id:_genId(),name,color:_RK_PALETTE[reinigungsklassen.length%_RK_PALETTE.length],freq:{fahrbahn:1}}); // Fahrbahn immer dabei
   await saveReinigungsklassen(); renderFieldCatalog(); notify('✓ Reinigungsklasse angelegt');
 }
+// Reinigungsklassen aus den Werten einer vorhandenen Liste anlegen (Name = Listenwert → keine Doppelbenennung;
+// stimmt mit dem am Segment gespeicherten Wert überein → spätere Umwandlung ordnet automatisch zu).
+function rkFromListOpen(){
+  if(isReadonly()) return;
+  const cands=[{key:'zustand',label:FL.zustand},{key:'wasser',label:FL.wasser},
+    ...customFields.filter(c=>c.key!=='segmentart'&&c.key!=='betriebshof').map(c=>({key:c.key,label:c.label}))]
+    .filter(f=>(rankList(f.key).length||(listValues[f.key]||[]).length));
+  if(!cands.length){ notify('Keine Werteliste vorhanden, aus der Klassen abgeleitet werden können'); return; }
+  const valsOf=key=>{ const rl=rankList(key); const vs=rl.length?rl:(listValues[key]||[]); return vs.map(v=>v.label).filter(Boolean); };
+  const m=document.createElement('div');
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100001;display:flex;align-items:center;justify-content:center;padding:20px;';
+  m.innerHTML=`<div style="background:var(--surface);border-radius:10px;width:460px;max-width:94vw;overflow:hidden;">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;">Reinigungsklassen aus Liste anlegen</div>
+    <div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px;font-size:13px;">
+      <div style="font-size:12px;color:var(--text3);">Legt je Listenwert eine Reinigungsklasse mit <b>gleichem Namen</b> an (Fahrbahn-Häufigkeit 1 als Start — Abdeckung danach je Klasse einstellen). Bereits vorhandene Klassen gleichen Namens bleiben unberührt.</div>
+      <label style="font-size:12px;color:var(--text2);">Liste
+        <select id="rkfl-field" class="form-control" style="width:100%;margin-top:3px;padding:5px 8px;font-size:13px;">${cands.map(c=>`<option value="${dlEsc(c.key)}">${dlEsc(c.label)}</option>`).join('')}</select>
+      </label>
+      <div id="rkfl-info" style="font-size:12px;color:var(--text2);"></div>
+    </div>
+    <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
+      <button id="rkfl-cancel" class="btn btn-secondary" style="padding:7px 12px;">Abbrechen</button>
+      <button id="rkfl-ok" class="btn btn-primary" style="padding:7px 14px;">Anlegen</button>
+    </div></div>`;
+  document.body.appendChild(m);
+  const close=()=>m.remove(); m.querySelector('#rkfl-cancel').onclick=close; m.addEventListener('click',e=>{ if(e.target===m) close(); });
+  const sel=m.querySelector('#rkfl-field'), info=m.querySelector('#rkfl-info');
+  const upd=()=>{ const labels=valsOf(sel.value); const have=new Set(reinigungsklassen.map(r=>r.name)); const neu=labels.filter(l=>!have.has(l)).length; info.textContent=`${labels.length} Werte · ${neu} neue Klasse(n)${labels.length-neu?` · ${labels.length-neu} bereits vorhanden`:''}`; };
+  sel.onchange=upd; upd();
+  m.querySelector('#rkfl-ok').onclick=async()=>{
+    const labels=valsOf(sel.value); const have=new Set(reinigungsklassen.map(r=>r.name)); let n=0;
+    labels.forEach(l=>{ if(!have.has(l)){ reinigungsklassen.push({id:_genId(),name:l,color:_RK_PALETTE[reinigungsklassen.length%_RK_PALETTE.length],freq:{fahrbahn:1}}); have.add(l); n++; } });
+    if(!n){ notify('Alle Klassen existieren bereits'); close(); return; }
+    await saveReinigungsklassen(); close(); renderFieldCatalog(); notify(`✓ ${n} Reinigungsklasse(n) angelegt`);
+  };
+}
 async function setRkColor(id,val){
   if(isReadonly()) return;
   const r=_rkById(id); if(!r) return;
@@ -7261,7 +7297,8 @@ function renderFieldOverview(el){
           ${ELEM_GRUPPE_ORDER.map(g=>`<label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;">${dlEsc(ELEM_GRUPPE_LABEL[g])}${g==='fahrbahn'?' *':''}<input type="number" min="0" step="0.5" value="${r.freq&&r.freq[g]!=null?r.freq[g]:''}" onchange="setRkFreq('${r.id}','${g}',this.value)" placeholder="–" style="width:64px;padding:4px 7px;font-size:12px;border:1px solid var(--border);border-radius:6px;"></label>`).join('')}
         </div>
       </div>`).join('')}
-    <button class="btn btn-secondary" style="padding:7px 14px;font-size:12px;" onclick="addReinigungsklasse()">+ Reinigungsklasse anlegen</button>`;
+    <button class="btn btn-secondary" style="padding:7px 14px;font-size:12px;" onclick="addReinigungsklasse()">+ Reinigungsklasse anlegen</button>
+    <button class="btn btn-secondary" style="padding:7px 14px;font-size:12px;margin-left:6px;" onclick="rkFromListOpen()">↧ Aus vorhandener Liste anlegen</button>`;
   el.innerHTML=`<div style="max-width:880px;margin:0 auto;">
     <div style="font-size:16px;font-weight:700;margin-bottom:4px;">Felder & Listen</div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:16px;">Wähle ein Feld, um seine Auswahlliste zu pflegen; die Bezeichnungen änderst du unten. Freitext-Felder (${dlEsc(FL.name)}, ${dlEsc(FL.baumnr)}, ${dlEsc(FL.notiz)}) haben keine Liste.</div>
@@ -15003,7 +15040,7 @@ Object.assign(window,{
   openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,openBetriebshoefe,
   pickProjIcon,artSetIcon,artSetTime,artSetRate,setArtDefaultTime,artApplyTimeToAll,artSetKlasse,
   renderReinigungssysteme,rsAdd,rsUpdate,rsDelete,
-  renderMandanten,createOrgUi,moveProjectUi,setOrgNaviUi,checkBaumIdDuplicates,flaechenImportOpen,flaechenImportRun,geomDocsImportOpen,geomDocsImportRun,strMigOpen,segartAnalyseOpen,renderSegmentnetz,segmentUmwandelnOpen,lassoAddGehwege,flaechenTourGenOpen,flaechenTourGenRun,
+  renderMandanten,createOrgUi,moveProjectUi,setOrgNaviUi,checkBaumIdDuplicates,flaechenImportOpen,flaechenImportRun,geomDocsImportOpen,geomDocsImportRun,strMigOpen,segartAnalyseOpen,renderSegmentnetz,segmentUmwandelnOpen,lassoAddGehwege,rkFromListOpen,flaechenTourGenOpen,flaechenTourGenRun,
   addWmsLayer,deleteWmsLayer,editWmsLayer,cancelWmsEdit,renderWmsList,
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,setListMode,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,openObjFilterConfig,setObjFilterField,toggleTourCounts,toggleRouteNums,toggleVersatz,toggleTypeFilter,setTypeVisible,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
