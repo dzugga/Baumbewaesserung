@@ -6664,7 +6664,7 @@ function renderArtenList(){
       <span style="font-size:12px;color:var(--text3);">Min/Objekt — gilt für Arten ohne eigenen Wert</span>
       ${artenList.length?`<button class="btn btn-secondary" style="margin-left:auto;padding:4px 10px;font-size:12px;white-space:nowrap;" onclick="artApplyTimeToAll()" title="Diesen Wert in alle ${artenList.length} Arten als eigenen Zeitaufwand schreiben">Für alle Arten übernehmen</button>`:''}
     </div>`}
-    ${unmapped?`<div style="background:#fef3c7;border:1px solid #b45309;color:#7a4a06;border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:10px;">${unmapped} Objekte noch keiner Art-ID zugeordnet — „aufbauen/aktualisieren" klicken.</div>`:''}
+    ${unmapped?`<div style="background:#fef3c7;border:1px solid #b45309;color:#7a4a06;border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:10px;">${unmapped.toLocaleString('de-DE')} Objekte tragen einen Typ/Art-Wert, sind aber noch nicht mit der Arten-Liste verknüpft — „aufbauen/aktualisieren" klicken. (Angelegt wird nur je EIN Eintrag pro unterschiedlichem Wert — eine Vorschau zeigt vorher, welche.)</div>`:''}
     ${artenList.length===0?'<div style="color:var(--text3);font-size:13px;padding:10px 0;">Noch keine Arten-Liste. Klicke „aufbauen/aktualisieren", um sie aus den Objekten zu erzeugen.</div>':`
     <table style="width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:13px;">
       <thead><tr style="background:var(--surface2);">
@@ -6807,14 +6807,25 @@ async function _ensureArten(names){
   if(created){ await loadArten(); }
   return Object.fromEntries(by);
 }
-async function buildArten(){
+async function buildArten(silent){
   if(isReadonly()) return notify('Nur Lesezugriff');
   if(!currentProjectId) return;
-  notify('Arten-Liste wird aktualisiert…');
   await loadArten();
   const byName=new Map(artenList.map(a=>[a.name,a.id]));
   // Container (Abschnitte) sind keine Objekte → ihre „Art" (Straßenabschnitt) NICHT in die Arten-Liste aufnehmen
   const names=[...new Set(trees.filter(t=>!_isContainer(t)).map(t=>(t.art||'').trim()).filter(Boolean))];
+  // Vorschau + Bestätigung (nur beim manuellen Aufruf): zeigt, WELCHE Arten entstehen — schützt davor,
+  // dass eine versehentlich auf Typ/Art gemappte Import-Spalte hunderte Arten anlegt.
+  if(!silent){
+    const neu=names.filter(nm=>!byName.has(nm));
+    if(!names.length){ notify('Keine Typ/Art-Werte an den Objekten gefunden'); return; }
+    const sample=neu.slice(0,20).join(', ')+(neu.length>20?` … (+${neu.length-20} weitere)`:'');
+    const msg=neu.length
+      ? `${neu.length} neue Art(en) werden angelegt:\n\n${sample}\n\nAnschließend werden die Objekte den Arten zugeordnet. Fortfahren?`
+      : `Keine neuen Arten nötig — die Objekte werden nur den ${names.length} vorhandenen Art(en) zugeordnet. Fortfahren?`;
+    if(!await _confirmBox('Arten-Liste aufbauen', msg, 'Fortfahren', 'Abbrechen')) return;
+  }
+  notify('Arten-Liste wird aktualisiert…');
   for(const nm of names){
     if(!byName.has(nm)){
       const ref=await addDoc(collection(db,'projects',currentProjectId,'arten'),{name:nm,orgId:currentProjectData?.orgId||currentOrg||null,createdAt:serverTimestamp()});
@@ -9730,7 +9741,7 @@ async function doImport(){
   closeImportPreview();
   notify(`✓ ${imported} neu${updated?` · ${updated} aktualisiert`:''}${_importSwap?' · Koordinaten getauscht':''}`);
   // Arten-Liste nachziehen (neue Typen bekommen IDs); verzögert, bis Snapshot da ist
-  if(!isReadonly()) setTimeout(()=>{ if(currentProjectId) buildArten().catch(()=>{}); }, 1800);
+  if(!isReadonly()) setTimeout(()=>{ if(currentProjectId) buildArten(true).catch(()=>{}); }, 1800); // silent: kein Bestätigungs-Dialog nach dem Import (Spalten wurden bewusst gemappt)
 }
 
 // ─── BAUM ID ──────────────────────────────────────────────────
