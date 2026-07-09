@@ -2528,8 +2528,9 @@ function _renderRkLegend(){
 // Bounds aller Flächen der aktuell ausgewählten Touren (für „einpassen")
 function _flaechenSelBounds(){
   if(!_flaechenLayer) return null; let b=null;
+  const byExt=new Map((trees||[]).filter(t=>t.extId).map(t=>[t.extId,t])); // Index statt trees.find je Layer
   _flaechenLayer.eachLayer(l=>{ const ext=l.feature&&l.feature.properties&&l.feature.properties.extId;
-    const t=ext?trees.find(x=>x.extId===ext):null;
+    const t=ext?byExt.get(ext):null;
     if(t&&treeInAnyActiveTour(t)&&l.getBounds){ const lb=l.getBounds(); if(lb&&lb.isValid()) b=b?b.extend(lb):L.latLngBounds(lb.getSouthWest(),lb.getNorthEast()); } });
   return b;
 }
@@ -2780,10 +2781,19 @@ function renderDrawnGeoms(){
     if(num!=null){ try{ _placeNum(num, layer.getBounds().getCenter(), _flTourColorFor(t)); }catch(_){} }
   });
 }
-function _drawnSelBounds(){ let b=null; for(const id in _drawnById){ const t=trees.find(x=>x.id===id); const l=_drawnById[id];
-  // Container zählt, wenn EINE seiner Seiten in einer aktiven Tour liegt (Mittellinien-Modus); im Versatz-Modus sind die Seiten selbst im Layer.
-  const inSel = t && (treeInAnyActiveTour(t) || (_isContainer(t) && _ausstattungOf(t.extId).some(s=>treeInAnyActiveTour(s))));
-  if(inSel&&l.getBounds){ const lb=l.getBounds(); if(lb&&lb.isValid()) b=b?b.extend(lb):L.latLngBounds(lb.getSouthWest(),lb.getNorthEast()); } } return b; }
+// Bounds der zu einer aktiven Tour gehörenden Geometrie — direkt über die gecachte bbox der Tour-Objekte
+// (nicht über _drawnById + trees.find → das war O(sichtbar × alle) und bei großen Netzen sekundenlang).
+function _drawnSelBounds(){
+  let s=90,n=-90,w=180,e=-180,any=false;
+  for(const t of (trees||[])){
+    if(!_hasDrawnGeom(t)) continue;
+    const inSel = treeInAnyActiveTour(t) || (_isContainer(t) && _ausstattungOf(t.extId).some(x=>treeInAnyActiveTour(x)));
+    if(!inSel) continue;
+    const bb=_geomBbox(t); if(!bb) continue; any=true;
+    if(bb[0]<s)s=bb[0]; if(bb[1]>n)n=bb[1]; if(bb[2]<w)w=bb[2]; if(bb[3]>e)e=bb[3];
+  }
+  return any?L.latLngBounds([s,w],[n,e]):null;
+}
 
 // ─── ZEICHNEN-MODUS (Fläche/Strecke auf der Karte) ───────────────────────────
 let _drawMode=null, _drawPts=[], _drawLayer=null;
