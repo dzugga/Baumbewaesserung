@@ -3083,14 +3083,12 @@ async function applyTourSelection(fit){
   }
 
   applyClusterMode(_effectiveCluster(), false); // Cluster nur ohne Tour-Auswahl → in Touransicht Einzelmarker
-  setMarkerVisibility();
-  rebuildMarkersWithNumbers();
-  renderDrawnGeoms(); // Geometrie mit aktualisierten Reihenfolge-Nummern/Farben
-  _applyFlaechenSelection();
+  rebuildMarkersWithNumbers();                  // ruft intern setMarkerVisibility → separater Aufruf entfällt
+  renderDrawnGeoms();                           // baut + färbt gezeichnete Geometrie inkl. Reihenfolge-Nummern
+  if(_flaechenLayer) _applyFlaechenSelection(); // nur das Flächen-Bundle nachfärben — Linien hat renderDrawnGeoms schon gefärbt (spart bei großen Netzen einen Voll-Durchlauf)
   updateRouteInfoBar();
   renderLegend();
-  renderFilters();
-  renderList();
+  renderListDebounced();                        // Liste entkoppeln → blockiert den Auswahlwechsel nicht
 }
 
 // ─── LEGEND ───────────────────────────────────────────────────
