@@ -651,6 +651,28 @@ async function createProject(){
   }catch(e){ notify('Fehler: '+e.message); }
 }
 
+// Sofort-Zentrum beim Projekt-Öffnen (ohne auf die Objekte zu warten): Betriebshöfe → Projekt-Depot → null.
+function _projectCenter(){
+  const bh=(listValues.betriebshof||[]).filter(b=>b.lat!=null&&b.lng!=null);
+  if(bh.length){ return [bh.reduce((s,b)=>s+ +b.lat,0)/bh.length, bh.reduce((s,b)=>s+ +b.lng,0)/bh.length]; }
+  const d=currentProjectData&&currentProjectData.depot; if(d&&d.lat!=null) return [+d.lat,+d.lng];
+  return null;
+}
+// Lade-Overlay über der Karte (A2): verdeckt die Start-Karte, bis die Objekte gerendert sind.
+function _showLoadOverlay(name){
+  _hideLoadOverlay();
+  const d=document.createElement('div'); d.id='project-loading';
+  d.style.cssText='position:fixed;inset:54px 0 0 0;z-index:1600;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;';
+  d.innerHTML=`<style>@keyframes plspin{to{transform:rotate(360deg)}}</style>
+    <div style="width:34px;height:34px;border:3px solid var(--border);border-top-color:var(--green);border-radius:50%;animation:plspin 1s linear infinite;"></div>
+    <div style="font-size:15px;font-weight:700;color:var(--text);">${dlEsc(name||'Projekt')}</div>
+    <div id="pl-sub" style="font-size:12px;color:var(--text3);">Objekte werden geladen…</div>`;
+  document.body.appendChild(d);
+  clearTimeout(_loadOverlayTimer); _loadOverlayTimer=setTimeout(_hideLoadOverlay, 45000); // Sicherheitsnetz gegen Hängenbleiben
+}
+let _loadOverlayTimer=null;
+function _setLoadOverlaySub(txt){ const e=document.getElementById('pl-sub'); if(e) e.textContent=txt; }
+function _hideLoadOverlay(){ clearTimeout(_loadOverlayTimer); const e=document.getElementById('project-loading'); if(e) e.remove(); }
 async function openProject(projectId){
   if(unsubProjects){ unsubProjects(); unsubProjects=null; } // Projekt-Listener stoppen (spart Hintergrund-Reads)
   _routesCache={};_routesLoadedFor=null; // Routen-Cache für neues Projekt verwerfen
@@ -681,12 +703,14 @@ async function openProject(projectId){
   _resetAutoplanState(); // Auto-Planungs-Varianten/Rahmen/Auswahl gehören zum ALTEN Projekt — verwerfen (sonst Cross-Projekt-Schreiben)
   _listMode = currentProjectData.listAbschnitteDefault ? 'abschnitte' : 'objekte'; // Listen-Standard je Projekt
   document.getElementById('active-project-name').textContent=currentProjectData.name;
+  _showLoadOverlay(currentProjectData.name); // A2: Lade-Overlay bis Objekte gerendert
   // Mandant neben dem Projektnamen (gecacht, max. 1 Read)
   const apOrg=document.getElementById('active-project-org');
   if(apOrg){ apOrg.textContent=''; const _oid=currentProjectData.orgId; if(_oid) orgDisplayName(_oid).then(n=>{ if(n&&currentProjectData?.orgId===_oid) apOrg.textContent='· '+n; }); }
   document.getElementById('project-screen').style.display='none';
   loadFieldLabels();
   loadListValues();
+  try{ const _c=_projectCenter(); if(_c && map) map.setView(_c, 13); }catch(_){} // A1: sofort auf die Stadt zentrieren (kein Osnabrück-Flash)
   applyModulePermissions(); // Reiter-Sichtbarkeit projektscharf neu setzen (projects.modules)
   // Ist die offene Ansicht im neuen Projekt abgeschaltet → zurück zur Karte
   { const vm={disposition:'disposition',controlling:'controlling',ki:'ki',dashboard:'dashboard',baeume:'objekte',touren:'touren',wmskarten:'wms',verwaltung:'verwaltung',einsatzplaner:'einsatzplaner'}[currentView];
@@ -725,6 +749,7 @@ function syncDataViewToProject(){
 }
 
 function showProjectScreen(){
+  _hideLoadOverlay();
   if(unsubTours){unsubTours();unsubTours=null;}
   if(unsubTrees){unsubTrees();unsubTrees=null;}
   // clear map
@@ -775,6 +800,7 @@ function subscribeToProject(){
       renderListDebounced();
     }
     maybeFitCity(); // beim ersten Laden auf die Stadt zoomen
+    if(document.getElementById('project-loading')){ _setLoadOverlaySub(`${_allTrees.length.toLocaleString('de-DE')} Objekte geladen`); _hideLoadOverlay(); } // A2: Overlay weg, sobald gerendert
     if(currentView==='baeume'){
       const artenTab=document.getElementById('baeume-arten');
       if(artenTab && getComputedStyle(artenTab).display!=='none') renderFieldCatalog();
