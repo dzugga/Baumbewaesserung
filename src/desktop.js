@@ -882,6 +882,14 @@ function bewMinutes(arg){
   if(Array.isArray(arg)) return arg.reduce((s,t)=>s+artBewMin(t),0);
   return (arg||0)*getBewDuration();
 }
+// Bearbeitungsminuten einer Tour. Bei System-Grundlage sind die Linien-Abschnitte bereits über die
+// Reinigungsgeschwindigkeit (Strecke ÷ km/h) erfasst → nicht zusätzlich per Aufwandssatz zählen
+// (keine Doppelzählung); Punkt-/Flächenobjekte zählen weiter mit.
+function tourBewMin(tid, treeList){
+  const list=treeList||[];
+  if(_tourEffSource(tid)==='system') return bewMinutes(list.filter(t=>geomTypeOf(t)!=='linie'));
+  return bewMinutes(list);
+}
 function fmtBewTime(arg){
   const mins=Math.round(bewMinutes(arg));
   const h=Math.floor(mins/60), m=mins%60;
@@ -906,7 +914,7 @@ function tourRestzeit(tour,treeList,driveSec){
   const az=tour&&tour.arbeitszeitMin;
   if(!(typeof az==='number'&&az>0)) return null;
   const driveMin=Math.round((driveSec||0)/60);
-  const bewMin=Math.round(bewMinutes(treeList||[]));
+  const bewMin=Math.round(tourBewMin(tour&&tour.id,treeList||[]));
   const zusMin=tourZusatzMin(tour);
   const usedMin=driveMin+bewMin+zusMin;
   return {azMin:az,driveMin,bewMin,zusMin,usedMin,restMin:az-usedMin};
@@ -1667,28 +1675,42 @@ function _tourSpeedKmh(tid){
 // Zu bearbeitende Strecke einer Tour (Meter) = Summe der effektiven Längen ALLER Linien-Objekte der Tour.
 // Fahrbahn links und rechts zählen getrennt (jede ihre Länge) — die zu reinigende Strecke ist also
 // die Summe beider Seiten, nicht die einmalige Mittellinie/Route.
+let _workMetersCache=new Map(), _workMetersRef=null;
 function _tourWorkMeters(tid){
+  if(_workMetersRef!==trees){ _workMetersCache=new Map(); _workMetersRef=trees; } // Cache je Trees-Snapshot (Grid/Legende/Checks rufen mehrfach)
+  if(_workMetersCache.has(tid)) return _workMetersCache.get(tid);
   let m=0;
   for(const t of (trees||[])){ if(t.aktiv===false||!treeInTour(t,tid)) continue; if(geomTypeOf(t)==='linie') m+=_effMenge(t); }
+  _workMetersCache.set(tid,m);
   return m;
 }
-// Kennzahlen einer Tour: bevorzugt geladene Route (tourRoutes), sonst persistierte Tour-Werte.
-// Ist der Tour ein Reinigungssystem mit Geschwindigkeit zugeordnet, bestimmt diese die Fahrtzeit über die
-// zu bearbeitende Strecke (Summe der Seiten-Längen ÷ Geschwindigkeit) statt der ORS-/Auto-Fahrzeit.
+// Effektive Grundlage der Zeitberechnung einer Tour: 'system' (Strecke ÷ Geschwindigkeit, OHNE Route),
+// 'route' (ORS/gespeicherte Route) oder '' (nichts berechenbar). tour.zeitBasis: 'auto' (Default) bevorzugt
+// das Reinigungssystem, wenn Geschwindigkeit + Linien-Strecke vorhanden sind; 'system'/'route' erzwingen.
+function _tourEffSource(tid){
+  const t=tours.find(x=>x.id===tid); const basis=(t&&t.zeitBasis)||'auto';
+  const sysAvail=_tourSpeedKmh(tid)>0 && _tourWorkMeters(tid)>0;
+  const routeAvail=!!tourRoutes[tid] || (t && typeof t.routeKm==='number');
+  if(basis==='route')  return routeAvail?'route':'';                    // erzwungen: Route (keine System-Ersatzrechnung)
+  if(basis==='system') return sysAvail?'system':(routeAvail?'route':''); // erzwungen: System, notfalls Route
+  return sysAvail?'system':(routeAvail?'route':'');                     // auto
+}
+// Kennzahlen einer Tour. Grundlage 'system' rechnet km + Zeit aus der zu bearbeitenden Strecke
+// (Summe der Seiten-Längen ÷ Geschwindigkeit) OHNE Route; 'route' nutzt die (geladene/gespeicherte) ORS-Route.
+// estimated=true kennzeichnet die System-Schätzung ohne vorliegende Route.
 function tourMetrics(tid){
-  let km=null, durationSec=0;
+  const t=tours.find(x=>x.id===tid);
+  let routeKm=null, routeDur=0, routeReinKm=null, routeLeerKm=null;
   const rt=tourRoutes[tid];
-  if(rt){ km=rt.km||0; durationSec=rt.durationSec||0; }
-  else { const t=tours.find(x=>x.id===tid); if(t && typeof t.routeKm==='number'){ km=t.routeKm; durationSec=t.routeDriveSec||0; } }
-  if(km==null) return null;
-  const routeKm=km; // ORS-Routenstrecke (gefahrener Weg) — vor dem Geschwindigkeits-Override
-  const sp=_tourSpeedKmh(tid);
-  let reinKm=null;
-  if(sp>0){ const wm=_tourWorkMeters(tid); if(wm>0){ reinKm=wm/1000; km = reinKm; durationSec = wm*3.6/sp; } } // km + Zeit über die zu bearbeitende Strecke (beide Seiten)
-  // Aufteilung der gefahrenen Route: Reinigungsfahrt (über Tour-Strecken) + Anfahrt/Leerfahrt — summiert zu routeKm
-  const routeReinKm = rt && typeof rt.routeReinKm==='number' ? rt.routeReinKm : null;
-  const routeLeerKm = rt && typeof rt.routeLeerKm==='number' ? rt.routeLeerKm : null;
-  return {km, durationSec, routeKm, reinKm, routeReinKm, routeLeerKm};
+  if(rt){ routeKm=rt.km||0; routeDur=rt.durationSec||0; routeReinKm=(typeof rt.routeReinKm==='number')?rt.routeReinKm:null; routeLeerKm=(typeof rt.routeLeerKm==='number')?rt.routeLeerKm:null; }
+  else if(t && typeof t.routeKm==='number'){ routeKm=t.routeKm; routeDur=t.routeDriveSec||0; }
+  const src=_tourEffSource(tid);
+  if(src==='system'){
+    const wm=_tourWorkMeters(tid), sp=_tourSpeedKmh(tid), reinKm=wm/1000;
+    return {km:reinKm, durationSec:wm*3.6/sp, routeKm, reinKm, routeReinKm, routeLeerKm, source:'system', estimated:(routeKm==null)};
+  }
+  if(src==='route') return {km:routeKm, durationSec:routeDur, routeKm, reinKm:null, routeReinKm, routeLeerKm, source:'route', estimated:false};
+  return null;
 }
 // Füllt das Routen-Kennzahlen-Panel (Sidebar): Gesamtzeit + km, Proportionsleiste, Chips.
 function _fillRoutePanel(name,cnt,km,driveMin,bewMin,zusMin,azMin,routeKm,routeReinKm,routeLeerKm){
@@ -1741,9 +1763,9 @@ function updateRouteInfoBar(){
   if(bar) bar.classList.remove('visible'); // schwebende Routen-Info-Leiste entfernt — Infos im Seitenpanel
   // Mehrere Touren ausgewählt → kompakte Summe
   if(activeTours.size>1){
-    let km=0,dur=0,zusAll=0,azAll=0,rKm=0,rrKm=0,rlKm=0,hasSplit=false; activeTours.forEach(tid=>{ const m=tourMetrics(tid); if(m){ km+=m.km; dur+=m.durationSec; rKm+=(m.routeKm||0); if(m.routeReinKm!=null){ rrKm+=m.routeReinKm; rlKm+=(m.routeLeerKm||0); hasSplit=true; } } const tt=tours.find(x=>x.id===tid); if(tt){ zusAll+=tourZusatzMin(tt); if(tt.arbeitszeitMin>0) azAll+=tt.arbeitszeitMin; } });
+    let km=0,dur=0,zusAll=0,azAll=0,rKm=0,rrKm=0,rlKm=0,bewAll=0,hasSplit=false; activeTours.forEach(tid=>{ const m=tourMetrics(tid); if(m){ km+=m.km; dur+=m.durationSec; rKm+=(m.routeKm||0); if(m.routeReinKm!=null){ rrKm+=m.routeReinKm; rlKm+=(m.routeLeerKm||0); hasSplit=true; } } bewAll+=tourBewMin(tid, trees.filter(x=>treeInTour(x,tid)&&isActive(x))); const tt=tours.find(x=>x.id===tid); if(tt){ zusAll+=tourZusatzMin(tt); if(tt.arbeitszeitMin>0) azAll+=tt.arbeitszeitMin; } });
     const members=trees.filter(t=>treeInAnyActiveTour(t)&&isActive(t)); const cnt=members.length;
-    _fillRoutePanel(`${activeTours.size} Touren`, cnt, km||null, dur/60, bewMinutes(members), zusAll, azAll, rKm||null, hasSplit?rrKm:null, hasSplit?rlKm:null);
+    _fillRoutePanel(`${activeTours.size} Touren`, cnt, km||null, dur/60, bewAll, zusAll, azAll, rKm||null, hasSplit?rrKm:null, hasSplit?rlKm:null);
     return;
   }
   const _activeM=activeTourOnMap?tourMetrics(activeTourOnMap):null;
@@ -1751,7 +1773,7 @@ function updateRouteInfoBar(){
   const members=tour?trees.filter(t=>treeInTour(t,activeTourOnMap)&&isActive(t)):[];
   if(_activeM || members.length){ // Flächen-Touren haben keine Route, aber Objekte → Panel trotzdem zeigen
     const cnt=members.length;
-    _fillRoutePanel(tour?.name||'', cnt, _activeM?_activeM.km:null, _activeM?_activeM.durationSec/60:0, bewMinutes(members), tourZusatzMin(tour), (tour&&tour.arbeitszeitMin>0)?tour.arbeitszeitMin:0, _activeM?_activeM.routeKm:null, _activeM?_activeM.routeReinKm:null, _activeM?_activeM.routeLeerKm:null);
+    _fillRoutePanel(tour?.name||'', cnt, _activeM?_activeM.km:null, _activeM?_activeM.durationSec/60:0, tourBewMin(activeTourOnMap,members), tourZusatzMin(tour), (tour&&tour.arbeitszeitMin>0)?tour.arbeitszeitMin:0, _activeM?_activeM.routeKm:null, _activeM?_activeM.routeReinKm:null, _activeM?_activeM.routeLeerKm:null);
   } else {
     if(bar) bar.classList.remove('visible');
     const sp=document.getElementById('sidebar-route-info'); if(sp) sp.style.display='none';
@@ -3218,7 +3240,7 @@ function renderLegend(){
     const _tm=tourMetrics(t.id);
     const members=trees.filter(x=>treeInTour(x,t.id)&&isActive(x)); // inkl. Flächen/Strecken (ohne lat/lng)
     const cnt=members.length;
-    const total=_tm?fmtTotalTime(_tm.durationSec,members,tourZusatzMin(t)):'';
+    const total=_tm?fmtMin(Math.round(_tm.durationSec/60)+Math.round(tourBewMin(t.id,members))+tourZusatzMin(t)):'';
     const isSel=activeTours.has(t.id);
     const isExp=legendExpanded.has(t.id);
     // Übersichten: kein Aufklapp-Pfeil (keine Route/Zeiten), nur Objektzahl
@@ -3227,13 +3249,13 @@ function renderLegend(){
       <input type="checkbox" class="tour-check"${isSel?' checked':''} style="margin:0 4px 0 0;cursor:pointer;flex-shrink:0;accent-color:${t.color};">
       <div class="legend-line" style="background:${t.color};width:16px;height:3px;"></div>
       <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">${dlEsc(t.name)}</span>
-      ${t.routeStale&&!ov?'<span title="Route veraltet — neu berechnen" style="color:#b45309;font-size:11px;flex-shrink:0;">⚠</span>':''}
+      ${t.routeStale&&!ov&&_tourEffSource(t.id)!=='system'?'<span title="Route veraltet — neu berechnen" style="color:#b45309;font-size:11px;flex-shrink:0;">⚠</span>':''}
       <span class="legend-km" style="font-size:10px;">${ov?cnt:(_tm?total:cnt+' Obj.')}</span>
       ${ov?'':`<svg data-expand="${t.id}" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2.5" style="flex-shrink:0;cursor:pointer;padding:1px;transition:transform .15s;transform:rotate(${isExp?180:0}deg);"><path d="M6 9l6 6 6-6"/></svg>`}
     </div>`;
     if(isExp && !ov){
       if(_tm){
-        const driveMin=Math.round(_tm.durationSec/60), bewMin=Math.round(bewMinutes(members));
+        const driveMin=Math.round(_tm.durationSec/60), bewMin=Math.round(tourBewMin(t.id,members));
         const base=Math.max(driveMin+bewMin,1), dw=Math.round(driveMin/base*100);
         r+=`<div data-tourname="${(t.name||'').toLowerCase().replace(/"/g,'&quot;')}" style="margin:0 6px 4px 30px;padding:5px 8px;background:var(--surface2);border-radius:6px;">
           <div style="display:flex;height:4px;border-radius:2px;overflow:hidden;margin-bottom:4px;">
@@ -3241,10 +3263,10 @@ function renderLegend(){
             <div style="width:${100-dw}%;background:var(--green-mid);"></div>
           </div>
           <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);">
-            <span>Fahrt ${fmtDuration(_tm.durationSec)}</span><span>Tätigkeit ${fmtBewTime(members)}</span>
+            <span>${_tm.source==='system'?'Reinigung':'Fahrt'} ${fmtDuration(_tm.durationSec)}</span><span>Tätigkeit ${fmtMin(Math.round(tourBewMin(t.id,members)))}</span>
           </div>
           <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:1px;">
-            <span>${_tm.km.toFixed(1)} km</span><span>${cnt} Objekte</span>
+            <span>${_tm.km.toFixed(1)} km${_tm.estimated?' <span title="Zeit aus dem Reinigungssystem geschätzt — ohne Route">≈</span>':''}</span><span>${cnt} Objekte</span>
           </div>${(()=>{const z=tourZusatzMin(t);const rz=tourRestzeit(t,members,_tm.durationSec);let out='';
           if(z>0) out+=`<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:1px;"><span>Zusatztätigkeiten</span><span>${fmtMin(z)}</span></div>`;
           if(rz) out+=`<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:1px;border-top:1px solid var(--border);padding-top:2px;"><span>Arbeitszeit ${fmtMin(rz.azMin)}</span><span style="font-weight:700;color:${rz.restMin<0?'var(--red)':'var(--green-strong,#15803d)'};" title="Arbeitszeit − Fahrt − Tätigkeit − Zusatz">Restzeit ${fmtMin(rz.restMin)}</span></div>`;
@@ -5194,6 +5216,7 @@ function openTourModal(id){
   }
   const sysSel=document.getElementById('t-system');
   if(sysSel){ sysSel.innerHTML='<option value="">— keines —</option>'+getReinigungssysteme().map(s=>`<option value="${dlEsc(s.id)}">${dlEsc(s.name)} (${_rsTypLabel(s.typ)})</option>`).join(''); sysSel.value=t?.reinigungssystem||''; }
+  const zbSel=document.getElementById('t-zeitbasis'); if(zbSel) zbSel.value=t?.zeitBasis||'auto';
   const bhSel=document.getElementById('t-betriebshof');
   if(bhSel){ bhSel.innerHTML='<option value="">— automatisch / Projekt-Depot —</option>'+(listValues.betriebshof||[]).map(b=>`<option value="${dlEsc(b.label)}">${dlEsc(b.label)}${b.lat==null?' (ohne Koordinaten)':''}</option>`).join(''); bhSel.value=t?.betriebshof||''; }
   const az=t&&typeof t.arbeitszeitMin==='number'&&t.arbeitszeitMin>0?t.arbeitszeitMin:0;
@@ -5232,7 +5255,7 @@ async function saveTour(){
   const interval=document.getElementById('t-interval').value||'';
   const gueltig=(window._tourGueltig||[]).filter(g=>g.from&&g.to).map(g=>({from:g.from,to:g.to}));
   const betriebstage=_WD.map(w=>w.n).filter(n=>(window._tourBt||[]).includes(n)); // stabile Reihenfolge Mo→So
-  const data={name,desc:document.getElementById('t-desc').value,color:selectedTourColor,zusatzzeiten,regeln:collectTourRegeln(),startDate,interval,betriebstage,gueltig,reinigungssystem:document.getElementById('t-system')?.value||'',betriebshof:document.getElementById('t-betriebshof')?.value||''};
+  const data={name,desc:document.getElementById('t-desc').value,color:selectedTourColor,zusatzzeiten,regeln:collectTourRegeln(),startDate,interval,betriebstage,gueltig,reinigungssystem:document.getElementById('t-system')?.value||'',zeitBasis:document.getElementById('t-zeitbasis')?.value||'auto',betriebshof:document.getElementById('t-betriebshof')?.value||''};
   try{
     if(editingTourId){
       data.arbeitszeitMin=arbeitszeitMin>0?arbeitszeitMin:firebase.firestore.FieldValue.delete();
@@ -7544,7 +7567,8 @@ function _tourChecks(){
     if(!drivers.length) ohneFahrer.push(t);
     const rt=tourRoutes[t.id];
     const hasRoute=!!rt||typeof t.routeKm==='number';
-    if(rp){
+    const _sysBasis=_tourEffSource(t.id)==='system'; // System-Grundlage braucht keine Route
+    if(rp&&!_sysBasis){
       if(!hasRoute) ohneRoute.push(t);
       else if(rt&&Array.isArray(rt.orderIds)){                // veraltet: Route-Menge ≠ aktuelle Mitglieder
         const setO=new Set(rt.orderIds), setM=new Set(members.map(m=>m.id));
@@ -7552,7 +7576,7 @@ function _tourChecks(){
         if(diff) veraltet.push(t);
       }
     }
-    const driveVal=rt?rt.durationSec:(typeof t.routeDriveSec==='number'?t.routeDriveSec:null);
+    const _mm=tourMetrics(t.id); const driveVal=_mm?_mm.durationSec:null;
     const rz=tourRestzeit(t,members,driveVal);
     if(rz&&rz.restMin<0) ueberbucht.push(t);
     if(tourViolatingTrees(t).length) regel.push(t);
@@ -7632,15 +7656,16 @@ function renderTourenGrid(){
     const treesInTour=trees.filter(t=>treeInTour(t,tour.id));
     const cnt=treesInTour.length;
     const zCounts=rankList('zustand').map(e=>({label:e.label,farbe:e.farbe,n:treesInTour.filter(t=>(t.zustand||'')===e.id).length}));
-    const rt=tourRoutes[tour.id];
-    // In-Memory-Route bevorzugen (frisch nach Neuberechnung), sonst gespeicherte Tour-Kennzahlen
-    const kmVal   = rt ? rt.km          : (typeof tour.routeKm==='number'      ? tour.routeKm      : null);
-    const driveVal= rt ? rt.durationSec : (typeof tour.routeDriveSec==='number'? tour.routeDriveSec : null);
-    const km=kmVal!=null?kmVal.toFixed(1)+' km':'–';
-    const driveZeit=driveVal?fmtDuration(driveVal):'–';
-    const bewZeit=kmVal!=null?fmtBewTime(treesInTour):'–';
+    // Kennzahlen über tourMetrics: bei Reinigungssystem-Grundlage ohne Route (Strecke ÷ Geschwindigkeit), sonst Route
+    const _m=tourMetrics(tour.id);
+    const kmVal   = _m ? _m.km          : null;
+    const driveVal= _m ? _m.durationSec : null;
+    const km=kmVal!=null?kmVal.toFixed(1)+' km'+(_m&&_m.estimated?' ≈':''):'–';
+    const driveZeit=(driveVal!=null)?fmtDuration(driveVal):'–';
+    const _bewMin=_m?Math.round(tourBewMin(tour.id,treesInTour)):0;
+    const bewZeit=_m?fmtMin(_bewMin):'–';
     const _zusMin=tourZusatzMin(tour);
-    const gesamtZeit=driveVal?fmtTotalTime(driveVal,treesInTour,_zusMin):'–';
+    const gesamtZeit=_m?fmtMin(Math.round((driveVal||0)/60)+_bewMin+_zusMin):'–';
     const _rz=tourRestzeit(tour,treesInTour,driveVal);
     const _violCnt=tourViolatingTrees(tour).length;
     const _rulesActive=tourHasRules(tour);
@@ -7655,7 +7680,7 @@ function renderTourenGrid(){
       :'<span style="color:var(--text3);font-size:12px;">–</span>';
     return `<tr style="border-top:1px solid var(--border);" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''">
       <td style="padding:10px 16px;"><div style="width:14px;height:14px;border-radius:3px;background:${tour.color};flex-shrink:0;"></div></td>
-      <td style="padding:10px 16px;font-weight:600;white-space:nowrap;">${tour.name}${tour.routeStale&&!tour.uebersicht?` <span title="Zusammenstellung geändert — Route neu berechnen" style="font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⚠ Route veraltet</span>`:''}${tour.uebersicht?' <span style="font-size:10px;font-weight:600;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Übersicht</span>':''}${_violCnt?` <span onclick="showTourViolations('${tour.id}')" title="Anzeigen: welche Objekte die Zuordnungsregeln verletzen" style="cursor:pointer;font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⚠ ${_violCnt} Regelverstoß</span>`:(_rulesActive?' <span title="Zuordnungsregeln aktiv" style="font-size:10px;font-weight:600;color:var(--text3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Regeln</span>':'')}</td>
+      <td style="padding:10px 16px;font-weight:600;white-space:nowrap;">${tour.name}${tour.routeStale&&!tour.uebersicht&&_tourEffSource(tour.id)!=='system'?` <span title="Zusammenstellung geändert — Route neu berechnen" style="font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⚠ Route veraltet</span>`:''}${tour.uebersicht?' <span style="font-size:10px;font-weight:600;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Übersicht</span>':''}${_violCnt?` <span onclick="showTourViolations('${tour.id}')" title="Anzeigen: welche Objekte die Zuordnungsregeln verletzen" style="cursor:pointer;font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⚠ ${_violCnt} Regelverstoß</span>`:(_rulesActive?' <span title="Zuordnungsregeln aktiv" style="font-size:10px;font-weight:600;color:var(--text3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Regeln</span>':'')}</td>
       <td style="padding:10px 16px;color:var(--text2);font-size:12px;">${tour.desc||'–'}</td>
       <td style="padding:10px 16px;text-align:center;"><input type="checkbox" ${tour.uebersicht?'checked':''} onchange="toggleTourUebersicht('${tour.id}',this.checked)" style="cursor:pointer;width:16px;height:16px;" title="Als Übersicht markieren (keine echte Tour)"></td>
       <td style="padding:10px 16px;text-align:right;font-weight:600;">${cnt}</td>
@@ -7971,7 +7996,7 @@ async function printTourMap(){
   const km=(routeData&&typeof routeData.km==='number')?routeData.km:(tourRoutes[tourId]&&tourRoutes[tourId].km);
   const zus=tourZusatzMin(tour);
   const _flM2=flTrees0.reduce((s,t)=>s+(parseFloat(t.menge)||0),0);
-  const kennz=`${stops.length} Objekte${_flM2?` · ${_repNum(Math.round(_flM2))} m²`:''}${km!=null?` · ${km.toFixed(1)} km`:''}${driveSec?` · ${fmtDuration(driveSec)} Fahrt`:''}${stopsTrees.length?` · gesamt ${fmtTotalTime(driveSec,stopsTrees,zus)}`:''}`;
+  const kennz=`${stops.length} Objekte${_flM2?` · ${_repNum(Math.round(_flM2))} m²`:''}${km!=null?` · ${km.toFixed(1)} km`:''}${driveSec?` · ${fmtDuration(driveSec)} Fahrt`:''}${stopsTrees.length?` · gesamt ${fmtMin(Math.round(driveSec/60)+Math.round(tourBewMin(tourId,stopsTrees))+zus)}`:''}`;
   baseAttr=baseAttr+' · Route: OpenRouteService';
   const titleSub='Kartenausdruck · '+dlEsc(currentProjectData?.name||'')+' · '+dlEsc(dashFmtDE(new Date()));
   const color=tour.color;
@@ -8299,7 +8324,8 @@ function initFeldbezeichnungen(){
 
 // ─── REINIGUNGSSYSTEME (Verwaltung) ──────────────────────────────────────────
 // Je Projekt: Liste {id,name,typ(maschinell|manuell|team),speed(km/h)}. Je Tour wählbar.
-// Geschwindigkeit wird gespeichert (für die spätere Routenzeit) — noch nicht in die Zeit verdrahtet.
+// Geschwindigkeit (km/h) treibt die Tour-Zeit: Strecke ÷ Geschwindigkeit (siehe tourMetrics/_tourEffSource),
+// wahlweise ganz ohne Route (Tour-Feld zeitBasis = 'system'/'auto').
 function getReinigungssysteme(){ return Array.isArray(currentProjectData?.reinigungssysteme)?currentProjectData.reinigungssysteme:[]; }
 function _rsTypLabel(t){ return {maschinell:'maschinell',manuell:'manuell',team:'Team'}[t]||t||''; }
 async function _rsSave(list){

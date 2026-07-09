@@ -817,6 +817,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       <div class="form-group"><label class="form-label">Tourname *</label><input class="form-control" id="t-name" placeholder="z.B. Nordpark"></div>
       <div class="form-group"><label class="form-label">Beschreibung</label><input class="form-control" id="t-desc" placeholder="Kurze Beschreibung"></div>
       <div class="form-group"><label class="form-label">Reinigungssystem</label><select class="form-control" id="t-system"><option value="">— keines —</option></select></div>
+      <div class="form-group"><label class="form-label">Zeitberechnung nach</label><select class="form-control" id="t-zeitbasis"><option value="auto">Automatik (Reinigungssystem, sonst Route)</option><option value="system">Reinigungssystem (ohne Route)</option><option value="route">Route (ORS)</option></select><div style="font-size:11px;color:var(--text3);margin-top:3px;">„Reinigungssystem" rechnet die Zeit sofort aus Strecke ÷ Geschwindigkeit + Zusatztätigkeiten — ohne Route. Die Anfahrt/Leerfahrt zwischen Abschnitten ist darin nicht enthalten (ggf. als Zusatztätigkeit erfassen).</div></div>
       <div class="form-group"><label class="form-label">Betriebshof (Startpunkt der Route)</label><select class="form-control" id="t-betriebshof"><option value="">— automatisch / Projekt-Depot —</option></select></div>
       <div class="form-group tm-full"><label class="form-label">Farbe</label><div class="color-swatches" id="color-swatches"></div></div>
       <div class="form-group tm-full">
