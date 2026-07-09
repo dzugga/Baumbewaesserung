@@ -4539,6 +4539,14 @@ function _fillKlasseSelects(tree){
   if(hRow){ hRow.style.display=isSeite?'':'none';
     const hIn=document.getElementById('f-haeufigkeit'); if(hIn) hIn.value=(tree.haeufigkeit!=null?tree.haeufigkeit:'');
   }
+  // Abschnitt: RKL-Merkmal geändert → Satzungs-Reinigungsklasse gleichen Namens live nachziehen
+  // (sichtbar im Formular, vor dem Speichern noch überschreibbar)
+  const wSel=document.getElementById('f-wasser');
+  if(wSel) wSel.onchange = isAbschnitt ? ()=>{
+    const rk=_rkForMerkmal(wSel.value);
+    const rSel=document.getElementById('f-reinigungsklasse');
+    if(rk && rSel && rSel.value!==rk.id){ rSel.value=rk.id; notify('Reinigungsklasse folgt dem Merkmal → „'+rk.name+'"'); }
+  } : null;
   // Seite: Anlage/Straße erbt vom Abschnitt (read-only) + eigene „Seite"-Zeile (Fahrbahn/Gehweg)
   const nIn=document.getElementById('f-name'), nLbl=document.getElementById('label-f-name');
   const sRow=document.getElementById('row-f-seite'), sIn=document.getElementById('f-seite');
@@ -4624,6 +4632,7 @@ function _initTreeModalDrag(){
 async function saveTree(){
   const name=document.getElementById('f-name').value.trim();
   if(!name){alert('Bitte einen Namen eingeben.');return;}
+  const _oldTree=editingTreeId?{...(trees.find(t=>t.id===editingTreeId)||{})}:null; // Vorzustand (für Merkmal-Vererbung an Seiten)
   const _miss=_missingRequiredInForm();
   if(_miss.length){ alert('Bitte diese Pflichtfelder ausfüllen:\n\n• '+_miss.join('\n• ')); return; }
   setSyncState('syncing','Speichert…');
@@ -4660,6 +4669,16 @@ async function saveTree(){
   try{
     if(editingTreeId){
       await updateDoc(doc(db,'projects',currentProjectId,'trees',editingTreeId),data);
+      // Abschnitt: geändertes RKL-Merkmal an alle Seiten weitergeben (Seiten tragen dasselbe Merkmal);
+      // die Häufigkeit erben sie ohnehin über die Reinigungsklasse des Abschnitts.
+      if(_oldTree&&_oldTree.containerTyp&&(_oldTree.wasser||'')!==(data.wasser||'')){
+        try{
+          const sides=_ausstattungOf(_oldTree.extId);
+          if(sides.length){ const b=db.batch(); sides.forEach(s=>b.update(doc(db,'projects',currentProjectId,'trees',s.id),{wasser:data.wasser||''})); await b.commit(); sides.forEach(s=>{ s.wasser=data.wasser||''; }); }
+        }catch(e){ console.warn('Merkmal an Seiten vererben',e); }
+        const _lt=trees.find(t=>t.id===editingTreeId); if(_lt){ _lt.wasser=data.wasser||''; if(data.reinigungsklasse!==undefined) _lt.reinigungsklasse=data.reinigungsklasse; } // optimistisch (Snapshot kommt asynchron)
+        if(selectedTreeId===editingTreeId){ try{ openAbschnitt(editingTreeId); }catch(_){} } // Panel (Merkmal + Häufigkeiten) sofort nachziehen
+      }
       notify('Objekt aktualisiert');
     } else {
       const baumId=await getNextBaumId();
@@ -7108,6 +7127,14 @@ async function setRkColor(id,val){
   if(_colorMode==='rk'){ _applyFlaechenSelection(); _renderRkLegend(); } // Karte live nachfärben
 }
 // Reinigungsklasse direkt am Abschnitt setzen (aus dem Detail-Panel)
+// Passende Satzungs-Reinigungsklasse zu einem RKL-Merkmal (wasser-Rang) — Abgleich über den Namen
+// („RK 3" ↔ „3" ↔ „RK3", Groß/Klein und Sonderzeichen egal). null = keine Entsprechung.
+function _rkForMerkmal(wasserId){
+  if(!wasserId) return null;
+  const norm=s=>String(s||'').toLowerCase().replace(/[^a-z0-9äöü]/g,'').replace(/^rk/,'');
+  const key=norm(rankLabel('wasser',wasserId)); if(!key) return null;
+  return reinigungsklassen.find(r=>norm(r.name)===key)||null;
+}
 async function setAbschnittRk(id,val){
   if(isReadonly()) return;
   const c=trees.find(t=>t.id===id); if(!c) return;
