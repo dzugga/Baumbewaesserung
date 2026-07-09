@@ -1120,19 +1120,16 @@ async function confirmDeleteProject(){
     const pid=currentProjectId;
     const org=currentProjectData.orgId||currentOrg;
 
-    // Alle Unter-Sammlungen löschen — in Sammel-Batches (<=450) statt einzeln
+    // Alle Unter-Sammlungen laden (parallel) → Referenzen sammeln
     const subcollections=['trees','tours','routes','reasons','tourHistory','arten','planVarianten'];
-    let allDocs=[];
-    for(const sub of subcollections){
-      const snap=await getDocs(collection(db,'projects',pid,sub));
-      allDocs.push(...snap.docs.map(d=>d.ref));
-    }
-    const CH=450; // Firestore-Batch-Limit 500
-    for(let i=0;i<allDocs.length;i+=CH){
-      const batch=db.batch();
-      allDocs.slice(i,i+CH).forEach(ref=>batch.delete(ref));
-      await batch.commit();
-    }
+    const snaps=await Promise.all(subcollections.map(sub=>getDocs(collection(db,'projects',pid,sub)).catch(()=>({docs:[]}))));
+    const allDocs=[]; snaps.forEach(s=>s.docs.forEach(d=>allDocs.push(d.ref)));
+    // Lösch-Batches (<=450) mit begrenzter Nebenläufigkeit committen — deutlich schneller als nacheinander
+    const CH=450; const commits=[];
+    for(let i=0;i<allDocs.length;i+=CH){ const slice=allDocs.slice(i,i+CH); commits.push(()=>{ const b=db.batch(); slice.forEach(ref=>b.delete(ref)); return b.commit(); }); }
+    let _done=0;
+    const _pool=async(tasks,limit)=>{ let idx=0; const run=async()=>{ while(idx<tasks.length){ await tasks[idx++](); _done++; setSyncState('syncing',`Projekt wird gelöscht… ${Math.min(_done*CH,allDocs.length).toLocaleString('de-DE')} / ${allDocs.length.toLocaleString('de-DE')}`); } }; await Promise.all(Array.from({length:Math.min(limit,tasks.length||1)},run)); };
+    await _pool(commits, 12);
 
     // Projekt-Dokument selbst löschen
     await deleteDoc(doc(db,'projects',pid));
