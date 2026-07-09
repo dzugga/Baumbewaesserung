@@ -4008,7 +4008,7 @@ async function abschnittAddSeite(containerId){
     const btn=m.querySelector('#as-save'); btn.disabled=true; btn.style.opacity=.5;
     try{
       const baumId=await getNextBaumId();
-      await addDoc(collection(db,'projects',currentProjectId,'trees'),{ name:label, element, elementLabel:label, art, geomType:'linie', containerExtId:c.extId, baumId, aktiv:true, tourIds:[], tourId:'', history:[], createdAt:serverTimestamp() });
+      await addDoc(collection(db,'projects',currentProjectId,'trees'),{ name:c.name||'', element, elementLabel:label, art, geomType:'linie', containerExtId:c.extId, baumId, aktiv:true, tourIds:[], tourId:'', history:[], createdAt:serverTimestamp() });
       notify('✓ Objekt „'+label+'" hinzugefügt'); close();
       setTimeout(()=>{ if(trees.find(t=>t.id===containerId)) openAbschnitt(containerId); },300);
     }catch(e){ notify('Fehler: '+(e.message||e)); btn.disabled=false; btn.style.opacity=1; }
@@ -4436,6 +4436,20 @@ function _fillKlasseSelects(tree){
   const hRow=document.getElementById('row-f-haeufigkeit');
   if(hRow){ hRow.style.display=isSeite?'':'none';
     const hIn=document.getElementById('f-haeufigkeit'); if(hIn) hIn.value=(tree.haeufigkeit!=null?tree.haeufigkeit:'');
+  }
+  // Seite: Anlage/Straße erbt vom Abschnitt (read-only) + eigene „Seite"-Zeile (Fahrbahn/Gehweg)
+  const nIn=document.getElementById('f-name'), nLbl=document.getElementById('label-f-name');
+  const sRow=document.getElementById('row-f-seite'), sIn=document.getElementById('f-seite');
+  if(isSeite){
+    const cont=_containerOf(tree);
+    if(nIn){ nIn.value=(cont&&cont.name)||tree.name||''; nIn.readOnly=true; nIn.style.background='var(--surface2)'; nIn.style.color='var(--text2)'; }
+    if(nLbl) nLbl.textContent='Anlage / Straße (erbt vom Abschnitt)';
+    if(sRow) sRow.style.display='';
+    if(sIn) sIn.value=_elemLabel(tree);
+  } else {
+    if(nIn){ nIn.readOnly=false; nIn.style.background=''; nIn.style.color=''; }
+    if(nLbl) nLbl.textContent='Anlage / Straße *';
+    if(sRow) sRow.style.display='none';
   }
 }
 // Klassenwechsel im Formular: Felder live nachblenden (ohne f-klasse-Auswahl zurückzusetzen)
@@ -14706,7 +14720,7 @@ async function segmentUmwandelnOpen(){
         for(const {t:s,rk,sides} of plan.slice(i,i+70)){
           const oldT=(s.tourIds&&s.tourIds.length)?s.tourIds:(s.tourId?[s.tourId]:[]);
           b.update(col.doc(s.id),{containerTyp:'strecke',art:'Straßenabschnitt',tourIds:[],tourId:'',reinigungsklasse:rk||'',_migrated:true});
-          sides.forEach(([element,label,art])=>{ const tids=element.startsWith('fahrbahn')?oldT:[]; b.set(col.doc(),{ name:label, element, elementLabel:label, art, geomType:'linie', containerExtId:s.extId, baumId:(s.baumId||('S-'+s.extId))+'-'+element, orgId:s.orgId||currentProjectData?.orgId||'', aktiv:true, tourIds:tids, tourId:tids[0]||'', history:[], _migrated:true, createdAt:firebase.firestore.FieldValue.serverTimestamp() }); });
+          sides.forEach(([element,label,art])=>{ const tids=element.startsWith('fahrbahn')?oldT:[]; b.set(col.doc(),{ name:s.name||'', element, elementLabel:label, art, geomType:'linie', containerExtId:s.extId, baumId:(s.baumId||('S-'+s.extId))+'-'+element, orgId:s.orgId||currentProjectData?.orgId||'', aktiv:true, tourIds:tids, tourId:tids[0]||'', history:[], _migrated:true, createdAt:firebase.firestore.FieldValue.serverTimestamp() }); });
         }
         await b.commit(); info.textContent=`Wandle um… ${Math.min(i+70,plan.length).toLocaleString('de-DE')} / ${plan.length.toLocaleString('de-DE')}`;
       }
@@ -14733,7 +14747,7 @@ async function lassoAddGehwege(){
       const toAdd=[['gehweg_l','Gehweg links'],['gehweg_r','Gehweg rechts']].filter(([e])=>!have.has(e));
       if(!toAdd.length) continue;
       const b=db.batch();
-      toAdd.forEach(([element,label])=>{ b.set(col.doc(),{ name:label, element, elementLabel:label, art:'Gehweg', geomType:'linie', containerExtId:ext, baumId:(cont.baumId||('S-'+ext))+'-'+element, orgId:cont.orgId||currentProjectData?.orgId||'', aktiv:true, tourIds:[], tourId:'', history:[], _migrated:true, createdAt:firebase.firestore.FieldValue.serverTimestamp() }); created++; });
+      toAdd.forEach(([element,label])=>{ b.set(col.doc(),{ name:cont.name||'', element, elementLabel:label, art:'Gehweg', geomType:'linie', containerExtId:ext, baumId:(cont.baumId||('S-'+ext))+'-'+element, orgId:cont.orgId||currentProjectData?.orgId||'', aktiv:true, tourIds:[], tourId:'', history:[], _migrated:true, createdAt:firebase.firestore.FieldValue.serverTimestamp() }); created++; });
       await b.commit();
     }
     notify(`✓ ${created} Gehweg-Seite(n) ergänzt`);
@@ -14792,7 +14806,7 @@ async function strMigOpen(){
           const oldT=(s.tourIds&&s.tourIds.length)?s.tourIds:(s.tourId?[s.tourId]:[]);
           b.update(col.doc(s.id),{containerTyp:'strecke',art:'Straßenabschnitt',tourIds:[],tourId:'',_migrated:true});
           [['fahrbahn_l','Fahrbahn links',fbArt,oldT],['fahrbahn_r','Fahrbahn rechts',fbArt,oldT],['gehweg_l','Gehweg links',gwArt,[]],['gehweg_r','Gehweg rechts',gwArt,[]]].forEach(([element,label,art,tids])=>{
-            b.set(col.doc(),{ name:label, element, elementLabel:label, art, geomType:'linie', containerExtId:s.extId, baumId:(s.baumId||('S-'+s.extId))+'-'+element, orgId:s.orgId||'', aktiv:true, tourIds:tids, tourId:tids[0]||'', history:[], _migrated:true, createdAt:firebase.firestore.FieldValue.serverTimestamp() });
+            b.set(col.doc(),{ name:s.name||'', element, elementLabel:label, art, geomType:'linie', containerExtId:s.extId, baumId:(s.baumId||('S-'+s.extId))+'-'+element, orgId:s.orgId||'', aktiv:true, tourIds:tids, tourId:tids[0]||'', history:[], _migrated:true, createdAt:firebase.firestore.FieldValue.serverTimestamp() });
           });
         }
         await b.commit(); info().textContent=`Wandle um… ${Math.min(i+90,flat.length)}/${flat.length} Straßen`;
