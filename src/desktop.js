@@ -1560,7 +1560,7 @@ async function calculateAndSaveRoute(tourId){
   // Kennzahlen aufs Tour-Dokument speichern → in der Touren-Tabelle dauerhaft sichtbar,
   // ohne dass die Route in den Speicher geladen sein muss. Ändert sich nur bei Neuberechnung.
   try{
-    await updateDoc(doc(db,'projects',currentProjectId,'tours',tourId),{routeKm:km, routeDriveSec:durationSec, routeComputedAt:new Date().toISOString()});
+    await updateDoc(doc(db,'projects',currentProjectId,'tours',tourId),{routeKm:km, routeDriveSec:durationSec, routeComputedAt:new Date().toISOString(), routeStale:false});
     const _t=tours.find(t=>t.id===tourId); if(_t){ _t.routeKm=km; _t.routeDriveSec=durationSec; }
   }catch(e){ console.warn('Tour-Kennzahlen speichern:',e); }
 
@@ -3117,6 +3117,7 @@ function renderLegend(){
       <input type="checkbox" class="tour-check"${isSel?' checked':''} style="margin:0 4px 0 0;cursor:pointer;flex-shrink:0;accent-color:${t.color};">
       <div class="legend-line" style="background:${t.color};width:16px;height:3px;"></div>
       <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">${dlEsc(t.name)}</span>
+      ${t.routeStale&&!ov?'<span title="Route veraltet — neu berechnen" style="color:#b45309;font-size:11px;flex-shrink:0;">⚠</span>':''}
       <span class="legend-km" style="font-size:10px;">${ov?cnt:(_tm?total:cnt+' Obj.')}</span>
       ${ov?'':`<svg data-expand="${t.id}" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2.5" style="flex-shrink:0;cursor:pointer;padding:1px;transition:transform .15s;transform:rotate(${isExp?180:0}deg);"><path d="M6 9l6 6 6-6"/></svg>`}
     </div>`;
@@ -5223,6 +5224,15 @@ async function deleteTour(id){
   await deleteDoc(doc(db,'projects',currentProjectId,'tours',id));
   try{ await deleteDoc(doc(db,'projects',currentProjectId,'routes',id)); }catch(_){}  // gespeicherte Route der Tour mit entfernen (sonst verwaistes Doc)
   if(activeTours.has(id)){ activeTours.delete(id); syncActiveTour(); if(!activeTours.size) filterTour='all'; }
+  // Grafik der gelöschten Tour sofort von der Karte nehmen (sonst bleibt Route/Färbung bis zum nächsten Refresh sichtbar)
+  if(tourRoutes[id]){ try{ map.removeLayer(tourRoutes[id].layer); }catch(_){} delete tourRoutes[id]; }
+  delete tourOrder[id]; delete _routesCache[id];
+  try{ refreshMarkers(); }catch(_){}
+  try{ renderDrawnGeoms(); renderFlaechenNumbers(); }catch(_){}
+  try{ renderDepotMarker(); }catch(_){}
+  try{ renderLegend(); }catch(_){}
+  try{ if(currentView==='touren') renderTourenGrid(); }catch(_){}
+  updateRouteInfoBar();
   routeCache={};notify('Tour gelöscht');
 }
 
@@ -7482,7 +7492,7 @@ function renderTourenGrid(){
       :'<span style="color:var(--text3);font-size:12px;">–</span>';
     return `<tr style="border-top:1px solid var(--border);" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''">
       <td style="padding:10px 16px;"><div style="width:14px;height:14px;border-radius:3px;background:${tour.color};flex-shrink:0;"></div></td>
-      <td style="padding:10px 16px;font-weight:600;white-space:nowrap;">${tour.name}${tour.uebersicht?' <span style="font-size:10px;font-weight:600;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Übersicht</span>':''}${_violCnt?` <span onclick="showTourViolations('${tour.id}')" title="Anzeigen: welche Objekte die Zuordnungsregeln verletzen" style="cursor:pointer;font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⚠ ${_violCnt} Regelverstoß</span>`:(_rulesActive?' <span title="Zuordnungsregeln aktiv" style="font-size:10px;font-weight:600;color:var(--text3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Regeln</span>':'')}</td>
+      <td style="padding:10px 16px;font-weight:600;white-space:nowrap;">${tour.name}${tour.routeStale&&!tour.uebersicht?` <span title="Zusammenstellung geändert — Route neu berechnen" style="font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⚠ Route veraltet</span>`:''}${tour.uebersicht?' <span style="font-size:10px;font-weight:600;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Übersicht</span>':''}${_violCnt?` <span onclick="showTourViolations('${tour.id}')" title="Anzeigen: welche Objekte die Zuordnungsregeln verletzen" style="cursor:pointer;font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⚠ ${_violCnt} Regelverstoß</span>`:(_rulesActive?' <span title="Zuordnungsregeln aktiv" style="font-size:10px;font-weight:600;color:var(--text3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Regeln</span>':'')}</td>
       <td style="padding:10px 16px;color:var(--text2);font-size:12px;">${tour.desc||'–'}</td>
       <td style="padding:10px 16px;text-align:center;"><input type="checkbox" ${tour.uebersicht?'checked':''} onchange="toggleTourUebersicht('${tour.id}',this.checked)" style="cursor:pointer;width:16px;height:16px;" title="Als Übersicht markieren (keine echte Tour)"></td>
       <td style="padding:10px 16px;text-align:right;font-weight:600;">${cnt}</td>
@@ -11851,6 +11861,9 @@ async function lassoAction(mode){
       return;
     }
   }
+  // Betroffene echte Touren merken → deren gespeicherte Route ist danach veraltet (Zusammenstellung geändert)
+  const _affectedTours=new Set(); if(mode==='add'||mode==='move') _affectedTours.add(tourId);
+  targets.forEach(t=>realTourIds(t).forEach(x=>_affectedTours.add(x)));
   const verbing=mode==='add'?'hinzufügen':mode==='move'?'verschieben':'aus Tour(en) entfernen';
   notify(`${targets.length} Objekte – ${verbing}…`);
   setSyncState('syncing',`${verbing}… 0/${targets.length}`);
@@ -11883,6 +11896,7 @@ async function lassoAction(mode){
     _suppressTreeRender=false;
   }
   routeCache={};
+  for(const tid of _affectedTours){ if(!isOverviewTour(tid)){ try{ await updateDoc(doc(db,'projects',currentProjectId,'tours',tid),{routeStale:true}); }catch(_){} } } // Route der betroffenen Tour(en) als veraltet markieren
   const doneIds=[...lassoSelection]; lassoSelection.clear();
   if(_pendingTreeRender){ _pendingTreeRender=false; refreshMarkers(); renderList(); }
   else remakeMarkers(doneIds); // Auswahl-Ringe weg + neue Farben sofort
