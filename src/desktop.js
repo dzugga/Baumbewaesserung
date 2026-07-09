@@ -89,10 +89,10 @@ function arrayUnion(...items){ return firebase.firestore.FieldValue.arrayUnion(.
 const app = initializeApp(firebaseConfig);
 initAppCheck();
 const db  = getFirestore(app);
-// Offline-Cache (IndexedDB): Wieder-Öffnen großer Projekte fast sofort aus dem lokalen Cache; nur
-// Änderungen werden nachgeladen. MUSS vor dem ersten Firestore-Zugriff stehen. synchronizeTabs = mehrere
-// Tabs teilen den Cache. Fehler (nicht unterstützter Browser o. Ä.) sind unkritisch → App läuft wie bisher.
-try{ db.enablePersistence({synchronizeTabs:true}).catch(e=>console.warn('Firestore-Offline-Cache nicht aktiv:',(e&&e.code)||e)); }catch(e){ console.warn('enablePersistence:',e); }
+// Hinweis: Firestore-Offline-Persistenz (enablePersistence) wurde bewusst NICHT aktiviert — bei sehr
+// großen Sammlungen (z. B. Stuttgart ~22.782 Objekte) verdoppelte das Schreiben jedes Dokuments in die
+// IndexedDB die Öffnungszeit (12 s → 30 s) und brachte kaum Vorteil. Der richtige Hebel ist, die Zahl der
+// Dokumente zu senken (leichte Segment-Attribute ebenfalls ins Storage-Bundle), nicht das Client-Caching.
 const storage = firebase.storage(app);
 
 // ─── NUTZUNGS-ZÄHLUNG je Mandant (Näherung; zählt nur App-Vorgänge) ──────────
