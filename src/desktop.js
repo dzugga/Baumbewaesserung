@@ -679,7 +679,7 @@ async function openProject(projectId){
   if(unsubProjects){ unsubProjects(); unsubProjects=null; } // Projekt-Listener stoppen (spart Hintergrund-Reads)
   _routesCache={};_routesLoadedFor=null; // Routen-Cache für neues Projekt verwerfen
   _cityFitDone=false; // Karte beim Öffnen einmal auf die Stadt zoomen
-  if(_flaechenLayer){ map.removeLayer(_flaechenLayer); _flaechenLayer=null; } _flaechenLayerKey=''; _flaechenBundle=null; _flaechenBundleKey=''; _flGeomByExt={}; if(_flNumLayer){ try{ map.removeLayer(_flNumLayer); }catch(_){} _flNumLayer=null; } // Flächen des alten Projekts verwerfen
+  if(_flaechenLayer){ map.removeLayer(_flaechenLayer); _flaechenLayer=null; } _flaechenLayerKey=''; _flaechenBundle=null; _flaechenBundleKey=''; _flGeomByExt={}; if(_flNumLayer){ try{ map.removeLayer(_flNumLayer); }catch(_){} _flNumLayer=null; } _geomBboxCache={}; _viewportCull=false; // Flächen/Geometrie-Caches des alten Projekts verwerfen
   currentProjectId=projectId;
   window._tourHistoryCache=null;   // Historie des alten Projekts verwerfen
   _dataViewProject=null;           // Controlling/Dashboard für neues Projekt neu aufbauen
@@ -805,8 +805,9 @@ function subscribeToProject(){
     // Bundle-Geometrie (importierte Linien-Segmente ohne geomStr) einmal nachladen und neu zeichnen
     if(!Object.keys(_flGeomByExt).length && (trees||[]).some(t=>t.extId&&geomTypeOf(t)==='linie'&&!t.geomStr&&!(t.geom&&t.geom.coordinates))){
       _ensureFlaechenGeom().then(()=>{
+        // zuerst auf die Gesamt-Ausdehnung zoomen (sonst würde das Viewport-Culling im Start-Ausschnitt nichts finden)
+        if(!_cityFitDone && currentView==='karte' && !activeTours.size){ const bb=_allDrawnBounds(); if(bb&&bb.isValid()){ try{ map.fitBounds(bb,{padding:[40,40],maxZoom:16}); _cityFitDone=true; }catch(_){} } }
         try{ renderDrawnGeoms(); renderFlaechenNumbers(); renderListDebounced(); }catch(_){}
-        if(!_cityFitDone && currentView==='karte' && !activeTours.size && _drawnLayer){ try{ const b=_drawnLayer.getBounds(); if(b.isValid()){ map.fitBounds(b,{padding:[40,40],maxZoom:16}); _cityFitDone=true; } }catch(_){} }
       });
     }
     if(document.getElementById('project-loading')){ _setLoadOverlaySub(`${_allTrees.length.toLocaleString('de-DE')} Objekte geladen`); _hideLoadOverlay(); } // A2: Overlay weg, sobald gerendert
@@ -2693,13 +2694,36 @@ function _offsetLatLngs(ll, meters){
 }
 // Reihenfolge-Nummer eines Abschnitts (Hauptlinien-Modus) = kleinste Nummer seiner Seiten in der aktiven Route.
 function _containerRouteNum(t){ let n=null; for(const s of _ausstattungOf(t.extId)){ const r=getRouteNum(s.id); if(r!=null && (n==null||r<n)) n=r; } return n; }
+// Viewport-Rendering für große Segmentnetze: Bounding-Box je Objekt (gecacht) → nur Sichtbares zeichnen.
+let _geomBboxCache={}, _viewportCull=false, _vpTimer=null;
+const _VIEWPORT_MIN=1500; // ab so vielen gezeichneten Objekten nur den sichtbaren Ausschnitt rendern
+function _geomBbox(t){
+  if(!t) return null; const id=t.id; if(id && _geomBboxCache[id]) return _geomBboxCache[id];
+  const g=_treeGeom(t); if(!g||!g.coordinates) return null;
+  let s=90,n=-90,w=180,e=-180;
+  const scan=a=>{ for(const c of a){ if(typeof c[0]==='number'){ if(c[1]<s)s=c[1]; if(c[1]>n)n=c[1]; if(c[0]<w)w=c[0]; if(c[0]>e)e=c[0]; } else scan(c); } };
+  try{ scan(g.coordinates); }catch(_){ return null; }
+  if(s>n) return null; const bb=[s,n,w,e]; if(id) _geomBboxCache[id]=bb; return bb;
+}
+function _renderDrawnGeomsVP(){ clearTimeout(_vpTimer); _vpTimer=setTimeout(()=>{ if(_viewportCull){ try{ renderDrawnGeoms(); renderFlaechenNumbers(); }catch(_){} } }, 200); }
+// Gesamt-Ausdehnung aller gezeichneten Geometrien (für das Einpassen — unabhängig vom Viewport-Culling)
+function _allDrawnBounds(){
+  let s=90,n=-90,w=180,e=-180,any=false;
+  for(const t of (trees||[])){ if((t.lat&&t.lng)||!_hasDrawnGeom(t)||_isContainer(t)) continue; const bb=_geomBbox(t); if(!bb) continue; any=true; if(bb[0]<s)s=bb[0]; if(bb[1]>n)n=bb[1]; if(bb[2]<w)w=bb[2]; if(bb[3]>e)e=bb[3]; }
+  return any?L.latLngBounds([s,w],[n,e]):null;
+}
+if(map) map.on('moveend zoomend', _renderDrawnGeomsVP); // beim Verschieben/Zoomen den sichtbaren Ausschnitt nachziehen (nur wenn Viewport-Culling aktiv)
 function renderDrawnGeoms(){
   if(!map) return;
   if(_drawnLayer){ map.removeLayer(_drawnLayer); _drawnLayer=null; } _drawnById={};
   // Seiten (Ausstattung) zeichnen sich NICHT selbst — der Abschnitt-Container vertritt sie (eine Linie statt 4 deckungsgleicher).
-  const list=(trees||[]).filter(t=>_hasDrawnGeom(t)&&isActive(t)&&!t.containerExtId&&_typeShown(t)
-    && !(_hideRawSeg && _isRawSeg(t))   // Roh-Segmente ohne Typ/Art standardmäßig ausblenden
+  let list=(trees||[]).filter(t=>_hasDrawnGeom(t)&&isActive(t)&&!t.containerExtId&&_typeShown(t)
+    && !(_hideRawSeg && _isRawSeg(t))   // ausgeschlossene Segmente (Teiler/Ausschluss) optional ausblenden
     && !(objFilterOnMap && objFilterActive() && !objMatchesPropFilter(t)));   // Eigenschaften-Filter auch auf gezeichnete Geometrie
+  // Viewport-Rendering bei großen Netzen: nur Geometrie im sichtbaren Ausschnitt zeichnen (Neuaufbau bei moveend/zoomend)
+  _viewportCull = list.length>_VIEWPORT_MIN;
+  if(_viewportCull){ const b=map.getBounds().pad(0.4), s=b.getSouth(),n=b.getNorth(),w=b.getWest(),e=b.getEast();
+    list=list.filter(t=>{ const bb=_geomBbox(t); return bb && !(bb[1]<s||bb[0]>n||bb[3]<w||bb[2]>e); }); }
   const _vb=document.getElementById('btn-toggle-versatz'); if(_vb) _vb.style.display=(trees||[]).some(_isContainer)?'flex':'none';
   const _tb=document.getElementById('btn-type-filter'); if(_tb) _tb.style.display=_presentCategories().size>1?'flex':'none';
   const _hasCont=(trees||[]).some(_isContainer);
