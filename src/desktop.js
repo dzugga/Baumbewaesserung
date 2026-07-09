@@ -1408,9 +1408,9 @@ async function fetchOrsRoute(coords){
 
 // ─── ROUTENLINIEN EIN-/AUSBLENDEN ─────────────────────────────
 function applyRouteVisibility(){
-  Object.values(tourRoutes).forEach(r=>{
+  Object.entries(tourRoutes).forEach(([tid,r])=>{
     if(!r.layer) return;
-    if(routesVisible){ if(!map.hasLayer(r.layer)) map.addLayer(r.layer); }
+    if(routesVisible && _tourEffSource(tid)!=='system'){ if(!map.hasLayer(r.layer)) map.addLayer(r.layer); }
     else if(map.hasLayer(r.layer)) map.removeLayer(r.layer);
   });
 }
@@ -1504,7 +1504,7 @@ function drawSavedRoute(tourId, routeData){
   }
   const _split=geojson?_computeRouteSplit(geojson,tourId):null;
   tourRoutes[tourId]={layer,km:routeData.km||0,durationSec:routeData.durationSec||0,routeReinKm:_split?_split.routeReinKm:null,routeLeerKm:_split?_split.routeLeerKm:null};
-  if(!routesVisible) map.removeLayer(layer);
+  if(!routesVisible || _tourEffSource(tourId)==='system') map.removeLayer(layer); // System-Grundlage: Route existiert, wird aber nicht gezeigt
   if(currentView==='touren') renderTourenGrid();
 }
 
@@ -1712,6 +1712,21 @@ function tourMetrics(tid){
   if(src==='route') return {km:routeKm, durationSec:routeDur, routeKm, reinKm:null, routeReinKm, routeLeerKm, source:'route', estimated:false};
   return null;
 }
+// Ein-Klick-Umschalter (Legende/Touren): Grundlage der Zeitberechnung je Tour wechseln + Karte sofort
+// anpassen. Bei 'system' verschwinden Routenlinie + Reihenfolgenummern (Zeit wird ohne Route ermittelt);
+// bei 'route'/'auto' erscheinen sie wieder. Die berechnete Route bleibt gespeichert.
+async function setTourZeitBasis(tid, basis){
+  const t=tours.find(x=>x.id===tid); if(!t) return;
+  if(!['auto','system','route'].includes(basis)) basis='auto';
+  t.zeitBasis=basis; // optimistisch
+  try{ applyRouteVisibility(); }catch(_){}
+  try{ rebuildMarkersWithNumbers(); renderDrawnGeoms(); renderFlaechenNumbers(); }catch(_){}
+  renderLegend(); if(currentView==='touren') renderTourenGrid();
+  try{ updateRouteInfoBar(); }catch(_){}
+  if(isReadonly()) return; // Nur-Lese: reine Ansichtsumschaltung, nicht persistieren
+  try{ await updateDoc(doc(db,'projects',currentProjectId,'tours',tid),{zeitBasis:basis}); }
+  catch(e){ console.warn('zeitBasis speichern',e); }
+}
 // Füllt das Routen-Kennzahlen-Panel (Sidebar): Gesamtzeit + km, Proportionsleiste, Chips.
 function _fillRoutePanel(name,cnt,km,driveMin,bewMin,zusMin,azMin,routeKm,routeReinKm,routeLeerKm){
   const sp=document.getElementById('sidebar-route-info'); if(!sp) return;
@@ -1787,12 +1802,14 @@ function buildRouteNumMap(){
   const m=new Map();
   // Reihenfolge-Nummern NUR bei genau EINER angezeigten Tour (sonst keine — werden mit der Tour ausgeblendet)
   if(!activeTourOnMap || !tourOrder[activeTourOnMap]) return m;
+  if(_tourEffSource(activeTourOnMap)==='system') return m; // Zeit nach Reinigungssystem = ohne Route → keine Reihenfolgenummern
   tourOrder[activeTourOnMap].forEach((id,i)=>{ if(!m.has(id)) m.set(id,i+1); });
   return m;
 }
 function getRouteNum(treeId){
   if(_routeNumMap) return _routeNumMap.get(treeId) ?? null; // vorberechnete Map während Bulk-Renders
   if(!activeTourOnMap || !tourOrder[activeTourOnMap]) return null; // keine angezeigte Tour → keine Nummern
+  if(_tourEffSource(activeTourOnMap)==='system') return null;      // System-Grundlage → keine Route → keine Nummern
   const idx=tourOrder[activeTourOnMap].indexOf(treeId);
   return idx!==-1 ? idx+1 : null;
 }
@@ -2373,6 +2390,7 @@ function renderFlaechenNumbers(){
   if(!_showRouteNums) return;
   if(_typeFilter && _typeFilter.flaeche===false) return;           // Flächen ausgeblendet → keine Nummern
   if(!activeTourOnMap || !tourOrder[activeTourOnMap]) return;       // Nummern nur bei genau einer angezeigten Tour
+  if(_tourEffSource(activeTourOnMap)==='system') return;           // System-Grundlage = ohne Route → keine Nummern
   const col=(tours.find(t=>t.id===activeTourOnMap)||{}).color || FL_NEUTRAL;
   const grp=L.layerGroup(); let any=false;
   tourOrder[activeTourOnMap].forEach((id,i)=>{
@@ -3245,6 +3263,11 @@ function renderLegend(){
     const isExp=legendExpanded.has(t.id);
     // Übersichten: kein Aufklapp-Pfeil (keine Route/Zeiten), nur Objektzahl
     const ov=!!t.uebersicht;
+    // Ein-Klick-Umschalter der Zeitgrundlage — nur wenn ein Reinigungssystem mit Geschwindigkeit da ist (sonst nichts umzuschalten)
+    const zbTog=(!ov && _tourSpeedKmh(t.id)>0) ? `<div style="display:flex;gap:3px;align-items:center;margin-top:4px;padding-top:4px;border-top:1px solid var(--border);">
+        <span style="font-size:9px;color:var(--text3);margin-right:2px;">Zeit nach</span>
+        ${[['auto','Auto'],['system','System'],['route','Route']].map(([b,l])=>{const on=((t.zeitBasis||'auto')===b);return `<button type="button" onclick="event.stopPropagation();setTourZeitBasis('${t.id}','${b}')" title="Zeitberechnung nach ${l}${b==='system'?' — ohne Route (keine Linie/Nummern)':''}" style="font-size:9px;padding:1px 6px;border-radius:4px;border:1px solid var(--border);cursor:pointer;background:${on?'var(--green-light)':'var(--bg)'};color:${on?'var(--green)':'var(--text2)'};font-weight:${on?'700':'400'};">${l}</button>`;}).join('')}
+      </div>` : '';
     let r=`<div class="legend-item${isSel?' active-tour':''}" data-tourid="${t.id}" data-tourname="${(t.name||'').toLowerCase().replace(/"/g,'&quot;')}" style="padding:3px 6px;margin-bottom:1px;">
       <input type="checkbox" class="tour-check"${isSel?' checked':''} style="margin:0 4px 0 0;cursor:pointer;flex-shrink:0;accent-color:${t.color};">
       <div class="legend-line" style="background:${t.color};width:16px;height:3px;"></div>
@@ -3270,11 +3293,11 @@ function renderLegend(){
           </div>${(()=>{const z=tourZusatzMin(t);const rz=tourRestzeit(t,members,_tm.durationSec);let out='';
           if(z>0) out+=`<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:1px;"><span>Zusatztätigkeiten</span><span>${fmtMin(z)}</span></div>`;
           if(rz) out+=`<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-top:1px;border-top:1px solid var(--border);padding-top:2px;"><span>Arbeitszeit ${fmtMin(rz.azMin)}</span><span style="font-weight:700;color:${rz.restMin<0?'var(--red)':'var(--green-strong,#15803d)'};" title="Arbeitszeit − Fahrt − Tätigkeit − Zusatz">Restzeit ${fmtMin(rz.restMin)}</span></div>`;
-          return out;})()}
+          return out;})()}${zbTog}
         </div>`;
       } else {
         r+=`<div data-tourname="${(t.name||'').toLowerCase().replace(/"/g,'&quot;')}" style="margin:0 6px 4px 30px;padding:5px 8px;background:var(--surface2);border-radius:6px;font-size:10px;color:var(--text3);">
-          ${cnt} Objekte — noch keine Route berechnet
+          ${cnt} Objekte — noch keine Route berechnet${zbTog}
         </div>`;
       }
     }
@@ -15151,7 +15174,7 @@ Object.assign(window,{
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
   openAddTree,openEditTree,closeTreeModal,saveTree,deleteTree,
   archiveTree,reactivateTree,archiveTreeFromModal,reactivateTreeFromModal,deleteTreeFromModal,toggleShowInactive,showTreeOnMapFromModal,bulkSetInactive,bulkDelete,
-  openTourModal,closeTourModal,saveTour,deleteTour,toggleTourUebersicht,toggleOverviewInGrid,filterTourenGrid,showTourViolations,
+  openTourModal,closeTourModal,saveTour,deleteTour,toggleTourUebersicht,toggleOverviewInGrid,filterTourenGrid,showTourViolations,setTourZeitBasis,
   tourZusatzAdd,tourZusatzDel,tourRegelToggle,tourUpdWeekday,tourRhythmusUI,tourToggleBetriebstag,tourGueltigAdd,tourGueltigDel,tourGueltigSet,_sx,_sxClear,
   openTourReport,closeReportModal,repAddCol,repRemoveCol,repMoveCol,repApplyFromControls,
   printReport,exportReportExcel,saveReportTemplate,loadReportTemplate,printTourMap,
