@@ -3931,12 +3931,14 @@ function openDetail(id){
     <div class="detail-field" style="padding:4px 0;">
       <span class="detail-key">${FL.wasser}</span>
       <select class="form-control" id="inline-wasser" style="width:auto;padding:3px 8px;font-size:12px;">
+        <option value="">– keine –</option>
         ${rankList('wasser').map(e=>`<option value="${dlEsc(e.id)}"${tree.wasser===e.id?' selected':''}>${dlEsc(e.label)}</option>`).join('')}
       </select>
     </div>
     <div class="detail-field" style="padding:4px 0;">
       <span class="detail-key">${FL.zustand}</span>
       <select class="form-control" id="inline-zustand" style="width:auto;padding:3px 8px;font-size:12px;">
+        <option value="">– keine –</option>
         ${rankList('zustand').map(e=>`<option value="${dlEsc(e.id)}"${tree.zustand===e.id?' selected':''}>${dlEsc(e.label)}</option>`).join('')}
       </select>
     </div>
@@ -4057,6 +4059,8 @@ function openAbschnitt(id){
         ${reinigungsklassen.map(r=>`<option value="${dlEsc(r.id)}"${c.reinigungsklasse===r.id?' selected':''}>${dlEsc(r.name)}</option>`).join('')}
       </select>
     </div>
+    ${(()=>{ const v=(c.wasser||'').toString().trim(); if(!v) return ''; const lbl=rankLabel('wasser',v)||v; // importiertes Merkmal (z. B. RKL) zum Abgleich mit der Satzungs-Klasse anzeigen
+      return `<div class="detail-field" style="padding:4px 0;"><span class="detail-key">${dlEsc(FL.wasser)} <span style="color:var(--text3);font-weight:400;" title="Wert aus den Objektdaten (Import) — die Satzungs-Reinigungsklasse oben steuert die Häufigkeit der Seiten">(Merkmal)</span></span><span class="detail-val">${dlEsc(lbl)}</span></div>`; })()}
     ${(()=>{ const rk=c.reinigungsklasse?_rkById(c.reinigungsklasse):null; if(!rk) return ''; const fr=ELEM_GRUPPE_ORDER.filter(g=>rk.freq&&rk.freq[g]!=null).map(g=>ELEM_GRUPPE_LABEL[g]+' '+rk.freq[g]+'×').join(' · '); return fr?`<div style="font-size:11px;color:var(--text2);padding:0 0 6px;">${dlEsc(fr)} / Woche</div>`:''; })()}
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0 14px;">
       <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;"><div style="font-size:11px;color:var(--text3);">Länge</div><div style="font-size:17px;font-weight:700;">${(parseFloat(c.menge)||0).toLocaleString('de-DE')} ${eh}</div></div>
@@ -7277,8 +7281,10 @@ function fillRankSelect(fieldKey,current){
   const sel=document.getElementById('f-'+fieldKey); if(!sel) return;
   const vals=rankList(fieldKey);
   current=(current||'').trim();
-  sel.innerHTML=vals.map(e=>`<option value="${dlEsc(e.id)}"${e.id===current?' selected':''}>${dlEsc(e.label)}</option>`).join('');
-  if(current && vals.some(e=>e.id===current)) sel.value=current;
+  // Leer-Option zwingend: sonst zeigt der Browser bei Objekten OHNE Wert die erste Option an
+  // (Phantom-Wert), und Speichern würde sie ungewollt festschreiben.
+  sel.innerHTML=`<option value="">– keine –</option>`+vals.map(e=>`<option value="${dlEsc(e.id)}"${e.id===current?' selected':''}>${dlEsc(e.label)}</option>`).join('');
+  sel.value=(current && vals.some(e=>e.id===current))?current:'';
 }
 
 // Eine Karte für ein Listenfeld (anlegen/umbenennen/mergen/löschen/aufbauen)
