@@ -12029,8 +12029,13 @@ function clearLassoSelection(){
 // Mit Arbeitszeit der Tour zusätzlich „Restzeit danach" (nur NEUE Objekte zählen dazu).
 function _lassoZeitPreview(tour){
   if(!tour||tour.uebersicht) return '';
-  const sel=[...lassoSelection].map(id=>trees.find(t=>t.id===id)).filter(t=>t&&isActive(t));
+  let sel=[...lassoSelection].map(id=>trees.find(t=>t.id===id)).filter(t=>t&&isActive(t));
   if(!sel.length) return '';
+  // Zuordnungsregeln der Ziel-Tour beachten: nicht passende Objekte (z. B. Gehwege bei „nur Fahrbahn")
+  // würden beim Zuweisen ausgefiltert/gewarnt → in der Zeitvorschau nicht mitrechnen.
+  let _regelAus=0;
+  if(tourHasRules(tour)){ const ok=sel.filter(t=>treeMatchesTour(t,tour)); _regelAus=sel.length-ok.length; sel=ok; }
+  if(!sel.length) return `<span style="font-size:11px;font-weight:600;background:rgba(255,255,255,.12);padding:3px 9px;border-radius:20px;white-space:nowrap;" title="Alle ausgewählten Objekte verletzen die Zuordnungsregeln von „${dlEsc(tour.name||'')}"">⏱ 0 min — ${_regelAus} lt. Regeln ausgenommen</span>`;
   const sp=_tourSpeedKmh(tour.id);
   const useSys=sp>0&&(tour.zeitBasis||'auto')!=='route';
   const _minOf=list=>{
@@ -12050,7 +12055,8 @@ function _lassoZeitPreview(tour){
     const rest=tour.arbeitszeitMin-used-Math.round(_minOf(neu));
     restTxt=` · danach Restzeit <b style="color:${rest<0?'#fecaca':'#bbf7d0'};">${fmtMin(rest)}</b>`;
   }
-  return `<span style="font-size:11px;font-weight:600;background:rgba(255,255,255,.12);padding:3px 9px;border-radius:20px;white-space:nowrap;" title="Zeitvorschau der Auswahl für „${dlEsc(tour.name||'')}" — ${useSys?'Reinigungssystem '+sp+' km/h (+ Aufwandssatz für Punkte/Flächen)':'Aufwandssatz je Objektart'}${(typeof tour.arbeitszeitMin==='number'&&tour.arbeitszeitMin>0)?'; Restzeit = Arbeitszeit − bisherige Auslastung − neue Objekte der Auswahl':''}">⏱ ${parts.join(' · ')}${restTxt}</span>`;
+  const _ausTxt=_regelAus>0?` <span style="color:#fde68a;" title="Objekte, die die Zuordnungsregeln der Tour verletzen (z. B. Gehweg bei „nur Fahrbahn") — nicht mitgerechnet">· ${_regelAus} lt. Regeln ausgenommen</span>`:'';
+  return `<span style="font-size:11px;font-weight:600;background:rgba(255,255,255,.12);padding:3px 9px;border-radius:20px;white-space:nowrap;" title="Zeitvorschau der Auswahl für „${dlEsc(tour.name||'')}" — ${useSys?'Reinigungssystem '+sp+' km/h (+ Aufwandssatz für Punkte/Flächen)':'Aufwandssatz je Objektart'}${(typeof tour.arbeitszeitMin==='number'&&tour.arbeitszeitMin>0)?'; Restzeit = Arbeitszeit − bisherige Auslastung − neue Objekte der Auswahl':''}${_regelAus>0?'; '+_regelAus+' Objekte gemäß Zuordnungsregeln nicht mitgerechnet':''}">⏱ ${parts.join(' · ')}${restTxt}${_ausTxt}</span>`;
 }
 // Aktionsleiste unter dem Planen-Banner: erscheint, sobald etwas ausgewählt ist
 function renderLassoActions(){
