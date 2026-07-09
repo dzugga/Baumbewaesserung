@@ -1072,6 +1072,9 @@ async function _deleteStoragePrefix(path){
   await Promise.all(res.items.map(i=>i.delete().catch(()=>{})));
   for(const p of res.prefixes){ await _deleteStoragePrefix(p.fullPath); }
 }
+let _deleteInProgress=false;
+// Warnung, wenn während eines laufenden Löschvorgangs die Seite verlassen wird (sonst halb gelöschtes Projekt)
+window.addEventListener('beforeunload', e=>{ if(_deleteInProgress){ e.preventDefault(); e.returnValue='Der Löschvorgang läuft noch. Die Seite jetzt zu verlassen kann das Projekt halb gelöscht zurücklassen.'; return e.returnValue; } });
 async function confirmDeleteProject(){
   if(!currentProjectId||!currentProjectData)return;
 
@@ -1115,6 +1118,7 @@ async function confirmDeleteProject(){
   if(!confirmed)return;
 
   // Show progress
+  _deleteInProgress=true; // beforeunload-Warnung aktiv
   setSyncState('syncing','Projekt wird gelöscht…');
   try{
     const pid=currentProjectId;
@@ -1158,6 +1162,8 @@ async function confirmDeleteProject(){
     setSyncState('ok','Synchronisiert');
     notify('Fehler beim Löschen: '+e.message);
     console.error(e);
+  }finally{
+    _deleteInProgress=false; // Warnung wieder aus
   }
 }
 
