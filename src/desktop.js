@@ -325,12 +325,12 @@ let showUnplanned = false;            // zusätzlich unverplante Objekte einblen
 let activeTourOnMap = null;           // abgeleitet: nur gesetzt, wenn GENAU eine Tour gewählt ist (für Detail-Ansicht/Nummern)
 function syncActiveTour(){ activeTourOnMap = activeTours.size===1 ? [...activeTours][0] : null; }
 function treeInAnyActiveTour(t){ for(const tid of activeTours){ if(treeInTour(t,tid)) return true; } return false; }
-// Roh-Segment ohne Typ/Art: Linie ohne Typ/Art, weder Abschnitt-Container noch Seite → kein Arbeitsobjekt
-// (z. B. nicht umgewandelte Teiler). Immer „nicht planbar"; standardmäßig SICHTBAR (frisch importierte
-// Segmente haben noch kein Typ/Art — sie auszublenden würde das ganze Netz verstecken). Schalter blendet
-// sie bei Bedarf aus (z. B. nach der Umwandlung, um Teiler-Reste zu verstecken).
+// Ausgeschlossenes Segment: eine Linie, die per Segmentart als „Teiler" oder „Ausschluss" markiert ist
+// (z. B. Fahrbahnteiler, Autobahn) → kein Arbeitsobjekt: nicht planbar, zählt nicht als „nicht verplant",
+// per Schalter ausblendbar. Frisch importierte/eingestufte Segmente (Einzeln/Parallel/ohne) bleiben normal
+// planbar und sichtbar — sonst wäre das ganze Netz nicht bearbeitbar.
 let _hideRawSeg=false;
-function _isRawSeg(t){ return !!t && geomTypeOf(t)==='linie' && !((t.art||'').trim()) && !t.containerTyp && !t.containerExtId; }
+function _isRawSeg(t){ return !!t && geomTypeOf(t)==='linie' && !t.containerTyp && !t.containerExtId && (t.segmentart==='Teiler'||t.segmentart==='Ausschluss'); }
 // „Nicht verplant" = in keiner ECHTEN Tour (Übersichten zählen nicht als Verplanung)
 function treeIsUnplanned(t){ return isActive(t) && !_isContainer(t) && !_isRawSeg(t) && realTourIds(t).length===0; } // Container + Roh-Segmente ohne Typ/Art sind nicht tour-planbar → zählen nicht als „nicht verplant"
 // Sichtbarkeit nach aktueller Auswahl: nichts gewählt = alles; sonst Tour-Objekte ODER (optional) unverplante
@@ -2415,7 +2415,7 @@ function renderDisplayPanel(){
   h+=chk(_showTourCounts,'toggleTourCounts()','Tourhäufigkeit ein/aus');
   h+=chk(_showRouteNums,'toggleRouteNums()','Routennummern ein/aus');
   if((listValues.betriebshof||[]).some(b=>b.lat!=null)) h+=chk(_showBetriebshoefe,'toggleBetriebshoefe()','Betriebshöfe ein/aus');
-  if((trees||[]).some(_isRawSeg)) h+=chk(!_hideRawSeg,'toggleRawSeg()','Segmente ohne Typ/Art anzeigen');
+  if((trees||[]).some(_isRawSeg)) h+=chk(!_hideRawSeg,'toggleRawSeg()','Ausgeschlossene Segmente (Teiler/Ausschluss) anzeigen');
   if(hasCont) h+=chk(_versatzOn,'toggleVersatz()','Objekte nach Lage versetzt');
   const hasBh=(listValues.betriebshof||[]).length>0;
   if(hasCont || currentProjectData?.sollFeld || hasBh){
@@ -11809,7 +11809,10 @@ async function applyLasso(){
   const _l0=lassoPoints[0];
   trees.forEach(tree=>{
     if((tree.lat&&tree.lng) || !_hasDrawnGeom(tree) || _isContainer(tree)) return; // Container nicht planbar — nur seine Seiten
-    if(!isActive(tree) || !treeVisibleSel(tree)) return;                            // nur Sichtbares
+    if(!isActive(tree)) return;
+    // Im Planen-Modus alles Gezeichnete auswählbar (unabhängig von der Tour-Auswahl); sonst nur Sichtbares der Auswahl
+    if(assignMode){ if(!_typeShown(tree) || (_hideRawSeg&&_isRawSeg(tree))) return; }
+    else if(!treeVisibleSel(tree)) return;
     if(objFilterOnMap && !objMatchesPropFilter(tree)) return;
     const g=_treeGeom(tree); if(!g) return;
     const isPoly = g.type==='Polygon';
