@@ -326,8 +326,10 @@ let activeTourOnMap = null;           // abgeleitet: nur gesetzt, wenn GENAU ein
 function syncActiveTour(){ activeTourOnMap = activeTours.size===1 ? [...activeTours][0] : null; }
 function treeInAnyActiveTour(t){ for(const tid of activeTours){ if(treeInTour(t,tid)) return true; } return false; }
 // Roh-Segment ohne Typ/Art: Linie ohne Typ/Art, weder Abschnitt-Container noch Seite → kein Arbeitsobjekt
-// (z. B. nicht umgewandelte Teiler). Nicht planbar; standardmäßig ausgeblendet.
-let _hideRawSeg=true;
+// (z. B. nicht umgewandelte Teiler). Immer „nicht planbar"; standardmäßig SICHTBAR (frisch importierte
+// Segmente haben noch kein Typ/Art — sie auszublenden würde das ganze Netz verstecken). Schalter blendet
+// sie bei Bedarf aus (z. B. nach der Umwandlung, um Teiler-Reste zu verstecken).
+let _hideRawSeg=false;
 function _isRawSeg(t){ return !!t && geomTypeOf(t)==='linie' && !((t.art||'').trim()) && !t.containerTyp && !t.containerExtId; }
 // „Nicht verplant" = in keiner ECHTEN Tour (Übersichten zählen nicht als Verplanung)
 function treeIsUnplanned(t){ return isActive(t) && !_isContainer(t) && !_isRawSeg(t) && realTourIds(t).length===0; } // Container + Roh-Segmente ohne Typ/Art sind nicht tour-planbar → zählen nicht als „nicht verplant"
