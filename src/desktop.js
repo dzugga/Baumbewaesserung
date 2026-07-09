@@ -4106,7 +4106,7 @@ async function abschnittAddSeite(containerId){
     const btn=m.querySelector('#as-save'); btn.disabled=true; btn.style.opacity=.5;
     try{
       const baumId=await getNextBaumId();
-      await addDoc(collection(db,'projects',currentProjectId,'trees'),{ name:c.name||'', element, elementLabel:label, art, geomType:'linie', containerExtId:c.extId, baumId, aktiv:true, tourIds:[], tourId:'', history:[], createdAt:serverTimestamp() });
+      await addDoc(collection(db,'projects',currentProjectId,'trees'),{ name:c.name||'', element, elementLabel:label, art, artId:(art&&artenList.find(a=>a.name===art)?.id)||null, geomType:'linie', containerExtId:c.extId, baumId, aktiv:true, tourIds:[], tourId:'', history:[], createdAt:serverTimestamp() });
       notify('✓ Objekt „'+label+'" hinzugefügt'); close();
       setTimeout(()=>{ if(trees.find(t=>t.id===containerId)) openAbschnitt(containerId); },300);
     }catch(e){ notify('Fehler: '+(e.message||e)); btn.disabled=false; btn.style.opacity=1; }
@@ -6789,6 +6789,23 @@ async function _chunkedTreeUpdate(updates){
     updates.slice(i,i+400).forEach(u=>batch.update(doc(db,'projects',currentProjectId,'trees',u.id),u.data));
     await batch.commit();
   }
+}
+// Stellt sicher, dass die genannten Typ/Art-Werte im Arten-Katalog existieren (z. B. Fahrbahn/Gehweg
+// aus der Segmentnetz-Umwandlung — sonst bleibt das Typ/Art-Auswahlfeld bei Neuanlage leer).
+// Liefert Map name→artId für die artId-Zuordnung beim Anlegen.
+async function _ensureArten(names){
+  const want=[...new Set((names||[]).map(n=>(n||'').trim()).filter(Boolean))];
+  if(!want.length||!currentProjectId) return {};
+  if(!artenList.length) await loadArten();
+  const by=new Map(artenList.map(a=>[a.name,a.id]));
+  let created=false;
+  for(const nm of want){
+    if(by.has(nm)) continue;
+    try{ const ref=await addDoc(collection(db,'projects',currentProjectId,'arten'),{name:nm,orgId:currentProjectData?.orgId||currentOrg||null,createdAt:serverTimestamp()}); by.set(nm,ref.id); created=true; }
+    catch(e){ console.warn('_ensureArten',e); }
+  }
+  if(created){ await loadArten(); }
+  return Object.fromEntries(by);
 }
 async function buildArten(){
   if(isReadonly()) return notify('Nur Lesezugriff');
@@ -14854,12 +14871,13 @@ async function segmentUmwandelnOpen(){
     const col=db.collection('projects').doc(currentProjectId).collection('trees');
     try{
       _suppressTreeRender=true;
+      const _artMap=await _ensureArten(plan.flatMap(p=>p.sides.map(x=>x[2]))); // Fahrbahn/Gehweg… in den Typ/Art-Katalog (Auswahlfeld + artId)
       for(let i=0;i<plan.length;i+=70){
         const b=db.batch();
         for(const {t:s,rk,sides} of plan.slice(i,i+70)){
           const oldT=(s.tourIds&&s.tourIds.length)?s.tourIds:(s.tourId?[s.tourId]:[]);
           b.update(col.doc(s.id),{containerTyp:'strecke',art:'Straßenabschnitt',tourIds:[],tourId:'',reinigungsklasse:rk||'',_migrated:true});
-          sides.forEach(([element,label,art])=>{ const tids=element.startsWith('fahrbahn')?oldT:[]; b.set(col.doc(),{ name:s.name||'', element, elementLabel:label, art, geomType:'linie', containerExtId:s.extId, baumId:(s.baumId||('S-'+s.extId))+'-'+element, orgId:s.orgId||currentProjectData?.orgId||'', aktiv:true, tourIds:tids, tourId:tids[0]||'', history:[], _migrated:true, createdAt:firebase.firestore.FieldValue.serverTimestamp() }); });
+          sides.forEach(([element,label,art])=>{ const tids=element.startsWith('fahrbahn')?oldT:[]; b.set(col.doc(),{ name:s.name||'', element, elementLabel:label, art, artId:_artMap[art]||null, geomType:'linie', containerExtId:s.extId, baumId:(s.baumId||('S-'+s.extId))+'-'+element, orgId:s.orgId||currentProjectData?.orgId||'', aktiv:true, tourIds:tids, tourId:tids[0]||'', history:[], _migrated:true, createdAt:firebase.firestore.FieldValue.serverTimestamp() }); });
         }
         await b.commit(); info.textContent=`Wandle um… ${Math.min(i+70,plan.length).toLocaleString('de-DE')} / ${plan.length.toLocaleString('de-DE')}`;
       }
@@ -14881,13 +14899,14 @@ async function lassoAddGehwege(){
   let created=0;
   setSyncState('syncing','Ergänze Gehwege…');
   try{
+    const _artMap=await _ensureArten(['Gehweg']); // Typ/Art-Katalog konsistent halten
     for(const ext of extIds){
       const cont=trees.find(t=>t.extId===ext&&t.containerTyp); if(!cont) continue;
       const have=new Set(_ausstattungOf(ext).map(s=>s.element));
       const toAdd=[['gehweg_l','Gehweg links'],['gehweg_r','Gehweg rechts']].filter(([e])=>!have.has(e));
       if(!toAdd.length) continue;
       const b=db.batch();
-      toAdd.forEach(([element,label])=>{ b.set(col.doc(),{ name:cont.name||'', element, elementLabel:label, art:'Gehweg', geomType:'linie', containerExtId:ext, baumId:(cont.baumId||('S-'+ext))+'-'+element, orgId:cont.orgId||currentProjectData?.orgId||'', aktiv:true, tourIds:[], tourId:'', history:[], _migrated:true, createdAt:firebase.firestore.FieldValue.serverTimestamp() }); created++; });
+      toAdd.forEach(([element,label])=>{ b.set(col.doc(),{ name:cont.name||'', element, elementLabel:label, art:'Gehweg', artId:_artMap['Gehweg']||null, geomType:'linie', containerExtId:ext, baumId:(cont.baumId||('S-'+ext))+'-'+element, orgId:cont.orgId||currentProjectData?.orgId||'', aktiv:true, tourIds:[], tourId:'', history:[], _migrated:true, createdAt:firebase.firestore.FieldValue.serverTimestamp() }); created++; });
       await b.commit();
     }
     notify(`✓ ${created} Gehweg-Seite(n) ergänzt`);
