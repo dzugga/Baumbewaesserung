@@ -2765,12 +2765,15 @@ function renderDrawnGeoms(){
         return; // Container-Mittellinie im Versatz-Modus nicht zusätzlich zeichnen
       }
     }
-    let layer;
-    if(g.type==='Polygon'){ const ll=(g.coordinates[0]||[]).map(c=>[c[1],c[0]]); if(ll.length<3) return; layer=L.polygon(ll,_opt(_flStyleForTree(t,false))); }
-    else if(g.type==='MultiPolygon'){ const mp=(g.coordinates||[]).map(poly=>(poly||[]).map(ring=>ring.map(c=>[c[1],c[0]]))); if(!mp.length) return; layer=L.polygon(mp,_opt(_flStyleForTree(t,false))); }
-    else if(g.type==='LineString'){ const ll=(g.coordinates||[]).map(c=>[c[1],c[0]]); if(ll.length<2) return; layer=L.polyline(ll,_opt(_flStyleForTree(t,true))); }
-    else if(g.type==='MultiLineString'){ const ml=(g.coordinates||[]).map(p=>p.map(c=>[c[1],c[0]])).filter(p=>p.length>=2); if(!ml.length) return; layer=L.polyline(ml,_opt(_flStyleForTree(t,true))); }
+    let layer; const _selHi = t.id===_drawnSelId; // ausgewähltes Objekt (Listen-Klick) grün hervorheben — auch nach Neu-Render/Culling
+    const _pSt = _selHi?{color:'#1d9e75',weight:3,fillColor:'#1d9e75',fillOpacity:0.55}:_flStyleForTree(t,false);
+    const _lSt = _selHi?{color:'#1d9e75',weight:6,opacity:1}:_flStyleForTree(t,true);
+    if(g.type==='Polygon'){ const ll=(g.coordinates[0]||[]).map(c=>[c[1],c[0]]); if(ll.length<3) return; layer=L.polygon(ll,_opt(_pSt)); }
+    else if(g.type==='MultiPolygon'){ const mp=(g.coordinates||[]).map(poly=>(poly||[]).map(ring=>ring.map(c=>[c[1],c[0]]))); if(!mp.length) return; layer=L.polygon(mp,_opt(_pSt)); }
+    else if(g.type==='LineString'){ const ll=(g.coordinates||[]).map(c=>[c[1],c[0]]); if(ll.length<2) return; layer=L.polyline(ll,_opt(_lSt)); }
+    else if(g.type==='MultiLineString'){ const ml=(g.coordinates||[]).map(p=>p.map(c=>[c[1],c[0]])).filter(p=>p.length>=2); if(!ml.length) return; layer=L.polyline(ml,_opt(_lSt)); }
     if(!layer) return;
+    if(_selHi && layer.bringToFront) try{ layer.bringToFront(); }catch(_){}
     layer.on('click',()=>{
       if(assignMode&&!lassoDrawing){
         if(_isContainer(t)){ _ausstattungOf(t.extId).forEach(s=>lassoSelection.add(s.id)); renderLassoActions(); _applyFlaechenSelection(t.id); } // Abschnitt → alle Seiten vorwählen (Container-Linie neu stylen)
@@ -3669,6 +3672,9 @@ function renderList(){
 function selectTree(id, pan=true){
   const prev=selectedTreeId;
   selectedTreeId=id;
+  // vorherige Linien-Hervorhebung zurücksetzen (falls sichtbar); Linien-Zweig setzt _drawnSelId neu
+  if(_drawnSelId && _drawnById[_drawnSelId]){ const _p0=trees.find(x=>x.id===_drawnSelId); try{ _drawnById[_drawnSelId].setStyle(_flStyleForTree(_p0,_p0&&geomTypeOf(_p0)==='linie')); }catch(_){} }
+  _drawnSelId='';
 
   // Rebuild only the two affected markers
   if(prev&&prev!==id&&mapMarkers[prev]){
@@ -3699,18 +3705,17 @@ function selectTree(id, pan=true){
       }
     }, wasOnMap ? 0 : 200);
   }
-  else if(geomTypeOf(tree)!=='punkt' && (_drawnById[tree.id] || (tree.containerExtId && _containerOf(tree) && _drawnById[_containerOf(tree).id]))){
-    // Gezeichnete Geometrie (am Doc): heranzoomen + kurz grün hervorheben.
-    // Seite ohne eigene Linie → auf die Linie ihres Abschnitt-Containers zoomen.
-    const _lid=_drawnById[tree.id]?tree.id:_containerOf(tree).id;
-    const isLine=geomTypeOf(trees.find(x=>x.id===_lid)||tree)==='linie';
-    if(_drawnSelId && _drawnSelId!==_lid && _drawnById[_drawnSelId]){ const p0=trees.find(x=>x.id===_drawnSelId); try{ _drawnById[_drawnSelId].setStyle(_flStyleForTree(p0, p0&&p0.geomType==='linie')); }catch(_){} }
+  else if(geomTypeOf(tree)==='linie' && _treeGeom(tree)){
+    // Linie/Abschnitt: auf die Geometrie zoomen + grün hervorheben — auch wenn sie durch Viewport-Culling
+    // gerade NICHT gerendert ist (Bounds aus gecachter Geometrie, nicht aus dem evtl. weggecullten Layer).
+    // Seite ohne eigene Linie → auf die Linie ihres Abschnitt-Containers.
+    const _lid=(tree.containerExtId && _containerOf(tree))?_containerOf(tree).id:tree.id;
+    _drawnSelId=_lid; // renderDrawnGeoms hebt dieses Objekt beim (Neu-)Zeichnen grün hervor
     setTimeout(()=>{ try{
       map.invalidateSize();
-      const lyr=_drawnById[_lid]; if(!lyr) return;
-      try{ lyr.setStyle(isLine?{color:'#1d9e75',weight:6,opacity:1}:{color:'#1d9e75',weight:3,fillColor:'#1d9e75',fillOpacity:0.55}); lyr.bringToFront&&lyr.bringToFront(); }catch(_){}
-      _drawnSelId=_lid;
-      if(pan && lyr.getBounds){ const b=lyr.getBounds(); if(b.isValid()) map.fitBounds(b,{padding:[60,60],maxZoom:18,animate:true}); }
+      const bb=_geomBbox(trees.find(x=>x.id===_lid)||tree);
+      if(pan && bb) map.fitBounds(L.latLngBounds([bb[0],bb[2]],[bb[1],bb[3]]),{padding:[60,60],maxZoom:18,animate:true});
+      renderDrawnGeoms(); // Hervorhebung sofort anwenden; das moveend nach dem Zoomen zeichnet den Ausschnitt ohnehin neu
     }catch(_){} }, wasOnMap?0:250);
   }
   else if(geomTypeOf(tree)==='flaeche'){
