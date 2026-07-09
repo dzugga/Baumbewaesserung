@@ -325,8 +325,12 @@ let showUnplanned = false;            // zusätzlich unverplante Objekte einblen
 let activeTourOnMap = null;           // abgeleitet: nur gesetzt, wenn GENAU eine Tour gewählt ist (für Detail-Ansicht/Nummern)
 function syncActiveTour(){ activeTourOnMap = activeTours.size===1 ? [...activeTours][0] : null; }
 function treeInAnyActiveTour(t){ for(const tid of activeTours){ if(treeInTour(t,tid)) return true; } return false; }
+// Roh-Segment ohne Typ/Art: Linie ohne Typ/Art, weder Abschnitt-Container noch Seite → kein Arbeitsobjekt
+// (z. B. nicht umgewandelte Teiler). Nicht planbar; standardmäßig ausgeblendet.
+let _hideRawSeg=true;
+function _isRawSeg(t){ return !!t && geomTypeOf(t)==='linie' && !((t.art||'').trim()) && !t.containerTyp && !t.containerExtId; }
 // „Nicht verplant" = in keiner ECHTEN Tour (Übersichten zählen nicht als Verplanung)
-function treeIsUnplanned(t){ return isActive(t) && !_isContainer(t) && realTourIds(t).length===0; } // Abschnitt-Container sind nicht tour-planbar → zählen nicht als „nicht verplant"
+function treeIsUnplanned(t){ return isActive(t) && !_isContainer(t) && !_isRawSeg(t) && realTourIds(t).length===0; } // Container + Roh-Segmente ohne Typ/Art sind nicht tour-planbar → zählen nicht als „nicht verplant"
 // Sichtbarkeit nach aktueller Auswahl: nichts gewählt = alles; sonst Tour-Objekte ODER (optional) unverplante
 function treeVisibleSel(t){
   if(!activeTours.size && !showUnplanned) return true;
@@ -2372,6 +2376,7 @@ function renderDisplayPanel(){
   h+=chk(_showTourCounts,'toggleTourCounts()','Tourhäufigkeit ein/aus');
   h+=chk(_showRouteNums,'toggleRouteNums()','Routennummern ein/aus');
   if((listValues.betriebshof||[]).some(b=>b.lat!=null)) h+=chk(_showBetriebshoefe,'toggleBetriebshoefe()','Betriebshöfe ein/aus');
+  if((trees||[]).some(_isRawSeg)) h+=chk(!_hideRawSeg,'toggleRawSeg()','Segmente ohne Typ/Art anzeigen');
   if(hasCont) h+=chk(_versatzOn,'toggleVersatz()','Objekte nach Lage versetzt');
   const hasBh=(listValues.betriebshof||[]).length>0;
   if(hasCont || currentProjectData?.sollFeld || hasBh){
@@ -2641,6 +2646,7 @@ function renderDrawnGeoms(){
   if(_drawnLayer){ map.removeLayer(_drawnLayer); _drawnLayer=null; } _drawnById={};
   // Seiten (Ausstattung) zeichnen sich NICHT selbst — der Abschnitt-Container vertritt sie (eine Linie statt 4 deckungsgleicher).
   const list=(trees||[]).filter(t=>_hasDrawnGeom(t)&&isActive(t)&&!t.containerExtId&&_typeShown(t)
+    && !(_hideRawSeg && _isRawSeg(t))   // Roh-Segmente ohne Typ/Art standardmäßig ausblenden
     && !(objFilterOnMap && objFilterActive() && !objMatchesPropFilter(t)));   // Eigenschaften-Filter auch auf gezeichnete Geometrie
   const _vb=document.getElementById('btn-toggle-versatz'); if(_vb) _vb.style.display=(trees||[]).some(_isContainer)?'flex':'none';
   const _tb=document.getElementById('btn-type-filter'); if(_tb) _tb.style.display=_presentCategories().size>1?'flex':'none';
@@ -2860,6 +2866,7 @@ function rebuildMarkersWithNumbers(){
 
 let _bhLayer=null, _showBetriebshoefe=true;
 function toggleBetriebshoefe(){ _showBetriebshoefe=!_showBetriebshoefe; renderDepotMarker(); }
+function toggleRawSeg(){ _hideRawSeg=!_hideRawSeg; try{ renderDrawnGeoms(); }catch(_){} try{ renderList(); }catch(_){} try{ renderLegend(); }catch(_){} }
 function renderDepotMarker(){
   if(depotMarker){map.removeLayer(depotMarker);depotMarker=null;}
   if(_bhLayer){ map.removeLayer(_bhLayer); _bhLayer=null; }
@@ -3487,6 +3494,7 @@ function renderList(){
   // Abschnittsnamen je extId (für Seiten: Straßenname als Anzeige + durchsuchbar)
   const _contName={}; for(const t of trees){ if(t.containerTyp) _contName[t.extId]=t.name||''; }
   let filtered=trees.filter(t=>{
+    if(_hideRawSeg && _isRawSeg(t)) return false; // Roh-Segmente ohne Typ/Art ausgeblendet
     if(_listMode==='abschnitte'){ if(!_isContainer(t)) return false; } // Abschnitts-Modus: NUR Abschnitte (Container)
     else if(_isContainer(t)) return false; // Objekt-Modus: Abschnitt-Container sind keine Objekte → ausblenden
     const cn=t.containerExtId?(_contName[t.containerExtId]||''):'';
@@ -11814,7 +11822,7 @@ function lassoSetFieldDialog(){
 }
 // Aktion auf die Vorauswahl anwenden: 'add' | 'move' | 'unplan'
 async function lassoAction(mode){
-  let targets=[...lassoSelection].map(id=>trees.find(t=>t.id===id)).filter(Boolean);
+  let targets=[...lassoSelection].map(id=>trees.find(t=>t.id===id)).filter(Boolean).filter(t=>!_isRawSeg(t)); // Roh-Segmente ohne Typ/Art sind nicht planbar
   if(!targets.length){ renderLassoActions(); return; }
   const tourId=assignTourId||lassoTourId;
   const tour=tours.find(t=>t.id===tourId);
@@ -14893,7 +14901,7 @@ Object.assign(window,{
   rankAdd,rankRename,rankSetColor,rankSetZahl,rankSetZahlWinter,rankMove,rankMerge,rankDelete,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
-  importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleRequiredFeld,_siInfo,
+  importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleRequiredFeld,toggleRawSeg,_siInfo,
   createProject,openProject,showProjectScreen,psSetOrgFilter,setSiTab,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,
