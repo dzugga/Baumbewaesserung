@@ -267,6 +267,7 @@ const MODULES = [
   {key:'einsatzplaner', label:'Einsatzplaner'},
   {key:'nachrichten', label:'Nachrichten'},
   {key:'segmentnetz', label:'Segmentnetz'},
+  {key:'massenwerkzeuge', label:'Massen-Werkzeuge (Planung)'},
   {key:'dashboard',   label:'Dashboard'},
   {key:'controlling', label:'Controlling'},
   {key:'ki',          label:'KI-Analysen'},
@@ -289,7 +290,7 @@ const _allModKeys = MODULES.map(m=>m.key);
 const _mods = (keys)=>Object.fromEntries(_allModKeys.map(k=>[k, keys.includes(k)]));
 const BUILTIN_ROLES = {
   superadmin: {name:'Superadmin', baseType:'admin', modules:_mods(_allModKeys), builtin:true},
-  orgadmin:   {name:'Org-Admin',  baseType:'admin', modules:_mods(_allModKeys.filter(k=>k!=='admin')), builtin:true},
+  orgadmin:   {name:'Org-Admin',  baseType:'admin', modules:_mods(_allModKeys.filter(k=>k!=='admin'&&k!=='massenwerkzeuge')), builtin:true}, // Massen-Werkzeuge default NUR Superadmin — pro Rolle zuschaltbar
   planer:     {name:'Planer',     baseType:'editor', modules:_mods(['planung','disposition','einsatzplaner','nachrichten','segmentnetz','dashboard','controlling','ki','objekte','touren','import','wms','einsatzleiter']), builtin:true},
   erfasser:   {name:'Erfasser',   baseType:'editor', modules:_mods(['erfassung','objekte']), builtin:true},
   fahrer:     {name:'Fahrer',     baseType:'driver', modules:_mods(['mobil']), builtin:true},
@@ -12065,8 +12066,8 @@ function renderLassoActions(){
     ${btn('add','➕ Zu „'+tn+'“ hinzufügen','rgba(255,255,255,.18)')}
     ${btn('move','➡ Nach „'+tn+'“ verschieben','rgba(255,255,255,.18)')}
     ${btn('unplan','⊘ Aus Tour(en) entfernen','rgba(255,255,255,.18)')}
-    <button onclick="lassoSetFieldDialog()" style="padding:4px 11px;font-size:12px;font-weight:600;border:none;border-radius:var(--radius-sm);background:rgba(255,255,255,.18);color:#fff;cursor:pointer;white-space:nowrap;" title="Ein Feld (z. B. Betriebshof) für die Auswahl setzen">✎ Feld setzen…</button>
-    <button onclick="lassoAddGehwege()" style="padding:4px 11px;font-size:12px;font-weight:600;border:none;border-radius:var(--radius-sm);background:rgba(255,255,255,.18);color:#fff;cursor:pointer;white-space:nowrap;" title="Gehweg links + rechts für die ausgewählten Straßenabschnitte anlegen">＋ Gehweg-Seiten</button>
+    ${canUseModule('massenwerkzeuge')?`<button onclick="lassoSetFieldDialog()" style="padding:4px 11px;font-size:12px;font-weight:600;border:none;border-radius:var(--radius-sm);background:rgba(255,255,255,.18);color:#fff;cursor:pointer;white-space:nowrap;" title="Ein Feld (z. B. Betriebshof) für die Auswahl setzen">✎ Feld setzen…</button>
+    <button onclick="lassoAddGehwege()" style="padding:4px 11px;font-size:12px;font-weight:600;border:none;border-radius:var(--radius-sm);background:rgba(255,255,255,.18);color:#fff;cursor:pointer;white-space:nowrap;" title="Gehweg links + rechts für die ausgewählten Straßenabschnitte anlegen">＋ Gehweg-Seiten</button>`:''}
     <button onclick="clearLassoSelection()" style="padding:4px 11px;font-size:12px;border:1px solid rgba(255,255,255,.4);background:transparent;color:#fff;border-radius:var(--radius-sm);cursor:pointer;white-space:nowrap;">Auswahl aufheben</button>`;
   bar.classList.add('visible');
 }
@@ -12074,6 +12075,7 @@ function renderLassoActions(){
 // Bulk: ein Feld für die gesamte Lasso-Auswahl setzen (z. B. Betriebshof beim Verschieben von Grenzen).
 function lassoSetFieldDialog(){
   if(isReadonly()) return notify('Nur Lesezugriff');
+  if(!canUseModule('massenwerkzeuge')) return notify('Keine Berechtigung (Modul „Massen-Werkzeuge")');
   const ids=[...lassoSelection]; if(!ids.length) return notify('Nichts ausgewählt');
   const fields=[{key:'stadtteil',label:FL.stadtteil,type:'liste'},{key:'art',label:FL.art,type:'art'},
     ...customFields.map(c=>({key:c.key,label:c.label,type:c.type||'liste'}))];
@@ -14857,6 +14859,7 @@ async function segmentUmwandelnOpen(){
 // Schritt 3: Gehweg-Seiten für die ausgewählten Abschnitte ergänzen (Lasso)
 async function lassoAddGehwege(){
   if(isReadonly()||!canEditObjects()) return notify('Nur Planer/Admins');
+  if(!canUseModule('massenwerkzeuge')) return notify('Keine Berechtigung (Modul „Massen-Werkzeuge")');
   const sel=[...lassoSelection].map(id=>trees.find(t=>t.id===id)).filter(Boolean);
   const extIds=new Set(); sel.forEach(t=>{ if(t.containerTyp&&t.extId) extIds.add(t.extId); else if(t.containerExtId) extIds.add(t.containerExtId); });
   if(!extIds.size) return notify('Keine Straßenabschnitte in der Auswahl');
