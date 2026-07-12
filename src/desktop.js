@@ -10845,6 +10845,9 @@ function renderMeldungen(){
     const time=h.at?String(h.at).slice(11,16):'';
     const hay=(name+' '+(t.baumId||'')+' '+(h.reason||'')+' '+(h.note||'')+' '+(h.driver||'')).toLowerCase();
     const hasFoto=(h.note||'').includes('📷');
+    const fotoBtn=hasFoto?((t.fotos&&t.fotos.length)
+      ?` <span onclick="openFoto('${_jsArg(t.id)}',${Math.max(0,(t.fotos.length||1)-1)})" title="Foto ansehen (${t.fotos.length} am Objekt)" style="cursor:pointer;">📷</span>`
+      :' <span title="Foto gemeldet — am Objekt nicht (mehr) vorhanden" style="opacity:.5;">📷</span>'):'';
     const meta=MELD_BEARB.find(x=>x[0]===bearb)||MELD_BEARB[0];
     const sel=ro?`<span style="font-size:11px;font-weight:600;color:${meta[2]};background:${meta[3]};border-radius:99px;padding:2px 9px;">${meta[1]}</span>`
       :`<select onchange="setMeldungBearb('${_jsArg(t.id)}','${_jsArg(String(h.at||''))}',this.value)" ${h.at?'':'disabled title="Alt-Meldung ohne Zeitstempel — Status nicht setzbar"'} style="padding:3px 7px;font-size:11px;font-weight:600;border:1px solid ${meta[2]}55;border-radius:7px;background:${meta[3]};color:${meta[2]};font-family:inherit;cursor:pointer;">
@@ -10853,7 +10856,7 @@ function renderMeldungen(){
     return `<tr data-hay="${dlEsc(hay)}" style="border-top:1px solid var(--border);">
       <td style="padding:7px 10px;white-space:nowrap;color:var(--text2);">${dte.split('-').reverse().join('.')}${time?' '+time:''}</td>
       <td style="padding:7px 10px;"><a href="#" onclick="event.preventDefault();selectTree('${_jsArg(t.id)}')" style="color:var(--green);font-weight:600;text-decoration:none;">${dlEsc(name)}</a><div style="font-size:11px;color:var(--text3);">${dlEsc(t.baumId||'')}</div></td>
-      <td style="padding:7px 10px;">${h.status==='nicht'?`<span style="color:#991b1b;font-weight:600;">✕ Nicht erledigt</span>`:'<span style="color:#166534;">✓ Erledigt</span>'}${hasFoto?' <span title="Meldung mit Foto — am Objekt hinterlegt">📷</span>':''}</td>
+      <td style="padding:7px 10px;">${h.status==='nicht'?`<span style="color:#991b1b;font-weight:600;">✕ Nicht erledigt</span>`:'<span style="color:#166534;">✓ Erledigt</span>'}${fotoBtn}</td>
       <td style="padding:7px 10px;">${dlEsc(h.reason||'–')}${h.note&&h.note!==h.reason?`<div style="font-size:11px;color:var(--text3);">${dlEsc(h.note)}</div>`:''}</td>
       <td style="padding:7px 10px;color:var(--text2);">${dlEsc(h.driver||'–')}</td>
       <td style="padding:7px 10px;">${sel}${h.bearbBy?`<div style="font-size:10px;color:var(--text3);margin-top:2px;">${dlEsc(h.bearbBy)} · ${_nmTime(h.bearbAt)}</div>`:''}</td>
