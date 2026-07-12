@@ -13200,6 +13200,7 @@ function _epPersonName(id){ const p=_epPersons.find(x=>x.id===id); return p?p.na
 
 async function initEinsatzplaner(){
   const root=document.getElementById('ep-root'); if(!root) return;
+  _epRescueNachrichten();
   root.innerHTML='<div style="padding:48px;text-align:center;color:var(--text3);font-size:13px;">Lädt…</div>';
   if(!_epDate) _epDate=_epToday();
   let orgs=[];
@@ -13230,7 +13231,7 @@ async function epLoadTours(){
   if(!_epProject) return;
   try{ const qs=await db.collection('projects').doc(_epProject).collection('tours').get(); _epTours=qs.docs.map(d=>({id:d.id,...d.data()})).filter(t=>!t.uebersicht).sort((a,b)=>(a.name||'').localeCompare(b.name||'')); }catch(e){ console.warn('ep tours',e); }
 }
-async function epChangeOrg(v){ _epOrg=v; _epProject=''; _epWeekQuery=''; _epDayQuery=''; const r=document.getElementById('ep-root'); if(r) r.innerHTML='<div style="padding:48px;text-align:center;color:var(--text3);">Lädt…</div>'; await epLoadOrgScope(); renderEp(); }
+async function epChangeOrg(v){ _epOrg=v; _epProject=''; _epWeekQuery=''; _epDayQuery=''; const r=document.getElementById('ep-root'); if(r){ _epRescueNachrichten(); r.innerHTML='<div style="padding:48px;text-align:center;color:var(--text3);">Lädt…</div>'; } await epLoadOrgScope(); renderEp(); }
 async function epChangeProject(v){ _epProject=v; _epWeekQuery=''; _epDayQuery=''; await epLoadTours(); renderEp(); }
 async function epChangeDate(v){ _epDate=v||_epToday(); await epLoadAvail(); renderEp(); }
 let _epVehSub='heute'; // Unterreiter im Tab „Fahrzeuge": 'heute' (Tagesstatus) | 'fuhrpark' (Stammdaten)
@@ -13991,12 +13992,16 @@ function epFuhrparkHtml(){
     <table class="ep-table"><thead><tr>${head}</tr></thead><tbody>${rows||'<tr><td colspan="6" style="color:var(--text3);">Noch keine Fahrzeuge — „+ Fahrzeug" anlegen.</td></tr>'}</tbody></table>
     <div class="ep-foot">Gemeinsame Fahrzeugquelle für Einsatzplaner und Disposition. Änderungen erst mit „Speichern" sichern.</div>`;
 }
+// Eingehängten Nachrichten-Bereich VOR jedem innerHTML-Neuaufbau von #ep-root nach Hause retten —
+// sonst wird der DOM-Knoten zerstört und der Reiter bleibt dauerhaft leer. MUSS überall dort laufen,
+// wo ep-root.innerHTML gesetzt wird (renderEp, initEinsatzplaner, epChangeOrg).
+function _epRescueNachrichten(){
+  const nmBody=document.getElementById('nachrichten-body');
+  if(nmBody && nmBody.closest('#ep-root')){ const home=document.getElementById('view-nachrichten'); if(home){ nmBody.style.padding=''; home.appendChild(nmBody); } }
+}
 function renderEp(){
   const root=document.getElementById('ep-root'); if(!root) return;
-  { // eingehängten Nachrichten-Bereich VOR dem innerHTML-Neuaufbau retten (sonst wird der DOM-Knoten zerstört)
-    const nmBody=document.getElementById('nachrichten-body');
-    if(nmBody && nmBody.closest('#ep-root')){ const home=document.getElementById('view-nachrichten'); if(home){ nmBody.style.padding=''; home.appendChild(nmBody); } }
-  }
+  _epRescueNachrichten();
   const orgSel=(currentRole==='superadmin'&&_epOrgs.length>1)
     ? `<label class="ep-field">Mandant<select onchange="epChangeOrg(this.value)">${_epOrgs.map(o=>`<option value="${dlEsc(o.id)}"${o.id===_epOrg?' selected':''}>${dlEsc(o.name)}</option>`).join('')}</select></label>` : '';
   const projSel=`<label class="ep-field">Projekt<select onchange="epChangeProject(this.value)">${_epProjects.length?_epProjects.map(p=>`<option value="${dlEsc(p.id)}"${p.id===_epProject?' selected':''}>${dlEsc(p.name)}</option>`).join(''):'<option value="">—</option>'}</select></label>`;
@@ -14027,7 +14032,11 @@ function renderEp(){
 // Hinweis: Nachrichten laufen mandantenweit über das OFFENE Projekt (currentOrg) — für Nicht-Superadmins
 // identisch mit _epOrg; Superadmins wechseln den Mandanten über das geöffnete Projekt.
 function _epNachrichtenMount(){
-  const slot=document.getElementById('ep-nm-slot'); const body=document.getElementById('nachrichten-body');
+  const slot=document.getElementById('ep-nm-slot'); let body=document.getElementById('nachrichten-body');
+  if(!body){ // Knoten wurde (in einer Alt-Sitzung) zerstört → neu anlegen, damit der Reiter sich selbst heilt
+    const home=document.getElementById('view-nachrichten');
+    if(home){ body=document.createElement('div'); body.id='nachrichten-body'; home.appendChild(body); }
+  }
   if(slot&&body&&body.parentElement!==slot){ body.style.padding='0'; slot.appendChild(body); }
   initNachrichten();
 }
