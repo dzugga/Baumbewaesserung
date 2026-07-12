@@ -12900,7 +12900,12 @@ function epDayFilter(q){
 let _epAbsMonth=''; // YYYY-MM für die Abwesenheits-Timeline
 let _epShowBedarf=false; // Bedarfstouren-Abschnitt im Einsatzplan aufgeklappt?
 function epToggleBedarf(){ _epShowBedarf=!_epShowBedarf; renderEp(); }
-const EP_ABS={urlaub:['Urlaub','#FAC775','#633806'], krank:['Krank','#F09595','#501313'], abwesend:['Abwesend','#B4B2A9','#2C2C2A']};
+// Abwesenheits-Typen: mandantenweit pflegbar (orgs/{org}.absenceTypes, Verwaltung im Personal-Reiter);
+// ohne eigene Pflege gelten die drei Standard-Typen. Jeder Typ ≠ „anwesend" macht die Person unverfügbar.
+const EP_ABS_DEFAULT=[{id:'urlaub',label:'Urlaub',color:'#FAC775'},{id:'krank',label:'Krank',color:'#F09595'},{id:'abwesend',label:'Abwesend',color:'#B4B2A9'}];
+let _epAbsTypesOrg=null;
+function _epAbsTypes(){ return (Array.isArray(_epAbsTypesOrg)&&_epAbsTypesOrg.length)?_epAbsTypesOrg:EP_ABS_DEFAULT.map(x=>({...x})); }
+function _epAbsMeta(type){ return _epAbsTypes().find(x=>x.id===type) || EP_ABS_DEFAULT.find(x=>x.id===type) || {id:type,label:type||'Abwesend',color:'#B4B2A9'}; }
 // Abwesenheit (Zeitraum an der Person) für ein Datum → Status oder null
 function _epAbsenceFor(p,date){ if(!p||!Array.isArray(p.absences)) return null; return p.absences.find(a=>a&&a.from<=date&&a.to>=date)||null; }
 function _epAbsenceStatus(p){ const a=_epAbsenceFor(p,_epDate); return a?a.type:null; }
@@ -12934,7 +12939,7 @@ async function epLoadOrgScope(){
   _epPersons=[]; _epVehicles=[]; _epProjects=[];
   if(!_epOrg) return;
   try{ const qs=await db.collection('drivers').where('orgId','==',_epOrg).get(); _epPersons=qs.docs.map(d=>({id:d.id,...d.data()})).filter(p=>_epPersonInPlan(p)).sort((a,b)=>(a.name||'').localeCompare(b.name||'')); }catch(e){ console.warn('ep drivers',e); }
-  try{ const os=await db.collection('orgs').doc(_epOrg).get(); const od=os.exists?os.data():{}; const r=od.dispoResources; _epVehicles=(Array.isArray(r)&&r.length)?r.map(x=>({...x})):DISPO_DEFAULT_RES.map(x=>({...x})); _epFunktionen=_effFunktionen(od.funktionen, _epPersons); }catch(e){ _epVehicles=DISPO_DEFAULT_RES.map(x=>({...x})); _epFunktionen=_effFunktionen(null, _epPersons); }
+  try{ const os=await db.collection('orgs').doc(_epOrg).get(); const od=os.exists?os.data():{}; const r=od.dispoResources; _epVehicles=(Array.isArray(r)&&r.length)?r.map(x=>({...x})):DISPO_DEFAULT_RES.map(x=>({...x})); _epFunktionen=_effFunktionen(od.funktionen, _epPersons); _epAbsTypesOrg=Array.isArray(od.absenceTypes)?od.absenceTypes.map(x=>({...x})):null; }catch(e){ _epVehicles=DISPO_DEFAULT_RES.map(x=>({...x})); _epFunktionen=_effFunktionen(null, _epPersons); _epAbsTypesOrg=null; }
   try{ const qs=await db.collection('projects').where('orgId','==',_epOrg).get(); _epProjects=qs.docs.map(d=>({id:d.id,name:d.data().name||d.id})).sort((a,b)=>a.name.localeCompare(b.name)); }catch(e){ console.warn('ep projects',e); }
   if(!_epProject || !_epProjects.find(p=>p.id===_epProject)) _epProject=(_epProjects.find(p=>p.id===currentProjectId)?.id)||_epProjects[0]?.id||'';
   await epLoadAvail(); await epLoadTours();
@@ -12952,7 +12957,9 @@ async function epLoadTours(){
 async function epChangeOrg(v){ _epOrg=v; _epProject=''; _epWeekQuery=''; _epDayQuery=''; const r=document.getElementById('ep-root'); if(r) r.innerHTML='<div style="padding:48px;text-align:center;color:var(--text3);">Lädt…</div>'; await epLoadOrgScope(); renderEp(); }
 async function epChangeProject(v){ _epProject=v; _epWeekQuery=''; _epDayQuery=''; await epLoadTours(); renderEp(); }
 async function epChangeDate(v){ _epDate=v||_epToday(); await epLoadAvail(); renderEp(); }
-function epSetTab(t){ _epTab=t; renderEp(); }
+let _epVehSub='heute'; // Unterreiter im Tab „Fahrzeuge": 'heute' (Tagesstatus) | 'fuhrpark' (Stammdaten)
+function epVehSubSet(s){ _epVehSub=s==='fuhrpark'?'fuhrpark':'heute'; renderEp(); }
+function epSetTab(t){ _epTab=t; if(t==='fahrzeuge') _epVehSub='heute'; renderEp(); }
 function _epCanWrite(){ return currentRole==='superadmin'||currentCap==='admin'||currentCap==='editor'; }
 function epPersist(){
   if(!_epCanWrite()) return;
@@ -13063,7 +13070,7 @@ function epVerfuegbarHtml(){
   }).join('') : '<div class="ep-empty">Keine Fahrzeuge hinterlegt. (Reiter „Fuhrpark")</div>';
   return `
     <div class="ep-sec-head"><h3>Fahrzeuge — heute <span class="ep-count">${vAvail}/${_epVehicles.length} verfügbar</span></h3>
-      <span style="margin-left:auto;font-size:11px;color:var(--text3);">Stammdaten weiter unten · Personal im Reiter „Personal"</span></div>
+      <span style="margin-left:auto;font-size:11px;color:var(--text3);">Stammdaten im Unterreiter „Fuhrpark" · Personal im Reiter „Personal"</span></div>
     <div class="ep-grid">${vCards}</div>`;
 }
 // ── Wochenübersicht: welche Tour an welchem Tag fällig ist (reiner Lesemodus, Rhythmus aus tourDueOn) ──
@@ -13177,9 +13184,10 @@ function epPlanHtml(){
       const stat=pp?_epPStatus(pp.id):'anwesend';
       const unavail=!!pp && stat!=='anwesend';
       const dup=(load[n]||0)>1;
-      const reason=unavail?((EP_PSTATES.find(s=>s[0]===stat)||[])[1]||'nicht verfügbar'):(dup?'doppelt':'');
+      const reason=unavail?_epAbsMeta(stat).label:(dup?'doppelt':'');
       const bad=unavail||dup;
-      const tip=n+(unavail?' — heute '+reason:(dup?' — an diesem Tag in mehreren Touren verplant':''));
+      const _absNote=unavail&&pp?((_epAbsenceFor(pp,_epDate)||{}).note||''):'';
+      const tip=n+(unavail?' — heute '+reason+(_absNote?' ('+_absNote+')':''):(dup?' — an diesem Tag in mehreren Touren verplant':''));
       return `<span class="ep-chip${bad?' warn':''}" title="${dlEsc(tip)}">${dlEsc(n)}${bad?` <span class="ep-chip-r">${dlEsc(reason)}</span>`:''}${ro?'':`<i onclick="epRemoveDriver('${t.id}',${i})">×</i>`}</span>`;
     }).join(''):'';
     const vehSel=ro
@@ -13208,8 +13216,8 @@ function epPlanHtml(){
   if(!ro) dueTours.forEach(t=>{
     const eff=_epEffCrew(t);
     eff.drivers.forEach(n=>{ const pp=_epPersons.find(x=>x.name===n); const st=pp?_epPStatus(pp.id):'anwesend';
-      if(st!=='anwesend'){ const lbl=((EP_PSTATES.find(s=>s[0]===st)||[])[1]||'abwesend').toLowerCase();
-        issues.push(`<span><b style="font-weight:600;">${dlEsc(n)}</b> (${dlEsc(t.name||'Tour')}) ist heute ${lbl}</span><button class="btn btn-secondary" style="font-size:11px;padding:2px 10px;" onclick="epOpenPicker('driver','${t.id}',this)">Ersatz wählen</button>`); } });
+      if(st!=='anwesend'){ const lbl=_epAbsMeta(st).label.toLowerCase(); const nt=((pp&&_epAbsenceFor(pp,_epDate))||{}).note||'';
+        issues.push(`<span><b style="font-weight:600;">${dlEsc(n)}</b> (${dlEsc(t.name||'Tour')}) ist heute ${dlEsc(lbl)}${nt?` <span style="color:#a16207;">(„${dlEsc(nt)}")</span>`:''}</span><button class="btn btn-secondary" style="font-size:11px;padding:2px 10px;" onclick="epOpenPicker('driver','${t.id}',this)">Ersatz wählen</button>`); } });
     if(!eff.drivers.length){
       const hasStd=!!(t.stdDrivers&&t.stdDrivers.length);
       issues.push(`<span><b style="font-weight:600;">${dlEsc(t.name||'Tour')}</b> ist unbesetzt</span>${hasStd?`<button class="btn btn-secondary" style="font-size:11px;padding:2px 10px;" onclick="epApplyStandardOne('${t.id}')">Standard übernehmen</button>`:`<button class="btn btn-secondary" style="font-size:11px;padding:2px 10px;" onclick="epOpenPicker('driver','${t.id}',this)">Besetzen</button>`}`); }
@@ -13410,7 +13418,7 @@ function epAbsenceHtml(){
   const rows=_epPersons.map(p=>{
     const cells=days.map(d=>{
       const a=_epAbsenceFor(p,d), we=_epWeekend(d);
-      if(a){ const c=EP_ABS[a.type]||EP_ABS.abwesend; return `<td style="padding:1px;${we?'background:var(--surface2);':''}${todayMark(d)}"><div title="${c[0]} ${a.from}–${a.to}" ${ro?'':`onclick="epAbsOpenForm('${p.id}','${a.id||''}','')"`} style="height:18px;background:${c[1]};border-radius:3px;cursor:${ro?'default':'pointer'};"></div></td>`; }
+      if(a){ const c=_epAbsMeta(a.type); return `<td style="padding:1px;${we?'background:var(--surface2);':''}${todayMark(d)}"><div title="${dlEsc(c.label)} ${a.from}–${a.to}${a.note?' — '+dlEsc(a.note):''}" ${ro?'':`onclick="epAbsOpenForm('${p.id}','${a.id||''}','')"`} style="height:18px;background:${c.color};border-radius:3px;cursor:${ro?'default':'pointer'};"></div></td>`; }
       return `<td style="padding:1px;${we?'background:var(--surface2);':''}${todayMark(d)}" ${ro?'':`onclick="epAbsOpenForm('${p.id}','','${d}')"`}><div style="height:18px;cursor:${ro?'default':'pointer'};"></div></td>`;
     }).join('');
     const inactive=!_epPersonActive(p);
@@ -13424,7 +13432,8 @@ function epAbsenceHtml(){
       : `<span onclick="epPersonOpenCard('${_jsArg(p.id)}')" title="Person verwalten" style="cursor:pointer;border-radius:5px;padding:1px 3px;">${dlEsc(p.name)}${p.funktion?` <span style="font-size:10px;color:var(--text3);">${dlEsc(p.funktion)}</span>`:''} ${badge}</span>`;
     return `<tr style="border-top:1px solid var(--border);${inactive?'opacity:.5;':''}"><td style="padding:4px 10px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${nameCell}</td>${cells}</tr>`;
   }).join('')||`<tr><td colspan="${days.length+1}" style="padding:18px;color:var(--text3);text-align:center;">Noch kein Personal in diesem Mandanten — oben „＋ Mitarbeiter".</td></tr>`;
-  const legend=Object.values(EP_ABS).map(c=>`<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);"><span style="width:11px;height:11px;border-radius:3px;background:${c[1]};"></span>${c[0]}</span>`).join('');
+  const legend=_epAbsTypes().map(c=>`<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);"><span style="width:11px;height:11px;border-radius:3px;background:${c.color};"></span>${dlEsc(c.label)}</span>`).join('')
+    +((_epCanWrite()&&(currentRole==='superadmin'||currentCap==='admin'))?`<button class="btn btn-secondary" style="font-size:11px;padding:2px 10px;margin-left:6px;" onclick="epAbsTypesOpen()" title="Abwesenheits-Typen dieses Mandanten pflegen">Typen…</button>`:'');
   return `
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
       <button class="btn btn-secondary" style="padding:4px 11px;font-size:14px;" onclick="epAbsShiftMonth(-1)">‹</button>
@@ -13542,18 +13551,19 @@ function epAbsOpenForm(personId, absId, prefillDate){
   let pers=personId?_epPersons.find(p=>p.id===personId):null;
   let abs=(absId&&pers)?(pers.absences||[]).find(a=>a.id===absId):null;
   const today=_epToday();
-  const from=abs?abs.from:(prefillDate||today), to=abs?abs.to:(prefillDate||today), type=abs?abs.type:'urlaub';
+  const from=abs?abs.from:(prefillDate||today), to=abs?abs.to:(prefillDate||today), type=abs?abs.type:(_epAbsTypes()[0]?.id||'urlaub'), note=abs?(abs.note||''):'';
   const m=document.createElement('div');
   m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100001;display:flex;align-items:center;justify-content:center;padding:20px;';
   m.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:380px;max-width:94vw;overflow:hidden;">
     <div style="padding:14px 18px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;">${abs?'Abwesenheit bearbeiten':'Abwesenheit eintragen'}</div>
     <div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px;">
       <label style="font-size:12px;color:var(--text3);">Person<select id="abf-person" class="form-control" style="width:100%;margin-top:3px;" ${personId?'disabled':''}>${_epPersons.map(p=>`<option value="${dlEsc(p.id)}"${p.id===personId?' selected':''}>${dlEsc(p.name)}</option>`).join('')}</select></label>
-      <label style="font-size:12px;color:var(--text3);">Typ<select id="abf-type" class="form-control" style="width:100%;margin-top:3px;">${Object.entries(EP_ABS).map(([k,c])=>`<option value="${k}"${k===type?' selected':''}>${c[0]}</option>`).join('')}</select></label>
+      <label style="font-size:12px;color:var(--text3);">Typ<select id="abf-type" class="form-control" style="width:100%;margin-top:3px;">${_epAbsTypes().map(x=>`<option value="${dlEsc(x.id)}"${x.id===type?' selected':''}>${dlEsc(x.label)}</option>`).join('')}${_epAbsTypes().some(x=>x.id===type)?'':`<option value="${dlEsc(type)}" selected>${dlEsc(_epAbsMeta(type).label)}</option>`}</select></label>
       <div style="display:flex;gap:10px;">
         <label style="font-size:12px;color:var(--text3);flex:1;">von<input id="abf-from" type="date" class="form-control" value="${from}" style="width:100%;margin-top:3px;"></label>
         <label style="font-size:12px;color:var(--text3);flex:1;">bis<input id="abf-to" type="date" class="form-control" value="${to}" style="width:100%;margin-top:3px;"></label>
       </div>
+      <label style="font-size:12px;color:var(--text3);">Bemerkung (optional)<input id="abf-note" class="form-control" value="${dlEsc(note)}" placeholder="z. B. OP-Termin, Lehrgang…" style="width:100%;margin-top:3px;"></label>
     </div>
     <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:space-between;align-items:center;">
       <div>${abs?`<button id="abf-del" class="btn btn-danger" style="padding:7px 12px;">Löschen</button>`:''}</div>
@@ -13568,10 +13578,54 @@ function epAbsOpenForm(personId, absId, prefillDate){
   m.querySelector('#abf-save').onclick=async()=>{
     const pid=personId||m.querySelector('#abf-person').value;
     const t=m.querySelector('#abf-type').value, f=m.querySelector('#abf-from').value, tt=m.querySelector('#abf-to').value;
+    const nt=(m.querySelector('#abf-note').value||'').trim();
     if(!pid||!f||!tt){ notify('Bitte Person und Zeitraum angeben'); return; }
     if(tt<f){ notify('„bis" liegt vor „von"'); return; }
     close();
-    await epAbsSave(pid, {id:absId||('a'+Math.random().toString(36).slice(2,8)), type:t, from:f, to:tt});
+    await epAbsSave(pid, {id:absId||('a'+Math.random().toString(36).slice(2,8)), type:t, from:f, to:tt, note:nt});
+  };
+}
+// Abwesenheits-Typen des Mandanten pflegen (Bezeichnung + Farbe) — nur Administratoren.
+// Bestehende Einträge behalten ihre Typ-ID; gelöschte Typen fallen in der Anzeige auf Grau/„Abwesend" zurück.
+function epAbsTypesOpen(){
+  if(!(currentRole==='superadmin'||currentCap==='admin')) return notify('Nur Administratoren');
+  const list=_epAbsTypes().map(x=>({...x}));
+  const m=document.createElement('div');
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100001;display:flex;align-items:center;justify-content:center;padding:20px;';
+  const rowsHtml=()=>list.map((x,i)=>`<div style="display:flex;gap:8px;align-items:center;" data-i="${i}">
+      <input type="color" value="${dlEsc(x.color||'#B4B2A9')}" data-f="color" style="width:34px;height:30px;padding:1px;border:1px solid var(--border);border-radius:6px;background:var(--bg);cursor:pointer;">
+      <input class="form-control" value="${dlEsc(x.label||'')}" data-f="label" placeholder="Bezeichnung" style="flex:1;padding:6px 9px;font-size:13px;">
+      <button data-del="${i}" class="btn btn-secondary" style="padding:4px 10px;font-size:12px;color:#991b1b;" title="Typ entfernen">×</button>
+    </div>`).join('');
+  m.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:400px;max-width:94vw;overflow:hidden;">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;">Abwesenheits-Typen</div>
+    <div style="padding:14px 18px;display:flex;flex-direction:column;gap:8px;">
+      <div id="abt-rows" style="display:flex;flex-direction:column;gap:8px;">${rowsHtml()}</div>
+      <button id="abt-add" class="btn btn-secondary" style="font-size:12px;padding:5px 12px;align-self:flex-start;">+ Typ hinzufügen</button>
+      <div style="font-size:11px;color:var(--text3);line-height:1.5;">Gilt mandantenweit. Jeder Typ macht die Person am Tag unverfügbar; bestehende Einträge entfernter Typen werden grau angezeigt.</div>
+    </div>
+    <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
+      <button id="abt-cancel" class="btn btn-secondary" style="padding:7px 12px;">Abbrechen</button>
+      <button id="abt-save" class="btn btn-primary" style="padding:7px 14px;">Speichern</button>
+    </div></div>`;
+  document.body.appendChild(m);
+  const close=()=>m.remove();
+  m.addEventListener('click',e=>{ if(e.target===m) close(); });
+  m.querySelector('#abt-cancel').onclick=close;
+  const syncFromDom=()=>{ m.querySelectorAll('#abt-rows > div').forEach(r=>{ const i=+r.dataset.i; if(list[i]){ list[i].label=(r.querySelector('[data-f="label"]').value||'').trim(); list[i].color=r.querySelector('[data-f="color"]').value; } }); };
+  const redraw=()=>{ m.querySelector('#abt-rows').innerHTML=rowsHtml(); bindDel(); };
+  const bindDel=()=>{ m.querySelectorAll('[data-del]').forEach(b=>{ b.onclick=()=>{ syncFromDom(); if(list.length<=1){ notify('Mindestens ein Typ nötig'); return; } list.splice(+b.dataset.del,1); redraw(); }; }); };
+  bindDel();
+  m.querySelector('#abt-add').onclick=()=>{ syncFromDom(); list.push({id:'t'+Math.random().toString(36).slice(2,8), label:'', color:'#AFA9EC'}); redraw(); };
+  m.querySelector('#abt-save').onclick=async()=>{
+    syncFromDom();
+    const clean=list.filter(x=>x.label);
+    if(!clean.length){ notify('Bitte mindestens einen Typ mit Bezeichnung angeben'); return; }
+    try{
+      await db.collection('orgs').doc(_epOrg).set({absenceTypes:clean},{merge:true});
+      _epAbsTypesOrg=clean.map(x=>({...x}));
+      notify('✓ Abwesenheits-Typen gespeichert'); close(); renderEp();
+    }catch(e){ notify(dlErr(e)); }
   };
 }
 async function epAbsSave(personId, entry){
@@ -13650,7 +13704,11 @@ function renderEp(){
       <div class="ep-tabs">${tab('plan','Tag')}${tab('woche','Woche')}${tab('abwesenheiten','Personal')}${tab('fahrzeuge','Fahrzeuge')}${nmTab}</div>
     </div>
     <div class="ep-body">${
-      _epTab==='fahrzeuge'?(epVerfuegbarHtml()+'<div style="height:22px;"></div>'+epFuhrparkHtml())
+      _epTab==='fahrzeuge'?(
+        `<div style="display:flex;gap:6px;margin-bottom:14px;">
+          <button class="btn ${_epVehSub==='heute'?'btn-primary':'btn-secondary'}" style="font-size:12px;padding:5px 14px;" onclick="epVehSubSet('heute')">Fahrzeuge heute</button>
+          <button class="btn ${_epVehSub==='fuhrpark'?'btn-primary':'btn-secondary'}" style="font-size:12px;padding:5px 14px;" onclick="epVehSubSet('fuhrpark')">Fuhrpark (Stammdaten)</button>
+        </div>`+(_epVehSub==='fuhrpark'?epFuhrparkHtml():epVerfuegbarHtml()))
       :_epTab==='woche'?epWeekHtml()
       :_epTab==='plan'?epPlanHtml()
       :_epTab==='abwesenheiten'?epAbsenceHtml()
@@ -15490,7 +15548,7 @@ Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,openKiConfigMenu,toggleKiAnalyse,resetKiAnalysen,
   renderHandbuch,setHbTab,hbSearchDebounced,openHbImg,closeHbImg,
   dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
-  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epApplyStandardOne,epTagesplanScope,epSendTagesplan,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,epWeekShift,epWeekThis,epWeekToggleEmpty,epWeekFilter,epDayFilter,epTourCtx,epEditTour,_epCloseCtx,epPersonOpenCard,
+  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epApplyStandardOne,epTagesplanScope,epSendTagesplan,epVehSubSet,epAbsTypesOpen,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,epWeekShift,epWeekThis,epWeekToggleEmpty,epWeekFilter,epDayFilter,epTourCtx,epEditTour,_epCloseCtx,epPersonOpenCard,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterInlineTours,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
   filterAbschnitteTable,filterAbschnitteTableDebounced,toggleAbschnShowAll,downloadAbschnitteExport,
