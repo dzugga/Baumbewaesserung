@@ -3995,6 +3995,7 @@ function openDetail(id){
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20"/></svg>
       Verschieben
     </button>` : ''}
+    ${(geomTypeOf(tree)==='linie' && tree.extId && !tree.containerTyp && !tree.containerExtId && canEditObjects()) ? `<button class="btn btn-secondary" style="flex:1;" onclick="segmentZuAbschnitt('${id}')" title="Segment zum Straßenabschnitt machen, um Seiten (Fahrbahn, Gehweg …) als Ausstattung anzulegen">Zu Abschnitt umwandeln</button>` : ''}
     <button class="btn btn-secondary" style="flex:1;" onclick="openEditTree('${id}')">Bearbeiten</button>`;
   switchDetailTab('details');
   const _vb = document.getElementById('panel-body-verlauf');
@@ -7127,6 +7128,29 @@ async function setRkColor(id,val){
   if(_colorMode==='rk'){ _applyFlaechenSelection(); _renderRkLegend(); } // Karte live nachfärben
 }
 // Reinigungsklasse direkt am Abschnitt setzen (aus dem Detail-Panel)
+// Einzelnes Rohsegment (Linie mit extId, ohne Seiten) manuell zum Straßenabschnitt machen — Pendant
+// zur Massen-Umwandlung im Segmentnetz, z. B. für Teiler/Nachzügler, die doch ausgestattet werden sollen.
+// Danach lassen sich über „+ Objekt hinzufügen" Seiten (Fahrbahn, Gehweg …) anlegen.
+async function segmentZuAbschnitt(id){
+  if(isReadonly()||!canEditObjects()) return notify('Nur Planer/Admins');
+  const t=trees.find(x=>x.id===id); if(!t) return;
+  if(_isContainer(t)||t.containerExtId||geomTypeOf(t)!=='linie') return;
+  if(!t.extId) return notify('Ohne Segment-Kennung (Import-ID) nicht umwandelbar');
+  const tids=realTourIds(t);
+  const rk=_rkForMerkmal(t.wasser);
+  const msg=`„${t.name||t.baumId||'Segment'}" wird zum Straßenabschnitt. Danach lassen sich Seiten (Fahrbahn, Gehweg …) als Ausstattung anlegen.`
+    +(tids.length?`\n\n${tids.length} Tour-Zuordnung(en) des Segments werden entfernt — geplant werden künftig die Seiten.`:'')
+    +(rk?`\n\nReinigungsklasse „${rk.name}" wird aus dem Merkmal übernommen.`:'');
+  if(!await _confirmBox('Zu Abschnitt umwandeln', msg, 'Umwandeln', 'Abbrechen')) return;
+  try{
+    const upd={containerTyp:'strecke',art:'Straßenabschnitt',artId:null,tourIds:[],tourId:'',reinigungsklasse:rk?rk.id:(t.reinigungsklasse||''),_migrated:true};
+    await updateDoc(doc(db,'projects',currentProjectId,'trees',id),upd);
+    Object.assign(t,upd); _ctIndexRef=null; // lokal nachziehen + Container-Index neu aufbauen lassen
+    notify('✓ Abschnitt angelegt — jetzt Ausstattung hinzufügen');
+    try{ renderDrawnGeoms(); }catch(_){}
+    openAbschnitt(id);
+  }catch(e){ console.warn('segmentZuAbschnitt',e); notify(dlErr(e)); }
+}
 // Passende Satzungs-Reinigungsklasse zu einem RKL-Merkmal (wasser-Rang) — Abgleich über den Namen
 // („RK 3" ↔ „3" ↔ „RK3", Groß/Klein und Sonderzeichen egal). null = keine Entsprechung.
 function _rkForMerkmal(wasserId){
@@ -15322,7 +15346,7 @@ Object.assign(window,{
   openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,openBetriebshoefe,
   pickProjIcon,artSetIcon,artSetTime,artSetRate,setArtDefaultTime,artApplyTimeToAll,artSetKlasse,
   renderReinigungssysteme,rsAdd,rsUpdate,rsDelete,
-  renderMandanten,createOrgUi,moveProjectUi,setOrgNaviUi,checkBaumIdDuplicates,flaechenImportOpen,flaechenImportRun,geomDocsImportOpen,geomDocsImportRun,strMigOpen,segartAnalyseOpen,renderSegmentnetz,segmentUmwandelnOpen,lassoAddGehwege,rkFromListOpen,flaechenTourGenOpen,flaechenTourGenRun,
+  renderMandanten,createOrgUi,moveProjectUi,setOrgNaviUi,checkBaumIdDuplicates,flaechenImportOpen,flaechenImportRun,geomDocsImportOpen,geomDocsImportRun,strMigOpen,segartAnalyseOpen,renderSegmentnetz,segmentUmwandelnOpen,segmentZuAbschnitt,lassoAddGehwege,rkFromListOpen,flaechenTourGenOpen,flaechenTourGenRun,
   addWmsLayer,deleteWmsLayer,editWmsLayer,cancelWmsEdit,renderWmsList,
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,setListMode,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,openObjFilterConfig,setObjFilterField,toggleTourCounts,toggleRouteNums,toggleVersatz,toggleTypeFilter,setTypeVisible,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
