@@ -6150,6 +6150,7 @@ let _nmRecips={};                  // msgId -> recipient-Docs (Aggregat)
 let _nmDelArm=null;                // msgId, fuer den die Loesch-Bestaetigung offen ist
 let _nmShowArchived=false;
 let _nmPushEnabled=null;           // orgs/{org}.pushEnabled (nur Superadmin sichtbar/änderbar)
+let _nmDraftTitle='', _nmDraftBody='', _nmDraftLink=false; // Formular-Entwurf — überlebt Re-Render (Empfänger-/Typ-Wechsel)
 function _nmIsAdmin(){ return currentRole==='superadmin' || currentCap==='admin'; }
 function _nmPill(txt,bg,fg){ return '<span style="font-size:11px;font-weight:600;padding:2px 9px;border-radius:99px;background:'+bg+';color:'+fg+';white-space:nowrap;">'+txt+'</span>'; }
 function _nmStatusPill(x,isTask){ return x.doneAt?_nmPill('Erledigt','#dcfce7','#166534'):x.seenAt?_nmPill('Gesehen','#dbeafe','#1e40af'):_nmPill(isTask?'Offen':'Neu','#f3f4f6','#374151'); }
@@ -6201,13 +6202,17 @@ function _nmAudienceDetail(){
 
 function renderNachrichten(){
   const body=document.getElementById('nachrichten-body'); if(!body) return;
+  // Eingaben retten: jeder Re-Render (Empfänger-/Typ-Wechsel) baut das Formular neu auf —
+  // Titel/Text/Verknüpfung werden vorher gesichert und unten wieder eingesetzt.
+  { const t=document.getElementById('nm-title'), b=document.getElementById('nm-body'), l=document.getElementById('nm-link-tour');
+    if(t) _nmDraftTitle=t.value; if(b) _nmDraftBody=b.value; if(l) _nmDraftLink=l.checked; }
   const seg=(val,lbl)=>`<button onclick="nmSetType('${val}')" class="btn ${_nmType===val?'btn-primary':'btn-secondary'}" style="padding:6px 14px;font-size:13px;">${lbl}</button>`;
   const compose=`
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px;max-width:760px;">
       <div style="font-size:14px;font-weight:700;margin-bottom:12px;">Neue Nachricht</div>
       <div style="display:flex;gap:8px;margin-bottom:12px;">${seg('info','Information')}${seg('task','Aufgabe (mit Erledigung)')}</div>
-      <input id="nm-title" placeholder="Titel" class="form-control" style="width:100%;padding:9px 11px;margin-bottom:8px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:14px;">
-      <textarea id="nm-body" placeholder="Nachrichtentext (optional)" style="width:100%;min-height:80px;padding:9px 11px;margin-bottom:12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:14px;resize:vertical;"></textarea>
+      <input id="nm-title" placeholder="Titel" class="form-control" value="${dlEsc(_nmDraftTitle)}" style="width:100%;padding:9px 11px;margin-bottom:8px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:14px;">
+      <textarea id="nm-body" placeholder="Nachrichtentext (optional)" style="width:100%;min-height:80px;padding:9px 11px;margin-bottom:12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:14px;resize:vertical;">${dlEsc(_nmDraftBody)}</textarea>
       <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:5px;">Empfänger</div>
       <select onchange="nmSetAudience(this.value)" style="padding:7px;border:1px solid var(--border);border-radius:6px;font-family:inherit;">
         <option value="all"${_nmAudience==='all'?' selected':''}>Alle Fahrer (Mandant)</option>
@@ -6216,7 +6221,7 @@ function renderNachrichten(){
         <option value="drivers"${_nmAudience==='drivers'?' selected':''}>Einzelne Fahrer</option>
       </select>
       ${_nmAudienceDetail()}
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);margin:12px 0;cursor:pointer;"><input type="checkbox" id="nm-link-tour" style="margin:0;">Mit ${_nmAudience==='tour'?'gewählter Tour':'aktuellem Projekt'} verknüpfen</label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);margin:12px 0;cursor:pointer;"><input type="checkbox" id="nm-link-tour"${_nmDraftLink?' checked':''} style="margin:0;">Mit ${_nmAudience==='tour'?'gewählter Tour':'aktuellem Projekt'} verknüpfen</label>
       <button class="btn btn-primary" onclick="nmSend()" style="padding:9px 18px;font-size:14px;">Senden</button>
     </div>`;
   // Verlauf
@@ -6317,7 +6322,8 @@ async function nmSend(){
     }
     if(n>0) await batch.commit();
     notify('✓ Nachricht an '+recips.length+' Fahrer gesendet');
-    const t=document.getElementById('nm-title'); if(t) t.value=''; const b=document.getElementById('nm-body'); if(b) b.value='';
+    _nmDraftTitle=''; _nmDraftBody=''; _nmDraftLink=false;
+    const t=document.getElementById('nm-title'); if(t) t.value=''; const b=document.getElementById('nm-body'); if(b) b.value=''; const l=document.getElementById('nm-link-tour'); if(l) l.checked=false;
   }catch(e){ console.error('nmSend', e); notify(dlErr(e)); }
 }
 async function nmArchive(msgId){
