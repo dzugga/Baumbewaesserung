@@ -9956,6 +9956,120 @@ async function loadTourHistoryForControlling(){
   }catch(e){ console.warn('tourHistory load error:',e); }
 }
 
+// ─── MANAGEMENTBERICHT (druckfertig, A4) ─────────────────────
+// Zeitraum wählen → neues Fenster mit Berichts-HTML → Browser-Druckdialog = PDF.
+// Datenquellen: Meldungen aus der Objekt-Historie (status/date), Fahrten aus tourHistory.
+function openManagementReport(){
+  if(!currentProjectId){ notify('Bitte zuerst ein Projekt öffnen'); return; }
+  const today=_todayStr();
+  const first=today.slice(0,8)+'01';
+  const m=document.createElement('div');
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100001;display:flex;align-items:center;justify-content:center;padding:20px;';
+  m.innerHTML=`<div style="background:var(--surface);border-radius:10px;width:360px;max-width:94vw;overflow:hidden;box-shadow:var(--shadow-md);">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;">Bericht erstellen</div>
+    <div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px;">
+      <div style="display:flex;gap:10px;">
+        <label style="font-size:12px;color:var(--text3);flex:1;">von<input id="mr-from" type="date" class="form-control" value="${first}" style="width:100%;margin-top:3px;"></label>
+        <label style="font-size:12px;color:var(--text3);flex:1;">bis<input id="mr-to" type="date" class="form-control" value="${today}" style="width:100%;margin-top:3px;"></label>
+      </div>
+      <div style="font-size:11px;color:var(--text3);line-height:1.5;">Kennzahlen, Wochenverlauf, Ausfallgründe und eine Tabelle je Tour. Im Druckdialog „Als PDF speichern" wählen.</div>
+    </div>
+    <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
+      <button id="mr-cancel" class="btn btn-secondary" style="padding:7px 12px;">Abbrechen</button>
+      <button id="mr-ok" class="btn btn-primary" style="padding:7px 14px;">Erstellen</button>
+    </div></div>`;
+  document.body.appendChild(m);
+  const close=()=>m.remove();
+  m.addEventListener('click',e=>{ if(e.target===m) close(); });
+  m.querySelector('#mr-cancel').onclick=close;
+  m.querySelector('#mr-ok').onclick=async()=>{
+    const from=m.querySelector('#mr-from').value, to=m.querySelector('#mr-to').value;
+    if(!from||!to||to<from){ notify('Bitte gültigen Zeitraum wählen'); return; }
+    const w=window.open('','_blank'); // im Klick öffnen (Popup-Blocker), dann füllen
+    close();
+    if(!w){ notify('Popup blockiert — bitte für diese Seite erlauben'); return; }
+    w.document.write('<title>Bericht</title><body style="font-family:sans-serif;padding:40px;color:#666;">Bericht wird erstellt…</body>');
+    try{
+      if(!window._tourHistoryCache || window._tourHistoryCache.projectId!==currentProjectId) await loadTourHistoryForControlling();
+      _mrRender(w, from, to);
+    }catch(e){ console.warn('Bericht',e); try{ w.document.body.innerHTML='Fehler: '+dlEsc(e.message||String(e)); }catch(_){} }
+  };
+}
+function _mrRender(w, from, to){
+  const de=d=>{ const p=(d||'').split('-'); return p.length===3?p[2]+'.'+p[1]+'.'+p[0]:d; };
+  // Meldungen aus der Objekt-Historie (nur Einträge mit status, P1-Zählregel)
+  const ms=[];
+  (trees||[]).forEach(t=>{ (t.history||[]).forEach(h=>{ if(!h||!h.status||!h.date) return; if(h.date<from||h.date>to) return; ms.push({t,h}); }); });
+  const done=ms.filter(x=>x.h.status==='bewaessert').length, not=ms.length-done;
+  const quote=ms.length?Math.round(done/ms.length*100):null;
+  // Wochenverlauf (ISO-KW)
+  const weeks=new Map();
+  ms.forEach(x=>{ const k='KW '+_epIsoWeek(x.h.date); const e=weeks.get(k)||{done:0,not:0}; x.h.status==='bewaessert'?e.done++:e.not++; weeks.set(k,e); });
+  const wk=[...weeks.entries()];
+  const wkMax=Math.max(1,...wk.map(([,e])=>e.done+e.not));
+  // Ausfallgründe + Wiederholer
+  const reasons={}; const perObj={};
+  ms.forEach(x=>{ if(x.h.status!=='nicht') return; const r=(x.h.reason||'ohne Grund').trim()||'ohne Grund'; reasons[r]=(reasons[r]||0)+1; perObj[x.t.id]=(perObj[x.t.id]||0)+1; });
+  const topReasons=Object.entries(reasons).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  const repeat=Object.entries(perObj).filter(([,n])=>n>=3).sort((a,b)=>b[1]-a[1]).slice(0,5)
+    .map(([id,n])=>{ const t=trees.find(x=>x.id===id); return {name:t?(orTitel?orTitel(t):t.name)||t.baumId||id:id, n}; });
+  // Fahrten je Tour (tourHistory-Snapshots im Zeitraum)
+  const hist=((window._tourHistoryCache&&window._tourHistoryCache.entries)||[]).filter(e=>{ const d=(e.date||'').slice(0,10); return d>=from&&d<=to; });
+  const byTour={};
+  hist.forEach(e=>{ const k=e.tourName||'Tour'; const b=byTour[k]=byTour[k]||{fahrten:0,obj:0,done:0,last:''};
+    b.fahrten++; const tr=e.trees||[]; b.obj+=tr.length; b.done+=tr.filter(x=>x.lastStatus==='bewaessert').length; const d=(e.date||'').slice(0,10); if(d>b.last) b.last=d; });
+  const tourRows=Object.entries(byTour).sort((a,b)=>a[0].localeCompare(b[0]));
+  const esc_=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const kpi=(l,v,c)=>`<div style="background:#f0ede6;border-radius:6px;padding:9px 10px;"><div style="font-size:9px;color:#6b6760;text-transform:uppercase;letter-spacing:.04em;">${l}</div><div style="font-size:19px;font-weight:600;${c?'color:'+c+';':''}">${v}</div></div>`;
+  const html=`<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><title>Bericht ${esc_(currentProjectData?.name||'')} ${de(from)}–${de(to)}</title>
+  <style>
+    body{font-family:'Segoe UI',Arial,sans-serif;color:#1a1917;margin:0;background:#eee;}
+    .page{background:#fff;max-width:760px;margin:18px auto;padding:34px 42px;box-shadow:0 2px 10px rgba(0,0,0,.2);}
+    table{width:100%;border-collapse:collapse;font-size:11px;}
+    th{text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.04em;color:#6b6760;border-bottom:1.5px solid #2d6a4f;padding:4px 6px;}
+    td{padding:5px 6px;border-bottom:1px solid #eceae4;}
+    h2{font-size:13px;margin:20px 0 8px;}
+    @media print{ body{background:#fff;} .page{box-shadow:none;margin:0;max-width:none;padding:10mm 12mm;} .noprint{display:none;} }
+    @page{ size:A4; margin:10mm; }
+  </style></head><body>
+  <div class="noprint" style="text-align:center;padding:12px;"><button onclick="window.print()" style="padding:9px 22px;font-size:14px;background:#2d6a4f;color:#fff;border:none;border-radius:8px;cursor:pointer;">Drucken / Als PDF speichern</button></div>
+  <div class="page">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2.5px solid #2d6a4f;padding-bottom:10px;margin-bottom:16px;">
+      <div><div style="font-size:20px;font-weight:600;color:#2d6a4f;">Bericht ${de(from)} – ${de(to)}</div>
+      <div style="font-size:11px;color:#6b6760;">${esc_(currentProjectData?.name||'')} · erstellt am ${de(_todayStr())}</div></div>
+      <div style="font-size:10px;color:#9c9890;text-align:right;">Planungsmanager</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
+      ${kpi('Meldungen', ms.length.toLocaleString('de-DE'))}
+      ${kpi('Erledigt', quote==null?'–':quote+' %', quote!=null&&quote>=90?'#2d6a4f':(quote!=null&&quote<80?'#b45309':''))}
+      ${kpi('Nicht erledigt', not.toLocaleString('de-DE'), not?'#991b1b':'')}
+      ${kpi('Tour-Fahrten', hist.length.toLocaleString('de-DE'))}
+    </div>
+    ${wk.length?`<h2>Meldungen je Woche</h2>
+    <div style="display:flex;align-items:flex-end;gap:12px;height:70px;padding:0 4px;">
+      ${wk.map(([k,e])=>`<div style="flex:1;display:flex;gap:3px;align-items:flex-end;height:100%;" title="${k}">
+        <div style="flex:1;height:${Math.round(e.done/wkMax*100)}%;background:#2d6a4f;border-radius:2px 2px 0 0;min-height:2px;"></div>
+        <div style="flex:1;height:${Math.round(e.not/wkMax*100)}%;background:#c0392b;border-radius:2px 2px 0 0;min-height:${e.not?2:0}px;"></div></div>`).join('')}
+    </div>
+    <div style="display:flex;gap:12px;padding:2px 4px 0;">${wk.map(([k,e])=>`<div style="flex:1;text-align:center;font-size:9px;color:#6b6760;">${k}<br>${e.done+e.not}</div>`).join('')}</div>
+    <div style="font-size:9px;color:#6b6760;margin-top:4px;"><span style="display:inline-block;width:8px;height:8px;background:#2d6a4f;border-radius:2px;"></span> erledigt &nbsp;<span style="display:inline-block;width:8px;height:8px;background:#c0392b;border-radius:2px;"></span> nicht erledigt</div>`:''}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:22px;">
+      <div><h2>Häufigste Gründe „nicht erledigt"</h2>
+      ${topReasons.length?topReasons.map(([r,n])=>`<div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0;border-bottom:1px solid #eceae4;"><span>${esc_(r)}</span><b>${n}</b></div>`).join(''):'<div style="font-size:11px;color:#6b6760;">Keine Ausfälle im Zeitraum.</div>'}</div>
+      <div><h2>Wiederholte Ausfälle (≥ 3×)</h2>
+      ${repeat.length?repeat.map(x=>`<div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0;border-bottom:1px solid #eceae4;color:#991b1b;"><span>${esc_(x.name)}</span><b>${x.n}×</b></div>`).join(''):'<div style="font-size:11px;color:#6b6760;">Keine wiederholten Ausfälle — gut.</div>'}</div>
+    </div>
+    <h2>Touren im Zeitraum</h2>
+    ${tourRows.length?`<table><thead><tr><th>Tour</th><th style="text-align:right;">Fahrten</th><th style="text-align:right;">Objekte</th><th style="text-align:right;">erledigt</th><th>letzte Fahrt</th></tr></thead><tbody>
+      ${tourRows.map(([name,b])=>{ const q=b.obj?Math.round(b.done/b.obj*100):null; return `<tr><td>${esc_(name)}</td><td style="text-align:right;">${b.fahrten}</td><td style="text-align:right;">${b.obj.toLocaleString('de-DE')}</td><td style="text-align:right;${q!=null&&q<80?'color:#b45309;font-weight:600;':''}">${q==null?'–':q+' %'}</td><td>${de(b.last)}</td></tr>`; }).join('')}
+    </tbody></table>`:'<div style="font-size:11px;color:#6b6760;">Keine abgeschlossenen Touren im Zeitraum.</div>'}
+    <div style="border-top:1px solid #ddd9d0;margin-top:22px;padding-top:8px;font-size:9px;color:#9c9890;display:flex;justify-content:space-between;">
+      <span>Quelle: Meldungen (Objekt-Historie) und abgeschlossene Touren</span><span>automatisch erzeugt</span>
+    </div>
+  </div></body></html>`;
+  w.document.open(); w.document.write(html); w.document.close();
+}
+
 // ─── CONTROLLING ─────────────────────────────────────────────
 async function refreshControlling(silent=false){
   // Manuelles Aktualisieren: tourHistory frisch aus Firestore laden + neu rendern
@@ -15731,7 +15845,7 @@ Object.assign(window,{
   renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,_fillMerge,cfGeomToggle,
   rankAdd,rankRename,rankSetColor,rankSetZahl,rankSetZahlWinter,rankMove,rankMerge,rankDelete,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
-  openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
+  openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleRequiredFeld,toggleRawSeg,_siInfo,
   createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,psSetOrgFilter,setSiTab,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,

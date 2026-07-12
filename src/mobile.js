@@ -2618,6 +2618,10 @@ function startPostfachListener(){
     }, err=>{ console.warn('Postfach-Listener', err); _msgLastErr=(err&&err.code)||(err&&err.message)||'?'; if(document.getElementById('postfach-overlay')?.style.display==='flex') renderPostfachList(); toast('Postfach-Fehler: '+_msgLastErr, 7000); });
   }catch(e){ console.warn('Postfach-Listener Start', e); }
   if(_pushSupported() && Notification.permission==='granted') enablePush(true);   // Token still erneuern
+  // Einmaliger Hinweis auf Push-Aktivierung (Button sitzt im Postfach — Berechtigung braucht einen Nutzer-Tipp)
+  else if(_pushSupported() && Notification.permission==='default'){
+    try{ if(!localStorage.getItem('bwt_push_hint')){ localStorage.setItem('bwt_push_hint','1'); setTimeout(()=>toast('🔔 Tipp: Benachrichtigungen im Postfach aktivieren',6000),2500); } }catch(_){}
+  }
 }
 
 function _msgUnseen(){ return _messages.filter(m=>!m.seenAt).length; }
