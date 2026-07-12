@@ -270,6 +270,7 @@ const MODULES = [
   {key:'massenwerkzeuge', label:'Massen-Werkzeuge (Planung)'},
   {key:'dashboard',   label:'Dashboard'},
   {key:'controlling', label:'Controlling'},
+  {key:'meldungen',   label:'Meldungen (Nachbearbeitung)'},
   {key:'ki',          label:'KI-Analysen'},
   {key:'objekte',     label:'Objekte'},
   {key:'touren',      label:'Touren'},
@@ -294,7 +295,7 @@ const _mods = (keys)=>Object.fromEntries(_allModKeys.map(k=>[k, keys.includes(k)
 const BUILTIN_ROLES = {
   superadmin: {name:'Superadmin', baseType:'admin', modules:_mods(_allModKeys), builtin:true},
   orgadmin:   {name:'Org-Admin',  baseType:'admin', modules:_mods(_allModKeys.filter(k=>k!=='admin'&&k!=='massenwerkzeuge')), builtin:true}, // Massen-Werkzeuge default NUR Superadmin — pro Rolle zuschaltbar
-  planer:     {name:'Planer',     baseType:'editor', modules:_mods(['planung','disposition','einsatzplaner','nachrichten','segmentnetz','dashboard','controlling','ki','objekte','touren','import','wms','einsatzleiter']), builtin:true},
+  planer:     {name:'Planer',     baseType:'editor', modules:_mods(['planung','disposition','einsatzplaner','nachrichten','segmentnetz','dashboard','controlling','meldungen','ki','objekte','touren','import','wms','einsatzleiter']), builtin:true},
   erfasser:   {name:'Erfasser',   baseType:'editor', modules:_mods(['erfassung','objekte']), builtin:true},
   fahrer:     {name:'Fahrer',     baseType:'driver', modules:_mods(['mobil','fotomeldung']), builtin:true},
 };
@@ -751,7 +752,7 @@ async function openProject(projectId){
 // Debounce, damit nicht jeder einzelne Snapshot einen Neuaufbau auslöst.
 // Alle datengetriebenen Vollbild-Ansichten, die nach einem Projektwechsel neu aufgebaut werden müssen,
 // sobald die ersten trees/tours-Snapshots des neuen Projekts da sind (sonst zeigen sie Alt-Projekt-Daten).
-const _DATA_VIEWS={ controlling:initControlling, dashboard:initDashboard, sollist:initSollIstView, datenqualitaet:initDatenqualitaet, ausfaelle:initAusfaelle, autoplan:initAutoplan };
+const _DATA_VIEWS={ controlling:initControlling, dashboard:initDashboard, sollist:initSollIstView, datenqualitaet:initDatenqualitaet, ausfaelle:initAusfaelle, meldungen:initMeldungen, autoplan:initAutoplan };
 function syncDataViewToProject(){
   if(_dataViewProject===currentProjectId) return;
   if(!_DATA_VIEWS[currentView]) return;
@@ -6090,6 +6091,7 @@ function switchView(v){
   const datenq=document.getElementById('view-datenqualitaet'); if(datenq) datenq.style.display=v==='datenqualitaet'?'flex':'none';
   const autoplan=document.getElementById('view-autoplan'); if(autoplan) autoplan.style.display=v==='autoplan'?'flex':'none';
   const ausf=document.getElementById('view-ausfaelle'); if(ausf) ausf.style.display=v==='ausfaelle'?'flex':'none';
+  const meld=document.getElementById('view-meldungen'); if(meld) meld.style.display=v==='meldungen'?'flex':'none';
   const kiconfig=document.getElementById('view-kiconfig');
   const handbuch=document.getElementById('view-handbuch'); if(handbuch) handbuch.style.display=v==='handbuch'?'flex':'none';
   const wmskarten=document.getElementById('view-wmskarten'); if(wmskarten) wmskarten.style.display=v==='wmskarten'?'flex':'none';
@@ -6137,6 +6139,7 @@ function switchView(v){
   if(v==='sollist') initSollIstView();
   if(v==='datenqualitaet') initDatenqualitaet();
   if(v==='ausfaelle') initAusfaelle();
+  if(v==='meldungen') initMeldungen();
   if(v==='autoplan') initAutoplan();
   if(v==='kiconfig') renderKiConfig();
   if(v==='handbuch') renderHandbuch();
@@ -10788,6 +10791,116 @@ function _gCompute(){
   const fuellAktiv=!!(currentProjectData&&currentProjectData.fuellgradAktiv);
   const rightsize=fuellAktiv?per.filter(x=>x.fillN>=3&&(x.avgFill>=90||x.avgFill<=30)).map(x=>({...x,rec:x.avgFill>=90?'häufiger leeren':'seltener möglich'})).sort((a,b)=>b.avgFill-a.avgFill):[];
   return {chronisch,nieErfolg,reasons,drivers,rightsize,fuellAktiv,maxReason:reasons[0]?reasons[0][1]:0};
+}
+// ─── MELDUNGEN (Nachbearbeitung): problematische Meldungen suchen/filtern + Bearbeitungsstatus ───
+// Meldungen leben in trees[].history; identifiziert über den eindeutigen Zeitstempel `at` (P1).
+// Bearbeitungsstatus wird als `bearb`/`bearbBy`/`bearbAt` an den History-Eintrag geschrieben.
+let _mgFilter={von:'',bis:'',grund:'',fahrer:'',bearb:'offen',nurProblem:true};
+const MELD_BEARB=[['offen','Offen','#854f0b','#fef3c7'],['inArbeit','In Arbeit','#1e40af','#dbeafe'],['erledigt','Nachbearbeitet','#166534','#dcfce7']];
+function initMeldungen(){
+  if(!_mgFilter.von){ const d=new Date(); d.setDate(d.getDate()-30); _mgFilter.von=_epFmtDate(d); }
+  if(!_mgFilter.bis) _mgFilter.bis=_epToday();
+  renderMeldungen();
+}
+function mgSet(k,v){ _mgFilter[k]=(k==='nurProblem')?!!v:v; renderMeldungen(); }
+// Live-Textsuche: blendet Zeilen aus (kein Re-Render → Fokus bleibt im Suchfeld)
+function mgSearch(q){
+  q=(q||'').trim().toLowerCase();
+  let vis=0,total=0;
+  document.querySelectorAll('#mg-tbody tr[data-hay]').forEach(tr=>{ total++; const show=!q||tr.dataset.hay.includes(q); tr.style.display=show?'':'none'; if(show) vis++; });
+  const c=document.getElementById('mg-count'); if(c) c.textContent=q?`${vis} / ${total} Meldungen`:`${total} Meldung${total===1?'':'en'}`;
+}
+function _mgRows(){
+  const out=[];
+  (trees||[]).forEach(t=>{ (t.history||[]).forEach(h=>{
+    if(!h||!h.status) return;                                   // nur echte Meldungen (P1-Zählregel)
+    if(_mgFilter.nurProblem && h.status!=='nicht') return;
+    const dte=h.date||String(h.at||'').slice(0,10); if(!dte) return;
+    if(_mgFilter.von && dte<_mgFilter.von) return;
+    if(_mgFilter.bis && dte>_mgFilter.bis) return;
+    if(_mgFilter.grund && (h.reason||'')!==_mgFilter.grund) return;
+    if(_mgFilter.fahrer && (h.driver||'')!==_mgFilter.fahrer) return;
+    const bearb=h.bearb||'offen';
+    if(_mgFilter.bearb && bearb!==_mgFilter.bearb) return;
+    out.push({t,h,bearb,dte});
+  }); });
+  out.sort((a,b)=>String(b.h.at||b.dte).localeCompare(String(a.h.at||a.dte)));
+  return out;
+}
+function renderMeldungen(){
+  const el=document.getElementById('meldungen-body'); if(!el) return;
+  const ro=isReadonly();
+  const rows=_mgRows();
+  // Filter-Optionen aus den vorhandenen Meldungen (plus gepflegte Gründe)
+  const grDist=new Set(reasons.map(r=>r.text)); const drvDist=new Set();
+  (trees||[]).forEach(t=>(t.history||[]).forEach(h=>{ if(h&&h.status){ if(h.reason) grDist.add(h.reason); if(h.driver) drvDist.add(h.driver); } }));
+  const opt=(list,cur)=>[...list].sort((a,b)=>a.localeCompare(b)).map(v=>`<option value="${dlEsc(v)}"${v===cur?' selected':''}>${dlEsc(v)}</option>`).join('');
+  const offenGesamt=(trees||[]).reduce((s,t)=>s+((t.history||[]).filter(h=>h&&h.status==='nicht'&&(h.bearb||'offen')==='offen').length),0);
+  const trRows=rows.map(({t,h,bearb,dte})=>{
+    const name=_siObjName(t);
+    const time=h.at?String(h.at).slice(11,16):'';
+    const hay=(name+' '+(t.baumId||'')+' '+(h.reason||'')+' '+(h.note||'')+' '+(h.driver||'')).toLowerCase();
+    const hasFoto=(h.note||'').includes('📷');
+    const meta=MELD_BEARB.find(x=>x[0]===bearb)||MELD_BEARB[0];
+    const sel=ro?`<span style="font-size:11px;font-weight:600;color:${meta[2]};background:${meta[3]};border-radius:99px;padding:2px 9px;">${meta[1]}</span>`
+      :`<select onchange="setMeldungBearb('${_jsArg(t.id)}','${_jsArg(String(h.at||''))}',this.value)" ${h.at?'':'disabled title="Alt-Meldung ohne Zeitstempel — Status nicht setzbar"'} style="padding:3px 7px;font-size:11px;font-weight:600;border:1px solid ${meta[2]}55;border-radius:7px;background:${meta[3]};color:${meta[2]};font-family:inherit;cursor:pointer;">
+        ${MELD_BEARB.map(x=>`<option value="${x[0]}"${x[0]===bearb?' selected':''}>${x[1]}</option>`).join('')}
+      </select>`;
+    return `<tr data-hay="${dlEsc(hay)}" style="border-top:1px solid var(--border);">
+      <td style="padding:7px 10px;white-space:nowrap;color:var(--text2);">${dte.split('-').reverse().join('.')}${time?' '+time:''}</td>
+      <td style="padding:7px 10px;"><a href="#" onclick="event.preventDefault();selectTree('${_jsArg(t.id)}')" style="color:var(--green);font-weight:600;text-decoration:none;">${dlEsc(name)}</a><div style="font-size:11px;color:var(--text3);">${dlEsc(t.baumId||'')}</div></td>
+      <td style="padding:7px 10px;">${h.status==='nicht'?`<span style="color:#991b1b;font-weight:600;">✕ Nicht erledigt</span>`:'<span style="color:#166534;">✓ Erledigt</span>'}${hasFoto?' <span title="Meldung mit Foto — am Objekt hinterlegt">📷</span>':''}</td>
+      <td style="padding:7px 10px;">${dlEsc(h.reason||'–')}${h.note&&h.note!==h.reason?`<div style="font-size:11px;color:var(--text3);">${dlEsc(h.note)}</div>`:''}</td>
+      <td style="padding:7px 10px;color:var(--text2);">${dlEsc(h.driver||'–')}</td>
+      <td style="padding:7px 10px;">${sel}${h.bearbBy?`<div style="font-size:10px;color:var(--text3);margin-top:2px;">${dlEsc(h.bearbBy)} · ${_nmTime(h.bearbAt)}</div>`:''}</td>
+    </tr>`;
+  }).join('');
+  el.innerHTML=`
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+      <span style="font-size:15px;font-weight:700;">Meldungen</span>
+      <span style="font-size:11px;color:var(--text3);">Nachbearbeitung problematischer Meldungen — Status je Meldung setzen</span>
+      ${offenGesamt?`<span style="font-size:12px;font-weight:600;color:#854f0b;background:#fef3c7;border-radius:99px;padding:3px 12px;">${offenGesamt} offen (gesamt)</span>`:''}
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:9px 12px;">
+      <input type="date" value="${_mgFilter.von}" onchange="mgSet('von',this.value)" style="padding:5px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
+      <span style="font-size:11px;color:var(--text3);">bis</span>
+      <input type="date" value="${_mgFilter.bis}" onchange="mgSet('bis',this.value)" style="padding:5px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
+      <select onchange="mgSet('grund',this.value)" style="padding:5px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;"><option value="">Alle Gründe</option>${opt(grDist,_mgFilter.grund)}</select>
+      <select onchange="mgSet('fahrer',this.value)" style="padding:5px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;"><option value="">Alle Fahrer</option>${opt(drvDist,_mgFilter.fahrer)}</select>
+      <select onchange="mgSet('bearb',this.value)" style="padding:5px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
+        <option value="offen"${_mgFilter.bearb==='offen'?' selected':''}>Offen</option>
+        <option value="inArbeit"${_mgFilter.bearb==='inArbeit'?' selected':''}>In Arbeit</option>
+        <option value="erledigt"${_mgFilter.bearb==='erledigt'?' selected':''}>Nachbearbeitet</option>
+        <option value=""${_mgFilter.bearb===''?' selected':''}>Alle Status</option>
+      </select>
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text2);cursor:pointer;"><input type="checkbox" ${_mgFilter.nurProblem?'checked':''} onchange="mgSet('nurProblem',this.checked)" style="margin:0;">nur „Nicht erledigt"</label>
+      <input placeholder="🔍 Objekt, Grund, Bemerkung…" oninput="mgSearch(this.value)" style="padding:5px 10px;font-size:12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);font-family:inherit;min-width:190px;margin-left:auto;">
+      <span id="mg-count" style="font-size:11px;color:var(--text3);">${rows.length} Meldung${rows.length===1?'':'en'}</span>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead><tr style="background:var(--surface2);">
+          <th style="padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Datum</th>
+          <th style="padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Objekt</th>
+          <th style="padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Meldung</th>
+          <th style="padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Grund / Bemerkung</th>
+          <th style="padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Fahrer</th>
+          <th style="padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);">Bearbeitung</th>
+        </tr></thead>
+        <tbody id="mg-tbody">${trRows||`<tr><td colspan="6" style="padding:22px;text-align:center;color:var(--text3);">Keine Meldungen im gewählten Filter.</td></tr>`}</tbody>
+      </table>
+    </div>`;
+}
+async function setMeldungBearb(treeId, at, val){
+  if(isReadonly()) return notify('Nur Lesezugriff');
+  const t=trees.find(x=>x.id===treeId); if(!t||!at) return;
+  const hist=(t.history||[]).map(h=>(h&&String(h.at)===at)?{...h, bearb:val, bearbBy:currentName||'', bearbAt:new Date().toISOString()}:h);
+  try{
+    await updateDoc(doc(db,'projects',currentProjectId,'trees',treeId),{history:hist});
+    t.history=hist;
+    notify('✓ Bearbeitungsstatus gesetzt');
+    renderMeldungen();
+  }catch(e){ console.warn('setMeldungBearb',e); notify(dlErr(e)); }
 }
 function initAusfaelle(){
   if(!currentProjectId){ const b=document.getElementById('g-body'); if(b) b.innerHTML='<div style="padding:24px;color:var(--text3);">Bitte zuerst ein Projekt öffnen.</div>'; return; }
@@ -15932,7 +16045,7 @@ Object.assign(window,{
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleRequiredFeld,toggleRawSeg,_siInfo,
-  createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,psSetOrgFilter,setSiTab,
+  createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,psSetOrgFilter,setSiTab,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
