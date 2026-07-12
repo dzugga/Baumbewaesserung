@@ -6061,7 +6061,7 @@ async function initNachrichten(){
   if(_nmUnsub){ try{ _nmUnsub(); }catch(_){} _nmUnsub=null; }
   _nmUnsub = db.collection('messages').where('orgId','==',org).onSnapshot(snap=>{
     _nmMessages = snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
-    if(currentView==='nachrichten') renderNachrichten();
+    if(currentView==='nachrichten' || (currentView==='einsatzplaner'&&_epTab==='nachrichten')) renderNachrichten();
   }, err=>console.warn('Nachrichten-Listener', err));
   renderNachrichten();
 }
@@ -13063,7 +13063,7 @@ function epVerfuegbarHtml(){
   }).join('') : '<div class="ep-empty">Keine Fahrzeuge hinterlegt. (Reiter „Fuhrpark")</div>';
   return `
     <div class="ep-sec-head"><h3>Fahrzeuge — heute <span class="ep-count">${vAvail}/${_epVehicles.length} verfügbar</span></h3>
-      <span style="margin-left:auto;font-size:11px;color:var(--text3);">Stammdaten unter „Fuhrpark" · Personal im Reiter „Personal"</span></div>
+      <span style="margin-left:auto;font-size:11px;color:var(--text3);">Stammdaten weiter unten · Personal im Reiter „Personal"</span></div>
     <div class="ep-grid">${vCards}</div>`;
 }
 // ── Wochenübersicht: welche Tour an welchem Tag fällig ist (reiner Lesemodus, Rhythmus aus tourDueOn) ──
@@ -13202,6 +13202,30 @@ function epPlanHtml(){
   };
   const notRunning=_epTours.length-dueTours.length-bedarfTours.length;
   const besetzt=dueTours.filter(t=>{ const e=_epEffCrew(t); return e.drivers.length||e.vehicleId; }).length;
+  // „Heute zu klären": abwesende eingeteilte Kräfte, unbesetzte fällige Touren, ausgefallene Fahrzeuge —
+  // jeweils mit direkter Aktion (Picker/Standard), damit der Disponent nicht in der Tabelle suchen muss.
+  const issues=[];
+  if(!ro) dueTours.forEach(t=>{
+    const eff=_epEffCrew(t);
+    eff.drivers.forEach(n=>{ const pp=_epPersons.find(x=>x.name===n); const st=pp?_epPStatus(pp.id):'anwesend';
+      if(st!=='anwesend'){ const lbl=((EP_PSTATES.find(s=>s[0]===st)||[])[1]||'abwesend').toLowerCase();
+        issues.push(`<span><b style="font-weight:600;">${dlEsc(n)}</b> (${dlEsc(t.name||'Tour')}) ist heute ${lbl}</span><button class="btn btn-secondary" style="font-size:11px;padding:2px 10px;" onclick="epOpenPicker('driver','${t.id}',this)">Ersatz wählen</button>`); } });
+    if(!eff.drivers.length){
+      const hasStd=!!(t.stdDrivers&&t.stdDrivers.length);
+      issues.push(`<span><b style="font-weight:600;">${dlEsc(t.name||'Tour')}</b> ist unbesetzt</span>${hasStd?`<button class="btn btn-secondary" style="font-size:11px;padding:2px 10px;" onclick="epApplyStandardOne('${t.id}')">Standard übernehmen</button>`:`<button class="btn btn-secondary" style="font-size:11px;padding:2px 10px;" onclick="epOpenPicker('driver','${t.id}',this)">Besetzen</button>`}`); }
+    if(eff.vehicleId && !availVeh.find(v=>v.id===eff.vehicleId))
+      issues.push(`<span>Fahrzeug <b style="font-weight:600;">${dlEsc(eff.vehicleName||'')}</b> (${dlEsc(t.name||'Tour')}) ist heute nicht verfügbar</span><button class="btn btn-secondary" style="font-size:11px;padding:2px 10px;" onclick="epOpenPicker('vehicle','${t.id}',this)">Fahrzeug wählen</button>`);
+  });
+  const kpiBar=`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+    <span style="font-size:12px;font-weight:600;color:var(--text2);background:var(--surface2);border:1px solid var(--border);border-radius:99px;padding:3px 12px;">${dueTours.length} Tour${dueTours.length===1?'':'en'} fällig</span>
+    <span style="font-size:12px;font-weight:600;color:${besetzt>=dueTours.length&&dueTours.length?'#0f6e56':'var(--text2)'};background:${besetzt>=dueTours.length&&dueTours.length?'#e1f5ee':'var(--surface2)'};border:1px solid var(--border);border-radius:99px;padding:3px 12px;">${besetzt} besetzt</span>
+    ${issues.length?`<span style="font-size:12px;font-weight:600;color:#854f0b;background:#faeeda;border:1px solid #f0c987;border-radius:99px;padding:3px 12px;">${issues.length} zu klären</span>`:''}
+  </div>`;
+  const issuesBar=issues.length?`<div style="background:#fdf6e7;border:1px solid #f0c987;border-radius:10px;padding:9px 13px;margin-bottom:12px;">
+    <div style="font-size:12px;font-weight:700;color:#854f0b;margin-bottom:6px;">⚠ Heute zu klären</div>
+    ${issues.slice(0,8).map(i=>`<div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:12px;color:#7a4a06;padding:2px 0;">${i}</div>`).join('')}
+    ${issues.length>8?`<div style="font-size:11px;color:#a16207;padding-top:3px;">+ ${issues.length-8} weitere — siehe Markierungen in der Tabelle</div>`:''}
+  </div>`:'';
   const _dayHay=t=>{ const e=_epEffCrew(t); return ((t.name||'Tour')+' '+e.drivers.join(' ')+' '+(e.vehicleName||'')).toLowerCase(); };
   const dayCountTxt=_epDayQuery?`${dueTours.filter(t=>_dayHay(t).includes(_epDayQuery)).length} / ${dueTours.length}`:'';
   const rows=dueTours.map(rowFor).join('')||`<tr><td colspan="4" style="padding:18px;text-align:center;color:var(--text3);">Heute läuft keine planmäßige Tour.</td></tr>`;
@@ -13211,7 +13235,30 @@ function epPlanHtml(){
   const stdBar=ro?'':`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
     <button class="btn btn-secondary" style="font-size:12px;padding:6px 12px;${anyStd?'':'opacity:.5;cursor:not-allowed;'}" ${anyStd?'onclick="epApplyStandards()"':'disabled title="Noch keine Standards gespeichert"'}>★ Standardbesetzung übernehmen</button>
     <span style="font-size:11px;color:var(--text3);">Stern je Tour = aktuelle Besetzung als Standard merken. „Übernehmen" füllt den Tag aus den Standards (nur verfügbare).</span></div>`;
+  // „Fahrer informieren" (optional, letzter Schritt): Tagesplan als Postfach-Nachricht an die heute
+  // eingeteilten Fahrer — wahlweise betriebshofscharf. Kein Pflichtschritt, reine Information.
+  let informBlock='';
+  if(!ro && canUseModule('nachrichten')){
+    const tg=_epTgTours(null); // ungefiltert (für Betriebshof-Optionen)
+    const bhs=[...new Set(tg.map(x=>(x.t.betriebshof||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+    if(_epTgScope && !bhs.includes(_epTgScope)) _epTgScope='';
+    const scopeSel=bhs.length?`<select id="ep-tg-scope" onchange="epTagesplanScope(this.value)" style="padding:5px 9px;font-size:12px;border:1px solid var(--border);border-radius:7px;font-family:inherit;background:var(--surface);">
+        <option value="">Alle Betriebshöfe</option>${bhs.map(b=>`<option value="${dlEsc(b)}"${_epTgScope===b?' selected':''}>${dlEsc(b)}</option>`).join('')}
+      </select>`:'';
+    informBlock=`<div style="margin-top:16px;border:1px solid var(--border);border-radius:12px;background:var(--surface);padding:12px 14px;">
+      <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:8px;">
+        <span style="font-size:13px;font-weight:700;">📨 Fahrer informieren</span>
+        <span style="font-size:11px;color:var(--text3);">optional — Tagesplan als Nachricht an die eingeteilten Fahrer</span>
+        ${scopeSel}
+        <button class="btn btn-primary" style="margin-left:auto;font-size:12px;padding:5px 14px;" onclick="epSendTagesplan()">Tagesplan senden</button>
+      </div>
+      <textarea id="ep-tg-text" style="width:100%;min-height:64px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:12px;resize:vertical;box-sizing:border-box;">${dlEsc(epTagesplanText())}</textarea>
+      <div id="ep-tg-status"></div>
+    </div>`;
+  }
   return `
+    ${kpiBar}
+    ${issuesBar}
     ${stdBar}
     <div class="ep-pool-wrap"><div class="ep-pool-bar"><span class="ep-pool-lbl">Personen</span>${poolPers}</div><div class="ep-pool-bar"><span class="ep-pool-lbl">Fahrzeuge</span>${poolVeh}</div><div class="ep-pool-tip">Chip auf eine Tourzeile ziehen oder im „＋"-Feld per Tippsuche wählen.</div></div>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><input id="ep-day-search" value="${dlEsc(_epDayQuery)}" oninput="epDayFilter(this.value)" placeholder="🔍 Tour oder Fahrer suchen…" autocomplete="off" style="padding:5px 10px;font-size:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);min-width:200px;font-family:inherit;"><span id="ep-day-count" style="font-size:11px;color:var(--text3);">${dayCountTxt}</span></div>
@@ -13220,7 +13267,86 @@ function epPlanHtml(){
       <button class="ep-bedarf-h" onclick="epToggleBedarf()">${_epShowBedarf?'▾':'▸'} Bedarfstouren (${bedarfTours.length}) — nur bei Bedarf einplanen</button>
       ${_epShowBedarf?`<table class="ep-table" style="margin-top:6px;"><thead><tr><th style="width:36%;">Tour</th><th style="width:25%;">Fahrzeug</th><th>Fahrer</th><th style="width:48px;text-align:center;">Std.</th></tr></thead><tbody>${bedarfTours.map(rowFor).join('')}</tbody></table>`:''}
     </div>`:''}
+    ${informBlock}
     <div class="ep-foot">${besetzt} / ${dueTours.length} fällige Touren besetzt${notRunning>0?` · ${notRunning} laufen heute nicht`:''}${ro?' · nur Lesezugriff':' · Rechtsklick auf eine Tour öffnet „Tour bearbeiten".'}</div>`;
+}
+// Standard EINER Tour für den gewählten Tag übernehmen (Aktion aus „Heute zu klären")
+async function epApplyStandardOne(tid){
+  if(!_epCanWrite()) return;
+  const t=_epTours.find(x=>x.id===tid); if(!t) return;
+  const availVehIds=new Set(_epVehicles.filter(_epVehAvail).map(v=>v.id));
+  const availNames=new Set(_epPersons.filter(p=>_epPersonActive(p)&&_epPersonAvail(p)).map(p=>p.name));
+  const usedNames=new Set(), usedVeh=new Set();
+  _epTours.forEach(x=>{ if(x.id!==tid&&_epRunsOn(x)){ const e=_epEffCrew(x); e.drivers.forEach(n=>usedNames.add(n)); if(e.vehicleId) usedVeh.add(e.vehicleId); } });
+  const veh=(t.stdVehicleId&&availVehIds.has(t.stdVehicleId)&&!usedVeh.has(t.stdVehicleId))?t.stdVehicleId:'';
+  const vehName=veh?(((_epVehicles.find(v=>v.id===veh)||{}).name)||''):'';
+  const drivers=(t.stdDrivers||[]).filter(n=>availNames.has(n)&&!usedNames.has(n));
+  const skipped=((t.stdDrivers||[]).length-drivers.length)+((t.stdVehicleId&&!veh)?1:0);
+  const patch={vehicleId:veh, vehicleName:vehName, drivers, assignedDriver:drivers[0]||'', crewDate:_epDate};
+  if(await epTourUpdate(tid,patch)){ Object.assign(t,patch); renderEp(); if(skipped) notify('⚠ '+skipped+' Standard-Ressource(n) heute nicht verfügbar — bitte ersetzen'); }
+}
+// ── „Fahrer informieren": Tagesplan als Postfach-Nachricht (optional, betriebshofscharf) ──
+let _epTgScope='';                       // ''=alle Betriebshöfe, sonst Betriebshof-Name (tour.betriebshof)
+let _epTgStatusKey='', _epTgStatusHtml=''; // Cache des Empfangsstatus (keine Reads je Re-Render)
+// Heute laufende Touren MIT wirksamer Besetzung; scope=null → ungefiltert, sonst _epTgScope anwenden
+function _epTgTours(scope){
+  const s=scope===null?'':(_epTgScope||'');
+  return _epTours.filter(t=>_epRunsOn(t)).map(t=>({t,eff:_epEffCrew(t)})).filter(x=>x.eff.drivers.length)
+    .filter(x=>!s || (x.t.betriebshof||'').trim()===s);
+}
+function epTagesplanText(){
+  const d=(_epDate||'').split('-'); const dd=d.length===3?(d[2]+'.'+d[1]+'.'+d[0]):_epDate;
+  const rows=_epTgTours().map(({t,eff})=>eff.drivers.join(', ')+' → '+(t.name||'Tour')+(eff.vehicleName?' ('+eff.vehicleName+')':''));
+  if(!rows.length) return '';
+  return 'Einsatz '+dd+(_epTgScope?' · '+_epTgScope:'')+':\n'+rows.join('\n');
+}
+function epTagesplanScope(v){ _epTgScope=(v||'').trim(); const ta=document.getElementById('ep-tg-text'); if(ta) ta.value=epTagesplanText(); }
+async function epSendTagesplan(){
+  if(!_epCanWrite()) return;
+  const text=(document.getElementById('ep-tg-text')?.value||'').trim();
+  const list=_epTgTours();
+  if(!list.length){ notify('Keine besetzten Touren für diesen Tag'+(_epTgScope?' am Betriebshof „'+_epTgScope+'"':'')); return; }
+  if(!text){ notify('Bitte einen Nachrichtentext eingeben'); return; }
+  // Empfänger = login-fähige Personen der wirksamen Besetzung (Namen → Personen-Doc)
+  const names=new Set(); list.forEach(x=>x.eff.drivers.forEach(n=>names.add(String(n).toLowerCase())));
+  const recips=_epPersons.filter(p=>p.active!==false && p.noLogin!==true && names.has(String(p.nameLower||p.name||'').toLowerCase()));
+  if(!recips.length){ notify('Keine login-fähigen Empfänger in der heutigen Besetzung'); return; }
+  const d=(_epDate||'').split('-'); const title='Einsatzplan '+(d.length===3?(d[2]+'.'+d[1]+'.'+d[0]):_epDate)+(_epTgScope?' — '+_epTgScope:'');
+  const now=new Date().toISOString();
+  const uid=(firebase.auth().currentUser&&firebase.auth().currentUser.uid)||null;
+  const msgRef=db.collection('messages').doc();
+  const link={projectId:_epProject};
+  try{
+    const batch=db.batch();
+    batch.set(msgRef,{ orgId:_epOrg, type:'info', title, body:text, createdBy:uid, createdByName:currentName||'', createdAt:now, sentAt:now,
+      audience:{kind:'tagesplan', date:_epDate, betriebshof:_epTgScope||null}, link, status:'sent', recipientCount:recips.length, counts:{seen:0,done:0}, epDate:_epDate, epProject:_epProject });
+    recips.forEach(p=>batch.set(msgRef.collection('recipients').doc(p.id), { orgId:_epOrg, msgId:msgRef.id, driverId:p.id, ownerUid:'drv_'+p.id, driverName:p.name, type:'info', title, body:text, link, sentAt:now, deliveredAt:null, seenAt:null, doneAt:null }));
+    await batch.commit();
+    notify('✓ Tagesplan an '+recips.length+' Fahrer gesendet');
+    _epTgStatusKey=''; epLoadTagesplanStatus();
+  }catch(e){ console.warn('epSendTagesplan',e); notify(dlErr(e)); }
+}
+// Empfangsstatus des zuletzt gesendeten Tagesplans (für Mandant+Projekt+Tag) — gecacht je Schlüssel
+async function epLoadTagesplanStatus(){
+  const el=document.getElementById('ep-tg-status'); if(!el) return;
+  const key=_epOrg+'|'+_epProject+'|'+_epDate;
+  if(_epTgStatusKey===key){ el.innerHTML=_epTgStatusHtml; return; }
+  let html='';
+  try{
+    const qs=await db.collection('messages').where('orgId','==',_epOrg).where('epDate','==',_epDate).get();
+    const msgs=qs.docs.map(x=>({id:x.id,...x.data()})).filter(m=>m.epProject===_epProject).sort((a,b)=>String(b.sentAt||'').localeCompare(String(a.sentAt||'')));
+    const m=msgs[0];
+    if(m){
+      const rs=await db.collection('messages').doc(m.id).collection('recipients').where('orgId','==',_epOrg).get();
+      const chips=rs.docs.map(x=>x.data()).sort((a,b)=>(a.driverName||'').localeCompare(b.driverName||'')).map(x=>{
+        const st=x.seenAt?['✓ gelesen '+_nmTime(x.seenAt),'#166534']:x.deliveredAt?['zugestellt '+_nmTime(x.deliveredAt),'#5f5e5a']:['gesendet','#5f5e5a'];
+        return `<span style="font-size:11px;color:${st[1]};background:var(--surface2);border:1px solid var(--border);border-radius:99px;padding:2px 9px;white-space:nowrap;">${dlEsc(x.driverName||'')} — ${st[0]}</span>`;
+      }).join(' ');
+      html=`<div style="font-size:11px;color:var(--text3);margin:8px 0 4px;">Zuletzt gesendet ${_nmTime(m.sentAt)}${m.audience&&m.audience.betriebshof?' · '+dlEsc(m.audience.betriebshof):''} · ${m.recipientCount||0} Empfänger</div><div style="display:flex;gap:5px;flex-wrap:wrap;">${chips}</div>`;
+    }
+  }catch(e){ console.warn('epLoadTagesplanStatus',e); }
+  _epTgStatusKey=key; _epTgStatusHtml=html;
+  el.innerHTML=html;
 }
 // ── Suchbarer Picker (Tippsuche) für Fahrer/Fahrzeug — skaliert für 100+ Einträge ──
 let _epPickerEl=null;
@@ -13507,17 +13633,39 @@ function epFuhrparkHtml(){
 }
 function renderEp(){
   const root=document.getElementById('ep-root'); if(!root) return;
+  { // eingehängten Nachrichten-Bereich VOR dem innerHTML-Neuaufbau retten (sonst wird der DOM-Knoten zerstört)
+    const nmBody=document.getElementById('nachrichten-body');
+    if(nmBody && nmBody.closest('#ep-root')){ const home=document.getElementById('view-nachrichten'); if(home){ nmBody.style.padding=''; home.appendChild(nmBody); } }
+  }
   const orgSel=(currentRole==='superadmin'&&_epOrgs.length>1)
     ? `<label class="ep-field">Mandant<select onchange="epChangeOrg(this.value)">${_epOrgs.map(o=>`<option value="${dlEsc(o.id)}"${o.id===_epOrg?' selected':''}>${dlEsc(o.name)}</option>`).join('')}</select></label>` : '';
   const projSel=`<label class="ep-field">Projekt<select onchange="epChangeProject(this.value)">${_epProjects.length?_epProjects.map(p=>`<option value="${dlEsc(p.id)}"${p.id===_epProject?' selected':''}>${dlEsc(p.name)}</option>`).join(''):'<option value="">—</option>'}</select></label>`;
   const dateSel=`<label class="ep-field">Tag<input type="date" value="${_epDate}" onchange="epChangeDate(this.value)"></label>`;
   const tab=(k,lbl)=>`<button class="ep-tab${_epTab===k?' on':''}" onclick="epSetTab('${k}')">${lbl}</button>`;
+  if(_epTab==='verfuegbar'||_epTab==='fuhrpark') _epTab='fahrzeuge'; // Alt-Tabs zusammengelegt
+  const nmTab=canUseModule('nachrichten')?tab('nachrichten','Nachrichten'):'';
   root.innerHTML=`
     <div class="ep-top">
       <div class="ep-top-l"><div class="ep-title">Einsatzplaner</div>${orgSel}${projSel}${dateSel}</div>
-      <div class="ep-tabs">${tab('plan','Einsatzplan')}${tab('woche','Woche')}${tab('abwesenheiten','Personal')}${tab('verfuegbar','Fahrzeuge')}${tab('fuhrpark','Fuhrpark')}</div>
+      <div class="ep-tabs">${tab('plan','Tag')}${tab('woche','Woche')}${tab('abwesenheiten','Personal')}${tab('fahrzeuge','Fahrzeuge')}${nmTab}</div>
     </div>
-    <div class="ep-body">${_epTab==='verfuegbar'?epVerfuegbarHtml():_epTab==='woche'?epWeekHtml():_epTab==='plan'?epPlanHtml():_epTab==='abwesenheiten'?epAbsenceHtml():epFuhrparkHtml()}</div>`;
+    <div class="ep-body">${
+      _epTab==='fahrzeuge'?(epVerfuegbarHtml()+'<div style="height:22px;"></div>'+epFuhrparkHtml())
+      :_epTab==='woche'?epWeekHtml()
+      :_epTab==='plan'?epPlanHtml()
+      :_epTab==='abwesenheiten'?epAbsenceHtml()
+      :_epTab==='nachrichten'?'<div id="ep-nm-slot"></div>'
+      :epPlanHtml()}</div>`;
+  if(_epTab==='nachrichten') _epNachrichtenMount();
+  if(_epTab==='plan') setTimeout(epLoadTagesplanStatus,0); // Empfangsstatus des Tagesplans nachladen (gecacht)
+}
+// Nachrichten-Bereich in den Einsatzplaner einhängen (bestehendes Modul, DOM wird verschoben — kein Fork).
+// Hinweis: Nachrichten laufen mandantenweit über das OFFENE Projekt (currentOrg) — für Nicht-Superadmins
+// identisch mit _epOrg; Superadmins wechseln den Mandanten über das geöffnete Projekt.
+function _epNachrichtenMount(){
+  const slot=document.getElementById('ep-nm-slot'); const body=document.getElementById('nachrichten-body');
+  if(slot&&body&&body.parentElement!==slot){ body.style.padding='0'; slot.appendChild(body); }
+  initNachrichten();
 }
 function dispoGetResources(){
   return (Array.isArray(currentDispoResources)&&currentDispoResources.length)
@@ -15342,7 +15490,7 @@ Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,openKiConfigMenu,toggleKiAnalyse,resetKiAnalysen,
   renderHandbuch,setHbTab,hbSearchDebounced,openHbImg,closeHbImg,
   dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
-  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,epWeekShift,epWeekThis,epWeekToggleEmpty,epWeekFilter,epDayFilter,epTourCtx,epEditTour,_epCloseCtx,epPersonOpenCard,
+  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epApplyStandardOne,epTagesplanScope,epSendTagesplan,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,epWeekShift,epWeekThis,epWeekToggleEmpty,epWeekFilter,epDayFilter,epTourCtx,epEditTour,_epCloseCtx,epPersonOpenCard,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterInlineTours,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
   filterAbschnitteTable,filterAbschnitteTableDebounced,toggleAbschnShowAll,downloadAbschnitteExport,
