@@ -329,10 +329,12 @@ async function _checkFotoAllowed(orgId){
     _fotoAllowed=!(s.exists && s.data().modules && s.data().modules.fotomeldung===false);
   }catch(e){ _fotoAllowed=true; }
 }
+let _fotoObjUrls=[];
 function _renderFotoPreview(){
   const box=document.getElementById('foto-preview'); if(!box) return;
+  _fotoObjUrls.forEach(u=>{ try{ URL.revokeObjectURL(u); }catch(_){} }); _fotoObjUrls=[]; // Objekt-URLs freigeben (Leak)
   box.innerHTML=_sheetPhotos.map((f,i)=>`<div style="position:relative;width:64px;height:64px;border-radius:8px;overflow:hidden;border:1px solid var(--border);">
-    <img src="${URL.createObjectURL(f)}" style="width:100%;height:100%;object-fit:cover;">
+    <img src="${(()=>{ const u=URL.createObjectURL(f); _fotoObjUrls.push(u); return u; })()}" style="width:100%;height:100%;object-fit:cover;">
     <button onclick="_sheetFotoDel(${i})" style="position:absolute;top:2px;right:2px;width:20px;height:20px;border-radius:50%;border:none;background:rgba(0,0,0,.6);color:#fff;font-size:12px;line-height:1;cursor:pointer;">×</button>
   </div>`).join('');
 }
@@ -2041,9 +2043,10 @@ async function saveReport(id){
   // Fotos hochladen (optional; nur online — Offline-Meldung wird ohne Foto gespeichert)
   let _fotoUrls=[];
   if(_sheetPhotos.length){
-    if(!navigator.onLine){ toast('⚠ Offline — Fotos können gerade nicht hochgeladen werden'); }
+    if(!isOnline){ toast('⚠ Offline — Fotos können gerade nicht hochgeladen werden'); } // App-Flag statt navigator.onLine (konsistent zum Offline-Pfad)
     else{
       try{
+        const _sbtn=document.querySelector('#sheet-footer .btn-primary'); if(_sbtn){ _sbtn.disabled=true; _sbtn.style.opacity=.6; } // Doppel-Tipp während Upload verhindern
         toast('Foto wird hochgeladen…');
         const st=firebase.storage();
         for(const f of _sheetPhotos){

@@ -730,7 +730,7 @@ async function openProject(projectId){
     window._startViewDone=true;
     const sv=(rolesCache[currentRole]||BUILTIN_ROLES[currentRole]||{}).startView||'';
     const modOf={disposition:'disposition',controlling:'controlling',dashboard:'dashboard',baeume:'objekte',touren:'touren',einsatzplaner:'einsatzplaner'};
-    if(sv && sv!=='karte' && (!modOf[sv]||canUseModule(modOf[sv]))) setTimeout(()=>{ try{ switchView(sv); }catch(e){ console.warn('Startansicht',e); } },80);
+    if(sv && sv!=='karte' && (!modOf[sv]||canUseModule(modOf[sv]))) setTimeout(()=>{ try{ switchView(sv); if(_DATA_VIEWS[sv]) _dataViewProject=null; /* Daten-Ansicht nach erstem Snapshot neu aufbauen (Start vor Datenankunft) */ }catch(e){ console.warn('Startansicht',e); } },80);
   }
   // Einsatzplaner folgt dem global geöffneten Projekt: eigene Mandant/Projekt-Auswahl neu auf das offene Projekt setzen
   if(currentView==='einsatzplaner'){ _epOrg=''; _epProject=''; initEinsatzplaner(); }
@@ -1002,11 +1002,6 @@ function tourBewMin(tid, treeList){
     return reinMin + bewMinutes(list.filter(t=>geomTypeOf(t)!=='linie'));
   }
   return bewMinutes(list);
-}
-function fmtBewTime(arg){
-  const mins=Math.round(bewMinutes(arg));
-  const h=Math.floor(mins/60), m=mins%60;
-  return h>0?`${h}h ${m}min`:`${m} min`;
 }
 function fmtTotalTime(driveSec,arg,extraMin){
   const total=Math.round(driveSec/60)+Math.round(bewMinutes(arg))+(extraMin||0);
@@ -1297,7 +1292,18 @@ async function _runProjectDeletion(mode){
       closeSettings();
       showProjectScreen();
     }else{
-      // Konfiguration + Touren bleiben, Projekt bleibt offen → lokale Geometrie-/Routen-Caches verwerfen
+      // Konfiguration + Touren bleiben, Projekt bleibt offen → Routen-Kennzahlen an den Touren zurücksetzen
+      // (sonst Phantom-Zeiten/km bei 0 Objekten) + Auto-Planungs-Fixierungen leeren + lokale Caches verwerfen
+      try{
+        const tb=db.batch(); const del=firebase.firestore.FieldValue.delete();
+        (tours||[]).forEach(t=>{ tb.update(doc(db,'projects',pid,'tours',t.id),{routeKm:del,routeDriveSec:del,routeStale:del}); t.routeKm=undefined; t.routeDriveSec=undefined; t.routeStale=undefined; });
+        if((tours||[]).length) await tb.commit();
+      }catch(e){ console.warn('Routen-Kennzahlen zurücksetzen',e); }
+      if(currentProjectData&&currentProjectData.autoplanRahmen&&currentProjectData.autoplanRahmen.locks&&Object.keys(currentProjectData.autoplanRahmen.locks).length){
+        try{ await updateDoc(doc(db,'projects',pid),{'autoplanRahmen.locks':{}}); currentProjectData.autoplanRahmen.locks={}; }catch(e){ console.warn('Autoplan-Locks leeren',e); }
+      }
+      Object.values(tourRoutes).forEach(r=>{ try{ map.removeLayer(r.layer); }catch(_){} }); tourRoutes={}; tourOrder={};
+      window._tourHistoryCache=null; // Bericht/Controlling dürfen keine gelöschten Fahrten mehr zeigen
       _flGeomByExt={}; _flaechenBundle=null; _flaechenBundleKey=''; _geomBboxCache={}; _viewportCull=false;
       _routesCache={}; _routesLoadedFor=null;
       setSyncState('ok','Synchronisiert');
@@ -1657,6 +1663,10 @@ async function loadSavedRoutes(force=false){
   document.getElementById('route-info-bar').classList.remove('visible');
 }
 
+// Foto-Eintrag (Alt-Format String ODER {u,t}) → rohe URL bzw. sichere Bild-URL (nur https, HTML-escaped).
+// Härtung: fotos-Feld ist per Rules inhaltlich ungeprüft — niemals roh in src/href interpolieren.
+function _fotoRaw(f){ return typeof f==='string'?f:((f&&f.u)||''); }
+function _fotoUrl(f){ const u=_fotoRaw(f); return /^https:\/\//i.test(u)?dlEsc(u):''; }
 // Hinweis-Dialog (nur OK) im App-Stil — Ersatz für window.alert
 function _alertBox(title,msg){
   return new Promise(resolve=>{
@@ -1849,13 +1859,13 @@ function tourMetrics(tid){
 // bei 'route'/'auto' erscheinen sie wieder. Die berechnete Route bleibt gespeichert.
 async function setTourZeitBasis(tid, basis){
   const t=tours.find(x=>x.id===tid); if(!t) return;
+  if(isReadonly()){ notify('Nur Lesezugriff — Umschaltung nicht möglich'); return; } // sonst kippt der nächste Snapshot die Ansicht still zurück
   if(!['auto','system','route'].includes(basis)) basis='auto';
   t.zeitBasis=basis; // optimistisch
   try{ applyRouteVisibility(); }catch(_){}
   try{ rebuildMarkersWithNumbers(); renderDrawnGeoms(); renderFlaechenNumbers(); }catch(_){}
   renderLegend(); if(currentView==='touren') renderTourenGrid();
   try{ updateRouteInfoBar(); }catch(_){}
-  if(isReadonly()) return; // Nur-Lese: reine Ansichtsumschaltung, nicht persistieren
   try{ await updateDoc(doc(db,'projects',currentProjectId,'tours',tid),{zeitBasis:basis}); }
   catch(e){ console.warn('zeitBasis speichern',e); }
 }
@@ -1910,7 +1920,12 @@ function updateRouteInfoBar(){
   if(bar) bar.classList.remove('visible'); // schwebende Routen-Info-Leiste entfernt — Infos im Seitenpanel
   // Mehrere Touren ausgewählt → kompakte Summe
   if(activeTours.size>1){
-    let km=0,dur=0,zusAll=0,azAll=0,rKm=0,rrKm=0,rlKm=0,bewAll=0,hasSplit=false; activeTours.forEach(tid=>{ const m=tourMetrics(tid); if(m){ km+=m.km; dur+=m.durationSec; rKm+=(m.routeKm||0); if(m.routeReinKm!=null){ rrKm+=m.routeReinKm; rlKm+=(m.routeLeerKm||0); hasSplit=true; } } bewAll+=tourBewMin(tid, trees.filter(x=>treeInTour(x,tid)&&isActive(x))); const tt=tours.find(x=>x.id===tid); if(tt){ zusAll+=tourZusatzMin(tt); if(tt.arbeitszeitMin>0) azAll+=tt.arbeitszeitMin; } });
+    let km=0,dur=0,zusAll=0,azAll=0,rKm=0,rrKm=0,rlKm=0,bewAll=0,hasSplit=false; const _seenPts=new Set(); // Punkt-/Flächen-Aufwand je Objekt nur EINMAL zählen (Objekt kann in mehreren aktiven Touren sein)
+    activeTours.forEach(tid=>{ const m=tourMetrics(tid); if(m){ km+=m.km; dur+=m.durationSec; rKm+=(m.routeKm||0); if(m.routeReinKm!=null){ rrKm+=m.routeReinKm; rlKm+=(m.routeLeerKm||0); hasSplit=true; } }
+      const _sys=_tourEffSource(tid)==='system';
+      if(_sys){ const wm=_tourWorkMeters(tid), sp=_tourSpeedKmh(tid); if(sp>0) bewAll+=(wm*3.6/sp)/60; }
+      trees.forEach(x=>{ if(!isActive(x)||!treeInTour(x,tid)||_seenPts.has(x.id)) return; if(_sys&&geomTypeOf(x)==='linie') return; if(!_sys||geomTypeOf(x)!=='linie'){ _seenPts.add(x.id); bewAll+=artBewMin(x); } });
+      const tt=tours.find(x=>x.id===tid); if(tt){ zusAll+=tourZusatzMin(tt); if(tt.arbeitszeitMin>0) azAll+=tt.arbeitszeitMin; } });
     const members=trees.filter(t=>treeInAnyActiveTour(t)&&isActive(t)); const cnt=members.length;
     _fillRoutePanel(`${activeTours.size} Touren`, cnt, km||null, dur/60, bewAll, zusAll, azAll, rKm||null, hasSplit?rrKm:null, hasSplit?rlKm:null);
     return;
@@ -3405,6 +3420,7 @@ function renderLegend(){
     const zbTog=(!ov && _tourSpeedKmh(t.id)>0) ? `<div style="display:flex;gap:3px;align-items:center;margin-top:4px;padding-top:4px;border-top:1px solid var(--border);">
         <span style="font-size:9px;color:var(--text3);margin-right:2px;">Zeit nach</span>
         ${[['auto','Auto'],['system','System'],['route','Route']].map(([b,l])=>{const on=((t.zeitBasis||'auto')===b);return `<button type="button" onclick="event.stopPropagation();setTourZeitBasis('${t.id}','${b}')" title="Zeitberechnung nach ${l}${b==='system'?' — ohne Route (keine Linie/Nummern)':''}" style="font-size:9px;padding:1px 6px;border-radius:4px;border:1px solid var(--border);cursor:pointer;background:${on?'var(--green-light)':'var(--bg)'};color:${on?'var(--green)':'var(--text2)'};font-weight:${on?'700':'400'};">${l}</button>`;}).join('')}
+        <span style="font-size:9px;color:var(--text3);" title="Was tatsächlich gerechnet wird (Auto/erzwungen können abweichen, wenn System oder Route fehlen)">→ ${_tourEffSource(t.id)==='system'?'System':_tourEffSource(t.id)==='route'?'Route':'–'}</span>
       </div>` : '';
     let r=`<div class="legend-item${isSel?' active-tour':''}" data-tourid="${t.id}" data-tourname="${(t.name||'').toLowerCase().replace(/"/g,'&quot;')}" style="padding:3px 6px;margin-bottom:1px;">
       <input type="checkbox" class="tour-check"${isSel?' checked':''} style="margin:0 4px 0 0;cursor:pointer;flex-shrink:0;accent-color:${t.color};">
@@ -4046,6 +4062,7 @@ function openDetail(id){
       <select class="form-control" id="inline-wasser" style="width:auto;padding:3px 8px;font-size:12px;">
         <option value="">– keine –</option>
         ${rankList('wasser').map(e=>`<option value="${dlEsc(e.id)}"${tree.wasser===e.id?' selected':''}>${dlEsc(e.label)}</option>`).join('')}
+        ${(tree.wasser&&!rankList('wasser').some(e=>e.id===tree.wasser))?`<option value="${dlEsc(tree.wasser)}" selected>${dlEsc(tree.wasser)} (nicht mehr in Liste)</option>`:''}
       </select>
     </div>
     <div class="detail-field" style="padding:4px 0;">
@@ -4053,6 +4070,7 @@ function openDetail(id){
       <select class="form-control" id="inline-zustand" style="width:auto;padding:3px 8px;font-size:12px;">
         <option value="">– keine –</option>
         ${rankList('zustand').map(e=>`<option value="${dlEsc(e.id)}"${tree.zustand===e.id?' selected':''}>${dlEsc(e.label)}</option>`).join('')}
+        ${(tree.zustand&&!rankList('zustand').some(e=>e.id===tree.zustand))?`<option value="${dlEsc(tree.zustand)}" selected>${dlEsc(tree.zustand)} (nicht mehr in Liste)</option>`:''}
       </select>
     </div>
     ${currentProjectData?.fuellgradAktiv && typeof tree.lastFuellgrad==='number'?`<div class="detail-field" style="padding:4px 0;"><span class="detail-key">Füllgrad (zuletzt)</span><span class="detail-val" style="font-weight:600;">${fgLabelD(tree.lastFuellgrad)}</span></div>`:''}
@@ -4078,7 +4096,7 @@ function openDetail(id){
     ${(tree.fotos&&tree.fotos.length)?`
     <div class="form-section">Fotos (${tree.fotos.length})</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;padding:4px 0 8px;">
-      ${tree.fotos.map((f,i)=>`<img src="${f.u}" loading="lazy" onclick="openFoto('${id}',${i})" title="Foto öffnen" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--border);cursor:pointer;">`).join('')}
+      ${tree.fotos.map((f,i)=>`<img src="${_fotoUrl(f)}" loading="lazy" onclick="openFoto('${id}',${i})" title="Foto öffnen" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--border);cursor:pointer;">`).join('')}
     </div>`:''}
 
     <div class="form-section">Dokumente${(tree.dokumente&&tree.dokumente.length)?` (${tree.dokumente.length})`:''}</div>
@@ -4224,7 +4242,7 @@ async function abschnittAddSeite(containerId){
     const btn=m.querySelector('#as-save'); btn.disabled=true; btn.style.opacity=.5;
     try{
       const baumId=await getNextBaumId();
-      await addDoc(collection(db,'projects',currentProjectId,'trees'),{ name:c.name||'', element, elementLabel:label, art, artId:(art&&artenList.find(a=>a.name===art)?.id)||null, geomType:'linie', containerExtId:c.extId, baumId, aktiv:true, tourIds:[], tourId:'', history:[], createdAt:serverTimestamp() });
+      await addDoc(collection(db,'projects',currentProjectId,'trees'),{ name:c.name||'', element, elementLabel:label, art, artId:(art&&artenList.find(a=>a.name===art)?.id)||null, geomType:'linie', containerExtId:c.extId, baumId, aktiv:true, tourIds:[], tourId:'', history:[], ...(c.wasser?{wasser:c.wasser}:{}), createdAt:serverTimestamp() }); // Seite erbt das Klassen-Merkmal des Abschnitts
       notify('✓ Objekt „'+label+'" hinzugefügt'); close();
       setTimeout(()=>{ if(trees.find(t=>t.id===containerId)) openAbschnitt(containerId); },300);
     }catch(e){ notify('Fehler: '+(e.message||e)); btn.disabled=false; btn.style.opacity=1; }
@@ -4317,6 +4335,7 @@ function closePanel(){
 let _fotoState=null; // {treeId, idx}
 function openFoto(treeId, idx){
   const tree=trees.find(t=>t.id===treeId); if(!tree||!tree.fotos||!tree.fotos[idx]) return;
+  // (Foto-Einträge können Alt-Format String oder {u,t} sein — Anzeige/Löschen normalisieren über _fotoUrl/_fotoRaw)
   _fotoState={treeId, idx}; renderFotoLightbox();
 }
 function stepFoto(d){ if(_fotoState){ _fotoState.idx+=d; renderFotoLightbox(); } }
@@ -4333,12 +4352,12 @@ function renderFotoLightbox(){
   ov.innerHTML=`
     <div style="position:absolute;inset:0;" onclick="closeFoto()"></div>
     <div style="position:relative;max-width:92vw;max-height:90vh;display:flex;flex-direction:column;align-items:center;gap:12px;">
-      <img src="${f.u}" style="max-width:92vw;max-height:78vh;object-fit:contain;border-radius:8px;box-shadow:0 8px 40px rgba(0,0,0,.5);">
+      <img src="${_fotoUrl(f)}" style="max-width:92vw;max-height:78vh;object-fit:contain;border-radius:8px;box-shadow:0 8px 40px rgba(0,0,0,.5);">
       <div style="display:flex;align-items:center;gap:14px;color:#fff;font-size:13px;">
         ${n>1?`<button onclick="stepFoto(-1)" style="background:rgba(255,255,255,.15);border:none;color:#fff;width:34px;height:34px;border-radius:50%;cursor:pointer;font-size:18px;">‹</button>`:''}
         <span>${i+1} / ${n}${dateStr?' · '+dateStr:''}</span>
         ${n>1?`<button onclick="stepFoto(1)" style="background:rgba(255,255,255,.15);border:none;color:#fff;width:34px;height:34px;border-radius:50%;cursor:pointer;font-size:18px;">›</button>`:''}
-        <a href="${f.u}" target="_blank" rel="noopener" style="color:#fff;">Original ↗</a>
+        <a href="${_fotoUrl(f)}" target="_blank" rel="noopener" style="color:#fff;">Original ↗</a>
         ${isReadonly()?'':`<button onclick="deleteFoto()" style="background:var(--red);border:none;color:#fff;padding:6px 12px;border-radius:6px;cursor:pointer;">Löschen</button>`}
       </div>
     </div>
@@ -4350,10 +4369,10 @@ async function deleteFoto(){
   const f=tree.fotos[_fotoState.idx]; if(!f) return;
   if(!await _confirmBox('Foto löschen','Dieses Foto endgültig löschen?','Löschen','Abbrechen')) return;
   try{
-    try{ await storage.refFromURL(f.u).delete(); }catch(e){ if(e.code!=='storage/object-not-found') throw e; }
+    try{ await storage.refFromURL(_fotoRaw(f)).delete(); }catch(e){ if(e.code!=='storage/object-not-found') throw e; }
     await db.collection('projects').doc(currentProjectId).collection('trees').doc(tree.id)
       .set({fotos: firebase.firestore.FieldValue.arrayRemove(f)},{merge:true});
-    tree.fotos=tree.fotos.filter(x=>x.u!==f.u);
+    tree.fotos=tree.fotos.filter(x=>_fotoRaw(x)!==_fotoRaw(f));
     notify('✓ Foto gelöscht');
     if(!tree.fotos.length) closeFoto(); else renderFotoLightbox();
     refreshMediaViews(tree.id);
@@ -4444,7 +4463,7 @@ function renderModalMedia(treeId){
   el.innerHTML=`
     <div class="form-section">Fotos${fotos.length?` (${fotos.length})`:''}</div>
     ${fotos.length
-      ?`<div style="display:flex;gap:8px;flex-wrap:wrap;padding:2px 0 6px;">${fotos.map((f,i)=>`<img src="${f.u}" loading="lazy" onclick="openFoto('${_jsArg(treeId)}',${i})" title="Foto ansehen" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--border);cursor:pointer;">`).join('')}</div>`
+      ?`<div style="display:flex;gap:8px;flex-wrap:wrap;padding:2px 0 6px;">${fotos.map((f,i)=>`<img src="${_fotoUrl(f)}" loading="lazy" onclick="openFoto('${_jsArg(treeId)}',${i})" title="Foto ansehen" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--border);cursor:pointer;">`).join('')}</div>`
       :'<div style="font-size:11px;color:var(--text3);padding:2px 0 6px;">Keine Fotos vorhanden (Aufnahme über die Erfassungs-App).</div>'}
     <div class="form-section">Dokumente${docs.length?` (${docs.length})`:''}</div>
     <div style="display:flex;flex-direction:column;gap:5px;padding:2px 0 4px;">
@@ -4538,8 +4557,9 @@ async function saveInlineFields(id){
   const hiddenUeb=(tree0?getTreeTourIds(tree0):[]).filter(tid=>isOverviewTour(tid) && !rendered.has(tid));
   const selectedTourIds=[...new Set([...checked,...hiddenUeb])];
   const updates={};
-  if(wasser)updates.wasser=wasser;
-  if(zustand)updates.zustand=zustand;
+  // ''-Leerwert („– keine –") bewusst MIT speichern — sonst ließe sich ein Rang nie zurücksetzen
+  if(wasser!==undefined)updates.wasser=wasser;
+  if(zustand!==undefined)updates.zustand=zustand;
   updates.tourIds=selectedTourIds;
   updates.tourId=selectedTourIds[0]||''; // Compat
   try{
@@ -5454,8 +5474,14 @@ async function saveTour(){
   const data={name,desc:document.getElementById('t-desc').value,color:selectedTourColor,zusatzzeiten,regeln:collectTourRegeln(),startDate,interval,betriebstage,gueltig,reinigungssystem:document.getElementById('t-system')?.value||'',zeitBasis:document.getElementById('t-zeitbasis')?.value||'auto',betriebshof:document.getElementById('t-betriebshof')?.value||''};
   try{
     if(editingTourId){
+      // Zeitgrundlage/System geändert → Karte (Routenlinie + Reihenfolgenummern) sofort nachziehen;
+      // der tours-Snapshot rendert das nur bei Farbwechsel neu.
+      const _old=tours.find(t=>t.id===editingTourId);
+      const _basisChanged=!!_old && ((_old.zeitBasis||'auto')!==data.zeitBasis || (_old.reinigungssystem||'')!==data.reinigungssystem);
       data.arbeitszeitMin=arbeitszeitMin>0?arbeitszeitMin:firebase.firestore.FieldValue.delete();
       await updateDoc(doc(db,'projects',currentProjectId,'tours',editingTourId),data);
+      if(_basisChanged){ if(_old){ _old.zeitBasis=data.zeitBasis; _old.reinigungssystem=data.reinigungssystem; }
+        setTimeout(()=>{ try{ applyRouteVisibility(); rebuildMarkersWithNumbers(); renderDrawnGeoms(); renderFlaechenNumbers(); updateRouteInfoBar(); renderLegend(); }catch(e){ console.warn('Zeitbasis-Refresh',e); } },80); }
       notify('Tour aktualisiert');
     } else {
       if(arbeitszeitMin>0) data.arbeitszeitMin=arbeitszeitMin;
@@ -6122,7 +6148,11 @@ function switchView(v){
   if(v==='einsatzplaner') initEinsatzplaner();
   if(v==='verwaltung') initVerwaltung();
   if(v==='reinigungssysteme') renderReinigungssysteme();
-  if(v==='nachrichten') initNachrichten();
+  if(v==='nachrichten'){ // Gegenstück zu _epRescueNachrichten: Bereich ggf. aus dem Einsatzplaner-Slot zurückholen
+    const _nb=document.getElementById('nachrichten-body');
+    if(_nb&&_nb.closest('#ep-root')){ const _home=document.getElementById('view-nachrichten'); if(_home){ _nb.style.padding=''; _home.appendChild(_nb); } }
+    initNachrichten();
+  }
   if(v==='feldbezeichnungen') initFeldbezeichnungen();
   if(v==='usage') initUsage();
   if(v==='benutzer') initBenutzer();
@@ -7264,6 +7294,9 @@ async function segmentZuAbschnitt(id){
   try{
     const upd={containerTyp:'strecke',art:'Straßenabschnitt',artId:null,tourIds:[],tourId:'',reinigungsklasse:rk?rk.id:(t.reinigungsklasse||''),_migrated:true};
     await updateDoc(doc(db,'projects',currentProjectId,'trees',id),upd);
+    // Alte Tour-Zuordnungen: gespeicherte Routen sind jetzt veraltet + Stopp-Referenz entfernen
+    for(const tid of tids){ try{ await updateDoc(doc(db,'projects',currentProjectId,'tours',tid),{routeStale:true}); }catch(_){} }
+    try{ await removeTreeFromRoutes(id); }catch(e){ console.warn('Route bereinigen',e); }
     Object.assign(t,upd); _ctIndexRef=null; // lokal nachziehen + Container-Index neu aufbauen lassen
     notify('✓ Abschnitt angelegt — jetzt Ausstattung hinzufügen');
     try{ renderDrawnGeoms(); }catch(_){}
@@ -7452,9 +7485,12 @@ function fillRankSelect(fieldKey,current){
   const vals=rankList(fieldKey);
   current=(current||'').trim();
   // Leer-Option zwingend: sonst zeigt der Browser bei Objekten OHNE Wert die erste Option an
-  // (Phantom-Wert), und Speichern würde sie ungewollt festschreiben.
-  sel.innerHTML=`<option value="">– keine –</option>`+vals.map(e=>`<option value="${dlEsc(e.id)}"${e.id===current?' selected':''}>${dlEsc(e.label)}</option>`).join('');
-  sel.value=(current && vals.some(e=>e.id===current))?current:'';
+  // (Phantom-Wert), und Speichern würde sie ungewollt festschreiben. Verwaiste Werte (nicht mehr
+  // in der Liste) bleiben als eigene Option erhalten — Speichern darf sie nicht still löschen.
+  const orphan=current && !vals.some(e=>e.id===current);
+  sel.innerHTML=`<option value="">– keine –</option>`+vals.map(e=>`<option value="${dlEsc(e.id)}"${e.id===current?' selected':''}>${dlEsc(e.label)}</option>`).join('')
+    +(orphan?`<option value="${dlEsc(current)}" selected>${dlEsc(rankLabel(fieldKey,current)||current)} (nicht mehr in Liste)</option>`:'');
+  sel.value=current||'';
 }
 
 // Eine Karte für ein Listenfeld (anlegen/umbenennen/mergen/löschen/aufbauen)
@@ -7916,7 +7952,7 @@ function renderTourenGrid(){
   }
 
   grid.innerHTML=list.map(tour=>{
-    const treesInTour=trees.filter(t=>treeInTour(t,tour.id));
+    const treesInTour=trees.filter(t=>isActive(t)&&treeInTour(t,tour.id)); // wie Legende/Panel: inaktive zählen nicht
     const cnt=treesInTour.length;
     const zCounts=rankList('zustand').map(e=>({label:e.label,farbe:e.farbe,n:treesInTour.filter(t=>(t.zustand||'')===e.id).length}));
     // Kennzahlen über tourMetrics: bei Reinigungssystem-Grundlage ohne Route (Strecke ÷ Geschwindigkeit), sonst Route
@@ -7929,7 +7965,7 @@ function renderTourenGrid(){
     const bewZeit=_m?fmtMin(_bewMin):'–';
     const _zusMin=tourZusatzMin(tour);
     const gesamtZeit=_m?fmtMin(Math.round((driveVal||0)/60)+_bewMin+_zusMin):'–';
-    const _rz=tourRestzeit(tour,treesInTour,driveVal);
+    const _rz=_m?tourRestzeit(tour,treesInTour,driveVal):null; // ohne Zeitgrundlage keine (halbe) Restzeit zeigen — wie Legende
     const _violCnt=tourViolatingTrees(tour).length;
     const _rulesActive=tourHasRules(tour);
     const zusLine=_zusMin>0?`
@@ -8254,13 +8290,17 @@ async function printTourMap(){
   if(bg==='luftbild'){ const w=getWmsLayers().find(l=>l.type==='base'&&l.layers); base=w?{kind:'wms',url:w.url,layers:w.layers,version:w.version||'1.3.0'}:{kind:'xyz',url:BASEMAP_FARBE}; if(w&&w.attribution)baseAttr=w.attribution; }
   else if(bg==='farbe') base={kind:'xyz',url:BASEMAP_FARBE};
   else base={kind:'xyz',url:BASEMAP_GRAU};
-  // Kennzahlen
-  const driveSec=routeData?routeData.durationSec:(tourRoutes[tourId]&&tourRoutes[tourId].durationSec)||0;
-  const km=(routeData&&typeof routeData.km==='number')?routeData.km:(tourRoutes[tourId]&&tourRoutes[tourId].km);
+  // Kennzahlen — folgen der Zeitgrundlage der Tour: System = Reinigungs-km + Tätigkeit (keine Fahrt/Route)
+  const _sysTour=_tourEffSource(tourId)==='system';
+  if(_sysTour) routeLatLngs=null; // Zeitbasis System: keine Routenlinie drucken (konsistent zur Karte)
+  const driveSec=_sysTour?0:(routeData?routeData.durationSec:(tourRoutes[tourId]&&tourRoutes[tourId].durationSec)||0);
+  const km=_sysTour?(tourMetrics(tourId)?.km??null):((routeData&&typeof routeData.km==='number')?routeData.km:(tourRoutes[tourId]&&tourRoutes[tourId].km));
   const zus=tourZusatzMin(tour);
   const _flM2=flTrees0.reduce((s,t)=>s+(parseFloat(t.menge)||0),0);
-  const kennz=`${stops.length} Objekte${_flM2?` · ${_repNum(Math.round(_flM2))} m²`:''}${km!=null?` · ${km.toFixed(1)} km`:''}${driveSec?` · ${fmtDuration(driveSec)} Fahrt`:''}${stopsTrees.length?` · gesamt ${fmtTotalTime(driveSec,stopsTrees,zus)}`:''}`;
-  baseAttr=baseAttr+' · Route: OpenRouteService';
+  const _membersAll=trees.filter(t=>isActive(t)&&treeInTour(t,tourId));
+  const _gesamt=_sysTour?fmtMin(Math.round(tourBewMin(tourId,_membersAll))+zus):(stopsTrees.length?fmtTotalTime(driveSec,stopsTrees,zus):'');
+  const kennz=`${stops.length} Objekte${_flM2?` · ${_repNum(Math.round(_flM2))} m²`:''}${km!=null?` · ${km.toFixed(1)} km${_sysTour?' Reinigung':''}`:''}${driveSec?` · ${fmtDuration(driveSec)} Fahrt`:''}${_gesamt?` · gesamt ${_gesamt}`:''}`;
+  baseAttr=baseAttr+(_sysTour?'':' · Route: OpenRouteService');
   const titleSub='Kartenausdruck · '+dlEsc(currentProjectData?.name||'')+' · '+dlEsc(dashFmtDE(new Date()));
   const color=tour.color;
   // ── In-App-Druckvorschau (kein separates Fenster; WYSIWYG A4-Rahmen) ──
@@ -12369,22 +12409,27 @@ function _lassoZeitPreview(tour){
   if(tourHasRules(tour)){ const ok=sel.filter(t=>treeMatchesTour(t,tour)); _regelAus=sel.length-ok.length; sel=ok; }
   if(!sel.length) return `<span style="font-size:11px;font-weight:600;background:rgba(255,255,255,.12);padding:3px 9px;border-radius:20px;white-space:nowrap;" title="Alle ausgewählten Objekte verletzen die Zuordnungsregeln von „${dlEsc(tour.name||'')}"">⏱ 0 min — ${_regelAus} lt. Regeln ausgenommen</span>`;
   const sp=_tourSpeedKmh(tour.id);
-  const useSys=sp>0&&(tour.zeitBasis||'auto')!=='route';
+  // Prognose auf Basis des Zustands NACH dem Zuweisen: erst dann entscheidet sich, ob die Tour
+  // effektiv über das Reinigungssystem rechnet (Linien-Strecke > 0) oder über die Route.
+  const neu=sel.filter(t=>!treeInTour(t,tour.id));
+  const selLineM=sel.filter(t=>geomTypeOf(t)==='linie').reduce((s,t)=>s+_effMenge(t),0);
+  const wmAfter=_tourWorkMeters(tour.id)+neu.filter(t=>geomTypeOf(t)==='linie').reduce((s,t)=>s+_effMenge(t),0);
+  const useSys=sp>0&&(tour.zeitBasis||'auto')!=='route'&&wmAfter>0;
   const _minOf=list=>{
     if(!useSys) return bewMinutes(list);
     const lm=list.filter(t=>geomTypeOf(t)==='linie').reduce((s,t)=>s+_effMenge(t),0);
     return (lm*3.6/sp)/60 + bewMinutes(list.filter(t=>geomTypeOf(t)!=='linie'));
   };
   const parts=[];
-  if(useSys){ const lm=sel.filter(t=>geomTypeOf(t)==='linie').reduce((s,t)=>s+_effMenge(t),0); if(lm>0) parts.push((lm/1000).toFixed(1).replace('.',',')+' km'); }
+  if(useSys&&selLineM>0) parts.push((selLineM/1000).toFixed(1).replace('.',',')+' km');
   parts.push(fmtMin(Math.round(_minOf(sel)))+' Tätigkeit');
   let restTxt='';
   if(typeof tour.arbeitszeitMin==='number'&&tour.arbeitszeitMin>0){
     const members=trees.filter(t=>isActive(t)&&treeInTour(t,tour.id));
-    const m=tourMetrics(tour.id);
-    const used=Math.round((m?m.durationSec:0)/60)+Math.round(tourBewMin(tour.id,members))+tourZusatzMin(tour);
-    const neu=sel.filter(t=>!treeInTour(t,tour.id));
-    const rest=tour.arbeitszeitMin-used-Math.round(_minOf(neu));
+    const membersAfter=members.concat(neu);
+    const bewAfter=useSys?((wmAfter*3.6/sp)/60+bewMinutes(membersAfter.filter(t=>geomTypeOf(t)!=='linie'))):bewMinutes(membersAfter);
+    const driveAfter=useSys?0:Math.round(((tourMetrics(tour.id)||{}).durationSec||0)/60); // Route ändert sich erst bei Neuberechnung
+    const rest=tour.arbeitszeitMin-Math.round(bewAfter)-driveAfter-tourZusatzMin(tour);
     restTxt=` · danach Restzeit <b style="color:${rest<0?'#fecaca':'#bbf7d0'};">${fmtMin(rest)}</b>`;
   }
   const _ausTxt=_regelAus>0?` <span style="color:#fde68a;" title="Objekte, die die Zuordnungsregeln der Tour verletzen (z. B. Gehweg bei „nur Fahrbahn") — nicht mitgerechnet">· ${_regelAus} lt. Regeln ausgenommen</span>`:'';
@@ -12549,20 +12594,22 @@ async function lassoAction(mode){
     if(currentProjectId!==_undoPid){ notify('Projekt gewechselt — Rückgängig nicht mehr möglich'); return; }
     setSyncState('syncing','Mache rückgängig…');
     _suppressTreeRender=true;
+    let _undoFail=0;
     try{
       for(let i=0;i<_undoSnap.length;i+=400){
         const b=db.batch();
         _undoSnap.slice(i,i+400).forEach(s=>b.update(doc(db,'projects',currentProjectId,'trees',s.id),{tourIds:s.tourIds,tourId:s.tourId}));
-        await b.commit(); _bumpUsage('writes',Math.min(400,_undoSnap.length-i));
+        try{ await b.commit(); _bumpUsage('writes',Math.min(400,_undoSnap.length-i)); }
+        catch(e){ _undoFail+=Math.min(400,_undoSnap.length-i); console.warn('Undo-Chunk',e); } // z. B. zwischenzeitlich gelöschtes Objekt — Rest trotzdem zurücksetzen
       }
-    }catch(e){ console.warn('Undo Zuweisung',e); notify(dlErr(e)); }
+    }
     finally{ _suppressTreeRender=false; if(_pendingTreeRender){ _pendingTreeRender=false; refreshMarkers(); renderList(); } }
     routeCache={};
     for(const tid of _affectedTours){ if(!isOverviewTour(tid)){ try{ await updateDoc(doc(db,'projects',currentProjectId,'tours',tid),{routeStale:true}); }catch(_){} } }
     try{ renderDrawnGeoms(); }catch(_){}
     _refreshTourPanelsDebounced();
     setSyncState('ok','Synchronisiert');
-    notify('✓ Zuweisung rückgängig gemacht');
+    notify(_undoFail?('⚠ Rückgängig teilweise — '+_undoFail+' Objekt(e) nicht zurücksetzbar (evtl. gelöscht)'):'✓ Zuweisung rückgängig gemacht');
   });
 }
 // Kleine Aktions-Leiste unten Mitte („N Objekte zugewiesen — Rückgängig"), verschwindet nach 30 s.
@@ -13144,7 +13191,6 @@ function dispoDefaultDepot(){
 let _epOrg='', _epProject='', _epDate='', _epTab='plan';
 let _epOrgs=[], _epPersons=[], _epVehicles=[], _epProjects=[], _epTours=[], _epFunktionen=[];
 let _epAvail={persons:{}, vehicles:{}}, _epSaveTimer=null;
-const EP_PSTATES=[['anwesend','Anwesend','#15803d','#e7f3ea'],['krank','Krank','#c0392b','#fbeaea'],['urlaub','Urlaub','#b45309','#fbf0df'],['abwesend','Abwesend','#5f5e5a','#eeece6']];
 const EP_VSTATES=[['verfuegbar','Verfügbar','#15803d','#e7f3ea'],['werkstatt','Werkstatt','#b45309','#fbf0df'],['ausgefallen','Ausgefallen','#c0392b','#fbeaea']];
 function _epToday(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 let _epWeekMon=''; // Montag (YYYY-MM-DD) der angezeigten Woche im Reiter „Woche"
@@ -13180,7 +13226,8 @@ function epToggleBedarf(){ _epShowBedarf=!_epShowBedarf; renderEp(); }
 // ohne eigene Pflege gelten die drei Standard-Typen. Jeder Typ ≠ „anwesend" macht die Person unverfügbar.
 const EP_ABS_DEFAULT=[{id:'urlaub',label:'Urlaub',color:'#FAC775'},{id:'krank',label:'Krank',color:'#F09595'},{id:'abwesend',label:'Abwesend',color:'#B4B2A9'}];
 let _epAbsTypesOrg=null;
-function _epAbsTypes(){ return (Array.isArray(_epAbsTypesOrg)&&_epAbsTypesOrg.length)?_epAbsTypesOrg:EP_ABS_DEFAULT.map(x=>({...x})); }
+const _absColor=c=>/^#[0-9a-fA-F]{3,8}$/.test(c||'')?c:'#B4B2A9'; // Farbe härten (wird in style interpoliert)
+function _epAbsTypes(){ const l=(Array.isArray(_epAbsTypesOrg)&&_epAbsTypesOrg.length)?_epAbsTypesOrg:EP_ABS_DEFAULT; return l.map(x=>({...x, color:_absColor(x.color)})); }
 function _epAbsMeta(type){ return _epAbsTypes().find(x=>x.id===type) || EP_ABS_DEFAULT.find(x=>x.id===type) || {id:type,label:type||'Abwesend',color:'#B4B2A9'}; }
 // Abwesenheit (Zeitraum an der Person) für ein Datum → Status oder null
 function _epAbsenceFor(p,date){ if(!p||!Array.isArray(p.absences)) return null; return p.absences.find(a=>a&&a.from<=date&&a.to>=date)||null; }
@@ -13196,7 +13243,6 @@ function _epPersonInPlan(p){ if(typeof p.einsatz==='boolean') return p.einsatz; 
 function _epRunsOn(t){ return !!t && ((t.interval||'')==='bedarf' ? _tourInValidity(t,_epDate) : tourDueOn(t,_epDate)); }
 function _epPersonActive(p){ return !!p && p.active!==false; } // inaktive werden im Personal-Reiter grau gezeigt, aber nicht verplant
 function _epHasLogin(p){ return !!p && !p.noLogin && (p.pinHash || p.role); }
-function _epPersonName(id){ const p=_epPersons.find(x=>x.id===id); return p?p.name:id; }
 
 async function initEinsatzplaner(){
   const root=document.getElementById('ep-root'); if(!root) return;
@@ -13232,8 +13278,8 @@ async function epLoadTours(){
   try{ const qs=await db.collection('projects').doc(_epProject).collection('tours').get(); _epTours=qs.docs.map(d=>({id:d.id,...d.data()})).filter(t=>!t.uebersicht).sort((a,b)=>(a.name||'').localeCompare(b.name||'')); }catch(e){ console.warn('ep tours',e); }
 }
 async function epChangeOrg(v){ _epOrg=v; _epProject=''; _epWeekQuery=''; _epDayQuery=''; const r=document.getElementById('ep-root'); if(r){ _epRescueNachrichten(); r.innerHTML='<div style="padding:48px;text-align:center;color:var(--text3);">Lädt…</div>'; } await epLoadOrgScope(); renderEp(); }
-async function epChangeProject(v){ _epProject=v; _epWeekQuery=''; _epDayQuery=''; await epLoadTours(); renderEp(); }
-async function epChangeDate(v){ _epDate=v||_epToday(); await epLoadAvail(); renderEp(); }
+async function epChangeProject(v){ _epProject=v; _epWeekQuery=''; _epDayQuery=''; _epTgDraft=null; await epLoadTours(); renderEp(); }
+async function epChangeDate(v){ _epDate=v||_epToday(); _epTgDraft=null; await epLoadAvail(); renderEp(); }
 let _epVehSub='heute'; // Unterreiter im Tab „Fahrzeuge": 'heute' (Tagesstatus) | 'fuhrpark' (Stammdaten)
 function epVehSubSet(s){ _epVehSub=s==='fuhrpark'?'fuhrpark':'heute'; renderEp(); }
 function epSetTab(t){ _epTab=t; if(t==='fahrzeuge') _epVehSub='heute'; renderEp(); }
@@ -13314,7 +13360,9 @@ async function epApplyStandards(){
   const availNames=new Set(_epPersons.filter(p=>_epPersonActive(p)&&_epPersonAvail(p)).map(p=>p.name));
   let skipped=0;
   try{
+    // Konflikte auch gegen heute laufende Touren OHNE Standard prüfen (deren wirksame Besetzung belegt Ressourcen)
     const usedNames=new Set(), usedVeh=new Set();
+    _epTours.forEach(x=>{ if(_epRunsOn(x) && !withStd.includes(x)){ const e=_epEffCrew(x); e.drivers.forEach(n=>usedNames.add(n)); if(e.vehicleId) usedVeh.add(e.vehicleId); } });
     const batch=db.batch();
     withStd.forEach(t=>{
       const veh=(t.stdVehicleId&&availVehIds.has(t.stdVehicleId)&&!usedVeh.has(t.stdVehicleId))?t.stdVehicleId:'';
@@ -13505,6 +13553,7 @@ function epPlanHtml(){
     <span style="font-size:12px;font-weight:600;color:var(--text2);background:var(--surface2);border:1px solid var(--border);border-radius:99px;padding:3px 12px;">${dueTours.length} Tour${dueTours.length===1?'':'en'} fällig</span>
     <span style="font-size:12px;font-weight:600;color:${besetzt>=dueTours.length&&dueTours.length?'#0f6e56':'var(--text2)'};background:${besetzt>=dueTours.length&&dueTours.length?'#e1f5ee':'var(--surface2)'};border:1px solid var(--border);border-radius:99px;padding:3px 12px;">${besetzt} besetzt</span>
     ${issues.length?`<span style="font-size:12px;font-weight:600;color:#854f0b;background:#faeeda;border:1px solid #f0c987;border-radius:99px;padding:3px 12px;">${issues.length} zu klären</span>`:''}
+    ${(_epDate!==_epToday()&&!ro)?`<span style="font-size:11px;font-weight:600;color:#7a4a06;background:#fdf6e7;border:1px solid #f0c987;border-radius:99px;padding:3px 12px;" title="Es gibt nur EINE gespeicherte Besetzung je Tour — eine Änderung für diesen Tag ersetzt die aktuell wirksame (auch in der Fahrer-App), bis wieder geändert wird.">⚠ Anderer Tag als heute — Änderungen wirken sofort</span>`:''}
   </div>`;
   const issuesBar=issues.length?`<div style="background:#fdf6e7;border:1px solid #f0c987;border-radius:10px;padding:9px 13px;margin-bottom:12px;">
     <div style="font-size:12px;font-weight:700;color:#854f0b;margin-bottom:6px;">⚠ Heute zu klären</div>
@@ -13537,7 +13586,8 @@ function epPlanHtml(){
         ${scopeSel}
         <button class="btn btn-primary" style="margin-left:auto;font-size:12px;padding:5px 14px;" onclick="epSendTagesplan()">Tagesplan senden</button>
       </div>
-      <textarea id="ep-tg-text" style="width:100%;min-height:64px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:12px;resize:vertical;box-sizing:border-box;">${dlEsc(epTagesplanText())}</textarea>
+      <textarea id="ep-tg-text" oninput="epTgInput(this.value)" style="width:100%;min-height:64px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:12px;resize:vertical;box-sizing:border-box;">${dlEsc(_epTgDraft!==null?_epTgDraft:epTagesplanText())}</textarea>
+      ${_epTgDraft!==null?`<button class="btn btn-secondary" style="font-size:11px;padding:3px 10px;margin-top:6px;" onclick="epTgRegen()" title="Eigenen Text verwerfen und aus der aktuellen Besetzung neu erzeugen">↻ Neu erzeugen</button>`:''}
       <div id="ep-tg-status"></div>
     </div>`;
   }
@@ -13572,11 +13622,17 @@ async function epApplyStandardOne(tid){
 }
 // ── „Fahrer informieren": Tagesplan als Postfach-Nachricht (optional, betriebshofscharf) ──
 let _epTgScope='';                       // ''=alle Betriebshöfe, sonst Betriebshof-Name (tour.betriebshof)
+let _epTgDraft=null;                     // Nutzer-editierter Tagesplan-Text (null = Auto-Vorschlag) — überlebt Re-Render
+function epTgInput(v){ _epTgDraft=v; }
+function epTgRegen(){ _epTgDraft=null; const ta=document.getElementById('ep-tg-text'); if(ta) ta.value=epTagesplanText(); }
 let _epTgStatusKey='', _epTgStatusHtml=''; // Cache des Empfangsstatus (keine Reads je Re-Render)
-// Heute laufende Touren MIT wirksamer Besetzung; scope=null → ungefiltert, sonst _epTgScope anwenden
+// Heute laufende Touren MIT wirksamer Besetzung; scope=null → ungefiltert, sonst _epTgScope anwenden.
+// Bedarfstouren zählen nur, wenn sie für DIESEN Tag aktiv besetzt wurden (crewDate) — eine bloß
+// hinterlegte Standardbesetzung plant sie nicht ein.
 function _epTgTours(scope){
   const s=scope===null?'':(_epTgScope||'');
-  return _epTours.filter(t=>_epRunsOn(t)).map(t=>({t,eff:_epEffCrew(t)})).filter(x=>x.eff.drivers.length)
+  return _epTours.filter(t=>(t.interval||'')==='bedarf' ? (_tourInValidity(t,_epDate)&&t.crewDate===_epDate) : tourDueOn(t,_epDate))
+    .map(t=>({t,eff:_epEffCrew(t)})).filter(x=>x.eff.drivers.length)
     .filter(x=>!s || (x.t.betriebshof||'').trim()===s);
 }
 function epTagesplanText(){
@@ -13585,7 +13641,7 @@ function epTagesplanText(){
   if(!rows.length) return '';
   return 'Einsatz '+dd+(_epTgScope?' · '+_epTgScope:'')+':\n'+rows.join('\n');
 }
-function epTagesplanScope(v){ _epTgScope=(v||'').trim(); const ta=document.getElementById('ep-tg-text'); if(ta) ta.value=epTagesplanText(); }
+function epTagesplanScope(v){ _epTgScope=(v||'').trim(); const ta=document.getElementById('ep-tg-text'); if(ta && _epTgDraft===null) ta.value=epTagesplanText(); else if(_epTgDraft!==null) notify('Eigener Text bleibt erhalten — „↻ Neu erzeugen" für frischen Vorschlag'); }
 async function epSendTagesplan(){
   if(!_epCanWrite()) return;
   const text=(document.getElementById('ep-tg-text')?.value||'').trim();
@@ -13607,7 +13663,9 @@ async function epSendTagesplan(){
       audience:{kind:'tagesplan', date:_epDate, betriebshof:_epTgScope||null}, link, status:'sent', recipientCount:recips.length, counts:{seen:0,done:0}, epDate:_epDate, epProject:_epProject });
     recips.forEach(p=>batch.set(msgRef.collection('recipients').doc(p.id), { orgId:_epOrg, msgId:msgRef.id, driverId:p.id, ownerUid:'drv_'+p.id, driverName:p.name, type:'info', title, body:text, link, sentAt:now, deliveredAt:null, seenAt:null, doneAt:null }));
     await batch.commit();
-    notify('✓ Tagesplan an '+recips.length+' Fahrer gesendet');
+    const _ohneLogin=names.size-recips.length; // eingeteilte Personen ohne App-Login erreicht die Nachricht nicht
+    notify('✓ Tagesplan an '+recips.length+' Fahrer gesendet'+(_ohneLogin>0?' · '+_ohneLogin+' eingeteilte Person(en) ohne App-Login nicht erreichbar':''));
+    _epTgDraft=null;
     _epTgStatusKey=''; epLoadTagesplanStatus();
   }catch(e){ console.warn('epSendTagesplan',e); notify(dlErr(e)); }
 }
@@ -13629,8 +13687,8 @@ async function epLoadTagesplanStatus(){
       }).join(' ');
       html=`<div style="font-size:11px;color:var(--text3);margin:8px 0 4px;">Zuletzt gesendet ${_nmTime(m.sentAt)}${m.audience&&m.audience.betriebshof?' · '+dlEsc(m.audience.betriebshof):''} · ${m.recipientCount||0} Empfänger</div><div style="display:flex;gap:5px;flex-wrap:wrap;">${chips}</div>`;
     }
+    _epTgStatusKey=key; _epTgStatusHtml=html; // nur bei Erfolg cachen — ein Query-Fehler darf den Status nicht dauerhaft leeren
   }catch(e){ console.warn('epLoadTagesplanStatus',e); }
-  _epTgStatusKey=key; _epTgStatusHtml=html;
   el.innerHTML=html;
 }
 // ── Suchbarer Picker (Tippsuche) für Fahrer/Fahrzeug — skaliert für 100+ Einträge ──
@@ -13870,8 +13928,9 @@ function epAbsOpenForm(personId, absId, prefillDate){
       while(d<=tt && guard++<120){ if((t.interval||'')==='bedarf'?false:tourDueOn(t,d)) days++; d=_epAddDays(d,1); }
       if(days>0) hits.push(`<b style="font-weight:600;">${dlEsc(t.name||'Tour')}</b> (${inStd?'Standard':'eingeteilt'}, ${days} Einsatztag${days===1?'':'e'})`);
     });
+    const _capped=(_epAddDays(f,120)<=tt); // Vorschau-Fenster überschritten (z. B. Elternzeit)
     if(!hits.length){ box.style.display='none'; return; }
-    box.innerHTML='⚠ '+dlEsc(p.name)+' ist im Zeitraum eingeplant in: '+hits.join(' · ')+'<br>Für die betroffenen Tage bitte Ersatz einteilen (Reiter „Tag" → „Heute zu klären").';
+    box.innerHTML='⚠ '+dlEsc(p.name)+' ist im Zeitraum eingeplant in: '+hits.join(' · ')+(_capped?'<br><span style="color:#a16207;">Vorschau auf die ersten 120 Tage begrenzt.</span>':'')+'<br>Für die betroffenen Tage bitte Ersatz einteilen (Reiter „Tag" → „Heute zu klären").';
     box.style.display='block';
   };
   ['abf-person','abf-from','abf-to'].forEach(id=>{ const el=m.querySelector('#'+id); if(el) el.addEventListener('change',_conflict); });
@@ -15862,7 +15921,7 @@ Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,openKiConfigMenu,toggleKiAnalyse,resetKiAnalysen,
   renderHandbuch,setHbTab,hbSearchDebounced,openHbImg,closeHbImg,
   dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
-  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epApplyStandardOne,epTagesplanScope,epSendTagesplan,epVehSubSet,epAbsTypesOpen,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,epWeekShift,epWeekThis,epWeekToggleEmpty,epWeekFilter,epDayFilter,epTourCtx,epEditTour,_epCloseCtx,epPersonOpenCard,
+  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epApplyStandardOne,epTagesplanScope,epSendTagesplan,epTgInput,epTgRegen,epVehSubSet,epAbsTypesOpen,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,epWeekShift,epWeekThis,epWeekToggleEmpty,epWeekFilter,epDayFilter,epTourCtx,epEditTour,_epCloseCtx,epPersonOpenCard,
   dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
   saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterInlineTours,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
   filterAbschnitteTable,filterAbschnitteTableDebounced,toggleAbschnShowAll,downloadAbschnitteExport,
