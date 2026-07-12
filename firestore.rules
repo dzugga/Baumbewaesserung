@@ -28,7 +28,7 @@ service cloud.firestore {
     // Fahrer (cap 'driver') duerfen an Baeumen NUR diese Felder aendern:
     function onlyStatusFields() {
       return request.resource.data.diff(resource.data).affectedKeys()
-        .hasOnly(['lastStatus','lastReason','lastNote','lastDriver','lastReportAt','history','datum','zustand','lastFuellgrad']);
+        .hasOnly(['lastStatus','lastReason','lastNote','lastDriver','lastReportAt','history','datum','zustand','lastFuellgrad','fotos']);
     }
     // Fahrer duerfen an Touren NUR den Abschluss-/Wiederaufnahme-Status setzen:
     function onlyTourStatusFields() {
@@ -52,7 +52,11 @@ service cloud.firestore {
     // ----- Mandanten -----
     match /orgs/{oid} {
       allow read:  if inOrg(oid);
-      allow write: if isSuper();
+      // Stadt-Admins duerfen NUR die Abwesenheits-Typen am Org-Doc pflegen (Einsatzplaner → Personal);
+      // alle uebrigen Org-Felder (code, orsKey, dispoResources, ...) bleiben Superadmin/Functions.
+      allow update: if isSuper() || (inOrg(oid) && cap() == 'admin'
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['absenceTypes']));
+      allow create, delete: if isSuper();
 
       // Rollen-/Modul-Definitionen je Mandant (Stadt-Admin pflegt eigene Rollen)
       match /roles/{rid} {

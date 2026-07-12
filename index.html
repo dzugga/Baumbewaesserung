@@ -5,6 +5,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Planungsmanager</title>
+<script>/* Dunkelmodus vor dem ersten Rendern anwenden (kein Hell-Blitz) */
+try{var _t=localStorage.getItem('ui_theme');if(_t==='dark'||(!_t&&window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches))document.documentElement.setAttribute('data-theme','dark');}catch(e){}</script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
@@ -34,6 +36,17 @@
   --shadow:0 1px 3px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.04);
   --shadow-md:0 4px 12px rgba(0,0,0,.10),0 2px 4px rgba(0,0,0,.06);
 }
+html[data-theme="dark"]{
+  --bg:#161513;--surface:#211f1c;--surface2:#2b2925;--border:#3a372f;--border2:#4a463c;
+  --text:#eceae4;--text2:#b3afa5;--text3:#847f74;
+  --green:#5cc99a;--green-light:#22352b;--green-mid:#3e8e69;
+  --amber:#f0a353;--amber-light:#3a2c14;--red:#f08a8a;--red-light:#3d1d1d;
+  --blue:#8ab0f5;
+  --shadow:0 1px 3px rgba(0,0,0,.45),0 1px 2px rgba(0,0,0,.3);
+  --shadow-md:0 4px 12px rgba(0,0,0,.55),0 2px 4px rgba(0,0,0,.35);
+}
+html[data-theme="dark"] .leaflet-tile{filter:brightness(.72) contrast(1.05) saturate(.9)}
+html[data-theme="dark"] .leaflet-container{background:#1b1a17}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;overflow:hidden}
 
@@ -358,6 +371,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <span id="active-project-org" style="font-size:11px;font-weight:500;color:var(--text3);white-space:nowrap;"></span>
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="flex-shrink:0"><path d="M6 9l6 6 6-6"/></svg>
   </div>
+  <button onclick="openGlobalSearch()" title="Suchen — Objekte, Touren, Ansichten (Strg+K)" style="display:flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--surface);border-radius:8px;padding:5px 10px;cursor:pointer;color:var(--text3);font-size:12px;font-family:inherit;">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+    <span style="font-size:10px;border:1px solid var(--border);border-radius:4px;padding:0 4px;">Strg K</span>
+  </button>
   <nav class="topbar-nav">
     <div class="nav-group">
       <button class="nav-btn nav-parent active" type="button">Planung
@@ -443,6 +460,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
           <div id="user-menu-role" style="font-size:11px;color:var(--text3);margin-top:1px;">–</div>
         </div>
         <button onclick="openSettings()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="margin-right:7px;vertical-align:-2px;"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>Einstellungen</button>
+        <button onclick="toggleDarkMode()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="margin-right:7px;vertical-align:-2px;"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg><span id="dm-label">Dunkelmodus</span></button>
         <button onclick="doLogout()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="margin-right:7px;vertical-align:-2px;"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>Abmelden</button>
         <div style="border-top:1px solid var(--border);margin:4px 0;"></div>
         <button data-module="__superadmin__" onclick="openPilotScope()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="margin-right:7px;vertical-align:-2px;"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></svg>Pilot-Bereich</button>

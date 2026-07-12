@@ -278,8 +278,11 @@ const MODULES = [
   {key:'import',      label:'Import'},
   {key:'erfassung',   label:'Erfassungs-App ↗'},
   {key:'mobil',       label:'Fahrer-App (Mobil) ↗'},
+  {key:'fotomeldung', label:'Foto-Meldung (Fahrer-App)'},
   {key:'einsatzleiter', label:'Einsatzleiter-App ↗'},
 ];
+// Startansicht je Rolle (Rollen & Module): welche Ansicht nach dem Öffnen des ersten Projekts erscheint
+const START_VIEWS=[['karte','Karte'],['baeume','Objekte'],['touren','Touren'],['dashboard','Dashboard'],['controlling','Controlling'],['einsatzplaner','Einsatzplaner'],['disposition','Disposition']];
 const BASE_TYPES = [
   {key:'admin',    label:'Verwalten (Admin)'},
   {key:'editor',   label:'Bearbeiten'},
@@ -293,7 +296,7 @@ const BUILTIN_ROLES = {
   orgadmin:   {name:'Org-Admin',  baseType:'admin', modules:_mods(_allModKeys.filter(k=>k!=='admin'&&k!=='massenwerkzeuge')), builtin:true}, // Massen-Werkzeuge default NUR Superadmin — pro Rolle zuschaltbar
   planer:     {name:'Planer',     baseType:'editor', modules:_mods(['planung','disposition','einsatzplaner','nachrichten','segmentnetz','dashboard','controlling','ki','objekte','touren','import','wms','einsatzleiter']), builtin:true},
   erfasser:   {name:'Erfasser',   baseType:'editor', modules:_mods(['erfassung','objekte']), builtin:true},
-  fahrer:     {name:'Fahrer',     baseType:'driver', modules:_mods(['mobil']), builtin:true},
+  fahrer:     {name:'Fahrer',     baseType:'driver', modules:_mods(['mobil','fotomeldung']), builtin:true},
 };
 let rolesCache = {};   // roleKey -> {name, baseType, modules, builtin}
 function roleModules(roleKey){
@@ -722,6 +725,13 @@ async function openProject(projectId){
   // Ist die offene Ansicht im neuen Projekt abgeschaltet → zurück zur Karte
   { const vm={disposition:'disposition',controlling:'controlling',ki:'ki',dashboard:'dashboard',baeume:'objekte',touren:'touren',wmskarten:'wms',verwaltung:'verwaltung',einsatzplaner:'einsatzplaner'}[currentView];
     if(vm && !canUseModule(vm)) switchView('karte'); }
+  // Startansicht der Rolle: EINMAL je Sitzung beim ersten Projekt-Öffnen anwenden (Rollen & Module)
+  if(!window._startViewDone){
+    window._startViewDone=true;
+    const sv=(rolesCache[currentRole]||BUILTIN_ROLES[currentRole]||{}).startView||'';
+    const modOf={disposition:'disposition',controlling:'controlling',dashboard:'dashboard',baeume:'objekte',touren:'touren',einsatzplaner:'einsatzplaner'};
+    if(sv && sv!=='karte' && (!modOf[sv]||canUseModule(modOf[sv]))) setTimeout(()=>{ try{ switchView(sv); }catch(e){ console.warn('Startansicht',e); } },80);
+  }
   // Einsatzplaner folgt dem global geöffneten Projekt: eigene Mandant/Projekt-Auswahl neu auf das offene Projekt setzen
   if(currentView==='einsatzplaner'){ _epOrg=''; _epProject=''; initEinsatzplaner(); }
   applyClusterMode(_effectiveCluster(), false); // Marker-Zielebene fürs Projekt (vor erstem Marker-Render) — Cluster nur ohne Tour-Auswahl
@@ -754,6 +764,81 @@ function syncDataViewToProject(){
     const fn=_DATA_VIEWS[currentView]; if(fn) try{ fn(); }catch(e){ console.warn('Daten-Ansicht nach Projektwechsel',e); }
   },60);
 }
+
+// ─── DUNKELMODUS: Umschalter im Avatar-Menü; Wahl in localStorage, Default = Systemeinstellung ───
+function toggleDarkMode(){
+  const on=document.documentElement.getAttribute('data-theme')==='dark';
+  if(on){ document.documentElement.removeAttribute('data-theme'); try{ localStorage.setItem('ui_theme','light'); }catch(_){} }
+  else { document.documentElement.setAttribute('data-theme','dark'); try{ localStorage.setItem('ui_theme','dark'); }catch(_){} }
+  const l=document.getElementById('dm-label'); if(l) l.textContent=on?'Dunkelmodus':'Hellmodus';
+}
+try{ const l=document.getElementById('dm-label'); if(l&&document.documentElement.getAttribute('data-theme')==='dark') l.textContent='Hellmodus'; }catch(_){}
+
+// ─── GLOBALE SUCHE (Strg+K): Objekte, Touren, Ansichten — ein Einstieg für alles ───
+let _gsEl=null;
+function openGlobalSearch(){
+  if(_gsEl){ _gsEl.querySelector('input').focus(); return; }
+  const m=document.createElement('div');
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:100002;display:flex;align-items:flex-start;justify-content:center;padding:80px 20px 20px;';
+  m.innerHTML=`<div style="background:var(--surface);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.25);width:560px;max-width:94vw;overflow:hidden;">
+    <div style="display:flex;align-items:center;gap:9px;padding:11px 14px;border-bottom:1px solid var(--border);">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <input placeholder="Objekt, Tour oder Ansicht suchen…" style="flex:1;border:none;outline:none;background:none;font-family:inherit;font-size:15px;color:var(--text);" autocomplete="off">
+      <span style="font-size:10px;color:var(--text3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;">Esc</span>
+    </div>
+    <div id="gs-list" style="max-height:420px;overflow:auto;padding:6px;"></div>
+  </div>`;
+  document.body.appendChild(m); _gsEl=m;
+  const close=()=>{ m.remove(); _gsEl=null; };
+  m.addEventListener('mousedown',e=>{ if(e.target===m) close(); });
+  const input=m.querySelector('input'), list=m.querySelector('#gs-list');
+  let items=[], sel=0;
+  const run=it=>{ close(); try{ it.go(); }catch(e){ console.warn('Suche öffnen',e); } };
+  const draw=()=>{
+    const q=(input.value||'').trim().toLowerCase();
+    items=[];
+    // Ansichten (modul-gefiltert)
+    const views=[['karte','Karte'],['baeume','Objekte (Tabelle)'],['touren','Touren'],['dashboard','Dashboard'],['controlling','Controlling'],['sollist','Soll-Ist'],['einsatzplaner','Einsatzplaner'],['disposition','Disposition'],['verwaltung','Verwaltung'],['handbuch','Handbuch']];
+    const modOf={disposition:'disposition',controlling:'controlling',dashboard:'dashboard',baeume:'objekte',touren:'touren',einsatzplaner:'einsatzplaner'};
+    views.filter(([k,l])=>(!q||l.toLowerCase().includes(q))&&(!modOf[k]||canUseModule(modOf[k])))
+      .slice(0,q?4:5).forEach(([k,l])=>items.push({grp:'Ansicht', label:l, sub:'', go:()=>switchView(k)}));
+    if(q){
+      (tours||[]).filter(t=>(t.name||'').toLowerCase().includes(q)).slice(0,4)
+        .forEach(t=>items.push({grp:'Tour', label:t.name||t.id, sub:(t.uebersicht?'Übersicht':'Tour'), go:()=>{ switchView('touren'); setTimeout(()=>filterTourenGrid(t.name||''),80); }}));
+      let n=0;
+      for(const t of (trees||[])){
+        if(n>=7) break;
+        if(!isActive(t)) continue;
+        const hay=((t.name||'')+' '+(t.baumId||'')+' '+(t.art||'')+' '+(t.stadtteil||'')).toLowerCase();
+        if(!hay.includes(q)) continue;
+        n++;
+        const isCont=_isContainer(t);
+        items.push({grp:'Objekt', label:(t.name||t.baumId||'–')+(t.containerExtId?' · '+_elemLabel(t):''), sub:[t.baumId,t.art,t.stadtteil].filter(Boolean).join(' · '),
+          go:()=>{ switchView('karte'); setTimeout(()=>{ try{ isCont?openAbschnitt(t.id):selectTree(t.id); }catch(e){ console.warn(e); } },120); }});
+      }
+    }
+    sel=Math.min(sel,Math.max(0,items.length-1));
+    let lastGrp='';
+    list.innerHTML=items.length?items.map((it,i)=>{
+      const head=it.grp!==lastGrp?`<div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;padding:7px 10px 3px;">${it.grp}</div>`:'';
+      lastGrp=it.grp;
+      return head+`<div data-gi="${i}" style="display:flex;align-items:baseline;gap:8px;padding:7px 10px;border-radius:8px;cursor:pointer;${i===sel?'background:var(--surface2);':''}">
+        <span style="font-size:13px;font-weight:600;">${dlEsc(it.label)}</span><span style="font-size:11px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(it.sub||'')}</span></div>`;
+    }).join(''):'<div style="padding:16px;font-size:13px;color:var(--text3);">Keine Treffer.</div>';
+    list.querySelectorAll('[data-gi]').forEach(el=>{ el.onmousedown=e=>{ e.preventDefault(); run(items[+el.dataset.gi]); }; });
+  };
+  input.addEventListener('input',()=>{ sel=0; draw(); });
+  input.addEventListener('keydown',e=>{
+    if(e.key==='Escape'){ close(); }
+    else if(e.key==='ArrowDown'){ e.preventDefault(); sel=Math.min(sel+1,items.length-1); draw(); }
+    else if(e.key==='ArrowUp'){ e.preventDefault(); sel=Math.max(sel-1,0); draw(); }
+    else if(e.key==='Enter'&&items[sel]){ e.preventDefault(); run(items[sel]); }
+  });
+  draw(); input.focus();
+}
+document.addEventListener('keydown',e=>{
+  if((e.ctrlKey||e.metaKey)&&!e.altKey&&(e.key==='k'||e.key==='K')){ e.preventDefault(); if(currentProjectId||document.getElementById('project-screen')?.style.display==='none') openGlobalSearch(); }
+});
 
 // Projekt-Umschalter in der Kopfzeile: vor dem Wechsel rückfragen (versehentlicher Klick soll die
 // laufende Planung/Ansicht nicht wegwerfen). Ohne offenes Projekt direkt zur Übersicht.
@@ -1572,6 +1657,23 @@ async function loadSavedRoutes(force=false){
   document.getElementById('route-info-bar').classList.remove('visible');
 }
 
+// Hinweis-Dialog (nur OK) im App-Stil — Ersatz für window.alert
+function _alertBox(title,msg){
+  return new Promise(resolve=>{
+    const m=document.createElement('div');
+    m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100002;display:flex;align-items:center;justify-content:center;padding:20px;';
+    m.innerHTML=`<div style="background:var(--surface);border-radius:10px;width:420px;max-width:94vw;overflow:hidden;box-shadow:var(--shadow-md);">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;">${dlEsc(title||'Hinweis')}</div>
+      <div style="padding:16px 18px;font-size:13px;color:var(--text2);white-space:pre-line;line-height:1.55;max-height:50vh;overflow:auto;">${dlEsc(msg||'')}</div>
+      <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;">
+        <button class="btn btn-primary" style="padding:7px 16px;font-weight:700;">OK</button>
+      </div></div>`;
+    document.body.appendChild(m);
+    const done=()=>{ m.remove(); resolve(true); };
+    m.querySelector('button').onclick=done;
+    m.addEventListener('click',e=>{ if(e.target===m) done(); });
+  });
+}
 // Manually triggered: recalculate + save route for one tour via ORS
 // Kleiner Ja/Nein-Bestätigungsdialog (Promise<boolean>)
 function _confirmBox(title, msg, okLabel, cancelLabel){
@@ -4235,7 +4337,7 @@ async function deleteFoto(){
   if(!_fotoState) return;
   const tree=trees.find(t=>t.id===_fotoState.treeId); if(!tree||!tree.fotos) return;
   const f=tree.fotos[_fotoState.idx]; if(!f) return;
-  if(!confirm('Dieses Foto endgültig löschen?')) return;
+  if(!await _confirmBox('Foto löschen','Dieses Foto endgültig löschen?','Löschen','Abbrechen')) return;
   try{
     try{ await storage.refFromURL(f.u).delete(); }catch(e){ if(e.code!=='storage/object-not-found') throw e; }
     await db.collection('projects').doc(currentProjectId).collection('trees').doc(tree.id)
@@ -4632,10 +4734,10 @@ function _initTreeModalDrag(){
 
 async function saveTree(){
   const name=document.getElementById('f-name').value.trim();
-  if(!name){alert('Bitte einen Namen eingeben.');return;}
+  if(!name){_alertBox('Speichern nicht möglich','Bitte einen Namen eingeben.');return;}
   const _oldTree=editingTreeId?{...(trees.find(t=>t.id===editingTreeId)||{})}:null; // Vorzustand (für Merkmal-Vererbung an Seiten)
   const _miss=_missingRequiredInForm();
-  if(_miss.length){ alert('Bitte diese Pflichtfelder ausfüllen:\n\n• '+_miss.join('\n• ')); return; }
+  if(_miss.length){ _alertBox('Pflichtfelder fehlen','Bitte diese Pflichtfelder ausfüllen:\n\n• '+_miss.join('\n• ')); return; }
   setSyncState('syncing','Speichert…');
   const artVal=(document.getElementById('f-art').value||'').trim();
   const artIdVal=artenList.find(a=>a.name===artVal)?.id||null;
@@ -4760,10 +4862,10 @@ async function treeHasHistory(tree){
 async function archiveTree(id){
   const tree=trees.find(t=>t.id===id); if(!tree) return;
   const tourCnt=getTreeTourIds(tree).length;
-  if(!confirm(`„${tree.name||'Objekt'}" als INAKTIV markieren?\n\n`+
+  if(!await _confirmBox('Inaktiv setzen', `„${tree.name||'Objekt'}" als INAKTIV markieren?\n\n`+
     `• Wird aus Karte, Tourplanung und „offen"-Zahlen ausgeblendet`+
     (tourCnt?`\n• Wird aus ${tourCnt} Tour(en) entfernt`:'')+
-    `\n• Historie bleibt erhalten, jederzeit reaktivierbar`)) return;
+    `\n• Historie bleibt erhalten, jederzeit reaktivierbar`, 'Inaktiv setzen','Abbrechen')) return;
   setSyncState('syncing','Speichert…');
   try{
     await updateDoc(doc(db,'projects',currentProjectId,'trees',id),
@@ -4787,8 +4889,8 @@ async function deleteTree(id){
   if(!tree){ await deleteDoc(doc(db,'projects',currentProjectId,'trees',id)); closePanel(); return; }
   // Schutz: Objekte mit Historie nicht endgültig löschen → Archiv anbieten
   if(await treeHasHistory(tree)){
-    if(confirm(`„${tree.name||'Objekt'}" hat eine Bewässerungs-Historie und kann nicht endgültig `+
-      `gelöscht werden (Historie/Controlling würde verfälscht).\n\nStattdessen als INAKTIV archivieren?`)){
+    if(await _confirmBox('Löschen nicht möglich', `„${tree.name||'Objekt'}" hat eine Melde-Historie und kann nicht endgültig `+
+      `gelöscht werden (Historie/Controlling würde verfälscht).\n\nStattdessen als INAKTIV archivieren?`, 'Inaktiv setzen','Abbrechen')){
       await archiveTree(id);
     }
     return;
@@ -5329,7 +5431,7 @@ function closeTourModal(){ document.getElementById('tour-modal').classList.remov
 
 async function saveTour(){
   const name=document.getElementById('t-name').value.trim();
-  if(!name){alert('Bitte einen Namen eingeben.');return;}
+  if(!name){_alertBox('Speichern nicht möglich','Bitte einen Tournamen eingeben.');return;}
   const azh=parseInt(document.getElementById('t-az-h').value)||0;
   const azm=parseInt(document.getElementById('t-az-m').value)||0;
   const arbeitszeitMin=Math.max(0,azh)*60+Math.max(0,azm);
@@ -6465,10 +6567,10 @@ async function bulkSetInactive(){
   if(currentRole!=='superadmin') return;
   const ids=_baeumeFiltered.filter(isActive).map(t=>t.id);
   if(!ids.length){ notify('Keine aktiven Objekte in der Auswahl'); return; }
-  if(!confirm(`${ids.length} Objekt(e) aus der aktuellen Ansicht INAKTIV setzen?\n\n`+
+  if(!await _confirmBox('Inaktiv setzen', `${ids.length} Objekt(e) aus der aktuellen Ansicht INAKTIV setzen?\n\n`+
     `• Werden aus Karte, Tourplanung und „offen"-Zahlen ausgeblendet\n`+
     `• Aus allen Touren entfernt\n`+
-    `• Historie bleibt erhalten, jederzeit reaktivierbar`)) return;
+    `• Historie bleibt erhalten, jederzeit reaktivierbar`, 'Inaktiv setzen','Abbrechen')) return;
   setSyncState('syncing','Speichert…'); _suppressTreeRender=true;
   try{
     for(let i=0;i<ids.length;i+=400){
@@ -6770,7 +6872,7 @@ async function artApplyTimeToAll(){
   if(isReadonly()) return;
   if(!artenList.length){ notify('Keine Arten vorhanden'); return; }
   const n=Math.max(1,Math.round(parseFloat(((document.getElementById('art-default-time')?.value)||'').replace(',','.'))||0))||getBewDuration();
-  if(!confirm(`${n} Min/Objekt als Zeitaufwand für alle ${artenList.length} Arten übernehmen?\nBestehende Art-Zeiten werden überschrieben.`)) return;
+  if(!await _confirmBox('Zeitaufwand übernehmen', `${n} Min/Objekt als Zeitaufwand für alle ${artenList.length} Arten übernehmen?\nBestehende Art-Zeiten werden überschrieben.`, 'Übernehmen','Abbrechen')) return;
   try{
     for(let i=0;i<artenList.length;i+=400){
       const batch=db.batch();
@@ -6883,7 +6985,7 @@ async function renameArt(id){
   const neu=prompt('Neuer Name für „'+a.name+'":',a.name); if(neu==null) return;
   const name=neu.trim(); if(!name||name===a.name) return;
   const dup=artenList.find(x=>x.id!==id && x.name===name);
-  if(dup){ if(confirm('„'+name+'" existiert bereits — stattdessen zusammenführen?')) return mergeArt(id,dup.id); return; }
+  if(dup){ if(await _confirmBox('Name existiert bereits','„'+name+'" existiert bereits — stattdessen zusammenführen?','Zusammenführen','Abbrechen')) return mergeArt(id,dup.id); return; }
   await updateDoc(doc(db,'projects',currentProjectId,'arten',id),{name});
   const ups=trees.filter(t=>t.artId===id).map(t=>{t.art=name;return {id:t.id,data:{art:name}};});
   await _chunkedTreeUpdate(ups);
@@ -6896,7 +6998,7 @@ async function mergeArt(srcId,tgtId){
   if(srcId===tgtId) return;
   const src=artenList.find(x=>x.id===srcId), tgt=artenList.find(x=>x.id===tgtId);
   if(!src||!tgt) return;
-  if(!confirm(`„${src.name}" in „${tgt.name}" zusammenführen? Zugehörige Objekte werden umgehängt.`)) return;
+  if(!await _confirmBox('Zusammenführen', `„${src.name}" in „${tgt.name}" zusammenführen? Zugehörige Objekte werden umgehängt.`, 'Zusammenführen','Abbrechen')) return;
   const ups=trees.filter(t=>t.artId===srcId).map(t=>{t.artId=tgtId;t.art=tgt.name;return {id:t.id,data:{artId:tgtId,art:tgt.name}};});
   await _chunkedTreeUpdate(ups);
   await deleteDoc(doc(db,'projects',currentProjectId,'arten',srcId));
@@ -6965,7 +7067,7 @@ async function renameListVal(fieldKey,id){
   const neu=prompt('Neuer Wert für „'+e.label+'":',e.label); if(neu==null) return;
   const name=neu.trim(); if(!name||name===e.label) return;
   const dup=(listValues[fieldKey]||[]).find(x=>x.id!==id&&x.label===name);
-  if(dup){ if(confirm('„'+name+'" existiert bereits — stattdessen zusammenführen?')) return mergeListVal(fieldKey,id,dup.id); return; }
+  if(dup){ if(await _confirmBox('Wert existiert bereits','„'+name+'" existiert bereits — stattdessen zusammenführen?','Zusammenführen','Abbrechen')) return mergeListVal(fieldKey,id,dup.id); return; }
   const old=e.label; e.label=name;
   const ups=_treesUsing(fieldKey,old).map(t=>{ t[fieldKey]=name; return {id:t.id,data:{[fieldKey]:name}}; });
   await _chunkedTreeUpdate(ups); await saveListValues(); await _propagateRuleRename(fieldKey, old, name); renderFieldCatalog();
@@ -6975,7 +7077,7 @@ async function mergeListVal(fieldKey,srcId,tgtId){
   if(isReadonly()||srcId===tgtId) return;
   const src=(listValues[fieldKey]||[]).find(x=>x.id===srcId), tgt=(listValues[fieldKey]||[]).find(x=>x.id===tgtId);
   if(!src||!tgt) return;
-  if(!confirm(`„${src.label}" in „${tgt.label}" zusammenführen? Zugehörige Objekte werden umgehängt.`)) return;
+  if(!await _confirmBox('Zusammenführen', `„${src.label}" in „${tgt.label}" zusammenführen? Zugehörige Objekte werden umgehängt.`, 'Zusammenführen','Abbrechen')) return;
   const ups=_treesUsing(fieldKey,src.label).map(t=>{ t[fieldKey]=tgt.label; return {id:t.id,data:{[fieldKey]:tgt.label}}; });
   await _chunkedTreeUpdate(ups);
   listValues[fieldKey]=(listValues[fieldKey]||[]).filter(x=>x.id!==srcId);
@@ -7066,7 +7168,7 @@ async function toggleKlasseFeld(id,key,checked){
 async function deleteObjektklasse(id){
   if(isReadonly()) return;
   const k=objektklassen.find(x=>x.id===id); if(!k) return;
-  if(!confirm(`Objektklasse „${k.name}" löschen?`)) return;
+  if(!await _confirmBox('Objektklasse löschen', `Objektklasse „${k.name}" löschen?`, 'Löschen','Abbrechen')) return;
   objektklassen=objektklassen.filter(x=>x.id!==id);
   await saveObjektklassen(); renderFieldCatalog(); notify('✓ Gelöscht');
 }
@@ -7188,7 +7290,7 @@ async function deleteReinigungsklasse(id){
   if(isReadonly()) return;
   const r=_rkById(id); if(!r) return;
   const used=trees.filter(t=>t.reinigungsklasse===id).length;
-  if(!confirm(`Reinigungsklasse „${r.name}" löschen?${used?`\n${used} Abschnitt(e) nutzen sie — die Zuordnung wird dort leer.`:''}`)) return;
+  if(!await _confirmBox('Reinigungsklasse löschen', `Reinigungsklasse „${r.name}" löschen?${used?`\n${used} Abschnitt(e) nutzen sie — die Zuordnung wird dort leer.`:''}`, 'Löschen','Abbrechen')) return;
   reinigungsklassen=reinigungsklassen.filter(x=>x.id!==id);
   await saveReinigungsklassen(); renderFieldCatalog(); notify('✓ Gelöscht');
 }
@@ -7279,7 +7381,7 @@ async function rankMerge(fieldKey,srcId,tgtId){
   if(isReadonly()||srcId===tgtId) return; _materializeRank(fieldKey);
   const src=listValues[fieldKey].find(x=>x.id===srcId), tgt=listValues[fieldKey].find(x=>x.id===tgtId);
   if(!src||!tgt) return;
-  if(!confirm(`„${src.label}" in „${tgt.label}" zusammenführen? Zugehörige Objekte werden umgehängt.`)) return;
+  if(!await _confirmBox('Zusammenführen', `„${src.label}" in „${tgt.label}" zusammenführen? Zugehörige Objekte werden umgehängt.`, 'Zusammenführen','Abbrechen')) return;
   const ups=trees.filter(t=>(t[fieldKey]||'')===srcId).map(t=>{ t[fieldKey]=tgtId; return {id:t.id,data:{[fieldKey]:tgtId}}; });
   await _chunkedTreeUpdate(ups);
   listValues[fieldKey]=listValues[fieldKey].filter(x=>x.id!==srcId);
@@ -8381,7 +8483,7 @@ async function deriveHaeufigkeitFromZustaendigkeit(){
   }
   const nStadt=targets.filter(x=>x.h===1).length, nAnl=targets.filter(x=>x.h===0).length;
   if(!targets.length){ notify('Nichts zu ändern — alle (Stadt)/(Anlieger)-Objekte sind bereits gesetzt'); return; }
-  if(!confirm(`Reinigungshäufigkeit aus Zuständigkeit ableiten?\n\n• ${nStadt} Objekt(e) → 1×/Woche (Stadt)\n• ${nAnl} Objekt(e) → 0 (Anlieger)\n\nInsgesamt ${targets.length} Objekt(e) werden geschrieben.`)) return;
+  if(!await _confirmBox('Häufigkeit ableiten', `Reinigungshäufigkeit aus Zuständigkeit ableiten?\n\n• ${nStadt} Objekt(e) → 1×/Woche (Stadt)\n• ${nAnl} Objekt(e) → 0 (Anlieger)\n\nInsgesamt ${targets.length} Objekt(e) werden geschrieben.`, 'Ableiten','Abbrechen')) return;
   notify('Schreibt…');
   let done=0; const BATCH=400;
   for(let i=0;i<targets.length;i+=BATCH){
@@ -8395,7 +8497,7 @@ async function deriveHaeufigkeitFromZustaendigkeit(){
   notify(`✓ ${done} Objekt(e) aktualisiert — ${nStadt}× Stadt (1), ${nAnl}× Anlieger (0)`);
 }
 async function migrateTourIds(){
-  if(!confirm(`tourIds-Migration für alle ${trees.length} Objekte durchführen? Einmalig nötig.`)) return;
+  if(!await _confirmBox('Migration', `tourIds-Migration für alle ${trees.length} Objekte durchführen? Einmalig nötig.`, 'Durchführen','Abbrechen')) return;
   notify('Migration läuft…');
   let migrated=0;
   const BATCH=400;
@@ -8723,8 +8825,8 @@ async function dlFunktionAdd(){
   if((_dlFunktionen||[]).some(f=>f.toLowerCase()===v.toLowerCase())){ notify('„'+v+'" gibt es schon'); return; }
   await _dlSaveFunktionen([...(_dlFunktionen||[]), v]);
 }
-function dlFunktionRemove(name){
-  if(!confirm('Funktion „'+name+'" aus der Auswahl entfernen?\n\nBereits an Personen gespeicherte Werte bleiben erhalten.')) return;
+async function dlFunktionRemove(name){
+  if(!await _confirmBox('Funktion entfernen', 'Funktion „'+name+'" aus der Auswahl entfernen?\n\nBereits an Personen gespeicherte Werte bleiben erhalten.', 'Entfernen','Abbrechen')) return;
   _dlSaveFunktionen((_dlFunktionen||[]).filter(f=>f!==name));
 }
 async function setDriverEinsatz(id,checked){ try{ await db.collection('drivers').doc(id).set({einsatz:!!checked},{merge:true}); }catch(e){ notify(dlErr(e)); } }
@@ -8907,6 +9009,11 @@ function roleCard(key,r){
           ${BASE_TYPES.map(b=>`<option value="${b.key}"${bt===b.key?' selected':''}>${b.label}</option>`).join('')}
         </select>
       </label>
+      <label style="font-size:12px;display:flex;align-items:center;gap:6px;" title="Welche Ansicht nach dem Öffnen des ersten Projekts erscheint">Startansicht
+        <select class="rc-startview" style="font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
+          ${START_VIEWS.map(([k,l])=>`<option value="${k}"${(r.startView||'karte')===k?' selected':''}>${l}</option>`).join('')}
+        </select>
+      </label>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:4px 14px;margin-bottom:10px;">
       ${MODULES.map(m=>`<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
@@ -8943,8 +9050,9 @@ async function saveRole(key){
   const name=card.querySelector('.rc-name').value.trim()||key;
   const baseType=card.querySelector('.rc-basetype').value;
   const modules={}; card.querySelectorAll('.rc-mod').forEach(c=>{ modules[c.dataset.mod]=c.checked; });
+  const startView=card.querySelector('.rc-startview')?.value||'karte';
   const builtin=!!(rolesCache[key]&&rolesCache[key].builtin);
-  try{ await rolesCol(rolesOrg()).doc(key).set({name,baseType,modules,builtin},{merge:true}); notify('✓ Rolle gespeichert (für diese Stadt)'); renderRollenView(); }
+  try{ await rolesCol(rolesOrg()).doc(key).set({name,baseType,modules,builtin,startView},{merge:true}); notify('✓ Rolle gespeichert (für diese Stadt)'); renderRollenView(); }
   catch(e){ notify(dlErr(e)); }
 }
 async function addRole(){
@@ -9816,7 +9924,7 @@ function checkBaumIdDuplicates(){
   if(!dups.length){ notify('✓ Keine doppelten Objekt-IDs'+(noId?` · ${noId} ohne ID`:'')); return; }
   const total=dups.reduce((s,[,n])=>s+n,0);
   const list=dups.slice(0,15).map(([id,n])=>`${id} ×${n}`).join('\n');
-  alert(`⚠ ${dups.length} Objekt-IDs sind doppelt vergeben (${total} betroffene aktive Objekte):\n\n${list}${dups.length>15?`\n… und ${dups.length-15} weitere`:''}${noId?`\n\nZusätzlich ${noId} Objekte ohne Objekt-ID.`:''}${archNote}`);
+  _alertBox('Objekt-IDs prüfen', `⚠ ${dups.length} Objekt-IDs sind doppelt vergeben (${total} betroffene aktive Objekte):\n\n${list}${dups.length>15?`\n… und ${dups.length-15} weitere`:''}${noId?`\n\nZusätzlich ${noId} Objekte ohne Objekt-ID.`:''}${archNote}`);
 }
 async function getNextBaumId(){
   // Atomar in einer Transaktion zählen → keine doppelten IDs bei gleichzeitigem Anlegen (zwei Planer).
@@ -12259,6 +12367,9 @@ async function lassoAction(mode){
   // Betroffene echte Touren merken → deren gespeicherte Route ist danach veraltet (Zusammenstellung geändert)
   const _affectedTours=new Set(); if(mode==='add'||mode==='move') _affectedTours.add(tourId);
   targets.forEach(t=>realTourIds(t).forEach(x=>_affectedTours.add(x)));
+  // Undo-Snapshot: vorherige Zuordnungen VOR dem Schreiben festhalten (Rückgängig-Leiste nach Abschluss)
+  const _undoSnap=targets.map(t=>({id:t.id, tourIds:[...getTreeTourIds(t)], tourId:t.tourId||''}));
+  const _undoPid=currentProjectId;
   const verbing=mode==='add'?'hinzufügen':mode==='move'?'verschieben':'aus Tour(en) entfernen';
   notify(`${targets.length} Objekte – ${verbing}…`);
   setSyncState('syncing',`${verbing}… 0/${targets.length}`);
@@ -12302,6 +12413,40 @@ async function lassoAction(mode){
   setSyncState('ok','Synchronisiert');
   const verb=mode==='add'?`→ „${tour?.name||'Tour'}“ hinzugefügt`:mode==='move'?`→ „${tour?.name||'Tour'}“ verschoben`:'aus Tour(en) entfernt';
   notify(`✓ ${targets.length} Objekte ${verb}${schonDrin?` · ${schonDrin} übersprungen (bereits in der Tour)`:''}`);
+  // Rückgängig-Angebot (30 s): stellt die VORHERIGEN Zuordnungen aller angefassten Objekte wieder her
+  _showUndoBar(`${targets.length} Objekte ${mode==='add'?'zugewiesen':mode==='move'?'verschoben':'entfernt'}`, async()=>{
+    if(currentProjectId!==_undoPid){ notify('Projekt gewechselt — Rückgängig nicht mehr möglich'); return; }
+    setSyncState('syncing','Mache rückgängig…');
+    _suppressTreeRender=true;
+    try{
+      for(let i=0;i<_undoSnap.length;i+=400){
+        const b=db.batch();
+        _undoSnap.slice(i,i+400).forEach(s=>b.update(doc(db,'projects',currentProjectId,'trees',s.id),{tourIds:s.tourIds,tourId:s.tourId}));
+        await b.commit(); _bumpUsage('writes',Math.min(400,_undoSnap.length-i));
+      }
+    }catch(e){ console.warn('Undo Zuweisung',e); notify(dlErr(e)); }
+    finally{ _suppressTreeRender=false; if(_pendingTreeRender){ _pendingTreeRender=false; refreshMarkers(); renderList(); } }
+    routeCache={};
+    for(const tid of _affectedTours){ if(!isOverviewTour(tid)){ try{ await updateDoc(doc(db,'projects',currentProjectId,'tours',tid),{routeStale:true}); }catch(_){} } }
+    try{ renderDrawnGeoms(); }catch(_){}
+    _refreshTourPanelsDebounced();
+    setSyncState('ok','Synchronisiert');
+    notify('✓ Zuweisung rückgängig gemacht');
+  });
+}
+// Kleine Aktions-Leiste unten Mitte („N Objekte zugewiesen — Rückgängig"), verschwindet nach 30 s.
+let _undoBarEl=null,_undoTimer=null;
+function _showUndoBar(text,fn){
+  if(_undoBarEl){ try{ _undoBarEl.remove(); }catch(_){} _undoBarEl=null; } clearTimeout(_undoTimer);
+  const el=document.createElement('div');
+  el.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:100003;background:#1f2937;color:#fff;border-radius:10px;padding:9px 14px;display:flex;align-items:center;gap:12px;box-shadow:0 6px 24px rgba(0,0,0,.35);font-size:13px;max-width:92vw;';
+  el.innerHTML=`<span></span><button style="background:rgba(255,255,255,.16);color:#fff;border:none;border-radius:6px;padding:5px 13px;font-weight:600;cursor:pointer;font-size:12px;white-space:nowrap;">↶ Rückgängig</button><button title="ausblenden" style="background:none;border:none;color:#9ca3af;cursor:pointer;font-size:15px;padding:0 2px;">×</button>`;
+  el.querySelector('span').textContent=text;
+  const btns=el.querySelectorAll('button');
+  btns[0].onclick=async()=>{ el.remove(); _undoBarEl=null; clearTimeout(_undoTimer); try{ await fn(); }catch(e){ notify(dlErr(e)); } };
+  btns[1].onclick=()=>{ el.remove(); _undoBarEl=null; clearTimeout(_undoTimer); };
+  document.body.appendChild(el); _undoBarEl=el;
+  _undoTimer=setTimeout(()=>{ if(_undoBarEl===el){ try{ el.remove(); }catch(_){} _undoBarEl=null; } },30000);
 }
 
 // cancelLasso merged into cancelAssign
@@ -13032,7 +13177,7 @@ async function epApplyStandards(){
   if(!_epCanWrite()) return;
   const withStd=_epTours.filter(t=>_epRunsOn(t) && (t.stdVehicleId||(t.stdDrivers&&t.stdDrivers.length)));
   if(!withStd.length){ notify('Für den gewählten Tag sind keine Standardbesetzungen hinterlegt.'); return; }
-  if(!confirm('Heutige Besetzung mit den gespeicherten Standards überschreiben?\n\n'+withStd.length+' Touren · nur heute verfügbare Ressourcen werden gesetzt.')) return;
+  if(!await _confirmBox('Standardbesetzung übernehmen', 'Heutige Besetzung mit den gespeicherten Standards überschreiben?\n\n'+withStd.length+' Touren · nur heute verfügbare Ressourcen werden gesetzt.', 'Übernehmen','Abbrechen')) return;
   const availVehIds=new Set(_epVehicles.filter(_epVehAvail).map(v=>v.id));
   const availNames=new Set(_epPersons.filter(p=>_epPersonActive(p)&&_epPersonAvail(p)).map(p=>p.name));
   let skipped=0;
@@ -13564,6 +13709,7 @@ function epAbsOpenForm(personId, absId, prefillDate){
         <label style="font-size:12px;color:var(--text3);flex:1;">bis<input id="abf-to" type="date" class="form-control" value="${to}" style="width:100%;margin-top:3px;"></label>
       </div>
       <label style="font-size:12px;color:var(--text3);">Bemerkung (optional)<input id="abf-note" class="form-control" value="${dlEsc(note)}" placeholder="z. B. OP-Termin, Lehrgang…" style="width:100%;margin-top:3px;"></label>
+      <div id="abf-conflict" style="display:none;font-size:12px;color:#854f0b;background:#fdf6e7;border:1px solid #f0c987;border-radius:8px;padding:8px 11px;line-height:1.5;"></div>
     </div>
     <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:space-between;align-items:center;">
       <div>${abs?`<button id="abf-del" class="btn btn-danger" style="padding:7px 12px;">Löschen</button>`:''}</div>
@@ -13575,6 +13721,29 @@ function epAbsOpenForm(personId, absId, prefillDate){
   m.addEventListener('click',e=>{ if(e.target===m) close(); });
   m.querySelector('#abf-cancel').onclick=close;
   if(abs) m.querySelector('#abf-del').onclick=()=>{ close(); epAbsDelete(personId, absId); };
+  // Konflikt-Vorschau: In welchen Touren ist die Person im Zeitraum eingeplant (Standard bzw. aktuelle
+  // Besetzung) — proaktiv beim Eintragen, statt es erst am Einsatztag in „Heute zu klären" zu merken.
+  const _conflict=()=>{
+    const box=m.querySelector('#abf-conflict'); if(!box) return;
+    const pid=personId||m.querySelector('#abf-person').value;
+    const p=_epPersons.find(x=>x.id===pid);
+    const f=m.querySelector('#abf-from').value, tt=m.querySelector('#abf-to').value;
+    if(!p||!f||!tt||tt<f){ box.style.display='none'; return; }
+    const hits=[];
+    _epTours.forEach(t=>{
+      const inStd=(t.stdDrivers||[]).includes(p.name);
+      const inCur=(t.drivers||(t.assignedDriver?[t.assignedDriver]:[])).includes(p.name);
+      if(!inStd&&!inCur) return;
+      let days=0, d=f, guard=0;
+      while(d<=tt && guard++<120){ if((t.interval||'')==='bedarf'?false:tourDueOn(t,d)) days++; d=_epAddDays(d,1); }
+      if(days>0) hits.push(`<b style="font-weight:600;">${dlEsc(t.name||'Tour')}</b> (${inStd?'Standard':'eingeteilt'}, ${days} Einsatztag${days===1?'':'e'})`);
+    });
+    if(!hits.length){ box.style.display='none'; return; }
+    box.innerHTML='⚠ '+dlEsc(p.name)+' ist im Zeitraum eingeplant in: '+hits.join(' · ')+'<br>Für die betroffenen Tage bitte Ersatz einteilen (Reiter „Tag" → „Heute zu klären").';
+    box.style.display='block';
+  };
+  ['abf-person','abf-from','abf-to'].forEach(id=>{ const el=m.querySelector('#'+id); if(el) el.addEventListener('change',_conflict); });
+  _conflict();
   m.querySelector('#abf-save').onclick=async()=>{
     const pid=personId||m.querySelector('#abf-person').value;
     const t=m.querySelector('#abf-type').value, f=m.querySelector('#abf-from').value, tt=m.querySelector('#abf-to').value;
@@ -13652,7 +13821,13 @@ function epVehField(id,field,val){
   else v[field]=val;
 }
 function epVehAdd(){ if(!(currentRole==='superadmin'||currentCap==='admin'))return; _epVehicles.push({id:'v'+Math.random().toString(36).slice(2,8), name:'Neues Fahrzeug', art:'', kennzeichen:'', arbeitszeitMin:420, notiz:'', depot:null, maxBins:0}); renderEp(); }
-function epVehRemove(id){ if(!(currentRole==='superadmin'||currentCap==='admin'))return; _epVehicles=_epVehicles.filter(v=>v.id!==id); renderEp(); }
+async function epVehRemove(id){
+  if(!(currentRole==='superadmin'||currentCap==='admin'))return;
+  const v=_epVehicles.find(x=>x.id===id);
+  const inTour=_epTours.find(t=>t.vehicleId===id||t.stdVehicleId===id);
+  if(!await _confirmBox('Fahrzeug entfernen', `„${v?.name||'Fahrzeug'}" aus dem Fuhrpark entfernen?${inTour?`\n\nEs ist aktuell in „${inTour.name||'Tour'}" eingeplant bzw. als Standard hinterlegt.`:''}\n\nWirksam erst mit „Speichern".`, 'Entfernen', 'Abbrechen')) return;
+  _epVehicles=_epVehicles.filter(x=>x.id!==id); renderEp();
+}
 async function epVehSave(){
   if(!(currentRole==='superadmin'||currentCap==='admin')){ notify('Nur Administratoren dürfen den Fuhrpark ändern'); return; }
   try{
@@ -14783,13 +14958,12 @@ function flaechenTourGenOpen(){
   if(!p.tourList.length){ notify('Keine Flächen mit Fahrzeug und Reinigungstagen gefunden.'); return; }
   const som=p.tourList.filter(t=>t.saison==='sommer').length, win=p.tourList.length-som;
   const existing=tours.filter(t=>t.autoFlaeche).length;
-  const ok=confirm(`Touren aus Reinigungsplan erzeugen?\n\n`
+  _confirmBox('Touren aus Plan', `Touren aus Reinigungsplan erzeugen?\n\n`
     +`• ${p.tourList.length} Touren (${som} Sommer, ${win} Winter)\n`
     +`• ${p.flCount} Flächen werden den passenden Touren zugeordnet\n`
     +`• Wochentag = wöchentlicher Rhythmus, Saison automatisch über die Zeiträume\n\n`
     +(existing?`${existing} bereits erzeugte Touren werden aktualisiert/ersetzt.\n\n`:'')
-    +`Manuell angelegte Touren und Zuordnungen bleiben erhalten.`);
-  if(ok) flaechenTourGenRun();
+    +`Manuell angelegte Touren und Zuordnungen bleiben erhalten.`, 'Erzeugen','Abbrechen').then(ok=>{ if(ok) flaechenTourGenRun(); });
 }
 async function flaechenTourGenRun(){
   if(!(currentRole==='superadmin'||currentCap==='admin')) return;
@@ -15340,7 +15514,7 @@ async function setOrgNaviUi(orgId, enabled){
   catch(e){ notify(fnErr(e)); renderMandanten(); }
 }
 async function moveProjectUi(projectId,projectName,targetOrgId){
-  if(!confirm(`Projekt „${projectName}" wirklich in einen anderen Mandanten verschieben?\nAlle Objekte, Touren und Verläufe ziehen mit um.`)){ renderMandanten(); return; }
+  if(!await _confirmBox('Projekt verschieben', `Projekt „${projectName}" wirklich in einen anderen Mandanten verschieben?\nAlle Objekte, Touren und Verläufe ziehen mit um.`, 'Verschieben','Abbrechen')){ renderMandanten(); return; }
   notify('Verschiebe Projekt…');
   try{
     const r=await dlFnCall('moveProjectToOrg',{projectId,targetOrgId});
@@ -15559,7 +15733,7 @@ Object.assign(window,{
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,resetCtrlFilters,ctrlShowOnMap,
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleRequiredFeld,toggleRawSeg,_siInfo,
-  createProject,openProject,showProjectScreen,confirmProjectSwitch,psSetOrgFilter,setSiTab,
+  createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,psSetOrgFilter,setSiTab,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,

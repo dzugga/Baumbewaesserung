@@ -5,7 +5,7 @@
 // Der Abgleich wird automatisch geprüft (scripts/test-rules-contract.mjs, `npm test`).
 // Hintergrund: Ein früherer Bug schrieb wasser/notiz mit → Rules lehnten ab, der Client deutete das
 // fälschlich als „offline". Der Client filtert seine Fahrer-Schreibvorgänge jetzt auf diese Liste.
-export const TREE_STATUS_FIELDS = ['lastStatus','lastReason','lastNote','lastDriver','lastReportAt','history','datum','zustand','lastFuellgrad'];
+export const TREE_STATUS_FIELDS = ['lastStatus','lastReason','lastNote','lastDriver','lastReportAt','history','datum','zustand','lastFuellgrad','fotos'];
 export const TOUR_STATUS_FIELDS = ['status','closedAt','closedBy','lastClosedDate','reopenedAt','reopenedBy'];
 // Felder, die ein Fahrer an seiner eigenen Postfach-Empfangsquittung setzen darf
 // (firestore.rules: onlyMessageStatusFields()).

@@ -304,6 +304,7 @@ async function doLogin() {
     await firebase.auth().signInWithCustomToken(data.token);
     startSession(data.sessionId, _onSessionKicked);
     _driverAuth={orgId:data.orgId, name:data.name||name, driverId:data.driverId};
+    _checkFotoAllowed(data.orgId); // Rollen-Modul „Foto-Meldung" (async, Default an)
     _naviEnabled=!!data.naviEnabled; // Mandanten-Flag (Superadmin) steuert die Navi-Funktion
     _orsKey=data.orsKey||''; // Routing-Key (ORS) des Mandanten
     try{ localStorage.setItem('bwt_mobile_orgcode',orgcode.toUpperCase()); localStorage.setItem('bwt_mobile_name',name); localStorage.setItem('bwt_navi_enabled', _naviEnabled?'1':''); localStorage.setItem('bwt_ors_key', _orsKey); }catch(_){}
@@ -317,6 +318,25 @@ async function doLogin() {
   }
 }
 
+// Foto-Meldung: über das Rollen-Modul 'fotomeldung' abschaltbar (Fahrer-Vorlage: an).
+// Rolle aus den Token-Claims; fehlt das Rollen-Doc/Feld, gilt der Vorlagen-Default (an).
+let _fotoAllowed=true, _sheetPhotos=[];
+async function _checkFotoAllowed(orgId){
+  try{
+    const tk=await firebase.auth().currentUser.getIdTokenResult();
+    const roleKey=(tk.claims&&tk.claims.role)||'fahrer';
+    const s=await db.collection('orgs').doc(orgId).collection('roles').doc(roleKey).get();
+    _fotoAllowed=!(s.exists && s.data().modules && s.data().modules.fotomeldung===false);
+  }catch(e){ _fotoAllowed=true; }
+}
+function _renderFotoPreview(){
+  const box=document.getElementById('foto-preview'); if(!box) return;
+  box.innerHTML=_sheetPhotos.map((f,i)=>`<div style="position:relative;width:64px;height:64px;border-radius:8px;overflow:hidden;border:1px solid var(--border);">
+    <img src="${URL.createObjectURL(f)}" style="width:100%;height:100%;object-fit:cover;">
+    <button onclick="_sheetFotoDel(${i})" style="position:absolute;top:2px;right:2px;width:20px;height:20px;border-radius:50%;border:none;background:rgba(0,0,0,.6);color:#fff;font-size:12px;line-height:1;cursor:pointer;">×</button>
+  </div>`).join('');
+}
+function _sheetFotoDel(i){ _sheetPhotos.splice(i,1); _renderFotoPreview(); }
 async function pickTour(orgId, name){
   _tourCandidates=[];
   try{
@@ -1886,12 +1906,32 @@ function openSheet(id){
       </div>
     </div>
 
+    ${_fotoAllowed?`
+    <!-- Foto (optional, z. B. Schaden/Vandalismus) -->
+    <div class="section-title">Foto <span style="font-weight:400;color:var(--text3);font-size:12px;">· optional, z. B. Schaden</span></div>
+    <div id="foto-preview" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;"></div>
+    <button class="btn btn-secondary" style="width:100%;margin-bottom:14px;display:flex;align-items:center;justify-content:center;gap:6px;" onclick="document.getElementById('p-foto').click()">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+      Foto aufnehmen
+    </button>
+    <input type="file" id="p-foto" accept="image/*" capture="environment" style="display:none">`:''}
     <!-- Info fields -->
     <div class="section-title">Stammdaten</div>
     ${_mobilInfoRows(tree)}
     <div class="field-row"><span class="field-key">Route #</span><span class="field-val">#${idx+1}</span></div>
     ${tree.lastStatus?`<div class="field-row"><span class="field-key">Letzte Meldung</span><span class="field-val">${tree.lastStatus==='bewaessert'?'✓ Erledigt':'✕ Nicht erledigt'}</span></div>`:''}
   `;
+
+  // Foto-Aufnahme (max. 3 je Meldung, 5 MB je Bild — Storage-Regel)
+  _sheetPhotos=[];
+  const _fIn=document.getElementById('p-foto');
+  if(_fIn) _fIn.onchange=()=>{
+    const f=_fIn.files&&_fIn.files[0]; _fIn.value='';
+    if(!f) return;
+    if(_sheetPhotos.length>=3){ toast('Maximal 3 Fotos je Meldung'); return; }
+    if(f.size>5*1024*1024){ toast('Foto zu groß (max. 5 MB)'); return; }
+    _sheetPhotos.push(f); _renderFotoPreview();
+  };
 
   // Reason chips click
   document.getElementById('reason-chips').onclick=e=>{
@@ -1998,10 +2038,30 @@ async function saveReport(id){
     driver:currentDriver
   };
   if(fuellgrad!=null) histEntry.fuellgrad=fuellgrad;
+  // Fotos hochladen (optional; nur online — Offline-Meldung wird ohne Foto gespeichert)
+  let _fotoUrls=[];
+  if(_sheetPhotos.length){
+    if(!navigator.onLine){ toast('⚠ Offline — Fotos können gerade nicht hochgeladen werden'); }
+    else{
+      try{
+        toast('Foto wird hochgeladen…');
+        const st=firebase.storage();
+        for(const f of _sheetPhotos){
+          const fn=Date.now()+'-'+Math.random().toString(36).slice(2,8)+'.jpg';
+          const ref=st.ref(`objektfotos/${_driverAuth?.orgId||''}/${currentProjectId}/${id}/${fn}`);
+          await ref.put(f,{contentType:f.type||'image/jpeg'});
+          _fotoUrls.push(await ref.getDownloadURL());
+        }
+      }catch(e){ console.warn('Foto-Upload',e); toast('⚠ Foto-Upload fehlgeschlagen — Meldung wird ohne Foto gespeichert'); _fotoUrls=[]; }
+    }
+  }
+  _sheetPhotos=[];
+  if(_fotoUrls.length) histEntry.note+=' · 📷 '+_fotoUrls.length+' Foto'+(_fotoUrls.length>1?'s':'');
   // Use arrayUnion — no need to read existing history first.
   // Schreib-Payload hart auf erlaubte Fahrer-Felder filtern (Rules onlyStatusFields) — Defense-in-Depth.
   const _u=onlyTreeStatusFields(updates);
   const firestoreUpdates={..._u, history: firebase.firestore.FieldValue.arrayUnion(histEntry)};
+  if(_fotoUrls.length) firestoreUpdates.fotos=firebase.firestore.FieldValue.arrayUnion(..._fotoUrls); // 'fotos' steht in den Fahrer-Regeln (onlyStatusFields)
 
   // Update local state + close sheet immediately (optimistic UI)
   Object.assign(tree, updates);
@@ -2691,7 +2751,7 @@ async function enablePush(silent){
 
 // Expose functions used in inline onclick handlers (static + dynamically generated)
 Object.assign(window, {
-  selectStatus, closeSheet, saveReport, reportFuellgrad,
+  selectStatus, closeSheet, saveReport, reportFuellgrad, _sheetFotoDel,
   closeFinishSheet, finishTour, reopenTour,
   showFinishConfirm, markAllDone,
   switchTab,
