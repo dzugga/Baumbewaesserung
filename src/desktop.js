@@ -12965,6 +12965,17 @@ function epPersist(){
 }
 function epSetVehicleStatus(id,st){ if(!_epCanWrite())return; if(st==='verfuegbar') delete _epAvail.vehicles[id]; else _epAvail.vehicles[id]=st; epPersist(); renderEp(); }
 
+// Wirksame Tagesbesetzung: die am Tour-Doc gespeicherte Besetzung gilt nur für den Tag, an dem sie
+// zuletzt gesetzt wurde (crewDate). An jedem ANDEREN Tag zählt die Standardbesetzung — ein Tages-Ersatz
+// (Urlaub/Krank) „klebt" damit nicht mehr an Folgetagen; Abweichen macht der Einsatzleiter aktiv.
+// Ohne crewDate oder ohne Standard: bisheriges Verhalten (gespeicherte Besetzung).
+function _epEffCrew(t){
+  const cur={vehicleId:t.vehicleId||'', vehicleName:t.vehicleName||'', drivers:[...(t.drivers||(t.assignedDriver?[t.assignedDriver]:[]))], std:false};
+  const hasStd=!!(t.stdVehicleId||(t.stdDrivers&&t.stdDrivers.length));
+  if(!t.crewDate || t.crewDate===_epDate || !hasStd) return cur;
+  const vn=t.stdVehicleId?(((_epVehicles.find(v=>v.id===t.stdVehicleId)||{}).name)||t.stdVehicleName||''):'';
+  return {vehicleId:t.stdVehicleId||'', vehicleName:vn, drivers:[...(t.stdDrivers||[])], std:true};
+}
 // Tour-Schreibvorgänge projektscharf (rohes db, KEIN _injectOrg — Projekt-Org kann vom aktuellen abweichen)
 async function epTourUpdate(tid, patch){
   if(!_epCanWrite()){ notify('Nur Lesezugriff'); return false; }
@@ -12972,30 +12983,41 @@ async function epTourUpdate(tid, patch){
   catch(e){ notify('Fehler: '+(e.message||e)); return false; }
 }
 async function epAssignVehicle(tid, vehId){
-  if(vehId){ const other=_epTours.find(x=>x.id!==tid && _epRunsOn(x) && x.vehicleId===vehId); if(other){ notify('Dieses Fahrzeug ist heute schon in „'+(other.name||'Tour')+'" verplant'); return; } }
+  if(vehId){ const other=_epTours.find(x=>x.id!==tid && _epRunsOn(x) && _epEffCrew(x).vehicleId===vehId); if(other){ notify('Dieses Fahrzeug ist heute schon in „'+(other.name||'Tour')+'" verplant'); return; } }
+  const t=_epTours.find(x=>x.id===tid); if(!t) return;
+  const eff=_epEffCrew(t);
   const v=_epVehicles.find(x=>x.id===vehId);
-  if(await epTourUpdate(tid,{vehicleId:vehId||'', vehicleName:v?v.name:''})){ const t=_epTours.find(x=>x.id===tid); if(t){ t.vehicleId=vehId||''; t.vehicleName=v?v.name:''; } renderEp(); }
+  // Änderung gilt für den GEWÄHLTEN Tag: Standard-Fahrer mit materialisieren + crewDate stempeln
+  const patch={vehicleId:vehId||'', vehicleName:v?v.name:'', drivers:eff.drivers, assignedDriver:eff.drivers[0]||'', crewDate:_epDate};
+  if(await epTourUpdate(tid,patch)){ Object.assign(t,patch); renderEp(); }
 }
 async function epAddDriver(tid, name){
   if(!name) return;
-  const t=_epTours.find(x=>x.id===tid); const drivers=[...(t&&t.drivers||(t&&t.assignedDriver?[t.assignedDriver]:[]))];
+  const t=_epTours.find(x=>x.id===tid); if(!t) return;
+  const eff=_epEffCrew(t);
+  const drivers=[...eff.drivers];
   if(drivers.includes(name)){ notify('Bereits zugewiesen'); return; }
-  const other=_epTours.find(x=>x.id!==tid && _epRunsOn(x) && (x.drivers||[]).includes(name));
+  const other=_epTours.find(x=>x.id!==tid && _epRunsOn(x) && _epEffCrew(x).drivers.includes(name));
   if(other){ notify('„'+name+'" ist heute schon in „'+(other.name||'Tour')+'" verplant'); return; }
   drivers.push(name);
-  if(await epTourUpdate(tid,{drivers, assignedDriver:drivers[0]})){ if(t){ t.drivers=drivers; t.assignedDriver=drivers[0]; } renderEp(); }
+  const patch={drivers, assignedDriver:drivers[0], vehicleId:eff.vehicleId, vehicleName:eff.vehicleName, crewDate:_epDate};
+  if(await epTourUpdate(tid,patch)){ Object.assign(t,patch); renderEp(); }
 }
 async function epRemoveDriver(tid, idx){
-  const t=_epTours.find(x=>x.id===tid); const drivers=[...(t&&t.drivers||(t&&t.assignedDriver?[t.assignedDriver]:[]))];
+  const t=_epTours.find(x=>x.id===tid); if(!t) return;
+  const eff=_epEffCrew(t);
+  const drivers=[...eff.drivers];
   drivers.splice(idx,1);
-  if(await epTourUpdate(tid,{drivers, assignedDriver:drivers[0]||''})){ if(t){ t.drivers=drivers; t.assignedDriver=drivers[0]||''; } renderEp(); }
+  const patch={drivers, assignedDriver:drivers[0]||'', vehicleId:eff.vehicleId, vehicleName:eff.vehicleName, crewDate:_epDate};
+  if(await epTourUpdate(tid,patch)){ Object.assign(t,patch); renderEp(); }
 }
-// Aktuelle Besetzung als festen Standard der Tour speichern (projektscharf am Tour-Doc)
+// Aktuelle (wirksame) Besetzung als festen Standard der Tour speichern (projektscharf am Tour-Doc)
 async function epSetStandard(tid){
   const t=_epTours.find(x=>x.id===tid); if(!t) return;
-  const stdDrivers=[...(t.drivers||(t.assignedDriver?[t.assignedDriver]:[]))];
-  if(await epTourUpdate(tid,{stdVehicleId:t.vehicleId||'', stdVehicleName:t.vehicleName||'', stdDrivers})){
-    t.stdVehicleId=t.vehicleId||''; t.stdVehicleName=t.vehicleName||''; t.stdDrivers=stdDrivers;
+  const eff=_epEffCrew(t);
+  const stdDrivers=[...eff.drivers];
+  if(await epTourUpdate(tid,{stdVehicleId:eff.vehicleId||'', stdVehicleName:eff.vehicleName||'', stdDrivers})){
+    t.stdVehicleId=eff.vehicleId||''; t.stdVehicleName=eff.vehicleName||''; t.stdDrivers=stdDrivers;
     notify('★ Standard für „'+(t.name||'Tour')+'" gespeichert'); renderEp();
   }
 }
@@ -13017,8 +13039,8 @@ async function epApplyStandards(){
       const drivers=(t.stdDrivers||[]).filter(n=>availNames.has(n)&&!usedNames.has(n));
       drivers.forEach(n=>usedNames.add(n));
       if((t.stdVehicleId&&!veh)||((t.stdDrivers||[]).length>drivers.length)) skipped++;
-      batch.update(db.collection('projects').doc(_epProject).collection('tours').doc(t.id), {vehicleId:veh, vehicleName:vehName, drivers, assignedDriver:drivers[0]||''});
-      t.vehicleId=veh; t.vehicleName=vehName; t.drivers=drivers; t.assignedDriver=drivers[0]||'';
+      batch.update(db.collection('projects').doc(_epProject).collection('tours').doc(t.id), {vehicleId:veh, vehicleName:vehName, drivers, assignedDriver:drivers[0]||'', crewDate:_epDate});
+      t.vehicleId=veh; t.vehicleName=vehName; t.drivers=drivers; t.assignedDriver=drivers[0]||''; t.crewDate=_epDate;
     });
     await batch.commit();
     renderEp();
@@ -13140,15 +13162,16 @@ function epPlanHtml(){
   const dueTours=_epTours.filter(t=>tourDueOn(t,_epDate));
   const bedarfTours=_epTours.filter(t=>t.interval==='bedarf' && _tourInValidity(t,_epDate));
   const activeTours=dueTours.concat(bedarfTours);
-  // Auslastung (Personen-Verplanung) zählen — nur über die heute laufenden Touren
-  const load={}; activeTours.forEach(t=>(t.drivers||[]).forEach(n=>load[n]=(load[n]||0)+1));
+  // Auslastung (Personen-Verplanung) zählen — nur über die heute laufenden Touren (wirksame Besetzung)
+  const load={}; activeTours.forEach(t=>_epEffCrew(t).drivers.forEach(n=>load[n]=(load[n]||0)+1));
   const anyStd=activeTours.some(t=>t.stdVehicleId||(t.stdDrivers&&t.stdDrivers.length));
   const rowFor=t=>{
-    const drivers=t.drivers||(t.assignedDriver?[t.assignedDriver]:[]);
-    const _hay=((t.name||'Tour')+' '+drivers.join(' ')+' '+(t.vehicleName||'')).toLowerCase();
+    const eff=_epEffCrew(t);
+    const drivers=eff.drivers;
+    const _hay=((t.name||'Tour')+' '+drivers.join(' ')+' '+(eff.vehicleName||'')).toLowerCase();
     const _hide=_epDayQuery && !_hay.includes(_epDayQuery);
-    const vehOk=!t.vehicleId || availVeh.find(v=>v.id===t.vehicleId);
-    const badVeh=t.vehicleId && !vehOk;
+    const vehOk=!eff.vehicleId || availVeh.find(v=>v.id===eff.vehicleId);
+    const badVeh=eff.vehicleId && !vehOk;
     const driverChips=drivers.length?drivers.map((n,i)=>{
       const pp=_epPersons.find(x=>x.name===n);
       const stat=pp?_epPStatus(pp.id):'anwesend';
@@ -13160,28 +13183,29 @@ function epPlanHtml(){
       return `<span class="ep-chip${bad?' warn':''}" title="${dlEsc(tip)}">${dlEsc(n)}${bad?` <span class="ep-chip-r">${dlEsc(reason)}</span>`:''}${ro?'':`<i onclick="epRemoveDriver('${t.id}',${i})">×</i>`}</span>`;
     }).join(''):'';
     const vehSel=ro
-      ? (t.vehicleName?`<span class="ep-chip${badVeh?' warn':''}">${dlEsc(t.vehicleName)}</span>`:'<span class="ep-dash">–</span>')
-      : (t.vehicleId
-          ? `<span class="ep-chip${badVeh?' warn':''}" style="cursor:pointer;" title="ändern" onclick="epOpenPicker('vehicle','${t.id}',this)">${dlEsc(t.vehicleName||'Fahrzeug')}</span> <i class="ep-clearx" title="entfernen" onclick="epAssignVehicle('${t.id}','')">×</i>`
+      ? (eff.vehicleName?`<span class="ep-chip${badVeh?' warn':''}">${dlEsc(eff.vehicleName)}</span>`:'<span class="ep-dash">–</span>')
+      : (eff.vehicleId
+          ? `<span class="ep-chip${badVeh?' warn':''}" style="cursor:pointer;" title="ändern" onclick="epOpenPicker('vehicle','${t.id}',this)">${dlEsc(eff.vehicleName||'Fahrzeug')}</span> <i class="ep-clearx" title="entfernen" onclick="epAssignVehicle('${t.id}','')">×</i>`
           : `<button class="ep-pick-btn" onclick="epOpenPicker('vehicle','${t.id}',this)">＋ Fahrzeug</button>`);
     const drvAdd=ro?'':`<button class="ep-pick-btn" onclick="epOpenPicker('driver','${t.id}',this)">＋ Fahrer</button>`;
     const stdSet=!!(t.stdVehicleId||(t.stdDrivers&&t.stdDrivers.length));
     const stdTxt=[t.stdVehicleName||'',...(t.stdDrivers||[])].filter(Boolean).join(' · ');
     const stdHint=stdSet?`<div class="ep-std-hint" title="Standard">★ ${dlEsc(stdTxt)}</div>`:'';
+    const effBadge=eff.std?`<span style="font-size:10px;font-weight:600;color:#0f6e56;background:#e1f5ee;border-radius:99px;padding:1px 7px;white-space:nowrap;" title="Anzeige = Standardbesetzung. Eine Änderung gilt nur für den ${(_epDate||'').split('-').reverse().join('.')} — der Standard bleibt.">★ Standard</span>`:'';
     const star=ro?'':`<button class="ep-star${stdSet?' on':''}" title="${stdSet?'Standard: '+dlEsc(stdTxt)+' — ':''}aktuelle Besetzung als Standard für diese Tour speichern" onclick="epSetStandard('${t.id}')">★</button>`;
     return `<tr data-epname="${dlEsc(_hay)}"${_hide?' style="display:none;"':''} ${ro?'':`oncontextmenu="epTourCtx(event,'${t.id}')" ondragover="epDragOver(event)" ondragenter="this.classList.add('ep-drop')" ondragleave="this.classList.remove('ep-drop')" ondrop="this.classList.remove('ep-drop');epDrop(event,'${t.id}')"`}>
       <td><span class="ep-dot" style="background:${t.color||'#888'};"></span>${dlEsc(t.name||'Tour')}${stdHint}</td>
       <td>${vehSel}${badVeh?'<div class="ep-warn">⚠ Fahrzeug nicht verfügbar</div>':''}</td>
-      <td><div class="ep-chips">${driverChips}${drvAdd}</div></td>
+      <td><div class="ep-chips">${driverChips}${drvAdd}${effBadge}</div></td>
       <td style="text-align:center;">${star}</td>
     </tr>`;
   };
   const notRunning=_epTours.length-dueTours.length-bedarfTours.length;
-  const besetzt=dueTours.filter(t=>(t.drivers&&t.drivers.length)||t.vehicleId).length;
-  const _dayHay=t=>((t.name||'Tour')+' '+(t.drivers||(t.assignedDriver?[t.assignedDriver]:[])).join(' ')+' '+(t.vehicleName||'')).toLowerCase();
+  const besetzt=dueTours.filter(t=>{ const e=_epEffCrew(t); return e.drivers.length||e.vehicleId; }).length;
+  const _dayHay=t=>{ const e=_epEffCrew(t); return ((t.name||'Tour')+' '+e.drivers.join(' ')+' '+(e.vehicleName||'')).toLowerCase(); };
   const dayCountTxt=_epDayQuery?`${dueTours.filter(t=>_dayHay(t).includes(_epDayQuery)).length} / ${dueTours.length}`:'';
   const rows=dueTours.map(rowFor).join('')||`<tr><td colspan="4" style="padding:18px;text-align:center;color:var(--text3);">Heute läuft keine planmäßige Tour.</td></tr>`;
-  const usedVehIds=new Set(activeTours.map(x=>x.vehicleId).filter(Boolean));
+  const usedVehIds=new Set(activeTours.map(x=>_epEffCrew(x).vehicleId).filter(Boolean));
   const poolPers=availPers.map(p=>{ const used=(load[p.name]||0)>0; return `<span class="ep-pool${used?' used':''}" ${used?'':`draggable="true" ondragstart="epDragStart(event,'driver','${_jsArg(p.name)}')"`} title="${used?'bereits verplant':'auf eine Tour ziehen'}">${dlEsc(p.name)}${used?' ✓':''}</span>`; }).join('')||'<span class="ep-dash">keine anwesend</span>';
   const poolVeh=availVeh.map(v=>{ const used=usedVehIds.has(v.id); return `<span class="ep-pool veh${used?' used':''}" ${used?'':`draggable="true" ondragstart="epDragStart(event,'vehicle','${_jsArg(v.id)}')"`} title="${used?'bereits verplant':'auf eine Tour ziehen'}">${dlEsc(v.name)}${used?' ✓':''}</span>`; }).join('')||'<span class="ep-dash">keine verfügbar</span>';
   const stdBar=ro?'':`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
@@ -13209,12 +13233,12 @@ function epOpenPicker(type, tid, btn){
   const t=_epTours.find(x=>x.id===tid); if(!t) return;
   let items=[];
   if(type==='driver'){
-    const drivers=t.drivers||(t.assignedDriver?[t.assignedDriver]:[]);
-    const elsewhere={}; _epTours.forEach(x=>{ if(x.id!==tid && _epRunsOn(x))(x.drivers||[]).forEach(n=>{ elsewhere[n]=x.name; }); }); // heute schon in anderer (laufender) Tour
+    const drivers=_epEffCrew(t).drivers;
+    const elsewhere={}; _epTours.forEach(x=>{ if(x.id!==tid && _epRunsOn(x)) _epEffCrew(x).drivers.forEach(n=>{ elsewhere[n]=x.name; }); }); // heute schon in anderer (laufender) Tour
     items=_epPersons.filter(p=>_epPersonActive(p)&&_epPersonAvail(p)).filter(p=>!drivers.includes(p.name)).map(p=>({v:p.name, l:p.name, sub:p.funktion||'', right:elsewhere[p.name]?('in '+elsewhere[p.name]):'', warn:!!elsewhere[p.name], dis:!!elsewhere[p.name]}))
       .sort((a,b)=>(a.dis?1:0)-(b.dis?1:0)||a.l.localeCompare(b.l));
   } else {
-    const used={}; _epTours.forEach(x=>{ if(x.id!==tid && _epRunsOn(x) && x.vehicleId) used[x.vehicleId]=x.name; });
+    const used={}; _epTours.forEach(x=>{ if(x.id!==tid && _epRunsOn(x)){ const ev=_epEffCrew(x).vehicleId; if(ev) used[ev]=x.name; } });
     items=_epVehicles.map(v=>{ const av=_epVehAvail(v), u=used[v.id]; return {v:v.id, l:v.name, sub:[v.art,v.kennzeichen].filter(Boolean).join(' · '), right:!av?'nicht verfügbar':(u?('in '+u):''), warn:!!u, dis:!av||!!u}; })
       .sort((a,b)=>(a.dis?1:0)-(b.dis?1:0)||a.l.localeCompare(b.l));
   }
