@@ -730,12 +730,18 @@ async function openProject(projectId){
   // Ist die offene Ansicht im neuen Projekt abgeschaltet → zurück zur Karte
   { const vm={disposition:'disposition',controlling:'controlling',ki:'ki',dashboard:'dashboard',baeume:'objekte',touren:'touren',wmskarten:'wms',verwaltung:'verwaltung',einsatzplaner:'einsatzplaner'}[currentView];
     if(vm && !canUseModule(vm)) switchView('karte'); }
-  // Startansicht der Rolle: EINMAL je Sitzung beim ersten Projekt-Öffnen anwenden (Rollen & Module)
+  // Startansicht der Rolle: EINMAL je Sitzung beim ersten Projekt-Öffnen anwenden (Rollen & Module).
+  // WICHTIG: die Rolle des PROJEKT-Mandanten lesen — der beim Login geladene rolesCache kann (v. a. beim
+  // Superadmin) zu einem anderen Mandanten gehören; nur so greift die je Stadt gepflegte Startansicht.
   if(!window._startViewDone){
     window._startViewDone=true;
-    const sv=(rolesCache[currentRole]||BUILTIN_ROLES[currentRole]||{}).startView||'';
-    const modOf={disposition:'disposition',controlling:'controlling',dashboard:'dashboard',baeume:'objekte',touren:'touren',einsatzplaner:'einsatzplaner'};
-    if(sv && sv!=='karte' && (!modOf[sv]||canUseModule(modOf[sv]))) setTimeout(()=>{ try{ switchView(sv); if(_DATA_VIEWS[sv]) _dataViewProject=null; /* Daten-Ansicht nach erstem Snapshot neu aufbauen (Start vor Datenankunft) */ }catch(e){ console.warn('Startansicht',e); } },80);
+    (async()=>{
+      let sv='';
+      try{ const s=await db.collection('orgs').doc(currentProjectData?.orgId||currentOrg).collection('roles').doc(currentRole).get(); if(s.exists) sv=s.data().startView||''; }catch(e){ console.warn('Startansicht laden',e); }
+      if(!sv) sv=(rolesCache[currentRole]||BUILTIN_ROLES[currentRole]||{}).startView||'';
+      const modOf={disposition:'disposition',controlling:'controlling',dashboard:'dashboard',baeume:'objekte',touren:'touren',einsatzplaner:'einsatzplaner'};
+      if(sv && sv!=='karte' && (!modOf[sv]||canUseModule(modOf[sv]))){ try{ switchView(sv); if(_DATA_VIEWS[sv]) _dataViewProject=null; /* Daten-Ansicht nach erstem Snapshot neu aufbauen */ }catch(e){ console.warn('Startansicht',e); } }
+    })();
   }
   // Einsatzplaner folgt dem global geöffneten Projekt: eigene Mandant/Projekt-Auswahl neu auf das offene Projekt setzen
   if(currentView==='einsatzplaner'){ _epOrg=''; _epProject=''; initEinsatzplaner(); }
