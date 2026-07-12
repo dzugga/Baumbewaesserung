@@ -3918,6 +3918,17 @@ function selectTree(id, pan=true){
       renderDrawnGeoms(); // Hervorhebung sofort anwenden; das moveend nach dem Zoomen zeichnet den Ausschnitt ohnehin neu
     }catch(_){} }, wasOnMap?0:250);
   }
+  else if(geomTypeOf(tree)==='flaeche' && !tree.extId && _treeGeom(tree)){
+    // GEZEICHNETE Fläche (Geometrie am Objekt, keine Import-Kennung): liegt im _drawnLayer wie die
+    // Linien — Hervorhebung/Zoom über _drawnSelId/_geomBbox, NICHT über das Import-Bundle (_flaechenByExt).
+    _drawnSelId=tree.id;
+    setTimeout(()=>{ try{
+      map.invalidateSize();
+      const bb=_geomBbox(tree);
+      if(pan && bb) map.fitBounds(L.latLngBounds([bb[0],bb[2]],[bb[1],bb[3]]),{padding:[60,60],maxZoom:18,animate:true});
+      renderDrawnGeoms();
+    }catch(_){} }, wasOnMap?0:250);
+  }
   else if(geomTypeOf(tree)==='flaeche'){
     // Importierte Fläche (Bundle, extId): vorherige Hervorhebung zurücksetzen, dann markieren + heranzoomen
     if(_flaechenSelExt && _flaechenSelExt!==tree.extId && _flaechenByExt[_flaechenSelExt]){ try{ _flaechenByExt[_flaechenSelExt].setStyle(_flStyleFor(_flaechenSelExt)); }catch(_){} }
