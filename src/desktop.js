@@ -270,7 +270,11 @@ const MODULES = [
   {key:'massenwerkzeuge', label:'Massen-Werkzeuge (Planung)'},
   {key:'dashboard',   label:'Dashboard'},
   {key:'controlling', label:'Controlling'},
+  {key:'sollist',     label:'Soll-Ist'},
+  {key:'datenqualitaet', label:'Datenqualität'},
+  {key:'ausfaelle',   label:'Ausfälle'},
   {key:'meldungen',   label:'Meldungen (Nachbearbeitung)'},
+  {key:'listen',      label:'Felder & Listen'},
   {key:'ki',          label:'KI-Analysen'},
   {key:'objekte',     label:'Objekte'},
   {key:'touren',      label:'Touren'},
@@ -295,7 +299,7 @@ const _mods = (keys)=>Object.fromEntries(_allModKeys.map(k=>[k, keys.includes(k)
 const BUILTIN_ROLES = {
   superadmin: {name:'Superadmin', baseType:'admin', modules:_mods(_allModKeys), builtin:true},
   orgadmin:   {name:'Org-Admin',  baseType:'admin', modules:_mods(_allModKeys.filter(k=>k!=='admin'&&k!=='massenwerkzeuge')), builtin:true}, // Massen-Werkzeuge default NUR Superadmin — pro Rolle zuschaltbar
-  planer:     {name:'Planer',     baseType:'editor', modules:_mods(['planung','disposition','einsatzplaner','nachrichten','segmentnetz','dashboard','controlling','meldungen','ki','objekte','touren','import','wms','einsatzleiter']), builtin:true},
+  planer:     {name:'Planer',     baseType:'editor', modules:_mods(['planung','disposition','einsatzplaner','nachrichten','segmentnetz','dashboard','controlling','sollist','datenqualitaet','ausfaelle','meldungen','listen','ki','objekte','touren','import','wms','einsatzleiter']), builtin:true},
   erfasser:   {name:'Erfasser',   baseType:'editor', modules:_mods(['erfassung','objekte']), builtin:true},
   fahrer:     {name:'Fahrer',     baseType:'driver', modules:_mods(['mobil','fotomeldung']), builtin:true},
 };

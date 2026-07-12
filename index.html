@@ -411,7 +411,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <button data-module="import" onclick="openImport()">Import</button>
         <div style="border-top:1px solid var(--border);margin:4px 0;"></div>
         <div style="padding:5px 12px 2px;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text3);">Kataloge</div>
-        <button data-module="objekte" onclick="switchView('baeume');switchBaeumeTab('arten')">Felder &amp; Listen</button>
+        <button data-module="listen" onclick="switchView('baeume');switchBaeumeTab('arten')">Felder &amp; Listen</button>
         <button data-module="verwaltung" onclick="switchView('verwaltung')">Gründe</button>
         <button data-module="verwaltung" onclick="switchView('reinigungssysteme')">Reinigungssysteme</button>
         <button data-module="verwaltung" onclick="openBetriebshoefe()">Betriebshöfe</button>
@@ -1736,7 +1736,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
   <div style="background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;flex-shrink:0;display:flex;gap:18px;">
     <button id="tab-objekte" onclick="switchBaeumeTab('objekte')" style="background:none;border:none;border-bottom:2px solid var(--green);color:var(--green);font-weight:700;font-size:13px;font-family:inherit;padding:10px 2px;cursor:pointer;">Objekte</button>
     <button id="tab-abschnitte" onclick="switchBaeumeTab('abschnitte')" style="display:none;background:none;border:none;border-bottom:2px solid transparent;color:var(--text3);font-weight:600;font-size:13px;font-family:inherit;padding:10px 2px;cursor:pointer;">Abschnitte</button>
-    <button id="tab-arten" onclick="switchBaeumeTab('arten')" style="background:none;border:none;border-bottom:2px solid transparent;color:var(--text3);font-weight:600;font-size:13px;font-family:inherit;padding:10px 2px;cursor:pointer;">Felder & Listen</button>
+    <button id="tab-arten" data-module="listen" onclick="switchBaeumeTab('arten')" style="background:none;border:none;border-bottom:2px solid transparent;color:var(--text3);font-weight:600;font-size:13px;font-family:inherit;padding:10px 2px;cursor:pointer;">Felder & Listen</button>
   </div>
   <!-- Tab-Inhalt: Objekte -->
   <div id="baeume-objekte" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
