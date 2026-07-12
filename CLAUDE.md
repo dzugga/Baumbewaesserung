@@ -68,7 +68,7 @@ Nach Änderungen immer per **Claude in Chrome Extension** prüfen:
 - Neue UI-Texte ebenfalls objekt-neutral formulieren.
 
 ## Handbuch (Pflegepflicht)
-- Digitales Handbuch unter Desktop → Admin → Handbuch; Inhalte in `src/handbuch-daten.js` (nach Apps gegliedert, `keywords` für die Suche).
+- Digitales Handbuch im Desktop über das Avatar-Menü (oben rechts) → Handbuch; Inhalte in `src/handbuch-daten.js` (nach Apps gegliedert, `keywords` für die Suche).
 - **Bei jeder neuen/geänderten Funktion den passenden Handbuch-Abschnitt mitpflegen** (Endnutzer-Sprache, keine Technik-Details).
 - Reiter „Aktualisierungen" entsteht automatisch aus Git-Commits (`scripts/gen-changelog.mjs`, läuft bei `npm run build`) → Commit-Betreffzeilen deutsch und endnutzer-verständlich halten.
 - Screenshots (public/handbuch/) bei UI-Änderungen neu erzeugen: Demo-Daten anlegen (Mandant org_demo_hb, Projekt demo_handbuch, Logins „Demo Admin"/135790 + „Max Muster"/246800 — siehe Kopf von `scripts/handbuch-screenshots.mjs`) → `node scripts/handbuch-screenshots.mjs` (Dev-Server :3001 nötig) → Demo-Daten wieder löschen. Symbol-Screenshots separat: Projekt demo_symbole (icon 🗑️, Arten mit/ohne Symbol) → `node scripts/symbol-screenshots.mjs`.
