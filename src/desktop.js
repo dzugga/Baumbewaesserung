@@ -10019,10 +10019,10 @@ function _mrRender(w, from, to){
   (trees||[]).forEach(t=>{ (t.history||[]).forEach(h=>{ if(!h||!h.status||!h.date) return; if(h.date<from||h.date>to) return; ms.push({t,h}); }); });
   const done=ms.filter(x=>x.h.status==='bewaessert').length, not=ms.length-done;
   const quote=ms.length?Math.round(done/ms.length*100):null;
-  // Wochenverlauf (ISO-KW)
+  // Wochenverlauf (ISO-KW) — chronologisch sortiert, Schlüssel mit Jahr (jahresübergreifende Zeiträume)
   const weeks=new Map();
-  ms.forEach(x=>{ const k='KW '+_epIsoWeek(x.h.date); const e=weeks.get(k)||{done:0,not:0}; x.h.status==='bewaessert'?e.done++:e.not++; weeks.set(k,e); });
-  const wk=[...weeks.entries()];
+  ms.forEach(x=>{ const key=x.h.date.slice(0,4)*100+_epIsoWeek(x.h.date); const e=weeks.get(key)||{done:0,not:0,lbl:'KW '+_epIsoWeek(x.h.date)}; x.h.status==='bewaessert'?e.done++:e.not++; weeks.set(key,e); });
+  const wk=[...weeks.entries()].sort((a,b)=>a[0]-b[0]).map(([,e])=>[e.lbl,e]);
   const wkMax=Math.max(1,...wk.map(([,e])=>e.done+e.not));
   // Ausfallgründe + Wiederholer
   const reasons={}; const perObj={};

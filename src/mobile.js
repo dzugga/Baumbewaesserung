@@ -2061,7 +2061,7 @@ async function saveReport(id){
   // Schreib-Payload hart auf erlaubte Fahrer-Felder filtern (Rules onlyStatusFields) — Defense-in-Depth.
   const _u=onlyTreeStatusFields(updates);
   const firestoreUpdates={..._u, history: firebase.firestore.FieldValue.arrayUnion(histEntry)};
-  if(_fotoUrls.length) firestoreUpdates.fotos=firebase.firestore.FieldValue.arrayUnion(..._fotoUrls); // 'fotos' steht in den Fahrer-Regeln (onlyStatusFields)
+  if(_fotoUrls.length) firestoreUpdates.fotos=firebase.firestore.FieldValue.arrayUnion(..._fotoUrls.map(u=>({u,t:Date.now()}))); // gleiches Schema wie Erfassung/Desktop ({u,t}) — 'fotos' steht in den Fahrer-Regeln
 
   // Update local state + close sheet immediately (optimistic UI)
   Object.assign(tree, updates);
