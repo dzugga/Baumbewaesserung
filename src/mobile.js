@@ -2059,12 +2059,16 @@ async function saveReport(id){
     }
   }
   _sheetPhotos=[];
-  if(_fotoUrls.length) histEntry.note+=' · 📷 '+_fotoUrls.length+' Foto'+(_fotoUrls.length>1?'s':'');
+  if(_fotoUrls.length){
+    histEntry.note+=' · 📷 '+_fotoUrls.length+' Foto'+(_fotoUrls.length>1?'s':'');
+    // Meldungs-Fotos hängen AN DER MELDUNG (history-Eintrag), NICHT am Stammdaten-Album (tree.fotos —
+    // das gehört der Ersterfassung/Lage-Doku). Getrennte Betrachtung im Desktop (Meldungen-Ansicht).
+    histEntry.fotos=_fotoUrls.map(u=>({u,t:Date.now()}));
+  }
   // Use arrayUnion — no need to read existing history first.
   // Schreib-Payload hart auf erlaubte Fahrer-Felder filtern (Rules onlyStatusFields) — Defense-in-Depth.
   const _u=onlyTreeStatusFields(updates);
   const firestoreUpdates={..._u, history: firebase.firestore.FieldValue.arrayUnion(histEntry)};
-  if(_fotoUrls.length) firestoreUpdates.fotos=firebase.firestore.FieldValue.arrayUnion(..._fotoUrls.map(u=>({u,t:Date.now()}))); // gleiches Schema wie Erfassung/Desktop ({u,t}) — 'fotos' steht in den Fahrer-Regeln
 
   // Update local state + close sheet immediately (optimistic UI)
   Object.assign(tree, updates);

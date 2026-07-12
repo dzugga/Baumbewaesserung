@@ -4099,10 +4099,17 @@ function openDetail(id){
     <div id="inline-tour-wrap" style="padding:6px 0 4px;"></div>
 
     ${(tree.fotos&&tree.fotos.length)?`
-    <div class="form-section">Fotos (${tree.fotos.length})</div>
+    <div class="form-section">Fotos — Stammdaten (${tree.fotos.length}) <span style="font-weight:400;font-size:11px;color:var(--text3);">· Lage/Ersterfassung</span></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;padding:4px 0 8px;">
       ${tree.fotos.map((f,i)=>`<img src="${_fotoUrl(f)}" loading="lazy" onclick="openFoto('${id}',${i})" title="Foto öffnen" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--border);cursor:pointer;">`).join('')}
     </div>`:''}
+    ${(()=>{ // Meldungs-Fotos: an den einzelnen Meldungen (getrennt von der Lage-/Stammdaten-Doku)
+      const mf=[]; (tree.history||[]).forEach(h=>{ if(h&&h.fotos&&h.fotos.length) h.fotos.forEach((f,i)=>mf.push({f,at:String(h.at||''),i,d:h.date||''})); });
+      if(!mf.length) return '';
+      return `<div class="form-section">Fotos — Meldungen (${mf.length}) <span style="font-weight:400;font-size:11px;color:var(--text3);">· aus Rückmeldungen der Fahrer</span></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;padding:4px 0 8px;">
+        ${mf.map(x=>`<div onclick="openMeldungFotos('${id}','${_jsArg(x.at)}',${x.i})" title="Meldungs-Foto vom ${dlEsc(x.d.split('-').reverse().join('.'))}" style="position:relative;cursor:pointer;"><img src="${_fotoUrl(x.f)}" loading="lazy" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid #f0c987;"><span style="position:absolute;left:3px;bottom:3px;font-size:9px;background:rgba(0,0,0,.55);color:#fff;border-radius:4px;padding:0 4px;">${dlEsc(x.d.slice(5).split('-').reverse().join('.'))}</span></div>`).join('')}
+      </div>`; })()}
 
     <div class="form-section">Dokumente${(tree.dokumente&&tree.dokumente.length)?` (${tree.dokumente.length})`:''}</div>
     <div style="display:flex;flex-direction:column;gap:5px;padding:4px 0 8px;">
@@ -4345,6 +4352,37 @@ function openFoto(treeId, idx){
 }
 function stepFoto(d){ if(_fotoState){ _fotoState.idx+=d; renderFotoLightbox(); } }
 function closeFoto(){ _fotoState=null; document.getElementById('foto-lightbox')?.remove(); }
+// ── Meldungs-Fotos: hängen an der EINZELNEN Meldung (history-Eintrag), getrennt vom Stammdaten-Album ──
+let _mfState=null;
+function openMeldungFotos(treeId, at, idx){
+  const t=trees.find(x=>x.id===treeId);
+  const h=((t&&t.history)||[]).find(x=>x&&String(x.at)===at);
+  const list=(h&&h.fotos)||[]; if(!list.length) return;
+  _mfState={list, idx:idx||0, sub:(h.date?h.date.split('-').reverse().join('.'):'')+(h.driver?' · '+h.driver:'')+(h.reason?' · '+h.reason:'')};
+  renderMeldungFotoBox();
+}
+function stepMeldungFoto(d){ if(_mfState){ _mfState.idx+=d; renderMeldungFotoBox(); } }
+function closeMeldungFoto(){ _mfState=null; document.getElementById('mfoto-lightbox')?.remove(); }
+function renderMeldungFotoBox(){
+  if(!_mfState) return;
+  const n=_mfState.list.length; let i=((_mfState.idx%n)+n)%n; _mfState.idx=i;
+  const f=_mfState.list[i];
+  let ov=document.getElementById('mfoto-lightbox');
+  if(!ov){ ov=document.createElement('div'); ov.id='mfoto-lightbox'; document.body.appendChild(ov); }
+  ov.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;';
+  ov.innerHTML=`
+    <div style="position:absolute;inset:0;" onclick="closeMeldungFoto()"></div>
+    <div style="position:relative;max-width:92vw;max-height:90vh;display:flex;flex-direction:column;align-items:center;gap:12px;">
+      <img src="${_fotoUrl(f)}" style="max-width:92vw;max-height:76vh;object-fit:contain;border-radius:8px;box-shadow:0 8px 40px rgba(0,0,0,.5);">
+      <div style="display:flex;align-items:center;gap:14px;color:#fff;font-size:13px;">
+        ${n>1?`<button onclick="stepMeldungFoto(-1)" style="background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:6px;padding:5px 12px;cursor:pointer;">‹</button>`:''}
+        <span>Meldungs-Foto ${i+1}/${n} · ${dlEsc(_mfState.sub||'')}</span>
+        ${n>1?`<button onclick="stepMeldungFoto(1)" style="background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:6px;padding:5px 12px;cursor:pointer;">›</button>`:''}
+        <a href="${_fotoUrl(f)}" target="_blank" rel="noopener" style="color:#fff;">Original ↗</a>
+        <button onclick="closeMeldungFoto()" style="background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:6px;padding:5px 12px;cursor:pointer;">Schließen</button>
+      </div>
+    </div>`;
+}
 function renderFotoLightbox(){
   if(!_fotoState) return;
   const tree=trees.find(t=>t.id===_fotoState.treeId);
@@ -10844,10 +10882,12 @@ function renderMeldungen(){
     const name=_siObjName(t);
     const time=h.at?String(h.at).slice(11,16):'';
     const hay=(name+' '+(t.baumId||'')+' '+(h.reason||'')+' '+(h.note||'')+' '+(h.driver||'')).toLowerCase();
-    const hasFoto=(h.note||'').includes('📷');
-    const fotoBtn=hasFoto?((t.fotos&&t.fotos.length)
-      ?` <span onclick="openFoto('${_jsArg(t.id)}',${Math.max(0,(t.fotos.length||1)-1)})" title="Foto ansehen (${t.fotos.length} am Objekt)" style="cursor:pointer;">📷</span>`
-      :' <span title="Foto gemeldet — am Objekt nicht (mehr) vorhanden" style="opacity:.5;">📷</span>'):'';
+    const hasFoto=(h.fotos&&h.fotos.length)||(h.note||'').includes('📷');
+    const fotoBtn=!hasFoto?'':((h.fotos&&h.fotos.length)
+      ?` <span onclick="openMeldungFotos('${_jsArg(t.id)}','${_jsArg(String(h.at||''))}',0)" title="Foto(s) dieser Meldung ansehen (${h.fotos.length})" style="cursor:pointer;">📷</span>`
+      :((t.fotos&&t.fotos.length)
+        ?` <span onclick="openFoto('${_jsArg(t.id)}',${Math.max(0,(t.fotos.length||1)-1)})" title="Alt-Meldung: Foto liegt im Objekt-Album" style="cursor:pointer;opacity:.75;">📷</span>`
+        :' <span title="Foto gemeldet — nicht (mehr) vorhanden" style="opacity:.5;">📷</span>'));
     const meta=MELD_BEARB.find(x=>x[0]===bearb)||MELD_BEARB[0];
     const sel=ro?`<span style="font-size:11px;font-weight:600;color:${meta[2]};background:${meta[3]};border-radius:99px;padding:2px 9px;">${meta[1]}</span>`
       :`<select onchange="setMeldungBearb('${_jsArg(t.id)}','${_jsArg(String(h.at||''))}',this.value)" ${h.at?'':'disabled title="Alt-Meldung ohne Zeitstempel — Status nicht setzbar"'} style="padding:3px 7px;font-size:11px;font-weight:600;border:1px solid ${meta[2]}55;border-radius:7px;background:${meta[3]};color:${meta[2]};font-family:inherit;cursor:pointer;">
@@ -16054,7 +16094,7 @@ Object.assign(window,{
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleRequiredFeld,toggleRawSeg,_siInfo,
   createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,psSetOrgFilter,setSiTab,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
-  openFoto,stepFoto,closeFoto,deleteFoto,
+  openFoto,stepFoto,closeFoto,deleteFoto,openMeldungFotos,stepMeldungFoto,closeMeldungFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
   openAddTree,openEditTree,closeTreeModal,saveTree,deleteTree,
   archiveTree,reactivateTree,archiveTreeFromModal,reactivateTreeFromModal,deleteTreeFromModal,toggleShowInactive,showTreeOnMapFromModal,bulkSetInactive,bulkDelete,
