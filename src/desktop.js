@@ -13074,18 +13074,13 @@ function dashRenderTourProgress(reported){
       <div class="dsh-tour-head">
         <span class="dsh-dot" style="background:${color};"></span>
         <span class="dsh-tour-name">${dlEsc(t.name||'Tour')}</span>
+        <span class="dsh-tour-meta"><b style="color:var(--green);">${bewN}</b> erl. · <b style="color:var(--red);">${nichtN}</b> n. erl. · <b>${offen}</b> offen · ${total} Obj.</span>
         <span class="dsh-tour-pct">${pct}%</span>
       </div>
       <div class="dsh-bar">
         <div class="seg" style="width:${bewW}%;background:var(--green);"></div>
         <div class="seg" style="width:${nichtW}%;background:var(--dsh-red-mid);"></div>
         <div class="seg" style="width:${offenW}%;background:transparent;"></div>
-      </div>
-      <div class="dsh-tour-meta">
-        <span><b style="color:var(--green);">${bewN}</b> erl.</span>
-        <span><b style="color:var(--red);">${nichtN}</b> n. erl.</span>
-        <span><b>${offen}</b> offen</span>
-        <span style="margin-left:auto;">${total} Objekte</span>
       </div>
     </div>`;
   }).join('');
