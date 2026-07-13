@@ -12983,6 +12983,7 @@ function dashBuildReported(){
 
 function renderDashboard(){
   if(!currentProjectId){ const g=document.getElementById('dash-kpi-grid'); if(g) g.innerHTML='<div style="padding:20px;color:var(--text3);">Bitte zuerst ein Projekt öffnen.</div>'; return; }
+  _dashBhInit(); // Betriebshof-Vorbelegung (einmal je Projekt)
   dashRenderHeute(); // Tages-Soll/Ist — setzt _dashHeuteTourIds (am gewählten Tag gültige Touren) für Gründe/Karte
   const rueck=_dashDayOffset>0;
   const dayLbl=rueck?_dashSelDay().slice(8,10)+'.'+_dashSelDay().slice(5,7)+'.':'heute';
@@ -13028,6 +13029,29 @@ function renderDashboard(){
 // Zähler je Tour (ersetzt die frühere Fortschritts-Karte): ✓ erledigt · ✕ nicht erledigt · offen.
 // _dashHeuteTourIds = die angezeigten Touren — Datenbasis für Gründe/Karte des Tages-Dashboards.
 let _dashHeuteTourIds=new Set(), _dashHeuteDueTourIds=new Set();
+// ── Betriebshof-Filter (wie im Einsatzplaner): reine Ansicht, Unzugeordnetes bleibt sichtbar ──
+let _dashBhScope='', _dashBhInitPid=null;
+function _dashBhVis(n){ n=(n||'').trim(); return !_dashBhScope || !n || n===_dashBhScope; }
+function _dashBhOptions(){
+  const s=new Set(((listValues&&listValues.betriebshof)||[]).map(b=>(b.label||'').trim()).filter(Boolean));
+  (tours||[]).forEach(t=>{ if(!t.uebersicht){ const n=(t.betriebshof||'').trim(); if(n) s.add(n); } });
+  return [...s].sort((a,b)=>a.localeCompare(b));
+}
+function dashSetBh(v){ _dashBhScope=(v||'').trim(); try{ localStorage.setItem('dash_bh_'+currentProjectId,_dashBhScope); }catch(_){} renderDashboard(); }
+function _dashBhInit(){ // je Projekt: gemerkte Auswahl, sonst eigener Hof der per PIN angemeldeten Person
+  if(_dashBhInitPid===currentProjectId) return;
+  _dashBhInitPid=currentProjectId; _dashBhScope='';
+  let saved=null; try{ saved=localStorage.getItem('dash_bh_'+currentProjectId); }catch(_){}
+  if(saved!==null){ _dashBhScope=saved; return; }
+  try{
+    const uid=(firebase.auth().currentUser||{}).uid||'';
+    if(!uid.startsWith('drv_')) return;
+    db.collection('drivers').doc(uid.slice(4)).get().then(s=>{
+      const hof=s.exists?((s.data().betriebshof||'').trim()):'';
+      if(hof && _dashBhInitPid===currentProjectId && !_dashBhScope){ _dashBhScope=hof; renderDashboard(); }
+    }).catch(()=>{});
+  }catch(_){}
+}
 function _dashLastDueBefore(t,today){ for(let i=1;i<=14;i++){ const d=_epAddDays(today,-i); if(tourDueOn(t,d)) return d; } return null; }
 function _dashCrewToday(t){ // wirksame Besetzung heute — gleiche Regel wie _epEffCrew, ohne Einsatzplaner-Zustand
   const cur=t.drivers||(t.assignedDriver?[t.assignedDriver]:[]);
@@ -13058,7 +13082,8 @@ function dashRenderHeute(){
       if(rueck){ repTour[tid]=(repTour[tid]||0)+1;
         if(lastStatus==='bewaessert') bewTour[tid]=(bewTour[tid]||0)+1; else nichtTour[tid]=(nichtTour[tid]||0)+1; } });
   });
-  const real=tours.filter(t=>!t.uebersicht);
+  // Betriebshof-Filter: nur Anzeige-Menge (Scope + Unzugeordnete) — KPIs/Karte/Gründe folgen via _dashHeuteTourIds
+  const real=tours.filter(t=>!t.uebersicht&&_dashBhVis(t.betriebshof));
   // Anzeige-Menge: heute fällig ODER Überhang (frühere Fälligkeit/Bedarfs-Aktivierung ohne Abschluss;
   // ein HEUTIGER Abschluss bleibt sichtbar, damit die erledigte Tour nicht sofort verschwindet)
   const rows=[];
@@ -13103,10 +13128,13 @@ function dashRenderHeute(){
   const wd=_WD_FULL[new Date(day+'T12:00:00').getDay()];
   const _dayBtns=[2,1,0].map(o=>{ const d=o?_epAddDays(_todayStr(),-o):_todayStr(); const lbl=o?d.slice(8,10)+'.'+d.slice(5,7)+'.':'Heute'; const act=o===_dashDayOffset;
     return `<button onclick="dashSetDay(${o})" style="background:${act?'var(--surface2)':'none'};border:1px solid ${act?'var(--text3)':'var(--border)'};border-radius:6px;padding:2px 8px;cursor:pointer;color:${act?'var(--text)':'var(--text3)'};font-family:inherit;font-size:11px;font-weight:${act?'700':'400'};">${lbl}</button>`; }).join('');
-  const _tgl=`<span style="margin-left:auto;display:flex;gap:4px;align-items:center;">${_dayBtns}<button onclick="dashToggleHeute()" title="${_dashHeuteMin?'Aufklappen':'Minimieren'}" style="background:none;border:1px solid var(--border);border-radius:6px;padding:2px 8px;cursor:pointer;color:var(--text3);font-family:inherit;font-size:11px;">${_dashHeuteMin?'▸ aufklappen':'▾ minimieren'}</button></span>`;
+  const _bhOpts=_dashBhOptions(); if(_dashBhScope&&!_bhOpts.includes(_dashBhScope)) _bhOpts.push(_dashBhScope);
+  const _bhSel=_bhOpts.length?`<select onchange="dashSetBh(this.value)" title="Betriebshof-Filter — Unzugeordnetes bleibt sichtbar" style="border:1px solid ${_dashBhScope?'#d97706':'var(--border)'};border-radius:6px;padding:2px 6px;font-family:inherit;font-size:11px;color:${_dashBhScope?'var(--text)':'var(--text3)'};background:var(--surface);max-width:150px;">
+      <option value="">Alle Höfe</option>${_bhOpts.map(b=>`<option value="${dlEsc(b)}"${b===_dashBhScope?' selected':''}>${dlEsc(b)}</option>`).join('')}</select>`:'';
+  const _tgl=`<span style="margin-left:auto;display:flex;gap:4px;align-items:center;flex-wrap:wrap;">${_bhSel}${_dayBtns}<button onclick="dashToggleHeute()" title="${_dashHeuteMin?'Aufklappen':'Minimieren'}" style="background:none;border:1px solid var(--border);border-radius:6px;padding:2px 8px;cursor:pointer;color:var(--text3);font-family:inherit;font-size:11px;">${_dashHeuteMin?'▸ aufklappen':'▾ minimieren'}</button></span>`;
   const border=rueck?'#d97706':'var(--green-mid)';
   const titel=`${rueck?'Rückblick':'Heute'} — ${wd}, ${day.split('-').reverse().join('.')}`;
-  const hinweis=rueck?'Meldungen und Abschlüsse des Tages — Live-Status und Überhänge zeigt nur die Heute-Ansicht':'Soll aus dem Tourkalender (Betriebstage · Rhythmus · Saison)';
+  const hinweis=(rueck?'Meldungen und Abschlüsse des Tages — Live-Status und Überhänge zeigt nur die Heute-Ansicht':'Soll aus dem Tourkalender (Betriebstage · Rhythmus · Saison)')+(_dashBhScope?` · Hof „${dlEsc(_dashBhScope)}" + ohne Zuordnung`:'');
   if(_dashHeuteMin){ // minimiert: eine Zeile mit den Soll/Ist-Zahlen
     el.innerHTML=`<div class="dsh-card" style="border:2px solid ${border};margin-bottom:12px;padding:8px 14px;">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
@@ -13129,7 +13157,7 @@ function dashRenderHeute(){
     ${rows.length?`<div style="display:grid;grid-template-columns:12px 1fr auto auto auto;gap:5px 10px;align-items:center;">
       ${rows.map(r=>`
         <span style="width:9px;height:9px;border-radius:50%;background:${r.t.color||'#888'};"></span>
-        <span style="font-size:12.5px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(r.t.name||'Tour')} <span style="font-weight:400;color:${r.crew.length?'var(--text3)':'var(--red)'};font-size:11px;">· ${r.crew.length?dlEsc(r.crew.join(', ')):'unbesetzt'}</span></span>
+        <span style="font-size:12.5px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(r.t.name||'Tour')}${(_dashBhScope&&!(r.t.betriebshof||'').trim())?' <span style="font-size:9px;font-weight:700;color:var(--text3);background:var(--surface2);padding:1px 6px;border-radius:5px;">ohne Betriebshof</span>':''} <span style="font-weight:400;color:${r.crew.length?'var(--text3)':'var(--red)'};font-size:11px;">· ${r.crew.length?dlEsc(r.crew.join(', ')):'unbesetzt'}</span></span>
         <span style="font-size:11px;color:var(--text2);white-space:nowrap;"><b style="font-weight:700;color:var(--green);">${r.bewN}</b> ✓ · <b style="font-weight:700;color:${r.nichtN?'var(--red)':'var(--text3)'};">${r.nichtN}</b> ✕ · ${r.offenN} offen · ${r.total} Obj.</span>
         <span style="display:flex;width:70px;height:5px;border-radius:3px;background:var(--surface2);overflow:hidden;"><span style="width:${r.total?Math.round(r.bewN/r.total*100):0}%;background:var(--green);"></span><span style="width:${r.total?Math.round(r.nichtN/r.total*100):0}%;background:var(--dsh-red-mid);"></span></span>
         ${pill(r)}`).join('')}
@@ -16170,7 +16198,7 @@ Object.assign(window,{
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleRequiredFeld,toggleRawSeg,_siInfo,
-  createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,epChangeBh,psSetOrgFilter,setSiTab,
+  createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,dashSetBh,epChangeBh,psSetOrgFilter,setSiTab,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,openMeldungFotos,stepMeldungFoto,closeMeldungFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,

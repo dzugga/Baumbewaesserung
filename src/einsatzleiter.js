@@ -47,6 +47,28 @@ let dayOffset = 0;                    // 0=heute, 1/2=Rückblick (Zähler dann =
 let heuteTourIds = new Set();         // am gewählten Tag gültige Touren → Basis für KPIs/Karte/Gründe
 let heuteDueTourIds = new Set();      // davon regulär fällig (für die Aufteilung heute/Vortage)
 let heuteMin = (()=>{ try{ return localStorage.getItem('el_heute_min')==='1'; }catch(_){ return false; } })();
+// ── Betriebshof-Filter (wie Desktop-Dashboard/Einsatzplaner): Ansicht, Unzugeordnetes bleibt sichtbar ──
+let bhScope = '';
+function bhVis(n){ n=(n||'').trim(); return !bhScope || !n || n===bhScope; }
+function bhOptions(){
+  const s=new Set((((currentProjectData||{}).listValues||{}).betriebshof||[]).map(b=>(b.label||'').trim()).filter(Boolean));
+  tours.forEach(t=>{ const n=(t.betriebshof||'').trim(); if(n) s.add(n); });
+  return [...s].sort((a,b)=>a.localeCompare(b));
+}
+function setBh(v){ bhScope=(v||'').trim(); try{ localStorage.setItem('el_bh_'+currentProjectId,bhScope); }catch(_){} render(); }
+window.elSetBh=setBh;
+async function bhPreset(){ // gemerkte Auswahl je Projekt, sonst eigener Hof der angemeldeten Person (PIN-Login)
+  bhScope='';
+  let saved=null; try{ saved=localStorage.getItem('el_bh_'+currentProjectId); }catch(_){}
+  if(saved!==null){ bhScope=saved; return; }
+  try{
+    const uid=(firebase.auth().currentUser||{}).uid||'';
+    if(!uid.startsWith('drv_')) return;
+    const s=await db.collection('drivers').doc(uid.slice(4)).get();
+    const hof=s.exists?((s.data().betriebshof||'').trim()):'';
+    if(hof) bhScope=hof;
+  }catch(e){ console.warn('bh preset',e); }
+}
 
 // ─── n:m TOUR-HELFER ──────────────────────────────────────────
 function getTreeTourIds(tree){
@@ -233,6 +255,7 @@ function renderHeute(){
   });
   const rows=[];
   tours.forEach(t=>{
+    if(!bhVis(t.betriebshof)) return; // Betriebshof-Filter (KPIs/Karte/Gründe folgen via heuteTourIds)
     const closedToday=rueck?(t.lastClosedDate===day):(t.status==='abgeschlossen'&&t.lastClosedDate===day);
     let dueToday=false, since=null;
     if(rueck){ // Rückblick: nur regulär fällige Touren des Tages (Überhänge/Bedarfs-Stand nicht rekonstruierbar)
@@ -263,7 +286,7 @@ function renderHeute(){
   heuteDueTourIds=new Set(rows.filter(r=>r.dueToday).map(r=>r.t.id));
   const doneN=rows.filter(r=>r.state==='done').length, runN=rows.filter(r=>r.state==='run').length, noneN=rows.length-doneN-runN;
   const dueN=rows.filter(r=>r.dueToday).length, lateN=rows.length-dueN;
-  const extra=tours.filter(t=>!heuteTourIds.has(t.id)&&cntTour[t.id]).map(t=>({t,n:cntTour[t.id]}));
+  const extra=tours.filter(t=>!heuteTourIds.has(t.id)&&cntTour[t.id]&&bhVis(t.betriebshof)).map(t=>({t,n:cntTour[t.id]}));
   const _seit=r=>r.since?` · fällig ${r.since.slice(5).split('-').reverse().join('.')}`:'';
   const pill=r=>r.state==='done'?`<span style="font-size:10.5px;font-weight:600;color:#166534;background:#dcfce7;border-radius:99px;padding:2px 9px;white-space:nowrap;">✓ abgeschlossen${r.closedTime?' '+r.closedTime:''}${_seit(r)}</span>`
     :r.state==='run'?`<span style="font-size:10.5px;font-weight:600;color:#1e40af;background:#dbeafe;border-radius:99px;padding:2px 9px;white-space:nowrap;">▶ ${rueck?'gemeldet':'läuft'}${r.last?' · zuletzt '+r.last:''}${_seit(r)}</span>`
@@ -273,10 +296,13 @@ function renderHeute(){
   const wd=WD_FULL[new Date(day+'T12:00:00').getDay()];
   const dayBtns=[2,1,0].map(o=>{ const d=o?addDays(today,-o):today; const lbl=o?d.slice(8,10)+'.'+d.slice(5,7)+'.':'Heute'; const act=o===dayOffset;
     return `<button onclick="elSetDay(${o})" style="background:${act?'var(--surface2)':'none'};border:1px solid ${act?'var(--text3)':'var(--border)'};border-radius:6px;padding:3px 9px;cursor:pointer;color:${act?'var(--text)':'var(--text3)'};font-family:inherit;font-size:11px;font-weight:${act?'700':'400'};">${lbl}</button>`; }).join('');
-  const tgl=`<span style="margin-left:auto;display:flex;gap:4px;align-items:center;flex-wrap:wrap;">${dayBtns}<button onclick="elToggleHeute()" style="background:none;border:1px solid var(--border);border-radius:6px;padding:3px 9px;cursor:pointer;color:var(--text3);font-family:inherit;font-size:11px;">${heuteMin?'▸ aufklappen':'▾ minimieren'}</button></span>`;
+  const bhOpts=bhOptions(); if(bhScope&&!bhOpts.includes(bhScope)) bhOpts.push(bhScope);
+  const bhSel=bhOpts.length?`<select onchange="elSetBh(this.value)" title="Betriebshof-Filter — Unzugeordnetes bleibt sichtbar" style="border:1px solid ${bhScope?'#d97706':'var(--border)'};border-radius:6px;padding:3px 6px;font-family:inherit;font-size:11px;color:${bhScope?'var(--text)':'var(--text3)'};background:var(--surface);max-width:140px;">
+      <option value="">Alle Höfe</option>${bhOpts.map(b=>`<option value="${esc(b)}"${b===bhScope?' selected':''}>${esc(b)}</option>`).join('')}</select>`:'';
+  const tgl=`<span style="margin-left:auto;display:flex;gap:4px;align-items:center;flex-wrap:wrap;">${bhSel}${dayBtns}<button onclick="elToggleHeute()" style="background:none;border:1px solid var(--border);border-radius:6px;padding:3px 9px;cursor:pointer;color:var(--text3);font-family:inherit;font-size:11px;">${heuteMin?'▸ aufklappen':'▾ minimieren'}</button></span>`;
   const border=rueck?'#d97706':'var(--green)';
   const titel=`${rueck?'Rückblick':'Heute'} — ${wd}, ${day.split('-').reverse().join('.')}`;
-  const hinweis=rueck?'Meldungen und Abschlüsse des Tages — Live-Status nur in der Heute-Ansicht':'Soll aus dem Tourkalender';
+  const hinweis=(rueck?'Meldungen und Abschlüsse des Tages — Live-Status nur in der Heute-Ansicht':'Soll aus dem Tourkalender')+(bhScope?` · Hof „${esc(bhScope)}" + ohne Zuordnung`:'');
   if(heuteMin){
     el.innerHTML=`<div class="card" style="border:2px solid ${border};padding:10px 14px;">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
@@ -299,7 +325,7 @@ function renderHeute(){
     ${rows.length?rows.map(r=>`
       <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-top:1px solid var(--surface2);flex-wrap:wrap;">
         <span style="width:9px;height:9px;border-radius:50%;background:${r.t.color||'#888'};flex-shrink:0;"></span>
-        <span style="font-size:12.5px;font-weight:600;min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.t.name||'Tour')} <span style="font-weight:400;color:${r.crew.length?'var(--text3)':'var(--red)'};font-size:11px;">· ${r.crew.length?esc(r.crew.join(', ')):'unbesetzt'}</span></span>
+        <span style="font-size:12.5px;font-weight:600;min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.t.name||'Tour')}${(bhScope&&!(r.t.betriebshof||'').trim())?' <span style="font-size:9px;font-weight:700;color:var(--text3);background:var(--surface2);padding:1px 6px;border-radius:5px;">ohne Betriebshof</span>':''} <span style="font-weight:400;color:${r.crew.length?'var(--text3)':'var(--red)'};font-size:11px;">· ${r.crew.length?esc(r.crew.join(', ')):'unbesetzt'}</span></span>
         <span style="font-size:11px;color:var(--text2);white-space:nowrap;"><b style="font-weight:700;color:var(--green-dark);">${r.bewN}</b> ✓ · <b style="font-weight:700;color:${r.nichtN?'var(--red)':'var(--text3)'};">${r.nichtN}</b> ✕ · ${r.offenN} offen · ${r.total} Obj.</span>
         <span style="display:flex;width:60px;height:5px;border-radius:3px;background:var(--surface2);overflow:hidden;flex-shrink:0;"><span style="width:${r.total?Math.round(r.bewN/r.total*100):0}%;background:var(--green);"></span><span style="width:${r.total?Math.round(r.nichtN/r.total*100):0}%;background:var(--red-mid);"></span></span>
         ${pill(r)}
@@ -508,6 +534,7 @@ async function startEinsatzleiter(pid){
   }).catch(()=>{});
   document.getElementById('screen-login').classList.remove('active');
   document.getElementById('screen-app').classList.add('active');
+  await bhPreset(); // Betriebshof-Vorbelegung (gemerkte Auswahl bzw. eigener Hof)
   subscribe(); // trees + tours + tourHistory live (kein Polling mehr)
 }
 
