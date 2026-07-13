@@ -12943,6 +12943,9 @@ async function removeErfasser(name){
 
 // ─── DASHBOARD (Live-Lagebild, identisch zur Einsatzleiter-App) ──
 const dashPeriod='today'; // Dashboard = reines Tages-Lagebild (Nutzer-Entscheid 13.07.); Zeiträume macht das Controlling
+let _dashDayOffset=0; // 0=heute, 1/2=Rückblick (max. 2 Tage; Zähler dann = Meldungen des Tages, kein Live-/Durchgangs-Stand)
+function _dashSelDay(){ return _dashDayOffset?_epAddDays(_todayStr(),-_dashDayOffset):_todayStr(); }
+function dashSetDay(off){ _dashDayOffset=Math.max(0,Math.min(2,off)); renderDashboard(); }
 let dashNichtMap=null;
 let dashNichtLayer=null;
 let dashTourHistory=[];
@@ -12951,7 +12954,7 @@ let dashTourHistoryLoaded=false;
 function dashGetDateRange(){
   const now=new Date();
   const today=new Date(now.getFullYear(),now.getMonth(),now.getDate());
-  if(dashPeriod==='today') return {from:today,to:new Date(today.getTime()+86400000-1)};
+  if(dashPeriod==='today'){ const sel=new Date(today.getTime()-_dashDayOffset*86400000); return {from:sel,to:new Date(sel.getTime()+86400000-1)}; }
   if(dashPeriod==='week'){ const mon=new Date(today); mon.setDate(today.getDate()-((today.getDay()+6)%7)); return {from:mon,to:new Date(mon.getTime()+7*86400000-1)}; }
   if(dashPeriod==='month') return {from:new Date(now.getFullYear(),now.getMonth(),1),to:new Date(now.getFullYear(),now.getMonth()+1,0,23,59,59)};
   if(dashPeriod==='all') return {from:new Date(0),to:new Date(now.getTime())};
@@ -13007,33 +13010,37 @@ function dashBuildReported(){
 
 function renderDashboard(){
   if(!currentProjectId){ const g=document.getElementById('dash-kpi-grid'); if(g) g.innerHTML='<div style="padding:20px;color:var(--text3);">Bitte zuerst ein Projekt öffnen.</div>'; return; }
-  dashRenderHeute(); // Tages-Soll/Ist — setzt _dashHeuteTourIds (heute gültige Touren) für Gründe/Karte
-  // Nur heutige Meldungen zu den heute gültigen Touren (inkl. Überfällige/Bedarf im Heute-Block)
+  dashRenderHeute(); // Tages-Soll/Ist — setzt _dashHeuteTourIds (am gewählten Tag gültige Touren) für Gründe/Karte
+  const rueck=_dashDayOffset>0;
+  const dayLbl=rueck?_dashSelDay().slice(8,10)+'.'+_dashSelDay().slice(5,7)+'.':'heute';
+  // Nur Meldungen des gewählten Tages zu dessen gültigen Touren (heute inkl. Überfällige/Bedarf im Heute-Block)
   const reported=dashBuildReported().filter(r=>realTourIds(r).some(id=>_dashHeuteTourIds.has(id)));
   const bew=reported.filter(r=>r.lastStatus==='bewaessert');
   const nicht=reported.filter(r=>r.lastStatus==='nicht');
   const meldungen=bew.length+nicht.length;
   const pct=meldungen>0?Math.round(bew.length/meldungen*100):0;
   const aktiveFahrer=new Set(reported.map(r=>r.lastDriver).filter(Boolean)).size;
-  // Auftragsbestand heute: eindeutige Objekte in den heute gültigen (inkl. überfälligen/Bedarfs-)Touren.
-  // Jedes Objekt zählt genau einer Gruppe: „heute", wenn es in einer heute fälligen Tour liegt, sonst „aus Vortagen".
+  // Auftragsbestand: eindeutige Objekte in den am Tag gültigen Touren. Heute zählt jedes Objekt genau
+  // einer Gruppe: „heute", wenn es in einer heute fälligen Tour liegt, sonst „aus Vortagen".
   let aufHeute=0, aufVortage=0, gemeldet=0;
   (trees||[]).forEach(x=>{ if(!isActive(x)) return; const tids=realTourIds(x);
     const inDue=tids.some(id=>_dashHeuteDueTourIds.has(id));
     if(!inDue&&!tids.some(id=>_dashHeuteTourIds.has(id))) return;
     if(inDue) aufHeute++; else aufVortage++;
-    if(x.lastStatus) gemeldet++; }); // gemeldet = Stand des laufenden Durchgangs (wie Fahrer-App)
+    if(!rueck&&x.lastStatus) gemeldet++; }); // gemeldet heute = Stand des laufenden Durchgangs (wie Fahrer-App)
+  if(rueck) gemeldet=new Set(reported.map(r=>r.id)).size; // Rückblick: eindeutige Objekte mit Meldung an dem Tag
   const auftraege=aufHeute+aufVortage;
-  const aufSub=aufVortage?`${aufHeute} heute · ${aufVortage} aus Vortagen · ${gemeldet} gemeldet`
+  const aufSub=(!rueck&&aufVortage)?`${aufHeute} heute · ${aufVortage} aus Vortagen · ${gemeldet} gemeldet`
     :`${gemeldet} gemeldet · ${_dashHeuteTourIds.size} Tour${_dashHeuteTourIds.size===1?'':'en'}`;
   const grid=document.getElementById('dash-kpi-grid');
   if(grid) grid.innerHTML=[
-    {val:auftraege,lbl:'Aufträge heute',sub:aufSub,color:'var(--text)'},
-    {val:bew.length,lbl:'Erledigt',sub:`heute · ${pct}% der Meldungen`,color:'var(--green)'},
-    {val:nicht.length,lbl:'Nicht erledigt',sub:'heute',color:'var(--red)'},
-    {val:meldungen,lbl:'Meldungen',sub:'heute gesamt',color:'var(--blue)'},
-    {val:aktiveFahrer,lbl:'Aktive Fahrer',sub:'heute',color:'var(--amber)'},
+    {val:auftraege,lbl:'Aufträge '+dayLbl,sub:aufSub,color:'var(--text)'},
+    {val:bew.length,lbl:'Erledigt',sub:`${dayLbl} · ${pct}% der Meldungen`,color:'var(--green)'},
+    {val:nicht.length,lbl:'Nicht erledigt',sub:dayLbl,color:'var(--red)'},
+    {val:meldungen,lbl:'Meldungen',sub:dayLbl+' gesamt',color:'var(--blue)'},
+    {val:aktiveFahrer,lbl:'Aktive Fahrer',sub:dayLbl,color:'var(--amber)'},
   ].map(k=>`<div class="dsh-tile"><div class="dsh-val" style="color:${k.color};">${k.val}</div><div class="dsh-lbl">${k.lbl}</div><div class="dsh-sub">${k.sub}</div></div>`).join('');
+  const mapDay=document.getElementById('dash-map-day'); if(mapDay) mapDay.textContent=dayLbl;
   dashRenderReasons(nicht);
   dashRenderNichtMap(nicht);
   const u=document.getElementById('dash-updated');
@@ -13059,38 +13066,44 @@ let _dashHeuteMin=(()=>{ try{ return localStorage.getItem('dash_heute_min')==='1
 function dashToggleHeute(){ _dashHeuteMin=!_dashHeuteMin; try{ localStorage.setItem('dash_heute_min',_dashHeuteMin?'1':''); }catch(_){} dashRenderHeute(); }
 function dashRenderHeute(){
   const el=document.getElementById('dash-heute'); if(!el) return;
-  const today=_todayStr();
-  // EIN Durchlauf über alle Objekte. ✓/✕/gemeldet = Stand des LAUFENDEN DURCHGANGS (lastStatus,
-  // wird erst beim Tour-Abschluss zurückgesetzt) — deckungsgleich mit der Fahrer-App-Anzeige.
-  // cntTour/lastTour bleiben tagesbezogen (steuern „läuft heute" und „außerplanmäßig gefahren").
+  const day=_dashSelDay(), rueck=_dashDayOffset>0;
+  // EIN Durchlauf über alle Objekte. Heute-Ansicht: ✓/✕/gemeldet = Stand des LAUFENDEN DURCHGANGS
+  // (lastStatus, wird erst beim Tour-Abschluss zurückgesetzt) — deckungsgleich mit der Fahrer-App.
+  // Rückblick: dieser Live-Zustand ist für Vortage nicht gespeichert → ✓/✕/gemeldet = letzte Meldung
+  // des gewählten Tages je Objekt. cntTour/lastTour sind immer tagesbezogen („läuft"/„außerplanmäßig").
   const memTour={}, repTour={}, cntTour={}, lastTour={}, bewTour={}, nichtTour={};
   (trees||[]).forEach(x=>{
     if(!isActive(x)) return;
     const tids=realTourIds(x); if(!tids.length) return;
     tids.forEach(tid=>{ memTour[tid]=(memTour[tid]||0)+1;
-      if(x.lastStatus){ repTour[tid]=(repTour[tid]||0)+1;
+      if(!rueck&&x.lastStatus){ repTour[tid]=(repTour[tid]||0)+1;
         if(x.lastStatus==='bewaessert') bewTour[tid]=(bewTour[tid]||0)+1; else nichtTour[tid]=(nichtTour[tid]||0)+1; } });
-    let n=0,last='';
-    (x.history||[]).forEach(h=>{ if(h&&h.status&&h.date===today){ n++; if(!h.at||h.at>=last) last=h.at||last; } });
+    let n=0,last='',lastStatus='';
+    (x.history||[]).forEach(h=>{ if(h&&h.status&&h.date===day){ n++; if(!h.at||h.at>=last){ last=h.at||last; lastStatus=h.status; } } });
     if(n) tids.forEach(tid=>{ cntTour[tid]=(cntTour[tid]||0)+n;
-      if(!lastTour[tid]||last>lastTour[tid]) lastTour[tid]=last; });
+      if(!lastTour[tid]||last>lastTour[tid]) lastTour[tid]=last;
+      if(rueck){ repTour[tid]=(repTour[tid]||0)+1;
+        if(lastStatus==='bewaessert') bewTour[tid]=(bewTour[tid]||0)+1; else nichtTour[tid]=(nichtTour[tid]||0)+1; } });
   });
   const real=tours.filter(t=>!t.uebersicht);
   // Anzeige-Menge: heute fällig ODER Überhang (frühere Fälligkeit/Bedarfs-Aktivierung ohne Abschluss;
   // ein HEUTIGER Abschluss bleibt sichtbar, damit die erledigte Tour nicht sofort verschwindet)
   const rows=[];
   real.forEach(t=>{
-    const closedToday=t.status==='abgeschlossen'&&t.lastClosedDate===today;
+    const closedToday=rueck?(t.lastClosedDate===day):(t.status==='abgeschlossen'&&t.lastClosedDate===day);
     let dueToday=false, since=null;
-    if((t.interval||'')==='bedarf'){
-      if(!t.crewDate||t.crewDate>today) return;
+    if(rueck){ // Rückblick: nur die an dem Tag regulär fälligen Touren (Überhänge/Bedarfs-Stand sind rückwirkend nicht rekonstruierbar)
+      dueToday=(t.interval||'')==='bedarf'?t.crewDate===day:tourDueOn(t,day);
+      if(!dueToday) return;
+    } else if((t.interval||'')==='bedarf'){
+      if(!t.crewDate||t.crewDate>day) return;
       const closedSince=t.lastClosedDate&&t.lastClosedDate>=t.crewDate;
       if(closedSince&&!closedToday) return;
-      dueToday=t.crewDate===today; since=dueToday?null:t.crewDate;
+      dueToday=t.crewDate===day; since=dueToday?null:t.crewDate;
     } else {
-      dueToday=tourDueOn(t,today);
+      dueToday=tourDueOn(t,day);
       if(!dueToday){
-        const ld=_dashLastDueBefore(t,today); if(!ld) return;
+        const ld=_dashLastDueBefore(t,day); if(!ld) return;
         const closedSince=t.lastClosedDate&&t.lastClosedDate>=ld;
         if(closedSince&&!closedToday) return;
         since=ld;
@@ -13110,30 +13123,35 @@ function dashRenderHeute(){
   const extra=real.filter(t=>!_dashHeuteTourIds.has(t.id)&&cntTour[t.id]).map(t=>({t,n:cntTour[t.id]}));
   const _seit=r=>r.since?` · fällig ${r.since.slice(5).split('-').reverse().join('.')}`:'';
   const pill=r=>r.state==='done'?`<span style="font-size:10.5px;font-weight:600;color:#166534;background:#dcfce7;border-radius:99px;padding:2px 9px;white-space:nowrap;">✓ abgeschlossen${r.closedTime?' '+r.closedTime:''}${_seit(r)}</span>`
-    :r.state==='run'?`<span style="font-size:10.5px;font-weight:600;color:#1e40af;background:#dbeafe;border-radius:99px;padding:2px 9px;white-space:nowrap;">▶ läuft${r.last?' · zuletzt '+r.last:''}${_seit(r)}</span>`
+    :r.state==='run'?`<span style="font-size:10.5px;font-weight:600;color:#1e40af;background:#dbeafe;border-radius:99px;padding:2px 9px;white-space:nowrap;">▶ ${rueck?'gemeldet':'läuft'}${r.last?' · zuletzt '+r.last:''}${_seit(r)}</span>`
     :r.since?`<span style="font-size:10.5px;font-weight:600;color:#991b1b;background:#fee2e2;border-radius:99px;padding:2px 9px;white-space:nowrap;">⏰ nicht abgeschlossen${_seit(r)}</span>`
     :`<span style="font-size:10.5px;font-weight:600;color:#854f0b;background:#fef3c7;border-radius:99px;padding:2px 9px;white-space:nowrap;">○ keine Rückmeldung</span>`;
   const kpi=(v,l,c)=>`<div style="background:var(--surface2);border-radius:8px;padding:7px 12px;"><div style="font-size:18px;font-weight:800;font-family:'DM Mono',monospace;line-height:1.1;color:${c};">${v}</div><div style="font-size:10.5px;color:var(--text2);">${l}</div></div>`;
-  const wd=_WD_FULL[new Date().getDay()];
-  const _tgl=`<button onclick="dashToggleHeute()" title="${_dashHeuteMin?'Aufklappen':'Minimieren'}" style="margin-left:auto;background:none;border:1px solid var(--border);border-radius:6px;padding:2px 8px;cursor:pointer;color:var(--text3);font-family:inherit;font-size:11px;">${_dashHeuteMin?'▸ aufklappen':'▾ minimieren'}</button>`;
+  const wd=_WD_FULL[new Date(day+'T12:00:00').getDay()];
+  const _dayBtns=[2,1,0].map(o=>{ const d=o?_epAddDays(_todayStr(),-o):_todayStr(); const lbl=o?d.slice(8,10)+'.'+d.slice(5,7)+'.':'Heute'; const act=o===_dashDayOffset;
+    return `<button onclick="dashSetDay(${o})" style="background:${act?'var(--surface2)':'none'};border:1px solid ${act?'var(--text3)':'var(--border)'};border-radius:6px;padding:2px 8px;cursor:pointer;color:${act?'var(--text)':'var(--text3)'};font-family:inherit;font-size:11px;font-weight:${act?'700':'400'};">${lbl}</button>`; }).join('');
+  const _tgl=`<span style="margin-left:auto;display:flex;gap:4px;align-items:center;">${_dayBtns}<button onclick="dashToggleHeute()" title="${_dashHeuteMin?'Aufklappen':'Minimieren'}" style="background:none;border:1px solid var(--border);border-radius:6px;padding:2px 8px;cursor:pointer;color:var(--text3);font-family:inherit;font-size:11px;">${_dashHeuteMin?'▸ aufklappen':'▾ minimieren'}</button></span>`;
+  const border=rueck?'#d97706':'var(--green-mid)';
+  const titel=`${rueck?'Rückblick':'Heute'} — ${wd}, ${day.split('-').reverse().join('.')}`;
+  const hinweis=rueck?'Meldungen und Abschlüsse des Tages — Live-Status und Überhänge zeigt nur die Heute-Ansicht':'Soll aus dem Tourkalender (Betriebstage · Rhythmus · Saison)';
   if(_dashHeuteMin){ // minimiert: eine Zeile mit den Soll/Ist-Zahlen
-    el.innerHTML=`<div class="dsh-card" style="border:2px solid var(--green-mid);margin-bottom:12px;padding:8px 14px;">
+    el.innerHTML=`<div class="dsh-card" style="border:2px solid ${border};margin-bottom:12px;padding:8px 14px;">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-        <span style="font-size:12.5px;font-weight:700;">Heute — ${wd}, ${today.split('-').reverse().join('.')}</span>
+        <span style="font-size:12.5px;font-weight:700;">${titel}</span>
         <span style="font-size:11.5px;color:var(--text2);"><b style="font-weight:700;">${dueN}</b> fällig${lateN?` · <b style="font-weight:700;color:#991b1b;">${lateN}</b> ⏰ aus Vortagen`:''} · <b style="font-weight:700;color:var(--green);">${doneN}</b> ✓ · <b style="font-weight:700;color:#1e40af;">${runN}</b> ▶ · <b style="font-weight:700;color:${noneN?'#b45309':'var(--text3)'};">${noneN}</b> ○ ohne Rückmeldung${extra.length?` · <span style="color:#854f0b;">⚠ ${extra.length} außerplanmäßig</span>`:''}</span>
         ${_tgl}
       </div>
     </div>`;
     return;
   }
-  el.innerHTML=`<div class="dsh-card" style="border:2px solid var(--green-mid);margin-bottom:12px;">
+  el.innerHTML=`<div class="dsh-card" style="border:2px solid ${border};margin-bottom:12px;">
     <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px;">
-      <span style="font-size:12.5px;font-weight:700;">Heute — ${wd}, ${today.split('-').reverse().join('.')}</span>
-      <span style="font-size:10.5px;color:var(--text3);">Soll aus dem Tourkalender (Betriebstage · Rhythmus · Saison)</span>
+      <span style="font-size:12.5px;font-weight:700;">${titel}</span>
+      <span style="font-size:10.5px;color:var(--text3);">${hinweis}</span>
       ${_tgl}
     </div>
     <div style="display:grid;grid-template-columns:repeat(${lateN?5:4},1fr);gap:8px;margin-bottom:${rows.length?'12px':'0'};">
-      ${kpi(dueN,'Touren fällig (Soll)','var(--text)')}${lateN?kpi(lateN,'aus Vortagen offen','#991b1b'):''}${kpi(doneN,'abgeschlossen','var(--green)')}${kpi(runN,'läuft (meldet)','#1e40af')}${kpi(noneN,'ohne Rückmeldung',noneN?'#b45309':'var(--text3)')}
+      ${kpi(dueN,'Touren fällig (Soll)','var(--text)')}${lateN?kpi(lateN,'aus Vortagen offen','#991b1b'):''}${kpi(doneN,'abgeschlossen','var(--green)')}${kpi(runN,rueck?'hat gemeldet':'läuft (meldet)','#1e40af')}${kpi(noneN,'ohne Rückmeldung',noneN?'#b45309':'var(--text3)')}
     </div>
     ${rows.length?`<div style="display:grid;grid-template-columns:12px 1fr auto auto auto;gap:5px 10px;align-items:center;">
       ${rows.map(r=>`
@@ -13142,10 +13160,10 @@ function dashRenderHeute(){
         <span style="font-size:11px;color:var(--text2);white-space:nowrap;"><b style="font-weight:700;color:var(--green);">${r.bewN}</b> ✓ · <b style="font-weight:700;color:${r.nichtN?'var(--red)':'var(--text3)'};">${r.nichtN}</b> ✕ · ${r.offenN} offen · ${r.total} Obj.</span>
         <span style="display:flex;width:70px;height:5px;border-radius:3px;background:var(--surface2);overflow:hidden;"><span style="width:${r.total?Math.round(r.bewN/r.total*100):0}%;background:var(--green);"></span><span style="width:${r.total?Math.round(r.nichtN/r.total*100):0}%;background:var(--dsh-red-mid);"></span></span>
         ${pill(r)}`).join('')}
-    </div>`:`<div style="font-size:12px;color:var(--text3);">Heute sind laut Tourkalender keine Touren fällig — und aus den Vortagen ist nichts offen.</div>`}
+    </div>`:`<div style="font-size:12px;color:var(--text3);">${rueck?'An diesem Tag waren laut Tourkalender keine Touren fällig.':'Heute sind laut Tourkalender keine Touren fällig — und aus den Vortagen ist nichts offen.'}</div>`}
     ${extra.length?`<div style="display:flex;align-items:baseline;gap:8px;margin-top:9px;padding-top:8px;border-top:1px solid var(--border);font-size:11px;color:var(--text2);flex-wrap:wrap;">
       <span style="color:#854f0b;font-weight:600;">⚠ Außerplanmäßig gefahren:</span>
-      ${extra.map(x=>`<span><b style="font-weight:600;">${dlEsc(x.t.name||'Tour')}</b> — ${x.n} Meldung${x.n===1?'':'en'} heute, laut Kalender nicht fällig</span>`).join(' · ')}
+      ${extra.map(x=>`<span><b style="font-weight:600;">${dlEsc(x.t.name||'Tour')}</b> — ${x.n} Meldung${x.n===1?'':'en'} ${rueck?'an diesem Tag':'heute'}, laut Kalender nicht fällig</span>`).join(' · ')}
     </div>`:''}
   </div>`;
 }
@@ -13154,7 +13172,7 @@ function dashRenderReasons(nichtTrees){
   const map={};
   nichtTrees.forEach(t=>{ const r=t.lastReason||'Kein Grund angegeben'; map[r]=(map[r]||0)+1; });
   const sorted=Object.entries(map).sort((a,b)=>b[1]-a[1]);
-  if(sorted.length===0){ el.innerHTML='<div class="dsh-empty">Heute keine Ausfälle 🎉</div>'; return; }
+  if(sorted.length===0){ el.innerHTML='<div class="dsh-empty">Keine Ausfälle 🎉</div>'; return; }
   const max=sorted[0][1];
   el.innerHTML=sorted.map(([reason,cnt])=>`
     <div class="dsh-reason-row">
@@ -16102,7 +16120,7 @@ Object.assign(window,{
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleRequiredFeld,toggleRawSeg,_siInfo,
-  createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,psSetOrgFilter,setSiTab,
+  createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,psSetOrgFilter,setSiTab,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,openMeldungFotos,stepMeldungFoto,closeMeldungFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
