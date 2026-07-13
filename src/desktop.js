@@ -13015,12 +13015,19 @@ function renderDashboard(){
   const meldungen=bew.length+nicht.length;
   const pct=meldungen>0?Math.round(bew.length/meldungen*100):0;
   const aktiveFahrer=new Set(reported.map(r=>r.lastDriver).filter(Boolean)).size;
-  // Auftragsbestand heute: eindeutige Objekte in den heute gültigen (inkl. überfälligen/Bedarfs-)Touren
-  let auftraege=0; (trees||[]).forEach(x=>{ if(isActive(x)&&realTourIds(x).some(id=>_dashHeuteTourIds.has(id))) auftraege++; });
+  // Auftragsbestand heute: eindeutige Objekte in den heute gültigen (inkl. überfälligen/Bedarfs-)Touren.
+  // Jedes Objekt zählt genau einer Gruppe: „heute", wenn es in einer heute fälligen Tour liegt, sonst „aus Vortagen".
+  let aufHeute=0, aufVortage=0;
+  (trees||[]).forEach(x=>{ if(!isActive(x)) return; const tids=realTourIds(x);
+    if(tids.some(id=>_dashHeuteDueTourIds.has(id))) aufHeute++;
+    else if(tids.some(id=>_dashHeuteTourIds.has(id))) aufVortage++; });
+  const auftraege=aufHeute+aufVortage;
   const gemeldet=new Set(reported.map(r=>r.id)).size;
+  const aufSub=aufVortage?`${aufHeute} heute · ${aufVortage} aus Vortagen · ${gemeldet} gemeldet`
+    :`${gemeldet} gemeldet · ${_dashHeuteTourIds.size} Tour${_dashHeuteTourIds.size===1?'':'en'}`;
   const grid=document.getElementById('dash-kpi-grid');
   if(grid) grid.innerHTML=[
-    {val:auftraege,lbl:'Aufträge heute',sub:`${gemeldet} gemeldet · ${_dashHeuteTourIds.size} Tour${_dashHeuteTourIds.size===1?'':'en'}`,color:'var(--text)'},
+    {val:auftraege,lbl:'Aufträge heute',sub:aufSub,color:'var(--text)'},
     {val:bew.length,lbl:'Erledigt',sub:`heute · ${pct}% der Meldungen`,color:'var(--green)'},
     {val:nicht.length,lbl:'Nicht erledigt',sub:'heute',color:'var(--red)'},
     {val:meldungen,lbl:'Meldungen',sub:'heute gesamt',color:'var(--blue)'},
@@ -13039,7 +13046,7 @@ function renderDashboard(){
 // Ist je Tour: ✓ abgeschlossen (heute) | ▶ läuft (Meldung heute) | ○ keine Rückmeldung.
 // Zähler je Tour (ersetzt die frühere Fortschritts-Karte): ✓ erledigt · ✕ nicht erledigt · offen.
 // _dashHeuteTourIds = die angezeigten Touren — Datenbasis für Gründe/Karte des Tages-Dashboards.
-let _dashHeuteTourIds=new Set();
+let _dashHeuteTourIds=new Set(), _dashHeuteDueTourIds=new Set();
 function _dashLastDueBefore(t,today){ for(let i=1;i<=14;i++){ const d=_epAddDays(today,-i); if(tourDueOn(t,d)) return d; } return null; }
 function _dashCrewToday(t){ // wirksame Besetzung heute — gleiche Regel wie _epEffCrew, ohne Einsatzplaner-Zustand
   const cur=t.drivers||(t.assignedDriver?[t.assignedDriver]:[]);
@@ -13093,6 +13100,7 @@ function dashRenderHeute(){
   });
   rows.sort((a,b)=>{ const o={none:0,run:1,done:2}; return (o[a.state]-o[b.state])||((a.since?0:1)-(b.since?0:1))||String(a.t.name||'').localeCompare(String(b.t.name||'')); });
   _dashHeuteTourIds=new Set(rows.map(r=>r.t.id));
+  _dashHeuteDueTourIds=new Set(rows.filter(r=>r.dueToday).map(r=>r.t.id));
   const doneN=rows.filter(r=>r.state==='done').length, runN=rows.filter(r=>r.state==='run').length, noneN=rows.length-doneN-runN;
   const dueN=rows.filter(r=>r.dueToday).length, lateN=rows.length-dueN;
   const extra=real.filter(t=>!_dashHeuteTourIds.has(t.id)&&cntTour[t.id]).map(t=>({t,n:cntTour[t.id]}));
