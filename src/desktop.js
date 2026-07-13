@@ -13017,12 +13017,13 @@ function renderDashboard(){
   const aktiveFahrer=new Set(reported.map(r=>r.lastDriver).filter(Boolean)).size;
   // Auftragsbestand heute: eindeutige Objekte in den heute gültigen (inkl. überfälligen/Bedarfs-)Touren.
   // Jedes Objekt zählt genau einer Gruppe: „heute", wenn es in einer heute fälligen Tour liegt, sonst „aus Vortagen".
-  let aufHeute=0, aufVortage=0;
+  let aufHeute=0, aufVortage=0, gemeldet=0;
   (trees||[]).forEach(x=>{ if(!isActive(x)) return; const tids=realTourIds(x);
-    if(tids.some(id=>_dashHeuteDueTourIds.has(id))) aufHeute++;
-    else if(tids.some(id=>_dashHeuteTourIds.has(id))) aufVortage++; });
+    const inDue=tids.some(id=>_dashHeuteDueTourIds.has(id));
+    if(!inDue&&!tids.some(id=>_dashHeuteTourIds.has(id))) return;
+    if(inDue) aufHeute++; else aufVortage++;
+    if(x.lastStatus) gemeldet++; }); // gemeldet = Stand des laufenden Durchgangs (wie Fahrer-App)
   const auftraege=aufHeute+aufVortage;
-  const gemeldet=new Set(reported.map(r=>r.id)).size;
   const aufSub=aufVortage?`${aufHeute} heute · ${aufVortage} aus Vortagen · ${gemeldet} gemeldet`
     :`${gemeldet} gemeldet · ${_dashHeuteTourIds.size} Tour${_dashHeuteTourIds.size===1?'':'en'}`;
   const grid=document.getElementById('dash-kpi-grid');
@@ -13059,16 +13060,19 @@ function dashToggleHeute(){ _dashHeuteMin=!_dashHeuteMin; try{ localStorage.setI
 function dashRenderHeute(){
   const el=document.getElementById('dash-heute'); if(!el) return;
   const today=_todayStr();
-  // EIN Durchlauf über alle Objekte: heutige Meldungen je Tour (gemeldet, ✓/✕ nach letzter Meldung, letzte Zeit)
+  // EIN Durchlauf über alle Objekte. ✓/✕/gemeldet = Stand des LAUFENDEN DURCHGANGS (lastStatus,
+  // wird erst beim Tour-Abschluss zurückgesetzt) — deckungsgleich mit der Fahrer-App-Anzeige.
+  // cntTour/lastTour bleiben tagesbezogen (steuern „läuft heute" und „außerplanmäßig gefahren").
   const memTour={}, repTour={}, cntTour={}, lastTour={}, bewTour={}, nichtTour={};
   (trees||[]).forEach(x=>{
     if(!isActive(x)) return;
     const tids=realTourIds(x); if(!tids.length) return;
-    tids.forEach(tid=>{ memTour[tid]=(memTour[tid]||0)+1; });
-    let n=0,last='',lastStatus='';
-    (x.history||[]).forEach(h=>{ if(h&&h.status&&h.date===today){ n++; if(!h.at||h.at>=last){ last=h.at||last; lastStatus=h.status; } } });
-    if(n) tids.forEach(tid=>{ repTour[tid]=(repTour[tid]||0)+1; cntTour[tid]=(cntTour[tid]||0)+n;
-      if(lastStatus==='bewaessert') bewTour[tid]=(bewTour[tid]||0)+1; else nichtTour[tid]=(nichtTour[tid]||0)+1;
+    tids.forEach(tid=>{ memTour[tid]=(memTour[tid]||0)+1;
+      if(x.lastStatus){ repTour[tid]=(repTour[tid]||0)+1;
+        if(x.lastStatus==='bewaessert') bewTour[tid]=(bewTour[tid]||0)+1; else nichtTour[tid]=(nichtTour[tid]||0)+1; } });
+    let n=0,last='';
+    (x.history||[]).forEach(h=>{ if(h&&h.status&&h.date===today){ n++; if(!h.at||h.at>=last) last=h.at||last; } });
+    if(n) tids.forEach(tid=>{ cntTour[tid]=(cntTour[tid]||0)+n;
       if(!lastTour[tid]||last>lastTour[tid]) lastTour[tid]=last; });
   });
   const real=tours.filter(t=>!t.uebersicht);
@@ -13093,7 +13097,7 @@ function dashRenderHeute(){
       }
     }
     const total=memTour[t.id]||0, rep=repTour[t.id]||0, bewN=bewTour[t.id]||0, nichtN=nichtTour[t.id]||0;
-    const state=closedToday?'done':(rep>0?'run':'none');
+    const state=closedToday?'done':((cntTour[t.id]||0)>0?'run':'none');
     rows.push({t,dueToday,since,total,rep,bewN,nichtN,offenN:Math.max(0,total-rep),
       last:lastTour[t.id]?String(lastTour[t.id]).slice(11,16):'',
       closedTime:(closedToday&&t.closedAt)?String(t.closedAt).slice(11,16):'',state,crew:_dashCrewToday(t)});
