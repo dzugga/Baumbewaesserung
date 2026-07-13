@@ -1352,7 +1352,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .dsh-reason-bar{height:5px;background:var(--surface2);border-radius:3px;overflow:hidden;}
 .dsh-reason-bar .fill{height:100%;background:var(--dsh-red-mid);border-radius:3px;transition:width .4s;}
 .dsh-chart-wrap{position:relative;height:200px;}
-.dsh-map-wrap{position:relative;height:220px;border-radius:var(--radius-sm);overflow:hidden;border:1px solid var(--border);}
+.dsh-map-wrap{position:relative;height:380px;min-height:220px;max-height:75vh;border-radius:var(--radius-sm);overflow:hidden;border:1px solid var(--border);resize:vertical;}
 #dash-nicht-map{height:100%;width:100%;background:var(--surface2);}
 .dsh-map-empty{position:absolute;inset:0;z-index:500;display:none;align-items:center;justify-content:center;background:rgba(245,243,238,.85);font-size:13px;color:var(--text3);text-align:center;padding:0 24px;pointer-events:none;}
 .dsh-map-empty.show{display:flex;}

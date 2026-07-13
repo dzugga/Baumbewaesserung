@@ -13196,6 +13196,16 @@ function dashRenderNichtMap(nichtReports){
     L.tileLayer(BASEMAP_FARBE,{maxZoom:20,maxNativeZoom:18}).addTo(dashNichtMap);
     dashNichtLayer=L.layerGroup().addTo(dashNichtMap);
     setTimeout(()=>dashNichtMap.invalidateSize(),200);
+    // Aufziehbare Karte (CSS resize:vertical am .dsh-map-wrap): Leaflet nachziehen + Höhe merken
+    const box=wrap.parentElement;
+    if(box){
+      try{ const h=parseInt(localStorage.getItem('dash_map_h'),10); if(h>=220) box.style.height=h+'px'; }catch(_){}
+      if(window.ResizeObserver){ let _t=null;
+        new ResizeObserver(()=>{ if(dashNichtMap) dashNichtMap.invalidateSize();
+          clearTimeout(_t); _t=setTimeout(()=>{ try{ localStorage.setItem('dash_map_h',String(box.offsetHeight)); }catch(_){} },400);
+        }).observe(box);
+      }
+    }
   }
   dashNichtLayer.clearLayers();
   const byId={};
