@@ -12943,7 +12943,6 @@ async function removeErfasser(name){
 
 // ─── DASHBOARD (Live-Lagebild, identisch zur Einsatzleiter-App) ──
 let dashPeriod='month';
-let dashTimelineChart=null;
 let dashNichtMap=null;
 let dashNichtLayer=null;
 let dashTourHistory=[];
@@ -13033,7 +13032,6 @@ function renderDashboard(){
   dashRenderTourProgress(reported);
   dashRenderReasons(nicht);
   dashRenderNichtMap(nicht);
-  dashRenderTimeline(reported,from,to);
   const u=document.getElementById('dash-updated');
   if(u) u.textContent='Stand: '+new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
 }
@@ -13048,6 +13046,8 @@ function _dashCrewToday(t){ // wirksame Besetzung heute — gleiche Regel wie _e
   if(!t.crewDate || t.crewDate===_todayStr() || !hasStd) return [...cur];
   return [...(t.stdDrivers||[])];
 }
+let _dashHeuteMin=(()=>{ try{ return localStorage.getItem('dash_heute_min')==='1'; }catch(_){ return false; } })();
+function dashToggleHeute(){ _dashHeuteMin=!_dashHeuteMin; try{ localStorage.setItem('dash_heute_min',_dashHeuteMin?'1':''); }catch(_){} dashRenderHeute(); }
 function dashRenderHeute(){
   const el=document.getElementById('dash-heute'); if(!el) return;
   const today=_todayStr();
@@ -13077,10 +13077,22 @@ function dashRenderHeute(){
     :`<span style="font-size:10.5px;font-weight:600;color:#854f0b;background:#fef3c7;border-radius:99px;padding:2px 9px;white-space:nowrap;">○ keine Rückmeldung</span>`;
   const kpi=(v,l,c)=>`<div style="background:var(--surface2);border-radius:8px;padding:7px 12px;"><div style="font-size:18px;font-weight:800;font-family:'DM Mono',monospace;line-height:1.1;color:${c};">${v}</div><div style="font-size:10.5px;color:var(--text2);">${l}</div></div>`;
   const wd=_WD_FULL[new Date().getDay()];
+  const _tgl=`<button onclick="dashToggleHeute()" title="${_dashHeuteMin?'Aufklappen':'Minimieren'}" style="margin-left:auto;background:none;border:1px solid var(--border);border-radius:6px;padding:2px 8px;cursor:pointer;color:var(--text3);font-family:inherit;font-size:11px;">${_dashHeuteMin?'▸ aufklappen':'▾ minimieren'}</button>`;
+  if(_dashHeuteMin){ // minimiert: eine Zeile mit den Soll/Ist-Zahlen
+    el.innerHTML=`<div class="dsh-card" style="border:2px solid var(--green-mid);margin-bottom:12px;padding:8px 14px;">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span style="font-size:12.5px;font-weight:700;">Heute — ${wd}, ${today.split('-').reverse().join('.')}</span>
+        <span style="font-size:11.5px;color:var(--text2);"><b style="font-weight:700;">${rows.length}</b> fällig · <b style="font-weight:700;color:var(--green);">${doneN}</b> ✓ · <b style="font-weight:700;color:#1e40af;">${runN}</b> ▶ · <b style="font-weight:700;color:${noneN?'#b45309':'var(--text3)'};">${noneN}</b> ○ ohne Rückmeldung${extra.length?` · <span style="color:#854f0b;">⚠ ${extra.length} außerplanmäßig</span>`:''}</span>
+        ${_tgl}
+      </div>
+    </div>`;
+    return;
+  }
   el.innerHTML=`<div class="dsh-card" style="border:2px solid var(--green-mid);margin-bottom:12px;">
     <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px;">
       <span style="font-size:12.5px;font-weight:700;">Heute — ${wd}, ${today.split('-').reverse().join('.')}</span>
       <span style="font-size:10.5px;color:var(--text3);">Soll aus dem Tourkalender (Betriebstage · Rhythmus · Saison)</span>
+      ${_tgl}
     </div>
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:${rows.length?'12px':'0'};">
       ${kpi(rows.length,'Touren fällig (Soll)','var(--text)')}${kpi(doneN,'abgeschlossen','var(--green)')}${kpi(runN,'läuft (meldet)','#1e40af')}${kpi(noneN,'ohne Rückmeldung',noneN?'#b45309':'var(--text3)')}
@@ -13212,51 +13224,6 @@ function dashRenderNichtMap(nichtReports){
     else { try{ if(map&&map.getCenter){ dashNichtMap.setView(map.getCenter(), Math.min(map.getZoom()||12,13)); } }catch(_){} }
   }
   setTimeout(()=>dashNichtMap.invalidateSize(),100);
-}
-
-function dashRenderTimeline(reported, from, to){
-  const canvas=document.getElementById('dash-timeline-chart');
-  if(!canvas||!window.Chart)return;
-  let start=from,end=to;
-  if(dashPeriod==='all'){
-    const dates=reported.map(r=>dashDayStr(r.lastReportAt)).filter(Boolean).sort();
-    start=dates.length?new Date(dates[0]+'T00:00:00'):new Date(to.getTime()-30*86400000);
-    end=new Date();
-  }
-  const spanDays=Math.round((end-start)/86400000)+1;
-  const monthly=spanDays>92;
-  const buckets={}; const order=[];
-  const pad=n=>String(n).padStart(2,'0');
-  const keyOf=(d)=> monthly?`${d.getFullYear()}-${pad(d.getMonth()+1)}`:`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-  const cur=new Date(start.getFullYear(),start.getMonth(),monthly?1:start.getDate());
-  let guard=0;
-  while(cur<=end&&guard++<2000){
-    const k=keyOf(cur);
-    if(!(k in buckets)){ buckets[k]={bew:0,nicht:0}; order.push(k); }
-    if(monthly) cur.setMonth(cur.getMonth()+1); else cur.setDate(cur.getDate()+1);
-  }
-  reported.forEach(r=>{
-    if(!r.lastReportAt)return;
-    const rd=new Date(r.lastReportAt); if(isNaN(rd))return;
-    const k=keyOf(rd); if(!buckets[k])return;
-    if(r.lastStatus==='bewaessert') buckets[k].bew++;
-    else if(r.lastStatus==='nicht') buckets[k].nicht++;
-  });
-  const labels=order.map(k=>{ if(monthly){ const[y,m]=k.split('-'); return `${m}/${y.slice(2)}`; } const d=new Date(k+'T12:00:00'); return `${d.getDate()}.${d.getMonth()+1}.`; });
-  if(dashTimelineChart) dashTimelineChart.destroy();
-  dashTimelineChart=new Chart(canvas,{
-    type:'line',
-    data:{ labels, datasets:[
-      {label:'Erledigt', data:order.map(k=>buckets[k].bew), borderColor:'#16a34a', backgroundColor:'rgba(22,163,74,.12)', fill:true, tension:.3, pointRadius:labels.length>40?0:3, borderWidth:2},
-      {label:'Nicht erledigt', data:order.map(k=>buckets[k].nicht), borderColor:'#dc2626', backgroundColor:'rgba(220,38,38,.08)', fill:true, tension:.3, pointRadius:labels.length>40?0:3, borderWidth:2},
-    ]},
-    options:{ responsive:true, maintainAspectRatio:false,
-      interaction:{mode:'index',intersect:false},
-      plugins:{legend:{position:'bottom',labels:{font:{size:11},padding:12,boxWidth:14}}},
-      scales:{ x:{ticks:{font:{size:10},maxRotation:0,autoSkip:true,maxTicksLimit:12}, grid:{display:false}},
-               y:{beginAtZero:true,ticks:{font:{size:11},precision:0}}}
-    }
-  });
 }
 
 async function loadDashTourHistory(){
@@ -16155,7 +16122,7 @@ Object.assign(window,{
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleRequiredFeld,toggleRawSeg,_siInfo,
-  createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,psSetOrgFilter,setSiTab,
+  createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,psSetOrgFilter,setSiTab,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,openMeldungFotos,stepMeldungFoto,closeMeldungFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
