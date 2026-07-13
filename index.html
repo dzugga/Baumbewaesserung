@@ -1361,8 +1361,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .dsh-legend{display:flex;gap:14px;font-size:11px;color:var(--text2);margin-top:8px;flex-wrap:wrap;}
 .dsh-legend span{display:flex;align-items:center;gap:5px;}
 .dsh-legend i{width:11px;height:11px;border-radius:3px;display:inline-block;}
-.dsh-period-btn{padding:4px 12px;font-size:12px;border:1px solid var(--border);background:var(--surface);border-radius:var(--radius-sm);cursor:pointer;color:var(--text2);font-weight:600;font-family:inherit;}
-.dsh-period-btn.active{background:var(--green-light);color:var(--green);border-color:var(--green-mid);}
 @keyframes dsh-spin{to{transform:rotate(360deg)}}
 @media (max-width:860px){.dsh-kpi-grid{grid-template-columns:repeat(2,1fr);}.dsh-cols{grid-template-columns:1fr;}}
 </style>
@@ -1370,18 +1368,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
   <!-- Toolbar -->
   <div style="background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;gap:12px;flex-shrink:0;flex-wrap:wrap;">
     <span style="font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;">Dashboard</span>
-    <div style="display:flex;gap:4px;flex-wrap:wrap;">
-      <button class="dsh-period-btn" data-period="today" onclick="dashSetPeriod('today',this)">Heute</button>
-      <button class="dsh-period-btn" data-period="week" onclick="dashSetPeriod('week',this)">Diese Woche</button>
-      <button class="dsh-period-btn active" data-period="month" onclick="dashSetPeriod('month',this)">Dieser Monat</button>
-      <button class="dsh-period-btn" data-period="all" onclick="dashSetPeriod('all',this)">Gesamt</button>
-      <button class="dsh-period-btn" data-period="custom" onclick="dashSetPeriod('custom',this)">Benutzerdefiniert</button>
-    </div>
-    <div id="dash-custom-dates" style="display:none;align-items:center;gap:6px;">
-      <input type="date" id="dash-date-from" class="form-control" style="padding:4px 8px;font-size:12px;width:auto;" onchange="renderDashboard()">
-      <span style="font-size:12px;color:var(--text3);">bis</span>
-      <input type="date" id="dash-date-to" class="form-control" style="padding:4px 8px;font-size:12px;width:auto;" onchange="renderDashboard()">
-    </div>
+    <span style="font-size:11px;color:var(--text3);">Tages-Lagebild — Auswertungen über Zeiträume: Controlling / Soll-Ist</span>
     <div style="display:flex;align-items:center;gap:8px;margin-left:auto;">
       <span id="dash-updated" style="font-size:11px;color:var(--text3);white-space:nowrap;"></span>
       <button class="btn btn-secondary" style="padding:4px 10px;font-size:12px;" onclick="refreshDashboard()" title="Daten aktualisieren">
@@ -1393,46 +1380,27 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
   <div class="dsh-content">
     <div class="dsh-wrap">
       <div id="dash-heute"></div>
-      <div class="dsh-range" id="dash-range-label">–</div>
-      <div class="dsh-kpi-grid" id="dash-kpi-grid"></div>
+      <div class="dsh-kpi-grid" id="dash-kpi-grid" style="grid-template-columns:repeat(5,1fr);"></div>
       <div class="dsh-cols">
-        <div class="dsh-card">
-          <div class="dsh-card-title" style="display:flex;align-items:center;gap:8px;">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="7"/><rect x="12" y="6" width="3" height="11"/><rect x="17" y="13" width="3" height="4"/></svg>
-            <span>Fortschritt je Tour</span>
-            <span id="dash-tour-count" style="font-size:11px;font-weight:400;color:var(--text3);"></span>
-            <span data-sx style="position:relative;margin-left:auto;display:inline-flex;align-items:center;">
-              <input id="dash-tour-search" type="text" placeholder="Tour suchen…" oninput="dashFilterTours(this.value);_sx(this)"
-                style="padding:4px 26px 4px 9px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:inherit;background:var(--bg);width:130px;max-width:45%;outline:none;">
-              <button type="button" class="s-x" aria-label="Suche aufheben" onclick="_sxClear(this)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
-            </span>
-          </div>
-          <div id="dash-tour-progress" style="max-height:270px;overflow-y:auto;"></div>
-          <div class="dsh-legend">
-            <span><i style="background:var(--green)"></i>Erledigt</span>
-            <span><i style="background:var(--dsh-red-mid)"></i>Nicht erledigt</span>
-            <span><i style="background:var(--surface2);border:1px solid var(--border)"></i>Offen</span>
-          </div>
-        </div>
-        <div class="dsh-card">
-          <div class="dsh-card-title">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-            Gründe „nicht erledigt"
-          </div>
-          <div id="dash-reasons" style="max-height:175px;overflow-y:auto;"></div>
-        </div>
-      </div>
       <div class="dsh-card">
         <div class="dsh-card-title">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-          Nicht erledigt — Karte
+          Nicht erledigt heute — Karte
           <span class="pct" id="dash-map-count" style="color:var(--red);font-weight:700;"></span>
         </div>
         <div class="dsh-map-wrap">
           <div id="dash-nicht-map"></div>
-          <div class="dsh-map-empty" id="dash-map-empty">Keine nicht-erledigten Objekte im Zeitraum 🎉</div>
+          <div class="dsh-map-empty" id="dash-map-empty">Heute keine nicht-erledigten Objekte 🎉</div>
         </div>
         <div class="dsh-map-note" id="dash-map-note"></div>
+      </div>
+      <div class="dsh-card">
+        <div class="dsh-card-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          Gründe „nicht erledigt"
+        </div>
+        <div id="dash-reasons" style="max-height:230px;overflow-y:auto;"></div>
+      </div>
       </div>
     </div>
   </div>

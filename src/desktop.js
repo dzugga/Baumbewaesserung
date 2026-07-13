@@ -12942,7 +12942,7 @@ async function removeErfasser(name){
 }
 
 // ─── DASHBOARD (Live-Lagebild, identisch zur Einsatzleiter-App) ──
-let dashPeriod='month';
+const dashPeriod='today'; // Dashboard = reines Tages-Lagebild (Nutzer-Entscheid 13.07.); Zeiträume macht das Controlling
 let dashNichtMap=null;
 let dashNichtLayer=null;
 let dashTourHistory=[];
@@ -13007,39 +13007,38 @@ function dashBuildReported(){
 
 function renderDashboard(){
   if(!currentProjectId){ const g=document.getElementById('dash-kpi-grid'); if(g) g.innerHTML='<div style="padding:20px;color:var(--text3);">Bitte zuerst ein Projekt öffnen.</div>'; return; }
-  const {from,to}=dashGetDateRange();
-  const reported=dashBuildReported();
-  const rl=document.getElementById('dash-range-label');
-  if(rl) rl.textContent = dashPeriod==='all'?'Gesamter Zeitraum':`${dashFmtDE(from)} – ${dashFmtDE(to)}`;
+  dashRenderHeute(); // Tages-Soll/Ist — setzt _dashHeuteTourIds (heute gültige Touren) für Gründe/Karte
+  // Nur heutige Meldungen zu den heute gültigen Touren (inkl. Überfällige/Bedarf im Heute-Block)
+  const reported=dashBuildReported().filter(r=>realTourIds(r).some(id=>_dashHeuteTourIds.has(id)));
   const bew=reported.filter(r=>r.lastStatus==='bewaessert');
   const nicht=reported.filter(r=>r.lastStatus==='nicht');
   const meldungen=bew.length+nicht.length;
   const pct=meldungen>0?Math.round(bew.length/meldungen*100):0;
   const aktiveFahrer=new Set(reported.map(r=>r.lastDriver).filter(Boolean)).size;
   const aktive=trees.filter(isActive);
-  // Offen = Summe der offenen je Tour (exakt wie "Fortschritt je Tour"); nicht verplante zählen hier nicht
-  const offen=dashTourStats(reported).reduce((s,x)=>s+x.offen,0);
   const grid=document.getElementById('dash-kpi-grid');
   if(grid) grid.innerHTML=[
     {val:aktive.length,lbl:'Objekte gesamt',sub:'im Projekt',color:'var(--text)'},
-    {val:bew.length,lbl:'Erledigt',sub:`${pct}% der Meldungen`,color:'var(--green)'},
-    {val:nicht.length,lbl:'Nicht erledigt',sub:'im Zeitraum',color:'var(--red)'},
-    {val:offen,lbl:'Offen',sub:'offen in Touren',color:'var(--text2)'},
-    {val:meldungen,lbl:'Meldungen',sub:'gesamt im Zeitraum',color:'var(--blue)'},
-    {val:aktiveFahrer,lbl:'Aktive Fahrer',sub:'im Zeitraum',color:'var(--amber)'},
+    {val:bew.length,lbl:'Erledigt',sub:`heute · ${pct}% der Meldungen`,color:'var(--green)'},
+    {val:nicht.length,lbl:'Nicht erledigt',sub:'heute',color:'var(--red)'},
+    {val:meldungen,lbl:'Meldungen',sub:'heute gesamt',color:'var(--blue)'},
+    {val:aktiveFahrer,lbl:'Aktive Fahrer',sub:'heute',color:'var(--amber)'},
   ].map(k=>`<div class="dsh-tile"><div class="dsh-val" style="color:${k.color};">${k.val}</div><div class="dsh-lbl">${k.lbl}</div><div class="dsh-sub">${k.sub}</div></div>`).join('');
-  dashRenderHeute(); // Tages-Soll/Ist (unabhängig vom gewählten Zeitraum)
-  dashRenderTourProgress(reported);
   dashRenderReasons(nicht);
   dashRenderNichtMap(nicht);
   const u=document.getElementById('dash-updated');
   if(u) u.textContent='Stand: '+new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
 }
 
-// ── Tages-Soll/Ist: welche Touren sind HEUTE laut Tourkalender fällig, und was läuft davon ──
-// Soll = tourDueOn(heute); Bedarfstouren zählen nur, wenn sie heute aktiv besetzt wurden (crewDate).
-// Ist je Tour: ✓ abgeschlossen (Tour-Abschluss heute) | ▶ läuft (Meldung heute) | ○ keine Rückmeldung.
-// Zusätzlich „außerplanmäßig": nicht fällige Touren mit heutigen Meldungen (Kalender-Abweichung).
+// ── Tages-Soll/Ist: welche Touren sind HEUTE dran, und was läuft davon ──
+// Soll = tourDueOn(heute) PLUS Überhang: eine früher fällige, nicht abgeschlossene Tour bleibt mit
+// Hinweis („fällig DD.MM.") stehen, bis sie abgeschlossen wird (Rückschau max. 14 Tage).
+// Bedarfstouren erscheinen ab ihrer Aktivierung (crewDate) und bleiben bis zum Abschluss.
+// Ist je Tour: ✓ abgeschlossen (heute) | ▶ läuft (Meldung heute) | ○ keine Rückmeldung.
+// Zähler je Tour (ersetzt die frühere Fortschritts-Karte): ✓ erledigt · ✕ nicht erledigt · offen.
+// _dashHeuteTourIds = die angezeigten Touren — Datenbasis für Gründe/Karte des Tages-Dashboards.
+let _dashHeuteTourIds=new Set();
+function _dashLastDueBefore(t,today){ for(let i=1;i<=14;i++){ const d=_epAddDays(today,-i); if(tourDueOn(t,d)) return d; } return null; }
 function _dashCrewToday(t){ // wirksame Besetzung heute — gleiche Regel wie _epEffCrew, ohne Einsatzplaner-Zustand
   const cur=t.drivers||(t.assignedDriver?[t.assignedDriver]:[]);
   const hasStd=!!(t.stdVehicleId||(t.stdDrivers&&t.stdDrivers.length));
@@ -13051,29 +13050,54 @@ function dashToggleHeute(){ _dashHeuteMin=!_dashHeuteMin; try{ localStorage.setI
 function dashRenderHeute(){
   const el=document.getElementById('dash-heute'); if(!el) return;
   const today=_todayStr();
-  // EIN Durchlauf über alle Objekte: heutige Meldungen je Tour zählen (Anzahl, gemeldete Objekte, letzte Zeit)
-  const memTour={}, repTour={}, cntTour={}, lastTour={};
+  // EIN Durchlauf über alle Objekte: heutige Meldungen je Tour (gemeldet, ✓/✕ nach letzter Meldung, letzte Zeit)
+  const memTour={}, repTour={}, cntTour={}, lastTour={}, bewTour={}, nichtTour={};
   (trees||[]).forEach(x=>{
     if(!isActive(x)) return;
     const tids=realTourIds(x); if(!tids.length) return;
     tids.forEach(tid=>{ memTour[tid]=(memTour[tid]||0)+1; });
-    let n=0,last='';
-    (x.history||[]).forEach(h=>{ if(h&&h.status&&h.date===today){ n++; if(h.at&&h.at>last) last=h.at; } });
-    if(n) tids.forEach(tid=>{ repTour[tid]=(repTour[tid]||0)+1; cntTour[tid]=(cntTour[tid]||0)+n; if(!lastTour[tid]||last>lastTour[tid]) lastTour[tid]=last; });
+    let n=0,last='',lastStatus='';
+    (x.history||[]).forEach(h=>{ if(h&&h.status&&h.date===today){ n++; if(!h.at||h.at>=last){ last=h.at||last; lastStatus=h.status; } } });
+    if(n) tids.forEach(tid=>{ repTour[tid]=(repTour[tid]||0)+1; cntTour[tid]=(cntTour[tid]||0)+n;
+      if(lastStatus==='bewaessert') bewTour[tid]=(bewTour[tid]||0)+1; else nichtTour[tid]=(nichtTour[tid]||0)+1;
+      if(!lastTour[tid]||last>lastTour[tid]) lastTour[tid]=last; });
   });
   const real=tours.filter(t=>!t.uebersicht);
-  const due=real.filter(t=>(t.interval||'')==='bedarf' ? (_tourInValidity(t,today)&&t.crewDate===today) : tourDueOn(t,today));
-  const dueIds=new Set(due.map(t=>t.id));
-  const rows=due.map(t=>{
-    const total=memTour[t.id]||0, rep=repTour[t.id]||0;
-    const closed=t.status==='abgeschlossen'&&t.lastClosedDate===today;
-    const state=closed?'done':(rep>0?'run':'none');
-    return {t,total,rep,last:lastTour[t.id]?String(lastTour[t.id]).slice(11,16):'',closedTime:(closed&&t.closedAt)?String(t.closedAt).slice(11,16):'',state,crew:_dashCrewToday(t)};
-  }).sort((a,b)=>{ const o={none:0,run:1,done:2}; return (o[a.state]-o[b.state])||String(a.t.name||'').localeCompare(String(b.t.name||'')); });
+  // Anzeige-Menge: heute fällig ODER Überhang (frühere Fälligkeit/Bedarfs-Aktivierung ohne Abschluss;
+  // ein HEUTIGER Abschluss bleibt sichtbar, damit die erledigte Tour nicht sofort verschwindet)
+  const rows=[];
+  real.forEach(t=>{
+    const closedToday=t.status==='abgeschlossen'&&t.lastClosedDate===today;
+    let dueToday=false, since=null;
+    if((t.interval||'')==='bedarf'){
+      if(!t.crewDate||t.crewDate>today) return;
+      const closedSince=t.lastClosedDate&&t.lastClosedDate>=t.crewDate;
+      if(closedSince&&!closedToday) return;
+      dueToday=t.crewDate===today; since=dueToday?null:t.crewDate;
+    } else {
+      dueToday=tourDueOn(t,today);
+      if(!dueToday){
+        const ld=_dashLastDueBefore(t,today); if(!ld) return;
+        const closedSince=t.lastClosedDate&&t.lastClosedDate>=ld;
+        if(closedSince&&!closedToday) return;
+        since=ld;
+      }
+    }
+    const total=memTour[t.id]||0, rep=repTour[t.id]||0, bewN=bewTour[t.id]||0, nichtN=nichtTour[t.id]||0;
+    const state=closedToday?'done':(rep>0?'run':'none');
+    rows.push({t,dueToday,since,total,rep,bewN,nichtN,offenN:Math.max(0,total-rep),
+      last:lastTour[t.id]?String(lastTour[t.id]).slice(11,16):'',
+      closedTime:(closedToday&&t.closedAt)?String(t.closedAt).slice(11,16):'',state,crew:_dashCrewToday(t)});
+  });
+  rows.sort((a,b)=>{ const o={none:0,run:1,done:2}; return (o[a.state]-o[b.state])||((a.since?0:1)-(b.since?0:1))||String(a.t.name||'').localeCompare(String(b.t.name||'')); });
+  _dashHeuteTourIds=new Set(rows.map(r=>r.t.id));
   const doneN=rows.filter(r=>r.state==='done').length, runN=rows.filter(r=>r.state==='run').length, noneN=rows.length-doneN-runN;
-  const extra=real.filter(t=>!dueIds.has(t.id)&&cntTour[t.id]).map(t=>({t,n:cntTour[t.id]}));
-  const pill=r=>r.state==='done'?`<span style="font-size:10.5px;font-weight:600;color:#166534;background:#dcfce7;border-radius:99px;padding:2px 9px;white-space:nowrap;">✓ abgeschlossen${r.closedTime?' '+r.closedTime:''}</span>`
-    :r.state==='run'?`<span style="font-size:10.5px;font-weight:600;color:#1e40af;background:#dbeafe;border-radius:99px;padding:2px 9px;white-space:nowrap;">▶ läuft${r.last?' · zuletzt '+r.last:''}</span>`
+  const dueN=rows.filter(r=>r.dueToday).length, lateN=rows.length-dueN;
+  const extra=real.filter(t=>!_dashHeuteTourIds.has(t.id)&&cntTour[t.id]).map(t=>({t,n:cntTour[t.id]}));
+  const _seit=r=>r.since?` · fällig ${r.since.slice(5).split('-').reverse().join('.')}`:'';
+  const pill=r=>r.state==='done'?`<span style="font-size:10.5px;font-weight:600;color:#166534;background:#dcfce7;border-radius:99px;padding:2px 9px;white-space:nowrap;">✓ abgeschlossen${r.closedTime?' '+r.closedTime:''}${_seit(r)}</span>`
+    :r.state==='run'?`<span style="font-size:10.5px;font-weight:600;color:#1e40af;background:#dbeafe;border-radius:99px;padding:2px 9px;white-space:nowrap;">▶ läuft${r.last?' · zuletzt '+r.last:''}${_seit(r)}</span>`
+    :r.since?`<span style="font-size:10.5px;font-weight:600;color:#991b1b;background:#fee2e2;border-radius:99px;padding:2px 9px;white-space:nowrap;">⏰ nicht abgeschlossen${_seit(r)}</span>`
     :`<span style="font-size:10.5px;font-weight:600;color:#854f0b;background:#fef3c7;border-radius:99px;padding:2px 9px;white-space:nowrap;">○ keine Rückmeldung</span>`;
   const kpi=(v,l,c)=>`<div style="background:var(--surface2);border-radius:8px;padding:7px 12px;"><div style="font-size:18px;font-weight:800;font-family:'DM Mono',monospace;line-height:1.1;color:${c};">${v}</div><div style="font-size:10.5px;color:var(--text2);">${l}</div></div>`;
   const wd=_WD_FULL[new Date().getDay()];
@@ -13082,7 +13106,7 @@ function dashRenderHeute(){
     el.innerHTML=`<div class="dsh-card" style="border:2px solid var(--green-mid);margin-bottom:12px;padding:8px 14px;">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
         <span style="font-size:12.5px;font-weight:700;">Heute — ${wd}, ${today.split('-').reverse().join('.')}</span>
-        <span style="font-size:11.5px;color:var(--text2);"><b style="font-weight:700;">${rows.length}</b> fällig · <b style="font-weight:700;color:var(--green);">${doneN}</b> ✓ · <b style="font-weight:700;color:#1e40af;">${runN}</b> ▶ · <b style="font-weight:700;color:${noneN?'#b45309':'var(--text3)'};">${noneN}</b> ○ ohne Rückmeldung${extra.length?` · <span style="color:#854f0b;">⚠ ${extra.length} außerplanmäßig</span>`:''}</span>
+        <span style="font-size:11.5px;color:var(--text2);"><b style="font-weight:700;">${dueN}</b> fällig${lateN?` · <b style="font-weight:700;color:#991b1b;">${lateN}</b> ⏰ aus Vortagen`:''} · <b style="font-weight:700;color:var(--green);">${doneN}</b> ✓ · <b style="font-weight:700;color:#1e40af;">${runN}</b> ▶ · <b style="font-weight:700;color:${noneN?'#b45309':'var(--text3)'};">${noneN}</b> ○ ohne Rückmeldung${extra.length?` · <span style="color:#854f0b;">⚠ ${extra.length} außerplanmäßig</span>`:''}</span>
         ${_tgl}
       </div>
     </div>`;
@@ -13094,79 +13118,29 @@ function dashRenderHeute(){
       <span style="font-size:10.5px;color:var(--text3);">Soll aus dem Tourkalender (Betriebstage · Rhythmus · Saison)</span>
       ${_tgl}
     </div>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:${rows.length?'12px':'0'};">
-      ${kpi(rows.length,'Touren fällig (Soll)','var(--text)')}${kpi(doneN,'abgeschlossen','var(--green)')}${kpi(runN,'läuft (meldet)','#1e40af')}${kpi(noneN,'ohne Rückmeldung',noneN?'#b45309':'var(--text3)')}
+    <div style="display:grid;grid-template-columns:repeat(${lateN?5:4},1fr);gap:8px;margin-bottom:${rows.length?'12px':'0'};">
+      ${kpi(dueN,'Touren fällig (Soll)','var(--text)')}${lateN?kpi(lateN,'aus Vortagen offen','#991b1b'):''}${kpi(doneN,'abgeschlossen','var(--green)')}${kpi(runN,'läuft (meldet)','#1e40af')}${kpi(noneN,'ohne Rückmeldung',noneN?'#b45309':'var(--text3)')}
     </div>
     ${rows.length?`<div style="display:grid;grid-template-columns:12px 1fr auto auto auto;gap:5px 10px;align-items:center;">
       ${rows.map(r=>`
         <span style="width:9px;height:9px;border-radius:50%;background:${r.t.color||'#888'};"></span>
         <span style="font-size:12.5px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(r.t.name||'Tour')} <span style="font-weight:400;color:${r.crew.length?'var(--text3)':'var(--red)'};font-size:11px;">· ${r.crew.length?dlEsc(r.crew.join(', ')):'unbesetzt'}</span></span>
-        <span style="font-size:11px;color:var(--text2);white-space:nowrap;">${r.rep}/${r.total} gemeldet</span>
-        <span style="display:flex;width:70px;height:5px;border-radius:3px;background:var(--surface2);overflow:hidden;"><span style="width:${r.total?Math.round(r.rep/r.total*100):0}%;background:var(--green);"></span></span>
+        <span style="font-size:11px;color:var(--text2);white-space:nowrap;"><b style="font-weight:700;color:var(--green);">${r.bewN}</b> ✓ · <b style="font-weight:700;color:${r.nichtN?'var(--red)':'var(--text3)'};">${r.nichtN}</b> ✕ · ${r.offenN} offen · ${r.total} Obj.</span>
+        <span style="display:flex;width:70px;height:5px;border-radius:3px;background:var(--surface2);overflow:hidden;"><span style="width:${r.total?Math.round(r.bewN/r.total*100):0}%;background:var(--green);"></span><span style="width:${r.total?Math.round(r.nichtN/r.total*100):0}%;background:var(--dsh-red-mid);"></span></span>
         ${pill(r)}`).join('')}
-    </div>`:`<div style="font-size:12px;color:var(--text3);">Heute sind laut Tourkalender keine Touren fällig.</div>`}
+    </div>`:`<div style="font-size:12px;color:var(--text3);">Heute sind laut Tourkalender keine Touren fällig — und aus den Vortagen ist nichts offen.</div>`}
     ${extra.length?`<div style="display:flex;align-items:baseline;gap:8px;margin-top:9px;padding-top:8px;border-top:1px solid var(--border);font-size:11px;color:var(--text2);flex-wrap:wrap;">
       <span style="color:#854f0b;font-weight:600;">⚠ Außerplanmäßig gefahren:</span>
       ${extra.map(x=>`<span><b style="font-weight:600;">${dlEsc(x.t.name||'Tour')}</b> — ${x.n} Meldung${x.n===1?'':'en'} heute, laut Kalender nicht fällig</span>`).join(' · ')}
     </div>`:''}
   </div>`;
 }
-// Pro-Tour-Statistik (geteilte Quelle für KPI "Offen" und "Fortschritt je Tour")
-// Übersichten sind nur Gruppierung (keine echten Touren) → ausgeschlossen, sonst Doppelzählung.
-function dashTourStats(reported){
-  return tours.filter(t=>!t.uebersicht).map(t=>{
-    // Nur Meldungen zu aktuell AKTIVEN Tour-Objekten zählen -> Fortschritt nie >100%
-    // (bewässerte, danach deaktivierte/entfernte Objekte verzerren sonst den Zähler).
-    const activeIds=new Set(trees.filter(x=>treeInTour(x,t.id)&&isActive(x)).map(x=>x.id));
-    const total=activeIds.size;
-    const rep=reported.filter(r=>activeIds.has(r.id));
-    const bewIds=new Set(rep.filter(r=>r.lastStatus==='bewaessert').map(r=>r.id));
-    const nichtIds=new Set(rep.filter(r=>r.lastStatus==='nicht'&&!bewIds.has(r.id)).map(r=>r.id));
-    const bewN=bewIds.size, nichtN=nichtIds.size;
-    return {t, total, bewN, nichtN, offen:Math.max(0,total-bewN-nichtN)};
-  });
-}
-
-function dashFilterTours(q){
-  q=(q||'').toLowerCase().trim();
-  document.querySelectorAll('#dash-tour-progress .dsh-tour-row').forEach(row=>{
-    row.style.display = matchTerms(row.dataset.name, q) ? '' : 'none';
-  });
-}
-function dashRenderTourProgress(reported){
-  const el=document.getElementById('dash-tour-progress'); if(!el)return;
-  const cntEl=document.getElementById('dash-tour-count');
-  if(tours.length===0){ el.innerHTML='<div class="dsh-empty">Keine Touren angelegt</div>'; if(cntEl)cntEl.textContent=''; return; }
-  const stats=dashTourStats(reported);
-  if(cntEl) cntEl.textContent=`(${stats.length})`;
-  el.innerHTML=stats.map(({t,total,bewN,nichtN,offen})=>{
-    const base=Math.max(total,bewN+nichtN,1);
-    const bewW=bewN/base*100,nichtW=nichtN/base*100,offenW=offen/base*100;
-    const pct=total>0?Math.round(bewN/total*100):(bewN+nichtN>0?Math.round(bewN/(bewN+nichtN)*100):0);
-    const color=t.color||TOUR_COLORS[0];
-    return `<div class="dsh-tour-row" data-name="${(t.name||'Tour').toLowerCase().replace(/"/g,'')}">
-      <div class="dsh-tour-head">
-        <span class="dsh-dot" style="background:${color};"></span>
-        <span class="dsh-tour-name">${dlEsc(t.name||'Tour')}</span>
-        <span class="dsh-tour-meta"><b style="color:var(--green);">${bewN}</b> erl. · <b style="color:var(--red);">${nichtN}</b> n. erl. · <b>${offen}</b> offen · ${total} Obj.</span>
-        <span class="dsh-tour-pct">${pct}%</span>
-      </div>
-      <div class="dsh-bar">
-        <div class="seg" style="width:${bewW}%;background:var(--green);"></div>
-        <div class="seg" style="width:${nichtW}%;background:var(--dsh-red-mid);"></div>
-        <div class="seg" style="width:${offenW}%;background:transparent;"></div>
-      </div>
-    </div>`;
-  }).join('');
-  const s=document.getElementById('dash-tour-search'); if(s&&s.value) dashFilterTours(s.value);
-}
-
 function dashRenderReasons(nichtTrees){
   const el=document.getElementById('dash-reasons'); if(!el)return;
   const map={};
   nichtTrees.forEach(t=>{ const r=t.lastReason||'Kein Grund angegeben'; map[r]=(map[r]||0)+1; });
   const sorted=Object.entries(map).sort((a,b)=>b[1]-a[1]);
-  if(sorted.length===0){ el.innerHTML='<div class="dsh-empty">Keine Ausfälle im Zeitraum 🎉</div>'; return; }
+  if(sorted.length===0){ el.innerHTML='<div class="dsh-empty">Heute keine Ausfälle 🎉</div>'; return; }
   const max=sorted[0][1];
   el.innerHTML=sorted.map(([reason,cnt])=>`
     <div class="dsh-reason-row">
@@ -13234,14 +13208,6 @@ async function loadDashTourHistory(){
     dashTourHistoryLoaded=true;
     if(currentView==='dashboard') renderDashboard();
   }catch(e){ console.warn('dashboard tourHistory:',e); }
-}
-
-function dashSetPeriod(p,el){
-  dashPeriod=p;
-  document.querySelectorAll('.dsh-period-btn').forEach(b=>b.classList.remove('active'));
-  if(el) el.classList.add('active');
-  const cd=document.getElementById('dash-custom-dates'); if(cd) cd.style.display=p==='custom'?'flex':'none';
-  if(p!=='custom') renderDashboard();
 }
 
 async function refreshDashboard(){
@@ -16112,7 +16078,7 @@ Object.assign(window,{
   renderHandbuch,setHbTab,hbSearchDebounced,openHbImg,closeHbImg,
   dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
   epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epApplyStandardOne,epTagesplanScope,epSendTagesplan,epTgInput,epTgRegen,epVehSubSet,epAbsTypesOpen,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,epWeekShift,epWeekThis,epWeekToggleEmpty,epWeekFilter,epDayFilter,epTourCtx,epEditTour,_epCloseCtx,epPersonOpenCard,
-  dashSetPeriod,renderDashboard,refreshDashboard,dashFilterTours,
+  renderDashboard,refreshDashboard,
   saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterInlineTours,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
   filterAbschnitteTable,filterAbschnitteTableDebounced,toggleAbschnShowAll,downloadAbschnitteExport,
   nmSetType,nmSetAudience,nmToggleSel,nmToggle,_nmSetTour,nmSend,nmArchive,
