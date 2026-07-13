@@ -3200,7 +3200,7 @@ async function toggleTourSelection(tourId){
 }
 // Echte Touren, die aktuell zur Tour-Suche passen (bei leerer Suche: alle).
 function _legendVisibleTours(){
-  const echte=tours.filter(t=>!t.uebersicht);
+  const echte=tours.filter(t=>!t.uebersicht&&_tourBhVis(t.betriebshof)); // Betriebshof-Filter wirkt auch auf die Sammel-Checkbox
   return (tourLegendQuery||'').trim() ? echte.filter(t=>matchTerms(t.name, tourLegendQuery)) : echte;
 }
 // Sammel-Checkbox-Status (an/halb/aus) anhand der gefilterten Touren synchronisieren
@@ -3348,11 +3348,28 @@ function applyTourLegendFilter(){
   });
   _syncAllToursCheck(); // Sammel-Haken folgt dem Filter
 }
+// ── Betriebshof-Filter für Tour-Listen (Karten-Legende + Touren-Reiter, EINE Auswahl je Projekt) ──
+// Wie überall: reine Ansicht, „Alle" wählbar, unzugeordnete Touren bleiben sichtbar. Erscheint erst ab 2 Höfen.
+let _tourBhScope='', _tourBhInitPid=null;
+function _tourBhVis(n){ n=(n||'').trim(); return !_tourBhScope || !n || n===_tourBhScope; }
+function _tourBhInit(){ if(_tourBhInitPid===currentProjectId) return; _tourBhInitPid=currentProjectId; _tourBhScope='';
+  try{ _tourBhScope=localStorage.getItem('tour_bh_'+currentProjectId)||''; }catch(_){}
+}
+function tourSetBh(v){ _tourBhScope=(v||'').trim(); try{ localStorage.setItem('tour_bh_'+currentProjectId,_tourBhScope); }catch(_){}
+  renderLegend(); if(document.getElementById('touren-grid')) renderTourenGrid();
+}
+function _tourBhSelHtml(){ // gemeinsames Select für Legende + Touren-Reiter (nur ab 2 Höfen)
+  const opts=_dashBhOptions(); if(_tourBhScope&&!opts.includes(_tourBhScope)) opts.push(_tourBhScope);
+  if(opts.length<2) return '';
+  return `<select onchange="tourSetBh(this.value)" title="Betriebshof-Filter — Touren ohne Zuordnung bleiben sichtbar" style="border:1px solid ${_tourBhScope?'#d97706':'var(--border)'};border-radius:6px;padding:3px 6px;font-family:inherit;font-size:11px;color:${_tourBhScope?'var(--text)':'var(--text3)'};background:var(--bg);max-width:100%;box-sizing:border-box;">
+    <option value="">Alle Betriebshöfe</option>${opts.map(b=>`<option value="${dlEsc(b)}"${b===_tourBhScope?' selected':''}>${dlEsc(b)}</option>`).join('')}</select>`;
+}
 function renderLegend(){
   const el=document.getElementById('tour-legend');if(!el)return;
   if(tours.length===0){el.style.display='none';return;}
   el.style.display='block';
-  const echteTouren=tours.filter(t=>!t.uebersicht);
+  _tourBhInit();
+  const echteTouren=tours.filter(t=>!t.uebersicht&&_tourBhVis(t.betriebshof));
   const overviewTouren=tours.filter(t=>t.uebersicht);
   if(echteTouren.length<8) tourLegendQuery='';
 
@@ -3385,6 +3402,10 @@ function renderLegend(){
   // ── Collapsible body ─────────────────────────────────────────
   html+=`<div id="legend-body" style="display:${isOpen?'block':'none'};">`;
 
+  // Betriebshof-Filter (erscheint erst ab 2 Höfen; unzugeordnete Touren bleiben sichtbar)
+  const _bhSelHtml=_tourBhSelHtml();
+  if(_bhSelHtml) html+=`<div style="padding:2px 8px 4px;display:flex;">${_bhSelHtml}</div>`;
+
   // Tour-Suchfeld — erst ab vielen Touren
   if(echteTouren.length>=8){
     html+=`<div style="padding:2px 8px 6px;"><span data-sx style="position:relative;display:flex;align-items:center;"><input id="tour-legend-search" type="text" placeholder="Tour suchen…" style="width:100%;padding:4px 24px 4px 8px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;box-sizing:border-box;"><button type="button" class="s-x" aria-label="Suche aufheben" onclick="_sxClear(this)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg></button></span></div>`;
@@ -3409,7 +3430,7 @@ function renderLegend(){
     let r=`<div class="legend-item${isSel?' active-tour':''}" data-tourid="${t.id}" data-tourname="${(t.name||'').toLowerCase().replace(/"/g,'&quot;')}" style="padding:3px 6px;margin-bottom:1px;">
       <input type="checkbox" class="tour-check"${isSel?' checked':''} style="margin:0 4px 0 0;cursor:pointer;flex-shrink:0;accent-color:${t.color};">
       <div class="legend-line" style="background:${t.color};width:16px;height:3px;"></div>
-      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">${dlEsc(t.name)}</span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">${dlEsc(t.name)}${(!ov&&_tourBhScope&&!(t.betriebshof||'').trim())?' <span style="font-size:9px;font-weight:700;color:var(--text3);background:var(--surface2);padding:1px 5px;border-radius:5px;">ohne Hof</span>':''}</span>
       ${t.routeStale&&!ov&&_tourEffSource(t.id)!=='system'?'<span title="Route veraltet — neu berechnen" style="color:#b45309;font-size:11px;flex-shrink:0;">⚠</span>':''}
       <span class="legend-km" style="font-size:10px;">${ov?cnt:(_tm?total:cnt+' Obj.')}</span>
       ${ov?'':`<svg data-expand="${t.id}" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2.5" style="flex-shrink:0;cursor:pointer;padding:1px;transition:transform .15s;transform:rotate(${isExp?180:0}deg);"><path d="M6 9l6 6 6-6"/></svg>`}
@@ -7953,11 +7974,14 @@ function renderTourenGrid(){
   }
 
   const ovCount=tours.filter(t=>t.uebersicht).length, echtCount=tours.length-ovCount;
+  // Betriebshof-Filter (gemeinsame Auswahl mit der Karten-Legende; unzugeordnete Touren bleiben sichtbar)
+  _tourBhInit();
+  const bhSlot=document.getElementById('touren-bh-slot'); if(bhSlot) bhSlot.innerHTML=_tourBhSelHtml();
   // Standardmäßig nur echte Touren; Übersichten erst nach Klick auf den Umschalter
-  const base=showOverviewInGrid ? tours : tours.filter(t=>!t.uebersicht);
+  const base=(showOverviewInGrid ? tours : tours.filter(t=>!t.uebersicht)).filter(t=>t.uebersicht||_tourBhVis(t.betriebshof));
   const q=(_tourenSearch||'').trim().toLowerCase();
   const list=q ? base.filter(t=>matchTerms((t.name||'')+' '+(t.desc||''), q)) : base;
-  if(countEl)countEl.textContent=q?`${list.length} von ${tours.length} Touren`:`${echtCount} Touren${ovCount?` · ${ovCount} Übersicht`:''}`;
+  if(countEl)countEl.textContent=q?`${list.length} von ${tours.length} Touren`:(_tourBhScope?`${base.filter(t=>!t.uebersicht).length} von ${echtCount} Touren · Hof „${_tourBhScope}"`:`${echtCount} Touren${ovCount?` · ${ovCount} Übersicht`:''}`);
   // Umschalter nur zeigen, wenn es überhaupt Übersichten gibt
   const ovBtn=document.getElementById('btn-toggle-overview-grid');
   if(ovBtn){
@@ -7970,7 +7994,8 @@ function renderTourenGrid(){
 
   if(list.length===0){
     const msg=q ? `Keine Tour gefunden für „${_tourenSearch}"`
-                : 'Nur Übersichten vorhanden — über „Übersichten anzeigen" oben rechts einblenden.';
+                : (_tourBhScope ? `Keine Tour am Betriebshof „${_tourBhScope}" — Filter oben auf „Alle Betriebshöfe" stellen.`
+                : 'Nur Übersichten vorhanden — über „Übersichten anzeigen" oben rechts einblenden.');
     grid.innerHTML=`<tr><td colspan="8" style="padding:40px;text-align:center;color:var(--text3);">${msg}</td></tr>`;
     return;
   }
@@ -16198,7 +16223,7 @@ Object.assign(window,{
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleRequiredFeld,toggleRawSeg,_siInfo,
-  createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,dashSetBh,epChangeBh,psSetOrgFilter,setSiTab,
+  createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,dashSetBh,tourSetBh,epChangeBh,psSetOrgFilter,setSiTab,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,openMeldungFotos,stepMeldungFoto,closeMeldungFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
