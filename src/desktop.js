@@ -13362,6 +13362,44 @@ function dispoDefaultDepot(){
 let _epOrg='', _epProject='', _epDate='', _epTab='plan';
 let _epOrgs=[], _epPersons=[], _epVehicles=[], _epProjects=[], _epTours=[], _epFunktionen=[];
 let _epAvail={persons:{}, vehicles:{}}, _epSaveTimer=null;
+// ── Betriebshof-Filter: reine ANSICHT (keine Rechte-Grenze) — „Alle" ist immer wählbar. ──
+// Zuordnung: tour.betriebshof (bestehend), person.betriebshof (drivers-Doc), vehicle.betriebshof (dispoResources).
+// Grundsatz: Unzugeordnetes wird bei aktivem Filter NIE ausgeblendet (sonst plant man mit unvollständigem Bild),
+// sondern als „ohne Betriebshof" mitgezeigt.
+let _epBhScope='';        // ''=alle, sonst Betriebshof-Name
+let _epBetriebshoefe=[];  // Namen aus der Betriebshof-Werteliste des EP-Projekts
+let _epBhInit=false;      // Vorbelegung (localStorage bzw. eigener Hof) nur einmal je Sitzung
+function _epBhVisible(name){ const n=(name||'').trim(); return !_epBhScope || !n || n===_epBhScope; } // Scope ODER unzugeordnet
+function _epBhBadge(name){ // Kennzeichnung „ohne Betriebshof" nur bei aktivem Filter
+  return (_epBhScope && !(name||'').trim())?' <span style="font-size:9px;font-weight:700;color:var(--text3);background:var(--surface2);padding:1px 6px;border-radius:5px;">ohne Betriebshof</span>':'';
+}
+function _epBhOptions(){ // Werteliste + real verwendete Namen (Touren/Personen/Fahrzeuge)
+  const s=new Set(_epBetriebshoefe);
+  _epTours.forEach(t=>{ const n=(t.betriebshof||'').trim(); if(n) s.add(n); });
+  _epPersons.forEach(p=>{ const n=(p.betriebshof||'').trim(); if(n) s.add(n); });
+  _epVehicles.forEach(v=>{ const n=(v.betriebshof||'').trim(); if(n) s.add(n); });
+  return [...s].sort((a,b)=>a.localeCompare(b));
+}
+function epChangeBh(v){
+  _epBhScope=(v||'').trim(); _epTgDraft=null;
+  try{ localStorage.setItem('ep_bh_'+_epOrg,_epBhScope); }catch(_){}
+  if(_epBhScope) _epTgScope=_epBhScope; // Tagesplan-Versand folgt dem Filter (Plan-Tab prüft Gültigkeit)
+  renderEp();
+}
+// Vorbelegung: gespeicherte Auswahl je Mandant; sonst eigener Betriebshof der angemeldeten Person (PIN-Login)
+async function _epBhPreset(){
+  if(_epBhInit) return; _epBhInit=true;
+  let saved=null; try{ saved=localStorage.getItem('ep_bh_'+_epOrg); }catch(_){}
+  if(saved!==null){ _epBhScope=saved; return; }
+  try{
+    const uid=(firebase.auth().currentUser||{}).uid||'';
+    if(!uid.startsWith('drv_')) return;
+    const did=uid.slice(4);
+    let me=_epPersons.find(p=>p.id===did);
+    if(!me){ const s=await db.collection('drivers').doc(did).get(); if(s.exists) me=s.data(); }
+    if(me&&(me.betriebshof||'').trim()) _epBhScope=me.betriebshof.trim();
+  }catch(e){ console.warn('ep bh preset',e); }
+}
 const EP_VSTATES=[['verfuegbar','Verfügbar','#15803d','#e7f3ea'],['werkstatt','Werkstatt','#b45309','#fbf0df'],['ausgefallen','Ausgefallen','#c0392b','#fbeaea']];
 function _epToday(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 let _epWeekMon=''; // Montag (YYYY-MM-DD) der angezeigten Woche im Reiter „Woche"
@@ -13427,6 +13465,7 @@ async function initEinsatzplaner(){
   _epOrgs=orgs;
   if(!_epOrg || !orgs.find(o=>o.id===_epOrg)) _epOrg=(orgs.find(o=>o.id===currentProjectData?.orgId)?.id)||orgs[0]?.id||currentOrg||'';
   await epLoadOrgScope();
+  await _epBhPreset(); // Betriebshof-Vorbelegung (gemerkte Auswahl bzw. eigener Hof)
   renderEp();
 }
 async function epLoadOrgScope(){
@@ -13444,9 +13483,17 @@ async function epLoadAvail(){
   try{ const s=await db.collection('availability').doc(_epOrg+'_'+_epDate).get(); if(s.exists){ const d=s.data(); _epAvail={persons:d.persons||{}, vehicles:d.vehicles||{}}; } }catch(e){ console.warn('ep avail',e); }
 }
 async function epLoadTours(){
-  _epTours=[];
+  _epTours=[]; _epBetriebshoefe=[];
   if(!_epProject) return;
   try{ const qs=await db.collection('projects').doc(_epProject).collection('tours').get(); _epTours=qs.docs.map(d=>({id:d.id,...d.data()})).filter(t=>!t.uebersicht).sort((a,b)=>(a.name||'').localeCompare(b.name||'')); }catch(e){ console.warn('ep tours',e); }
+  // Betriebshof-Werteliste des EP-Projekts (kann ein anderes als das offene Projekt sein → 1 Read)
+  try{
+    let lv=null;
+    if(_epProject===currentProjectId && currentProjectData) lv=currentProjectData.listValues;
+    else { const s=await db.collection('projects').doc(_epProject).get(); lv=s.exists?(s.data().listValues||null):null; }
+    _epBetriebshoefe=((lv&&lv.betriebshof)||[]).map(b=>(b.label||'').trim()).filter(Boolean);
+  }catch(e){ console.warn('ep betriebshoefe',e); }
+  if(_epBhScope && !_epBhOptions().includes(_epBhScope)) _epBhScope=''; // Hof existiert hier nicht → Alle
 }
 async function epChangeOrg(v){ _epOrg=v; _epProject=''; _epWeekQuery=''; _epDayQuery=''; const r=document.getElementById('ep-root'); if(r){ _epRescueNachrichten(); r.innerHTML='<div style="padding:48px;text-align:center;color:var(--text3);">Lädt…</div>'; } await epLoadOrgScope(); renderEp(); }
 async function epChangeProject(v){ _epProject=v; _epWeekQuery=''; _epDayQuery=''; _epTgDraft=null; await epLoadTours(); renderEp(); }
@@ -13524,9 +13571,11 @@ async function epSetStandard(tid){
 }
 async function epApplyStandards(){
   if(!_epCanWrite()) return;
-  const withStd=_epTours.filter(t=>_epRunsOn(t) && (t.stdVehicleId||(t.stdDrivers&&t.stdDrivers.length)));
+  // Bei aktivem Betriebshof-Filter nur die sichtbaren Touren füllen — sonst überschriebe
+  // Einsatzleiter Nord unbemerkt die Tages-Besetzung der Süd-Touren.
+  const withStd=_epTours.filter(t=>_epRunsOn(t) && _epBhVisible(t.betriebshof) && (t.stdVehicleId||(t.stdDrivers&&t.stdDrivers.length)));
   if(!withStd.length){ notify('Für den gewählten Tag sind keine Standardbesetzungen hinterlegt.'); return; }
-  if(!await _confirmBox('Standardbesetzung übernehmen', 'Heutige Besetzung mit den gespeicherten Standards überschreiben?\n\n'+withStd.length+' Touren · nur heute verfügbare Ressourcen werden gesetzt.', 'Übernehmen','Abbrechen')) return;
+  if(!await _confirmBox('Standardbesetzung übernehmen', 'Heutige Besetzung mit den gespeicherten Standards überschreiben?\n\n'+withStd.length+' Touren'+(_epBhScope?' (Hof „'+_epBhScope+'" + ohne Zuordnung)':'')+' · nur heute verfügbare Ressourcen werden gesetzt.', 'Übernehmen','Abbrechen')) return;
   const availVehIds=new Set(_epVehicles.filter(_epVehAvail).map(v=>v.id));
   const availNames=new Set(_epPersons.filter(p=>_epPersonActive(p)&&_epPersonAvail(p)).map(p=>p.name));
   let skipped=0;
@@ -13557,15 +13606,16 @@ function _epSeg(states, cur, fn, id){
 }
 function epVerfuegbarHtml(){
   const ro=!_epCanWrite();
-  const vAvail=_epVehicles.filter(_epVehAvail).length;
-  const vCards=_epVehicles.length? _epVehicles.map(v=>{
+  const visVeh=_epVehicles.filter(v=>_epBhVisible(v.betriebshof)); // Betriebshof-Filter (Unzugeordnete bleiben sichtbar)
+  const vAvail=visVeh.filter(_epVehAvail).length;
+  const vCards=visVeh.length? visVeh.map(v=>{
     const st=_epVStatus(v.id); const meta=EP_VSTATES.find(s=>s[0]===st);
     return `<div class="ep-card">
-      <div class="ep-card-head"><span class="ep-ava" style="background:${meta[3]};color:${meta[2]};"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17h13V7H3zM16 10h3l2 3v4h-5z"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg></span><div style="min-width:0;"><div class="ep-name">${dlEsc(v.name||'–')}</div>${(v.art||v.kennzeichen)?`<div style="font-size:11px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc([v.art,v.kennzeichen].filter(Boolean).join(' · '))}</div>`:''}<div class="ep-sub" style="color:${meta[2]};">${meta[1]}</div></div></div>
+      <div class="ep-card-head"><span class="ep-ava" style="background:${meta[3]};color:${meta[2]};"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17h13V7H3zM16 10h3l2 3v4h-5z"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg></span><div style="min-width:0;"><div class="ep-name">${dlEsc(v.name||'–')}</div>${(v.art||v.kennzeichen||v.betriebshof)?`<div style="font-size:11px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc([v.art,v.kennzeichen,v.betriebshof].filter(Boolean).join(' · '))}</div>`:''}<div class="ep-sub" style="color:${meta[2]};">${meta[1]}${_epBhBadge(v.betriebshof)}</div></div></div>
       ${ro?'':_epSeg(EP_VSTATES, st, 'epSetVehicleStatus', v.id)}</div>`;
   }).join('') : '<div class="ep-empty">Keine Fahrzeuge hinterlegt. (Reiter „Fuhrpark")</div>';
   return `
-    <div class="ep-sec-head"><h3>Fahrzeuge — heute <span class="ep-count">${vAvail}/${_epVehicles.length} verfügbar</span></h3>
+    <div class="ep-sec-head"><h3>Fahrzeuge — heute <span class="ep-count">${vAvail}/${visVeh.length} verfügbar${_epBhScope?` · Hof „${dlEsc(_epBhScope)}" + ohne Zuordnung`:''}</span></h3>
       <span style="margin-left:auto;font-size:11px;color:var(--text3);">Stammdaten im Unterreiter „Fuhrpark" · Personal im Reiter „Personal"</span></div>
     <div class="ep-grid">${vCards}</div>`;
 }
@@ -13577,8 +13627,8 @@ function epWeekHtml(){
   const days=[]; for(let i=0;i<7;i++) days.push(_epAddDays(_epWeekMon,i));
   const today=_epToday();
   const cw=_epCanWrite();
-  const real=_epTours.filter(t=>(t.interval||'')!=='bedarf');
-  const bedarf=_epTours.filter(t=>(t.interval||'')==='bedarf');
+  const real=_epTours.filter(t=>(t.interval||'')!=='bedarf' && _epBhVisible(t.betriebshof));
+  const bedarf=_epTours.filter(t=>(t.interval||'')==='bedarf' && _epBhVisible(t.betriebshof));
   const dueCount=days.map(d=>real.filter(t=>tourDueOn(t,d)).length);
   const a=_epWeekMon.split('-'), b=days[6].split('-');
   const rangeLbl='KW '+_epIsoWeek(_epWeekMon)+' · '+(+a[2])+'.'+(+a[1])+'.–'+(+b[2])+'.'+(+b[1])+'.'+b[0];
@@ -13593,7 +13643,7 @@ function epWeekHtml(){
       if(tourDueOn(t,d)) return `<td style="padding:3px;${we?'background:var(--surface2);':''}"><div title="${dlEsc(t.name||'Tour')} — ${_epWdLetter(d)} ${+d.slice(8)}.${+d.slice(5,7)}." style="height:22px;border-radius:5px;background:${col}26;border:1px solid ${col}66;display:flex;align-items:center;justify-content:center;"><span style="width:7px;height:7px;border-radius:50%;background:${col};"></span></div></td>`;
       return `<td style="padding:3px;${we?'background:var(--surface2);':''}"><div style="height:22px;"></div></td>`;
     }).join('');
-    return `<tr data-epname="${dlEsc(hay)}" style="border-top:1px solid var(--border);${cnt?'':'opacity:.5;'}${hide?'display:none;':''}"${cw?` oncontextmenu="epTourCtx(event,'${t.id}')"`:''}><td style="padding:6px 10px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><span class="ep-dot" style="background:${col};"></span>${dlEsc(t.name||'Tour')}<div style="font-size:10px;color:var(--text3);margin-left:16px;">${dlEsc(_epIntervalLabel(t))}${cnt?'':' · diese Woche kein Termin'}</div></td>${cells}</tr>`;
+    return `<tr data-epname="${dlEsc(hay)}" style="border-top:1px solid var(--border);${cnt?'':'opacity:.5;'}${hide?'display:none;':''}"${cw?` oncontextmenu="epTourCtx(event,'${t.id}')"`:''}><td style="padding:6px 10px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><span class="ep-dot" style="background:${col};"></span>${dlEsc(t.name||'Tour')}${_epBhBadge(t.betriebshof)}<div style="font-size:10px;color:var(--text3);margin-left:16px;">${dlEsc(_epIntervalLabel(t))}${cnt?'':' · diese Woche kein Termin'}</div></td>${cells}</tr>`;
   };
   const _dueThisWeek=t=>days.some(d=>tourDueOn(t,d));
   const emptyCount=real.filter(t=>!_dueThisWeek(t)).length;
@@ -13662,12 +13712,16 @@ function epPlanHtml(){
   const ro=!_epCanWrite();
   const availVeh=_epVehicles.filter(_epVehAvail), availPers=_epPersons.filter(p=>_epPersonActive(p)&&_epPersonAvail(p));
   // Nur die am gewählten Tag laufenden Touren belegen Personal/Fahrzeuge — an anderen Tagen ist die Ressource frei.
-  const dueTours=_epTours.filter(t=>tourDueOn(t,_epDate));
-  const bedarfTours=_epTours.filter(t=>t.interval==='bedarf' && _tourInValidity(t,_epDate));
-  const activeTours=dueTours.concat(bedarfTours);
-  // Auslastung (Personen-Verplanung) zählen — nur über die heute laufenden Touren (wirksame Besetzung)
+  const dueAll=_epTours.filter(t=>tourDueOn(t,_epDate));
+  const bedarfAll=_epTours.filter(t=>t.interval==='bedarf' && _tourInValidity(t,_epDate));
+  const activeTours=dueAll.concat(bedarfAll);
+  // Betriebshof-Filter: nur die Anzeige-Menge einschränken (Scope + Unzugeordnete).
+  // Auslastung/Fahrzeug-Belegung bleiben GLOBAL über alle laufenden Touren — Doppel-Verplanung
+  // über Betriebshöfe hinweg muss auch bei aktivem Filter auffallen.
+  const dueTours=dueAll.filter(t=>_epBhVisible(t.betriebshof));
+  const bedarfTours=bedarfAll.filter(t=>_epBhVisible(t.betriebshof));
   const load={}; activeTours.forEach(t=>_epEffCrew(t).drivers.forEach(n=>load[n]=(load[n]||0)+1));
-  const anyStd=activeTours.some(t=>t.stdVehicleId||(t.stdDrivers&&t.stdDrivers.length));
+  const anyStd=dueTours.concat(bedarfTours).some(t=>t.stdVehicleId||(t.stdDrivers&&t.stdDrivers.length));
   const rowFor=t=>{
     const eff=_epEffCrew(t);
     const drivers=eff.drivers;
@@ -13698,13 +13752,14 @@ function epPlanHtml(){
     const effBadge=eff.std?`<span style="font-size:10px;font-weight:600;color:#0f6e56;background:#e1f5ee;border-radius:99px;padding:1px 7px;white-space:nowrap;" title="Anzeige = Standardbesetzung. Eine Änderung gilt nur für den ${(_epDate||'').split('-').reverse().join('.')} — der Standard bleibt.">★ Standard</span>`:'';
     const star=ro?'':`<button class="ep-star${stdSet?' on':''}" title="${stdSet?'Standard: '+dlEsc(stdTxt)+' — ':''}aktuelle Besetzung als Standard für diese Tour speichern" onclick="epSetStandard('${t.id}')">★</button>`;
     return `<tr data-epname="${dlEsc(_hay)}"${_hide?' style="display:none;"':''} ${ro?'':`oncontextmenu="epTourCtx(event,'${t.id}')" ondragover="epDragOver(event)" ondragenter="this.classList.add('ep-drop')" ondragleave="this.classList.remove('ep-drop')" ondrop="this.classList.remove('ep-drop');epDrop(event,'${t.id}')"`}>
-      <td><span class="ep-dot" style="background:${t.color||'#888'};"></span>${dlEsc(t.name||'Tour')}${stdHint}</td>
+      <td><span class="ep-dot" style="background:${t.color||'#888'};"></span>${dlEsc(t.name||'Tour')}${_epBhBadge(t.betriebshof)}${stdHint}</td>
       <td>${vehSel}${badVeh?'<div class="ep-warn">⚠ Fahrzeug nicht verfügbar</div>':''}</td>
       <td><div class="ep-chips">${driverChips}${drvAdd}${effBadge}</div></td>
       <td style="text-align:center;">${star}</td>
     </tr>`;
   };
-  const notRunning=_epTours.length-dueTours.length-bedarfTours.length;
+  const notRunning=_epTours.length-dueAll.length-bedarfAll.length;
+  const bhHidden=(dueAll.length-dueTours.length)+(bedarfAll.length-bedarfTours.length);
   const besetzt=dueTours.filter(t=>{ const e=_epEffCrew(t); return e.drivers.length||e.vehicleId; }).length;
   // „Heute zu klären": abwesende eingeteilte Kräfte, unbesetzte fällige Touren, ausgefallene Fahrzeuge —
   // jeweils mit direkter Aktion (Picker/Standard), damit der Disponent nicht in der Tabelle suchen muss.
@@ -13724,6 +13779,7 @@ function epPlanHtml(){
     <span style="font-size:12px;font-weight:600;color:var(--text2);background:var(--surface2);border:1px solid var(--border);border-radius:99px;padding:3px 12px;">${dueTours.length} Tour${dueTours.length===1?'':'en'} fällig</span>
     <span style="font-size:12px;font-weight:600;color:${besetzt>=dueTours.length&&dueTours.length?'#0f6e56':'var(--text2)'};background:${besetzt>=dueTours.length&&dueTours.length?'#e1f5ee':'var(--surface2)'};border:1px solid var(--border);border-radius:99px;padding:3px 12px;">${besetzt} besetzt</span>
     ${issues.length?`<span style="font-size:12px;font-weight:600;color:#854f0b;background:#faeeda;border:1px solid #f0c987;border-radius:99px;padding:3px 12px;">${issues.length} zu klären</span>`:''}
+    ${_epBhScope?`<span style="font-size:12px;font-weight:600;color:#7a4a06;background:#fdf6e7;border:1px solid #f0c987;border-radius:99px;padding:3px 12px;" title="Ansichts-Filter — „Alle" zeigt wieder alles; Unzugeordnetes bleibt sichtbar.">Hof „${dlEsc(_epBhScope)}"${bhHidden?` · ${bhHidden} Tour${bhHidden===1?'':'en'} anderer Höfe ausgeblendet`:''}</span>`:''}
     ${(_epDate!==_epToday()&&!ro)?`<span style="font-size:11px;font-weight:600;color:#7a4a06;background:#fdf6e7;border:1px solid #f0c987;border-radius:99px;padding:3px 12px;" title="Es gibt nur EINE gespeicherte Besetzung je Tour — eine Änderung für diesen Tag ersetzt die aktuell wirksame (auch in der Fahrer-App), bis wieder geändert wird.">⚠ Anderer Tag als heute — Änderungen wirken sofort</span>`:''}
   </div>`;
   const issuesBar=issues.length?`<div style="background:#fdf6e7;border:1px solid #f0c987;border-radius:10px;padding:9px 13px;margin-bottom:12px;">
@@ -13733,10 +13789,10 @@ function epPlanHtml(){
   </div>`:'';
   const _dayHay=t=>{ const e=_epEffCrew(t); return ((t.name||'Tour')+' '+e.drivers.join(' ')+' '+(e.vehicleName||'')).toLowerCase(); };
   const dayCountTxt=_epDayQuery?`${dueTours.filter(t=>_dayHay(t).includes(_epDayQuery)).length} / ${dueTours.length}`:'';
-  const rows=dueTours.map(rowFor).join('')||`<tr><td colspan="4" style="padding:18px;text-align:center;color:var(--text3);">Heute läuft keine planmäßige Tour.</td></tr>`;
+  const rows=dueTours.map(rowFor).join('')||`<tr><td colspan="4" style="padding:18px;text-align:center;color:var(--text3);">${_epBhScope?`Am Betriebshof „${dlEsc(_epBhScope)}" läuft heute keine planmäßige Tour.`:'Heute läuft keine planmäßige Tour.'}</td></tr>`;
   const usedVehIds=new Set(activeTours.map(x=>_epEffCrew(x).vehicleId).filter(Boolean));
-  const poolPers=availPers.map(p=>{ const used=(load[p.name]||0)>0; return `<span class="ep-pool${used?' used':''}" ${used?'':`draggable="true" ondragstart="epDragStart(event,'driver','${_jsArg(p.name)}')"`} title="${used?'bereits verplant':'auf eine Tour ziehen'}">${dlEsc(p.name)}${used?' ✓':''}</span>`; }).join('')||'<span class="ep-dash">keine anwesend</span>';
-  const poolVeh=availVeh.map(v=>{ const used=usedVehIds.has(v.id); return `<span class="ep-pool veh${used?' used':''}" ${used?'':`draggable="true" ondragstart="epDragStart(event,'vehicle','${_jsArg(v.id)}')"`} title="${used?'bereits verplant':'auf eine Tour ziehen'}">${dlEsc(v.name)}${used?' ✓':''}</span>`; }).join('')||'<span class="ep-dash">keine verfügbar</span>';
+  const poolPers=availPers.filter(p=>_epBhVisible(p.betriebshof)).map(p=>{ const used=(load[p.name]||0)>0; return `<span class="ep-pool${used?' used':''}" ${used?'':`draggable="true" ondragstart="epDragStart(event,'driver','${_jsArg(p.name)}')"`} title="${used?'bereits verplant':'auf eine Tour ziehen'}${_epBhScope&&!(p.betriebshof||'').trim()?' · ohne Betriebshof':''}">${dlEsc(p.name)}${used?' ✓':''}</span>`; }).join('')||'<span class="ep-dash">keine anwesend</span>';
+  const poolVeh=availVeh.filter(v=>_epBhVisible(v.betriebshof)).map(v=>{ const used=usedVehIds.has(v.id); return `<span class="ep-pool veh${used?' used':''}" ${used?'':`draggable="true" ondragstart="epDragStart(event,'vehicle','${_jsArg(v.id)}')"`} title="${used?'bereits verplant':'auf eine Tour ziehen'}${_epBhScope&&!(v.betriebshof||'').trim()?' · ohne Betriebshof':''}">${dlEsc(v.name)}${used?' ✓':''}</span>`; }).join('')||'<span class="ep-dash">keine verfügbar</span>';
   const stdBar=ro?'':`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
     <button class="btn btn-secondary" style="font-size:12px;padding:6px 12px;${anyStd?'':'opacity:.5;cursor:not-allowed;'}" ${anyStd?'onclick="epApplyStandards()"':'disabled title="Noch keine Standards gespeichert"'}>★ Standardbesetzung übernehmen</button>
     <span style="font-size:11px;color:var(--text3);">Stern je Tour = aktuelle Besetzung als Standard merken. „Übernehmen" füllt den Tag aus den Standards (nur verfügbare).</span></div>`;
@@ -13916,12 +13972,13 @@ function epAbsenceHtml(){
   const ro=!_epCanWrite();
   const days=_epMonthDays(_epAbsMonth);
   const colW=Math.max(22, Math.floor(760/days.length));
-  const activePersons=_epPersons.filter(_epPersonActive);
+  const visPersons=_epPersons.filter(p=>_epBhVisible(p.betriebshof)); // Betriebshof-Filter (Unzugeordnete bleiben sichtbar)
+  const activePersons=visPersons.filter(_epPersonActive);
   const sel=_epDate, anw=activePersons.filter(_epPersonAvail).length;
-  const reqCount=_epPersons.filter(p=>p.loginRequested && !_epHasLogin(p)).length;
+  const reqCount=visPersons.filter(p=>p.loginRequested && !_epHasLogin(p)).length;
   const todayMark=d=>d===sel?'box-shadow:inset 2px 0 0 #1d9e75,inset -2px 0 0 #1d9e75;':'';
   const headCells=days.map(d=>`<th style="padding:4px 0;font-weight:${d===sel?'700':'400'};font-size:9px;color:${d===sel?'#0f6e56':'var(--text3)'};${_epWeekend(d)?'background:var(--surface2);':''}${todayMark(d)}">${+d.slice(8)}<br>${_epWdLetter(d)}</th>`).join('');
-  const rows=_epPersons.map(p=>{
+  const rows=visPersons.map(p=>{
     const cells=days.map(d=>{
       const a=_epAbsenceFor(p,d), we=_epWeekend(d);
       if(a){ const c=_epAbsMeta(a.type); return `<td style="padding:1px;${we?'background:var(--surface2);':''}${todayMark(d)}"><div title="${dlEsc(c.label)} ${a.from}–${a.to}${a.note?' — '+dlEsc(a.note):''}" ${ro?'':`onclick="epAbsOpenForm('${p.id}','${a.id||''}','')"`} style="height:18px;background:${c.color};border-radius:3px;cursor:${ro?'default':'pointer'};"></div></td>`; }
@@ -13934,8 +13991,8 @@ function epAbsenceHtml(){
           ? '<span style="font-size:9px;font-weight:700;color:#9a6700;background:#fcefcb;padding:1px 6px;border-radius:5px;" title="App-Login beim Superadmin angefordert">🔑 Login angefordert</span>'
           : (_epHasLogin(p) ? '' : '<span style="font-size:9px;font-weight:700;color:var(--text3);background:var(--surface2);padding:1px 6px;border-radius:5px;">ohne Login</span>'));
     const nameCell=ro
-      ? `${dlEsc(p.name)}${p.funktion?` <span style="font-size:10px;color:var(--text3);">${dlEsc(p.funktion)}</span>`:''} ${badge}`
-      : `<span onclick="epPersonOpenCard('${_jsArg(p.id)}')" title="Person verwalten" style="cursor:pointer;border-radius:5px;padding:1px 3px;">${dlEsc(p.name)}${p.funktion?` <span style="font-size:10px;color:var(--text3);">${dlEsc(p.funktion)}</span>`:''} ${badge}</span>`;
+      ? `${dlEsc(p.name)}${p.funktion?` <span style="font-size:10px;color:var(--text3);">${dlEsc(p.funktion)}</span>`:''} ${badge}${_epBhBadge(p.betriebshof)}`
+      : `<span onclick="epPersonOpenCard('${_jsArg(p.id)}')" title="Person verwalten${(p.betriebshof||'').trim()?' · Betriebshof '+dlEsc(p.betriebshof):''}" style="cursor:pointer;border-radius:5px;padding:1px 3px;">${dlEsc(p.name)}${p.funktion?` <span style="font-size:10px;color:var(--text3);">${dlEsc(p.funktion)}</span>`:''} ${badge}${_epBhBadge(p.betriebshof)}</span>`;
     return `<tr style="border-top:1px solid var(--border);${inactive?'opacity:.5;':''}"><td style="padding:4px 10px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${nameCell}</td>${cells}</tr>`;
   }).join('')||`<tr><td colspan="${days.length+1}" style="padding:18px;color:var(--text3);text-align:center;">Noch kein Personal in diesem Mandanten — oben „＋ Mitarbeiter".</td></tr>`;
   const legend=_epAbsTypes().map(c=>`<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);"><span style="width:11px;height:11px;border-radius:3px;background:${c.color};"></span>${dlEsc(c.label)}</span>`).join('')
@@ -13986,6 +14043,7 @@ function epPersonOpenCard(personId){
     <div style="padding:16px 18px;display:flex;flex-direction:column;gap:12px;">
       <label style="font-size:12px;color:var(--text3);">Name<input id="pc-name" class="form-control" style="width:100%;margin-top:3px;" value="${dlEsc(p?p.name:'')}" placeholder="Vor- und Nachname" ${readOnly?'readonly':''}></label>
       <label style="font-size:12px;color:var(--text3);">Funktion / Einsatzgruppe<select id="pc-funktion" class="form-control" style="width:100%;margin-top:3px;" ${readOnly?'disabled':''}>${funktionenOptions(_epFunktionen, p?p.funktion||'':'')}</select></label>
+      <label style="font-size:12px;color:var(--text3);">Betriebshof <span style="color:var(--text3);font-size:10px;">(steuert den Filter im Einsatzplaner)</span><select id="pc-bh" class="form-control" style="width:100%;margin-top:3px;" ${readOnly?'disabled':''}>${(()=>{ const cur=(p&&p.betriebshof||'').trim(); const opts=_epBhOptions(); if(cur&&!opts.includes(cur)) opts.push(cur); return '<option value="">— kein —</option>'+opts.map(b=>`<option value="${dlEsc(b)}"${b===cur?' selected':''}>${dlEsc(b)}</option>`).join(''); })()}</select></label>
       ${loginBox}
       ${dangerRow}
       <div style="font-size:11px;color:var(--text3);border-top:1px solid var(--border);padding-top:8px;">🔒 Kein PIN-Feld — den App-Login aktiviert ausschließlich der Superadmin (kostenpflichtig).</div>
@@ -14003,29 +14061,30 @@ function epPersonOpenCard(personId){
   if(saveBtn) saveBtn.onclick=async()=>{
     const name=(m.querySelector('#pc-name').value||'').trim();
     const funktion=(m.querySelector('#pc-funktion').value||'').trim();
+    const betriebshof=(m.querySelector('#pc-bh').value||'').trim();
     if(!name){ notify('Bitte Name eingeben'); return; }
     close();
-    if(isNew) await epPersonCreate(name, funktion);
-    else await epPersonSave(p.id, name, funktion);
+    if(isNew) await epPersonCreate(name, funktion, betriebshof);
+    else await epPersonSave(p.id, name, funktion, betriebshof);
   };
   const reqBtn=m.querySelector('#pc-req'); if(reqBtn) reqBtn.onclick=()=>{ close(); epPersonRequestLogin(p.id, !requested); };
   const actBtn=m.querySelector('#pc-active'); if(actBtn) actBtn.onclick=()=>{ close(); epPersonToggleActive(p.id, !inactive); };
   const delBtn=m.querySelector('#pc-del'); if(delBtn) delBtn.onclick=()=>{ close(); epPersonDelete(p.id, p.name); };
   setTimeout(()=>m.querySelector('#pc-name')?.focus(),0);
 }
-async function epPersonCreate(name, funktion){
+async function epPersonCreate(name, funktion, betriebshof){
   if(!_epCanWrite()||!_epOrg) return;
   try{
-    await db.collection('drivers').add({ orgId:_epOrg, name, nameLower:name.toLowerCase(), funktion, einsatz:true, noLogin:true, role:'', active:true, createdAt:firebase.firestore.FieldValue.serverTimestamp() });
+    await db.collection('drivers').add({ orgId:_epOrg, name, nameLower:name.toLowerCase(), funktion, betriebshof:betriebshof||'', einsatz:true, noLogin:true, role:'', active:true, createdAt:firebase.firestore.FieldValue.serverTimestamp() });
     notify('✓ „'+name+'" angelegt (ohne Login)');
     await epLoadOrgScope(); renderEp();
   }catch(e){ notify('Anlegen fehlgeschlagen: '+(e.message||e)); }
 }
-async function epPersonSave(id, name, funktion){
+async function epPersonSave(id, name, funktion, betriebshof){
   const p=_epPersons.find(x=>x.id===id); if(!p) return;
   try{
-    await db.collection('drivers').doc(id).update({ name, nameLower:name.toLowerCase(), funktion });
-    p.name=name; p.nameLower=name.toLowerCase(); p.funktion=funktion; notify('✓ Gespeichert'); renderEp();
+    await db.collection('drivers').doc(id).update({ name, nameLower:name.toLowerCase(), funktion, betriebshof:betriebshof||'' });
+    p.name=name; p.nameLower=name.toLowerCase(); p.funktion=funktion; p.betriebshof=betriebshof||''; notify('✓ Gespeichert'); renderEp();
   }catch(e){ notify('Speichern fehlgeschlagen: '+(e.message||e)); }
 }
 async function epPersonRequestLogin(id, want){
@@ -14202,25 +14261,29 @@ function _epH(min){ return min?(+(min/60).toFixed(1))+' h':'–'; }
 function epFuhrparkHtml(){
   const canEdit=currentRole==='superadmin'||currentCap==='admin';
   const arten=['PKW','Kleintransporter','LKW','Schlepper','Kehrmaschine','Anhänger','Sonstiges'];
+  const bhOpts=_epBhOptions();
+  const bhSelFor=v=>{ const cur=(v.betriebshof||'').trim(); const opts=(cur&&!bhOpts.includes(cur))?[...bhOpts,cur]:bhOpts;
+    return `<select class="ep-mini" style="width:100%;" onchange="epVehField('${v.id}','betriebshof',this.value)" title="Betriebshof-Zuordnung (für den Filter oben)"><option value="">— kein —</option>${opts.map(b=>`<option value="${dlEsc(b)}"${b===cur?' selected':''}>${dlEsc(b)}</option>`).join('')}</select>`; };
   const rows=_epVehicles.map(v=>{
-    if(!canEdit) return `<tr><td><span class="ep-dot" style="background:#888;"></span>${dlEsc(v.name||'–')}</td><td>${dlEsc(v.art||'–')}</td><td>${dlEsc(v.kennzeichen||'–')}</td><td>${_epH(v.arbeitszeitMin)}</td><td>${dlEsc(v.notiz||'')}</td></tr>`;
+    if(!canEdit) return `<tr><td><span class="ep-dot" style="background:#888;"></span>${dlEsc(v.name||'–')}</td><td>${dlEsc(v.art||'–')}</td><td>${dlEsc(v.kennzeichen||'–')}</td><td>${dlEsc(v.betriebshof||'–')}</td><td>${_epH(v.arbeitszeitMin)}</td><td>${dlEsc(v.notiz||'')}</td></tr>`;
     return `<tr>
       <td><input class="ep-mini" style="width:100%;" value="${dlEsc(v.name||'')}" onchange="epVehField('${v.id}','name',this.value)" placeholder="Bezeichnung"></td>
       <td><input class="ep-mini" style="width:100%;" list="ep-veh-arten" value="${dlEsc(v.art||'')}" onchange="epVehField('${v.id}','art',this.value)" placeholder="Art/Typ"></td>
       <td><input class="ep-mini" style="width:100%;" value="${dlEsc(v.kennzeichen||'')}" onchange="epVehField('${v.id}','kennzeichen',this.value)" placeholder="z. B. RÜS-AB 123"></td>
+      <td>${bhSelFor(v)}</td>
       <td><input class="ep-mini" type="number" min="0" step="0.5" style="width:64px;" value="${v.arbeitszeitMin?+(v.arbeitszeitMin/60):''}" onchange="epVehField('${v.id}','arbeitszeitH',this.value)" title="Arbeitszeit Std/Tag"></td>
       <td><input class="ep-mini" style="width:100%;" value="${dlEsc(v.notiz||'')}" onchange="epVehField('${v.id}','notiz',this.value)" placeholder="Notiz"></td>
       <td style="text-align:right;"><button class="btn btn-danger" style="padding:3px 8px;font-size:12px;" onclick="epVehRemove('${v.id}')">✕</button></td>
     </tr>`;
   }).join('');
-  const head=canEdit?'<th style="width:24%;">Bezeichnung</th><th style="width:18%;">Art/Typ</th><th style="width:18%;">Kennzeichen</th><th style="width:80px;">Std/Tag</th><th>Notiz</th><th style="width:40px;"></th>'
-                    :'<th style="width:28%;">Bezeichnung</th><th>Art/Typ</th><th>Kennzeichen</th><th style="width:80px;">Std/Tag</th><th>Notiz</th>';
+  const head=canEdit?'<th style="width:20%;">Bezeichnung</th><th style="width:15%;">Art/Typ</th><th style="width:15%;">Kennzeichen</th><th style="width:15%;">Betriebshof</th><th style="width:80px;">Std/Tag</th><th>Notiz</th><th style="width:40px;"></th>'
+                    :'<th style="width:24%;">Bezeichnung</th><th>Art/Typ</th><th>Kennzeichen</th><th>Betriebshof</th><th style="width:80px;">Std/Tag</th><th>Notiz</th>';
   return `
     <datalist id="ep-veh-arten">${arten.map(a=>`<option value="${a}">`).join('')}</datalist>
     <div class="ep-sec-head"><h3>Fuhrpark <span class="ep-count">${_epVehicles.length} Fahrzeuge</span></h3>
       ${canEdit?`<button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="epVehAdd()">+ Fahrzeug</button><button class="btn btn-primary" style="font-size:11px;padding:5px 14px;margin-left:auto;" onclick="epVehSave()">Speichern</button>`:'<span class="ep-count" style="margin-left:auto;">nur Lesezugriff</span>'}</div>
-    <table class="ep-table"><thead><tr>${head}</tr></thead><tbody>${rows||'<tr><td colspan="6" style="color:var(--text3);">Noch keine Fahrzeuge — „+ Fahrzeug" anlegen.</td></tr>'}</tbody></table>
-    <div class="ep-foot">Gemeinsame Fahrzeugquelle für Einsatzplaner und Disposition. Änderungen erst mit „Speichern" sichern.</div>`;
+    <table class="ep-table"><thead><tr>${head}</tr></thead><tbody>${rows||`<tr><td colspan="${canEdit?7:6}" style="color:var(--text3);">Noch keine Fahrzeuge — „+ Fahrzeug" anlegen.</td></tr>`}</tbody></table>
+    <div class="ep-foot">Gemeinsame Fahrzeugquelle für Einsatzplaner und Disposition. Änderungen erst mit „Speichern" sichern. Der Betriebshof steuert den Filter oben im Einsatzplaner.</div>`;
 }
 // Eingehängten Nachrichten-Bereich VOR jedem innerHTML-Neuaufbau von #ep-root nach Hause retten —
 // sonst wird der DOM-Knoten zerstört und der Reiter bleibt dauerhaft leer. MUSS überall dort laufen,
@@ -14236,12 +14299,16 @@ function renderEp(){
     ? `<label class="ep-field">Mandant<select onchange="epChangeOrg(this.value)">${_epOrgs.map(o=>`<option value="${dlEsc(o.id)}"${o.id===_epOrg?' selected':''}>${dlEsc(o.name)}</option>`).join('')}</select></label>` : '';
   const projSel=`<label class="ep-field">Projekt<select onchange="epChangeProject(this.value)">${_epProjects.length?_epProjects.map(p=>`<option value="${dlEsc(p.id)}"${p.id===_epProject?' selected':''}>${dlEsc(p.name)}</option>`).join(''):'<option value="">—</option>'}</select></label>`;
   const dateSel=`<label class="ep-field">Tag<input type="date" value="${_epDate}" onchange="epChangeDate(this.value)"></label>`;
+  const bhOpts=_epBhOptions(); if(_epBhScope&&!bhOpts.includes(_epBhScope)) bhOpts.push(_epBhScope);
+  const bhSel=bhOpts.length?`<label class="ep-field">Betriebshof<select onchange="epChangeBh(this.value)" style="${_epBhScope?'border-color:#d97706;':''}">
+      <option value="">Alle</option>${bhOpts.map(b=>`<option value="${dlEsc(b)}"${b===_epBhScope?' selected':''}>${dlEsc(b)}</option>`).join('')}
+    </select></label>`:'';
   const tab=(k,lbl)=>`<button class="ep-tab${_epTab===k?' on':''}" onclick="epSetTab('${k}')">${lbl}</button>`;
   if(_epTab==='verfuegbar'||_epTab==='fuhrpark') _epTab='fahrzeuge'; // Alt-Tabs zusammengelegt
   const nmTab=canUseModule('nachrichten')?tab('nachrichten','Nachrichten'):'';
   root.innerHTML=`
     <div class="ep-top">
-      <div class="ep-top-l"><div class="ep-title">Einsatzplaner</div>${orgSel}${projSel}${dateSel}</div>
+      <div class="ep-top-l"><div class="ep-title">Einsatzplaner</div>${orgSel}${projSel}${dateSel}${bhSel}</div>
       <div class="ep-tabs">${tab('plan','Tag')}${tab('woche','Woche')}${tab('abwesenheiten','Personal')}${tab('fahrzeuge','Fahrzeuge')}${nmTab}</div>
     </div>
     <div class="ep-body">${
@@ -16103,7 +16170,7 @@ Object.assign(window,{
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleRequiredFeld,toggleRawSeg,_siInfo,
-  createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,psSetOrgFilter,setSiTab,
+  createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,epChangeBh,psSetOrgFilter,setSiTab,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,openMeldungFotos,stepMeldungFoto,closeMeldungFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,

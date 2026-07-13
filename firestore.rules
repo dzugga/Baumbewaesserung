@@ -109,7 +109,7 @@ service cloud.firestore {
                     || (canPlan(resource.data.orgId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['absences']))
                     || (canPlan(resource.data.orgId) && resource.data.noLogin == true
                         && request.resource.data.diff(resource.data).affectedKeys()
-                             .hasOnly(['name','nameLower','funktion','einsatz','loginRequested','active','absences','notiz']));
+                             .hasOnly(['name','nameLower','funktion','betriebshof','einsatz','loginRequested','active','absences','notiz']));
       // Admin: alles. Planer: nur Login-lose Personen loeschen.
       allow delete: if canManage(resource.data.orgId)
                     || (canPlan(resource.data.orgId) && resource.data.noLogin == true
