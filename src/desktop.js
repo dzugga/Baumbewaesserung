@@ -13029,6 +13029,7 @@ function renderDashboard(){
     {val:meldungen,lbl:'Meldungen',sub:'gesamt im Zeitraum',color:'var(--blue)'},
     {val:aktiveFahrer,lbl:'Aktive Fahrer',sub:'im Zeitraum',color:'var(--amber)'},
   ].map(k=>`<div class="dsh-tile"><div class="dsh-val" style="color:${k.color};">${k.val}</div><div class="dsh-lbl">${k.lbl}</div><div class="dsh-sub">${k.sub}</div></div>`).join('');
+  dashRenderHeute(); // Tages-Soll/Ist (unabhängig vom gewählten Zeitraum)
   dashRenderTourProgress(reported);
   dashRenderReasons(nicht);
   dashRenderNichtMap(nicht);
@@ -13037,6 +13038,67 @@ function renderDashboard(){
   if(u) u.textContent='Stand: '+new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});
 }
 
+// ── Tages-Soll/Ist: welche Touren sind HEUTE laut Tourkalender fällig, und was läuft davon ──
+// Soll = tourDueOn(heute); Bedarfstouren zählen nur, wenn sie heute aktiv besetzt wurden (crewDate).
+// Ist je Tour: ✓ abgeschlossen (Tour-Abschluss heute) | ▶ läuft (Meldung heute) | ○ keine Rückmeldung.
+// Zusätzlich „außerplanmäßig": nicht fällige Touren mit heutigen Meldungen (Kalender-Abweichung).
+function _dashCrewToday(t){ // wirksame Besetzung heute — gleiche Regel wie _epEffCrew, ohne Einsatzplaner-Zustand
+  const cur=t.drivers||(t.assignedDriver?[t.assignedDriver]:[]);
+  const hasStd=!!(t.stdVehicleId||(t.stdDrivers&&t.stdDrivers.length));
+  if(!t.crewDate || t.crewDate===_todayStr() || !hasStd) return [...cur];
+  return [...(t.stdDrivers||[])];
+}
+function dashRenderHeute(){
+  const el=document.getElementById('dash-heute'); if(!el) return;
+  const today=_todayStr();
+  // EIN Durchlauf über alle Objekte: heutige Meldungen je Tour zählen (Anzahl, gemeldete Objekte, letzte Zeit)
+  const memTour={}, repTour={}, cntTour={}, lastTour={};
+  (trees||[]).forEach(x=>{
+    if(!isActive(x)) return;
+    const tids=realTourIds(x); if(!tids.length) return;
+    tids.forEach(tid=>{ memTour[tid]=(memTour[tid]||0)+1; });
+    let n=0,last='';
+    (x.history||[]).forEach(h=>{ if(h&&h.status&&h.date===today){ n++; if(h.at&&h.at>last) last=h.at; } });
+    if(n) tids.forEach(tid=>{ repTour[tid]=(repTour[tid]||0)+1; cntTour[tid]=(cntTour[tid]||0)+n; if(!lastTour[tid]||last>lastTour[tid]) lastTour[tid]=last; });
+  });
+  const real=tours.filter(t=>!t.uebersicht);
+  const due=real.filter(t=>(t.interval||'')==='bedarf' ? (_tourInValidity(t,today)&&t.crewDate===today) : tourDueOn(t,today));
+  const dueIds=new Set(due.map(t=>t.id));
+  const rows=due.map(t=>{
+    const total=memTour[t.id]||0, rep=repTour[t.id]||0;
+    const closed=t.status==='abgeschlossen'&&t.lastClosedDate===today;
+    const state=closed?'done':(rep>0?'run':'none');
+    return {t,total,rep,last:lastTour[t.id]?String(lastTour[t.id]).slice(11,16):'',closedTime:(closed&&t.closedAt)?String(t.closedAt).slice(11,16):'',state,crew:_dashCrewToday(t)};
+  }).sort((a,b)=>{ const o={none:0,run:1,done:2}; return (o[a.state]-o[b.state])||String(a.t.name||'').localeCompare(String(b.t.name||'')); });
+  const doneN=rows.filter(r=>r.state==='done').length, runN=rows.filter(r=>r.state==='run').length, noneN=rows.length-doneN-runN;
+  const extra=real.filter(t=>!dueIds.has(t.id)&&cntTour[t.id]).map(t=>({t,n:cntTour[t.id]}));
+  const pill=r=>r.state==='done'?`<span style="font-size:10.5px;font-weight:600;color:#166534;background:#dcfce7;border-radius:99px;padding:2px 9px;white-space:nowrap;">✓ abgeschlossen${r.closedTime?' '+r.closedTime:''}</span>`
+    :r.state==='run'?`<span style="font-size:10.5px;font-weight:600;color:#1e40af;background:#dbeafe;border-radius:99px;padding:2px 9px;white-space:nowrap;">▶ läuft${r.last?' · zuletzt '+r.last:''}</span>`
+    :`<span style="font-size:10.5px;font-weight:600;color:#854f0b;background:#fef3c7;border-radius:99px;padding:2px 9px;white-space:nowrap;">○ keine Rückmeldung</span>`;
+  const kpi=(v,l,c)=>`<div style="background:var(--surface2);border-radius:8px;padding:7px 12px;"><div style="font-size:18px;font-weight:800;font-family:'DM Mono',monospace;line-height:1.1;color:${c};">${v}</div><div style="font-size:10.5px;color:var(--text2);">${l}</div></div>`;
+  const wd=_WD_FULL[new Date().getDay()];
+  el.innerHTML=`<div class="dsh-card" style="border:2px solid var(--green-mid);margin-bottom:12px;">
+    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px;">
+      <span style="font-size:12.5px;font-weight:700;">Heute — ${wd}, ${today.split('-').reverse().join('.')}</span>
+      <span style="font-size:10.5px;color:var(--text3);">Soll aus dem Tourkalender (Betriebstage · Rhythmus · Saison)</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:${rows.length?'12px':'0'};">
+      ${kpi(rows.length,'Touren fällig (Soll)','var(--text)')}${kpi(doneN,'abgeschlossen','var(--green)')}${kpi(runN,'läuft (meldet)','#1e40af')}${kpi(noneN,'ohne Rückmeldung',noneN?'#b45309':'var(--text3)')}
+    </div>
+    ${rows.length?`<div style="display:grid;grid-template-columns:12px 1fr auto auto auto;gap:5px 10px;align-items:center;">
+      ${rows.map(r=>`
+        <span style="width:9px;height:9px;border-radius:50%;background:${r.t.color||'#888'};"></span>
+        <span style="font-size:12.5px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(r.t.name||'Tour')} <span style="font-weight:400;color:${r.crew.length?'var(--text3)':'var(--red)'};font-size:11px;">· ${r.crew.length?dlEsc(r.crew.join(', ')):'unbesetzt'}</span></span>
+        <span style="font-size:11px;color:var(--text2);white-space:nowrap;">${r.rep}/${r.total} gemeldet</span>
+        <span style="display:flex;width:70px;height:5px;border-radius:3px;background:var(--surface2);overflow:hidden;"><span style="width:${r.total?Math.round(r.rep/r.total*100):0}%;background:var(--green);"></span></span>
+        ${pill(r)}`).join('')}
+    </div>`:`<div style="font-size:12px;color:var(--text3);">Heute sind laut Tourkalender keine Touren fällig.</div>`}
+    ${extra.length?`<div style="display:flex;align-items:baseline;gap:8px;margin-top:9px;padding-top:8px;border-top:1px solid var(--border);font-size:11px;color:var(--text2);flex-wrap:wrap;">
+      <span style="color:#854f0b;font-weight:600;">⚠ Außerplanmäßig gefahren:</span>
+      ${extra.map(x=>`<span><b style="font-weight:600;">${dlEsc(x.t.name||'Tour')}</b> — ${x.n} Meldung${x.n===1?'':'en'} heute, laut Kalender nicht fällig</span>`).join(' · ')}
+    </div>`:''}
+  </div>`;
+}
 // Pro-Tour-Statistik (geteilte Quelle für KPI "Offen" und "Fortschritt je Tour")
 // Übersichten sind nur Gruppierung (keine echten Touren) → ausgeschlossen, sonst Doppelzählung.
 function dashTourStats(reported){
