@@ -13015,10 +13015,12 @@ function renderDashboard(){
   const meldungen=bew.length+nicht.length;
   const pct=meldungen>0?Math.round(bew.length/meldungen*100):0;
   const aktiveFahrer=new Set(reported.map(r=>r.lastDriver).filter(Boolean)).size;
-  const aktive=trees.filter(isActive);
+  // Auftragsbestand heute: eindeutige Objekte in den heute gültigen (inkl. überfälligen/Bedarfs-)Touren
+  let auftraege=0; (trees||[]).forEach(x=>{ if(isActive(x)&&realTourIds(x).some(id=>_dashHeuteTourIds.has(id))) auftraege++; });
+  const gemeldet=new Set(reported.map(r=>r.id)).size;
   const grid=document.getElementById('dash-kpi-grid');
   if(grid) grid.innerHTML=[
-    {val:aktive.length,lbl:'Objekte gesamt',sub:'im Projekt',color:'var(--text)'},
+    {val:auftraege,lbl:'Aufträge heute',sub:`${gemeldet} gemeldet · ${_dashHeuteTourIds.size} Tour${_dashHeuteTourIds.size===1?'':'en'}`,color:'var(--text)'},
     {val:bew.length,lbl:'Erledigt',sub:`heute · ${pct}% der Meldungen`,color:'var(--green)'},
     {val:nicht.length,lbl:'Nicht erledigt',sub:'heute',color:'var(--red)'},
     {val:meldungen,lbl:'Meldungen',sub:'heute gesamt',color:'var(--blue)'},
