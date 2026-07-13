@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- einsatzleiter v1.0 -->
+<!-- einsatzleiter v2.0 — Tages-Lagebild (identisch zum Desktop-Dashboard) -->
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -63,19 +63,8 @@ body{overflow:hidden;}
 .header-btn{flex-shrink:0;background:var(--surface);border:1.5px solid var(--border);border-radius:9px;padding:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text2);}
 .header-btn:active{background:var(--surface2);}
 
-/* TIME FILTER */
-.timefilter{background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;display:flex;gap:6px;padding:8px 12px;overflow-x:auto;-webkit-overflow-scrolling:touch;}
-.tf-chip{flex-shrink:0;padding:8px 16px;border-radius:20px;border:1.5px solid var(--border);background:var(--bg);color:var(--text2);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all .15s;}
-.tf-chip.active{background:var(--blue);border-color:var(--blue);color:#fff;}
-.tf-custom{display:none;gap:8px;padding:0 12px 10px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;align-items:flex-end;}
-.tf-custom.show{display:flex;}
-.tf-custom .form-group{flex:1;margin:0;}
-.tf-custom .form-label{margin-bottom:3px;}
-.tf-custom .form-control{padding:9px 10px;font-size:14px;}
-
 /* CONTENT */
 .content{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px 12px calc(20px + var(--safe-bottom));}
-.range-label{font-size:12px;color:var(--text3);text-align:center;margin-bottom:12px;}
 
 /* KPI TILES */
 .kpi-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px;}
@@ -89,21 +78,6 @@ body{overflow:hidden;}
 .card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;margin-bottom:14px;}
 .card-title{font-size:14px;font-weight:700;color:var(--text);margin-bottom:14px;display:flex;align-items:center;gap:8px;}
 .card-title .pct{margin-left:auto;font-size:13px;font-weight:700;color:var(--green-dark);}
-
-/* TOUR PROGRESS */
-.tour-row{margin-bottom:16px;}
-.tour-row:last-child{margin-bottom:0;}
-.tour-head{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
-.tour-dot{width:11px;height:11px;border-radius:50%;flex-shrink:0;}
-.tour-name{font-size:13px;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.tour-pct{font-size:12px;font-weight:700;color:var(--text2);flex-shrink:0;}
-.tour-bar{height:14px;border-radius:7px;background:var(--surface2);overflow:hidden;display:flex;}
-.tour-bar .seg{height:100%;transition:width .4s;}
-.tour-meta{display:flex;gap:12px;font-size:11px;color:var(--text3);margin-top:5px;}
-.tour-meta b{font-weight:700;}
-
-/* TIMELINE */
-.chart-wrap{position:relative;height:200px;}
 
 /* MAP */
 .map-wrap{position:relative;height:340px;border-radius:var(--radius-sm);overflow:hidden;border:1px solid var(--border);}
@@ -124,22 +98,18 @@ body{overflow:hidden;}
 .reason-bar .fill{height:100%;background:var(--red-mid);border-radius:4px;transition:width .4s;}
 
 .empty{font-size:13px;color:var(--text3);text-align:center;padding:20px 0;}
-.legend{display:flex;gap:14px;font-size:11px;color:var(--text2);margin-top:12px;flex-wrap:wrap;}
-.legend span{display:flex;align-items:center;gap:5px;}
-.legend i{width:11px;height:11px;border-radius:3px;display:inline-block;}
 
 /* TOAST */
 .toast{position:fixed;bottom:calc(20px + var(--safe-bottom));left:16px;right:16px;background:var(--text);color:var(--bg);padding:12px 18px;border-radius:var(--radius-sm);font-size:14px;font-weight:500;z-index:9999;opacity:0;transition:opacity .2s;text-align:center;pointer-events:none;}
 .toast.show{opacity:1;}
 
-/* Desktop / breite Tablets: 2-spaltiges Dashboard */
+/* Desktop / breite Tablets: 2-spaltiges Dashboard (Karte breit, Gründe schmal — wie Desktop-Dashboard) */
 @media (min-width:760px){
   .content{max-width:1100px;margin:0 auto;width:100%;}
-  .kpi-grid{grid-template-columns:repeat(6,1fr);}
+  .kpi-grid{grid-template-columns:repeat(5,1fr);}
   .kpi-tile.wide{grid-column:auto;}
-  .dash-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start;}
+  .dash-cols{display:grid;grid-template-columns:1fr 260px;gap:14px;align-items:start;}
   .dash-cols .card{margin-bottom:0;}
-  .chart-wrap{height:240px;}
 }
 </style>
 </head>
@@ -207,42 +177,28 @@ body{overflow:hidden;}
     </button>
   </div>
 
-  <!-- Zeitfilter -->
-  <div class="timefilter" id="timefilter">
-    <div class="tf-chip" data-period="today">Heute</div>
-    <div class="tf-chip" data-period="week">Woche</div>
-    <div class="tf-chip active" data-period="month">Monat</div>
-    <div class="tf-chip" data-period="all">Gesamt</div>
-    <div class="tf-chip" data-period="custom">Zeitraum…</div>
-  </div>
-  <div class="tf-custom" id="tf-custom">
-    <div class="form-group"><label class="form-label">Von</label><input type="date" class="form-control" id="date-from"></div>
-    <div class="form-group"><label class="form-label">Bis</label><input type="date" class="form-control" id="date-to"></div>
-  </div>
-
-  <!-- Inhalt -->
+  <!-- Inhalt: Tages-Lagebild (identisch zum Desktop-Dashboard) -->
   <div class="content">
-    <div class="range-label" id="range-label">–</div>
 
-    <!-- KPI Tiles -->
+    <!-- KPI Tiles (Tag) -->
     <div class="kpi-grid" id="kpi-grid"></div>
 
+    <!-- Heute-Block: Soll/Ist der Touren -->
+    <div id="el-heute"></div>
+
     <div class="dash-cols">
-      <!-- Fortschritt je Tour -->
+      <!-- Karte: nicht erledigte Objekte des Tages -->
       <div class="card">
-        <div class="card-title" style="display:flex;align-items:center;gap:8px;">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="7"/><rect x="12" y="6" width="3" height="11"/><rect x="17" y="13" width="3" height="4"/></svg>
-          <span>Fortschritt je Tour</span>
-          <span id="tour-count" style="font-size:11px;font-weight:400;color:var(--text3);"></span>
-          <input id="tour-search" type="text" placeholder="Tour suchen…" oninput="filterTours(this.value)"
-            style="margin-left:auto;padding:4px 9px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:inherit;background:var(--surface);width:130px;max-width:45%;outline:none;">
+        <div class="card-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          Nicht erledigt <span id="map-day">heute</span> — Karte
+          <span class="pct" id="map-count" style="color:var(--red);"></span>
         </div>
-        <div id="tour-progress" style="max-height:270px;overflow-y:auto;"></div>
-        <div class="legend">
-          <span><i style="background:var(--green)"></i>Erledigt</span>
-          <span><i style="background:var(--red-mid)"></i>Nicht erledigt</span>
-          <span><i style="background:var(--surface2);border:1px solid var(--border)"></i>Offen</span>
+        <div class="map-wrap">
+          <div id="nicht-map"></div>
+          <div class="map-empty" id="map-empty">Keine nicht-erledigten Objekte 🎉</div>
         </div>
+        <div class="map-note" id="map-note"></div>
       </div>
 
       <!-- Gründe -->
@@ -251,31 +207,8 @@ body{overflow:hidden;}
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
           Gründe „nicht erledigt"
         </div>
-        <div id="reasons" style="max-height:175px;overflow-y:auto;"></div>
+        <div id="reasons" style="max-height:260px;overflow-y:auto;"></div>
       </div>
-    </div>
-
-    <!-- Karte: nicht erledigte Bäume -->
-    <div class="card">
-      <div class="card-title">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-        Nicht erledigt — Karte
-        <span class="pct" id="map-count" style="color:var(--red);"></span>
-      </div>
-      <div class="map-wrap">
-        <div id="nicht-map"></div>
-        <div class="map-empty" id="map-empty">Keine nicht-erledigten Objekte im Zeitraum 🎉</div>
-      </div>
-      <div class="map-note" id="map-note"></div>
-    </div>
-
-    <!-- Verlauf -->
-    <div class="card">
-      <div class="card-title">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
-        Verlauf
-      </div>
-      <div class="chart-wrap"><canvas id="timeline-chart"></canvas></div>
     </div>
   </div>
 
@@ -284,7 +217,6 @@ body{overflow:hidden;}
 <div class="toast" id="toast"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g" crossorigin="anonymous"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>

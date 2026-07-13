@@ -21,6 +21,8 @@ function _jsArg(s){
 }
 import { titelOf as orTitel, ELEM_GRUPPE_ORDER, ELEM_GRUPPE_LABEL, haeufigkeitOf as orHaeuf, objektartOf as orObjektart, lageOf as orLage } from './objektrollen.js'; // zentrale Rollen (Objekt + Lage, Reinigungs-Häufigkeit)
 import { initVersionCheck } from './version-check.js';
+// Tourkalender (Soll-Logik) zentral — auch die Einsatzleiter-App nutzt exakt diese Regeln
+import { tourDueOn as _tkTourDueOn, tourInValidity as _tourInValidity, tourBetriebstage as _tourBetriebstage, isoWeekIndex as _isoWeekIndex, saisonForDate as _tkSaisonForDate, SAISON_DEFAULT } from './tour-kalender.js';
 import { buildShapefileZip, PRJ_ETRS89_UTM32N } from './geo-export.js';
 import { readShapefileZip } from './geo-import.js';
 initVersionCheck();   // erkennt neue Deploys während die App offen ist → „Neu laden"-Banner
@@ -158,38 +160,9 @@ function isOverviewTour(tourId){ const t=tours.find(x=>x.id===tourId); return !!
 // Ersetzt das mehrdeutige „täglich". Ohne Betriebstage ist eine Tour bewusst NICHT fällig und zählt 0.
 const _WD=[{n:1,l:'Mo'},{n:2,l:'Di'},{n:3,l:'Mi'},{n:4,l:'Do'},{n:5,l:'Fr'},{n:6,l:'Sa'},{n:0,l:'So'}]; // n = Date.getDay()
 function _daysBetween(a,b){ const [ay,am,ad]=a.split('-').map(Number),[by,bm,bd]=b.split('-').map(Number); return Math.round((Date.UTC(by,bm-1,bd)-Date.UTC(ay,am-1,ad))/86400000); }
-function _tourInValidity(t,date){ const g=t&&t.gueltig; if(!Array.isArray(g)||!g.length) return true; return g.some(p=>p&&p.from<=date&&p.to>=date); }
-// Betriebstage (getDay-Nummern). Abwärtskompatibel für Alt-Touren ohne das Feld:
-//  - Legacy „täglich" → alle 7 Tage;  - Legacy Wochen-Rhythmen mit Startdatum → dessen Wochentag.
-function _tourBetriebstage(t){
-  if(!t) return [];
-  if(Array.isArray(t.betriebstage)) return t.betriebstage;
-  if(t.interval==='taeglich') return [1,2,3,4,5,6,0];
-  if(t.startDate && (t.interval==='woechentlich'||t.interval==='14taeglich'||t.interval==='4woechentlich')){
-    const [Y,M,D]=t.startDate.split('-').map(Number); return [new Date(Y,M-1,D).getDay()];
-  }
-  return [];
-}
+// _tourInValidity/_tourBetriebstage/_isoWeekIndex kommen aus tour-kalender.js (geteilt mit Einsatzleiter-App)
 function _weekFactor(iv){ return iv==='14taeglich'?0.5:iv==='4woechentlich'?0.25:iv==='bedarf'?0:1; } // jede/jede2./jede4. Woche
-// Kalenderwochen-Index (Mo-basiert) für die Wochen-Parität bei 2-/4-wöchentlichem Rhythmus.
-function _isoWeekIndex(dateStr){ const [Y,M,D]=dateStr.split('-').map(Number); const ms=Date.UTC(Y,M-1,D); const dow=(new Date(ms).getUTCDay()+6)%7; return Math.floor((ms-dow*86400000)/(7*86400000)); }
-function tourDueOn(t,date){
-  if(!t || !_tourInValidity(t,date)) return false;
-  if(t.saison && saisonFor(date)!==t.saison) return false; // Sommer-/Winter-Tour: nur in der passenden Saison fällig
-  const iv=t.interval||'';
-  if(iv==='bedarf') return false;                          // Bedarfstour: nie automatisch fällig
-  const bt=_tourBetriebstage(t);
-  if(!bt.length) return false;                             // ohne Betriebstage → nicht fällig (bewusst)
-  const [Y,M,D]=date.split('-').map(Number);
-  if(!bt.includes(new Date(Y,M-1,D).getDay())) return false; // heute kein Betriebstag
-  if(t.startDate && date<t.startDate) return false;
-  if(iv==='14taeglich'||iv==='4woechentlich'){             // Wochen-Rhythmus ab Startdatum-Woche
-    if(!t.startDate) return true;
-    const wk=_isoWeekIndex(date)-_isoWeekIndex(t.startDate);
-    return iv==='14taeglich'?wk%2===0:wk%4===0;
-  }
-  return true;                                             // jede Woche (woechentlich / '' / legacy täglich)
-}
+function tourDueOn(t,date){ return _tkTourDueOn(t,date,getSaison()); }
 function realTourIds(tree){ return getTreeTourIds(tree).filter(id=>!isOverviewTour(id)); } // ohne Übersichten
 function treeInTour(tree, tourId){
   return getTreeTourIds(tree).includes(tourId);
@@ -5748,12 +5721,12 @@ function pickProjIcon(){
 }
 
 // ── Saison (Phase 2-Grundlage): Sommer-Zeitraum je Projekt; Winter = außerhalb ──
-const SAISON_DEFAULT={ von:'04-01', bis:'10-31' }; // 1.4.–31.10.
+// SAISON_DEFAULT kommt aus tour-kalender.js (geteilt mit Einsatzleiter-App)
 function getSaison(){ return { von: currentProjectData?.sommerVon||SAISON_DEFAULT.von, bis: currentProjectData?.sommerBis||SAISON_DEFAULT.bis }; }
 function _ttmmToMmdd(s){ const m=String(s||'').match(/(\d{1,2})\.\s*(\d{1,2})/); if(!m) return ''; const d=+m[1], mo=+m[2]; if(d<1||d>31||mo<1||mo>12) return ''; return String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0'); }
 function _mmddToTtmm(s){ const m=String(s||'').match(/(\d{2})-(\d{2})/); return m?(+m[2])+'.'+(+m[1])+'.':''; }
 // Saison eines Datums (YYYY-MM-DD oder Date): 'sommer' im gepflegten Zeitraum (auch über Jahreswechsel), sonst 'winter'
-function saisonFor(date){ const s=getSaison(); let md; if(date instanceof Date) md=String(date.getMonth()+1).padStart(2,'0')+'-'+String(date.getDate()).padStart(2,'0'); else md=String(date||'').slice(5,10); if(!md) return 'sommer'; const inRange=(s.von<=s.bis)?(md>=s.von&&md<=s.bis):(md>=s.von||md<=s.bis); return inRange?'sommer':'winter'; }
+function saisonFor(date){ return _tkSaisonForDate(date,getSaison()); } // Logik zentral in tour-kalender.js
 function openSettings(){
   // Hide bottom route bar to avoid overlap
   document.getElementById('route-info-bar')?.classList.remove('visible');

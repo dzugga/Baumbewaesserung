@@ -191,10 +191,10 @@ export const HANDBUCH = [
     app: 'Einsatzleiter-App',
     icon: '📊',
     sections: [
-      { imgs:[{src:'/handbuch/einsatzleiter.jpg',cap:'Einsatzleiter: Live-Kennzahlen und Fortschritt je Tour'}], title: 'Live-Übersicht', keywords: ['einsatzleiter', 'live', 'fortschritt', 'überwachung', 'monitor'],
-        text: 'Die Einsatzleiter-App zeigt den laufenden Betrieb in Echtzeit — ohne manuelles Aktualisieren: Kennzahlen (erledigt / nicht erledigt / offen / aktive Fahrer), Fortschrittsbalken je Tour, Zeitverlauf und die häufigsten Gründe für „nicht erledigt".\nDer Zeitraum ist wählbar (heute / Woche / Monat / gesamt / eigener Zeitraum).' },
+      { imgs:[{src:'/handbuch/einsatzleiter.jpg',cap:'Einsatzleiter: Tages-Lagebild mit Soll/Ist der Touren'}], title: 'Tages-Lagebild (live)', keywords: ['einsatzleiter', 'live', 'heute', 'soll ist', 'fällig', 'überwachung', 'monitor', 'rückblick'],
+        text: 'Die Einsatzleiter-App zeigt dasselbe Tages-Lagebild wie das Dashboard im Desktop — in Echtzeit, ohne manuelles Aktualisieren, und auch auf dem Handy gut nutzbar.\nOben die Tages-Kennzahlen (Aufträge, erledigt, nicht erledigt, Meldungen, aktive Fahrer). Darunter der Block „Heute" mit allen laut Tourkalender fälligen Touren: je Tour die eingeteilte Besetzung, die Zähler „✓ erledigt · ✕ nicht erledigt · offen" und die Status-Ampel (✓ abgeschlossen / ▶ läuft / ○ keine Rückmeldung). Nicht abgeschlossene Touren aus Vortagen bleiben mit rotem Hinweis stehen; die Zähler zeigen den Stand des laufenden Durchgangs — exakt wie der Fortschrittsbalken in der Auftrags-App der Fahrer.\nÜber die Tages-Knöpfe lässt sich bis zu 2 Tage zurückblättern (Rückblick, orange gekennzeichnet); „▾ minimieren" klappt den Block auf eine Zeile zusammen.' },
       { title: 'Karte der offenen Probleme', keywords: ['karte', 'nicht erledigt', 'ausfälle', 'gründe'],
-        text: 'Eine Karte markiert alle „nicht erledigt" gemeldeten Objekte im Zeitraum — Antippen zeigt Grund, Bemerkung und Fahrer.' },
+        text: 'Eine Karte markiert alle am gewählten Tag „nicht erledigt" gemeldeten Objekte — Antippen zeigt Grund, Bemerkung und Fahrer. Daneben die häufigsten Gründe für „nicht erledigt".' },
       { title: 'Abgrenzung zum Controlling', keywords: ['unterschied', 'controlling', 'abgeschlossen', 'live'],
         text: 'Der Einsatzleiter sieht den Live-Stand inklusive laufender, noch nicht abgeschlossener Touren. Das Controlling im Desktop wertet die abgeschlossenen Touren aus — beides ergänzt sich bewusst.' },
     ],
