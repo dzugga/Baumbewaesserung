@@ -49,6 +49,11 @@ service cloud.firestore {
       allow write: if isSuper();
     }
 
+    // ----- Globale Konfiguration (z. B. Lizenz-Preisliste) — nur Superadmin -----
+    match /config/{cid} {
+      allow read, write: if isSuper();
+    }
+
     // ----- Mandanten -----
     match /orgs/{oid} {
       allow read:  if inOrg(oid);

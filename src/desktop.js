@@ -6205,6 +6205,7 @@ function switchView(v){
   }
   if(v==='feldbezeichnungen') initFeldbezeichnungen();
   if(v==='usage') initUsage();
+  if(v==='lizenzen') initLizenzen();
   if(v==='benutzer') initBenutzer();
 }
 async function initBenutzer(){
@@ -8727,6 +8728,184 @@ async function rsDelete(id){
 }
 // ─── NUTZUNG JE STADT (Admin) ────────────────────────────────────────────────
 let _usageRows=[];
+// ─── LIZENZEN (Superadmin): Preisliste + Lizenzen je Kunde + Monats-/Jahressummen ───
+// Datenmodell: config/lizenzArtikel = {artikel:[{id,name,einheit,preis,zaehler}]} (global, Superadmin-only);
+// orgs/{org}.lizenzen = {artikelId:{menge:N, preis:number|null}} (null = Katalogpreis, Zahl = Sonderpreis).
+// zaehler: ''=kein Ist-Zähler | 'fahrer' (Logins mit Modul mobil) | 'einsatzleiter' (Modul einsatzleiter)
+//          | 'logins' (alle PIN-Logins) | 'planer' (E-Mail-Benutzer der users-Collection).
+let _lizArtikel=[];            // Preisliste (Draft = live editiert, Speichern schreibt)
+let _lizOrgs=[];               // [{id,name}]
+let _lizOrgLizenzen={};        // orgId -> {artikelId:{menge,preis}}
+let _lizCounts={};             // orgId -> {fahrer,einsatzleiter,logins,planer}
+let _lizOpenOrg=null;          // aufgeklappter Kunde
+let _lizLoading=false;
+const LIZ_ZAEHLER=[['','— kein Zähler —'],['fahrer','Fahrer-App-Logins'],['einsatzleiter','Einsatzleiter-Logins'],['logins','alle PIN-Logins'],['planer','E-Mail-Benutzer']];
+function _lizNum(s){ const n=parseFloat(String(s??'').trim().replace(/,/g,'.')); return isNaN(n)?0:n; }
+function _lizEur(n){ return (Math.round(n*100)/100).toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2})+' €'; }
+function _lizPreisStr(n){ return n==null?'':String(n).replace('.',','); }
+// Effektiver Preis einer Position (Sonderpreis vor Katalogpreis)
+function _lizEffPreis(art,pos){ return (pos&&pos.preis!=null)?pos.preis:(art.preis||0); }
+function _lizOrgSumme(oid){
+  const liz=_lizOrgLizenzen[oid]||{}; let sum=0;
+  _lizArtikel.forEach(a=>{ const p=liz[a.id]; if(p&&p.menge>0) sum+=p.menge*_lizEffPreis(a,p); });
+  return sum;
+}
+function _lizIst(oid,zaehler){ const c=_lizCounts[oid]; return (c&&zaehler)?(c[zaehler]||0):null; }
+function _lizOrgUeberschreitung(oid){
+  const liz=_lizOrgLizenzen[oid]||{};
+  return _lizArtikel.some(a=>{ const ist=_lizIst(oid,a.zaehler); return ist!=null && ist>((liz[a.id]||{}).menge||0); });
+}
+async function initLizenzen(){
+  if(currentRole!=='superadmin'){ const r=document.getElementById('liz-root'); if(r) r.innerHTML='<div style="padding:30px;color:var(--text3);">Nur Superadmin.</div>'; return; }
+  if(_lizLoading) return; _lizLoading=true;
+  const root=document.getElementById('liz-root');
+  if(root) root.innerHTML='<div style="padding:40px;text-align:center;color:var(--text3);">Lädt…</div>';
+  try{
+    // Preisliste + Mandanten
+    const cfg=await db.collection('config').doc('lizenzArtikel').get();
+    _lizArtikel=(cfg.exists&&Array.isArray(cfg.data().artikel))?cfg.data().artikel.map(x=>({...x})):[];
+    const orgsSnap=await db.collection('orgs').get();
+    _lizOrgs=orgsSnap.docs.map(d=>({id:d.id,name:d.data().name||d.id})).sort((a,b)=>a.name.localeCompare(b.name));
+    _lizOrgLizenzen={}; orgsSnap.docs.forEach(d=>{ _lizOrgLizenzen[d.id]=d.data().lizenzen?JSON.parse(JSON.stringify(d.data().lizenzen)):{}; });
+    // Ist-Zähler je Mandant: PIN-Logins nach Rollen-Modul (mobil/einsatzleiter) + E-Mail-Benutzer
+    _lizCounts={};
+    for(const o of _lizOrgs){
+      const c={fahrer:0,einsatzleiter:0,logins:0,planer:0};
+      try{
+        const [dr,us,rl]=await Promise.all([
+          db.collection('drivers').where('orgId','==',o.id).get(),
+          db.collection('users').where('orgId','==',o.id).get(),
+          db.collection('orgs').doc(o.id).collection('roles').get(),
+        ]);
+        const roleMods={}; rl.forEach(r=>{ roleMods[r.id]=(r.data().modules)||{}; });
+        const modOf=(role,mod)=>{ const m=roleMods[role]||((BUILTIN_ROLES[role]||{}).modules)||{}; return !!m[mod]; };
+        dr.forEach(d=>{ const p=d.data(); const hasLogin=!p.noLogin&&(p.pinHash||p.role); if(!hasLogin) return;
+          c.logins++;
+          if(modOf(p.role||'','mobil')) c.fahrer++;
+          if(modOf(p.role||'','einsatzleiter')) c.einsatzleiter++;
+        });
+        c.planer=us.size;
+      }catch(e){ console.warn('liz counts '+o.id,e); }
+      _lizCounts[o.id]=c;
+    }
+  }catch(e){ console.warn('initLizenzen',e); if(root) root.innerHTML='<div style="padding:30px;color:var(--red);font-size:13px;">Laden fehlgeschlagen: '+dlEsc(e.message||e)+'</div>'; _lizLoading=false; return; }
+  _lizLoading=false;
+  renderLizenzen();
+}
+function lizRefresh(){ _lizLoading=false; initLizenzen(); }
+function lizArtAdd(){ _lizArtikel.push({id:'a'+Math.random().toString(36).slice(2,8), name:'', einheit:'je Login', preis:0, zaehler:''}); renderLizenzen(); setTimeout(()=>{ const i=document.querySelector('#liz-art-rows tr:last-child input'); i?.focus(); },0); }
+async function lizArtDel(id){
+  const a=_lizArtikel.find(x=>x.id===id); if(!a) return;
+  const used=_lizOrgs.filter(o=>((_lizOrgLizenzen[o.id]||{})[id]||{}).menge>0).length;
+  if(!await _confirmBox('Artikel entfernen', `„${a.name||'Artikel'}" aus der Preisliste entfernen?${used?`\n\nAchtung: ${used} Kunde${used===1?' hat':'n haben'} diesen Artikel lizenziert — die Positionen entfallen aus deren Summe.`:''}\n\nWirksam erst mit „Preisliste speichern".`, 'Entfernen','Abbrechen')) return;
+  _lizArtikel=_lizArtikel.filter(x=>x.id!==id); renderLizenzen();
+}
+function lizArtField(id,f,val){ const a=_lizArtikel.find(x=>x.id===id); if(!a) return; if(f==='preis') a.preis=_lizNum(val); else a[f]=(val||'').trim(); renderLizenzen(); }
+async function lizSaveArtikel(){
+  const clean=_lizArtikel.filter(a=>(a.name||'').trim());
+  if(_lizArtikel.length&&!clean.length){ notify('Bitte Artikel-Namen angeben'); return; }
+  try{ await db.collection('config').doc('lizenzArtikel').set({artikel:clean}); _lizArtikel=clean.map(x=>({...x})); notify('✓ Preisliste gespeichert'); renderLizenzen(); }
+  catch(e){ notify(dlErr(e)); }
+}
+function lizToggleOrg(oid){ _lizOpenOrg=(_lizOpenOrg===oid)?null:oid; renderLizenzen(); }
+function lizPosField(oid,artId,f,val){
+  const liz=_lizOrgLizenzen[oid]=_lizOrgLizenzen[oid]||{};
+  const pos=liz[artId]=liz[artId]||{menge:0,preis:null};
+  if(f==='menge') pos.menge=Math.max(0,Math.round(_lizNum(val)));
+  else pos.preis=(String(val).trim()==='')?null:_lizNum(val);
+  renderLizenzen();
+}
+async function lizSaveOrg(oid){
+  const liz={}; Object.entries(_lizOrgLizenzen[oid]||{}).forEach(([k,p])=>{ if(p&&(p.menge>0||p.preis!=null)) liz[k]={menge:p.menge||0,preis:p.preis==null?null:p.preis}; });
+  try{ await db.collection('orgs').doc(oid).set({lizenzen:liz},{merge:true}); notify('✓ Lizenzen gespeichert'); }
+  catch(e){ notify(dlErr(e)); }
+}
+function renderLizenzen(){
+  const root=document.getElementById('liz-root'); if(!root) return;
+  if(currentRole!=='superadmin'){ root.innerHTML='<div style="padding:30px;color:var(--text3);">Nur Superadmin.</div>'; return; }
+  const inp='padding:4px 7px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;box-sizing:border-box;';
+  // ── 1) Preisliste ──
+  const artRows=_lizArtikel.map(a=>`<tr>
+      <td style="padding:5px 10px;"><input style="${inp}width:100%;" value="${dlEsc(a.name||'')}" placeholder="z. B. Planer-Arbeitsplatz" onchange="lizArtField('${_jsArg(a.id)}','name',this.value)"></td>
+      <td style="padding:5px 10px;"><input style="${inp}width:100%;" value="${dlEsc(a.einheit||'')}" placeholder="je Login" onchange="lizArtField('${_jsArg(a.id)}','einheit',this.value)"></td>
+      <td style="padding:5px 10px;"><select style="${inp}width:100%;" onchange="lizArtField('${_jsArg(a.id)}','zaehler',this.value)" title="Woraus der Ist-Zähler „vergeben" gezählt wird">${LIZ_ZAEHLER.map(([k,l])=>`<option value="${k}"${(a.zaehler||'')===k?' selected':''}>${l}</option>`).join('')}</select></td>
+      <td style="padding:5px 10px;text-align:right;"><input style="${inp}width:84px;text-align:right;" value="${dlEsc(_lizPreisStr(a.preis))}" placeholder="0,00" onchange="lizArtField('${_jsArg(a.id)}','preis',this.value)"></td>
+      <td style="padding:5px 8px;text-align:center;"><button class="btn btn-danger" style="padding:3px 8px;font-size:12px;" onclick="lizArtDel('${_jsArg(a.id)}')">✕</button></td>
+    </tr>`).join('')||`<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--text3);">Noch keine Artikel — „+ Artikel" anlegen (z. B. Planer-Arbeitsplatz, Fahrer-App-Login).</td></tr>`;
+  const preisliste=`<div class="dsh-card" style="margin-bottom:16px;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
+      <span style="font-size:13.5px;font-weight:700;">Preisliste</span>
+      <span style="font-size:11px;color:var(--text3);">Katalogpreis gilt für alle Kunden — je Kunde überschreibbar</span>
+      <span style="margin-left:auto;display:flex;gap:8px;">
+        <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="lizArtAdd()">+ Artikel</button>
+        <button class="btn btn-primary" style="font-size:11px;padding:5px 14px;" onclick="lizSaveArtikel()">Preisliste speichern</button>
+      </span>
+    </div>
+    <table class="ep-table"><thead><tr><th style="width:30%;">Artikel</th><th style="width:18%;">Einheit</th><th style="width:24%;">Ist-Zähler</th><th style="width:110px;text-align:right;">€ / Monat</th><th style="width:44px;"></th></tr></thead><tbody id="liz-art-rows">${artRows}</tbody></table>
+  </div>`;
+  // ── 2) Kunden-Übersicht ──
+  const gesamt=_lizOrgs.reduce((s,o)=>s+_lizOrgSumme(o.id),0);
+  const mitLiz=_lizOrgs.filter(o=>_lizOrgSumme(o.id)>0||Object.values(_lizOrgLizenzen[o.id]||{}).some(p=>p.menge>0)).length;
+  const ueber=_lizOrgs.filter(o=>_lizOrgUeberschreitung(o.id)).length;
+  const kpi=(v,l,sub,c)=>`<div style="background:var(--surface2);border-radius:8px;padding:9px 13px;"><div style="font-size:19px;font-weight:800;font-family:'DM Mono',monospace;color:${c||'var(--text)'};">${v}</div><div style="font-size:11px;color:var(--text2);">${l}</div>${sub?`<div style="font-size:10px;color:var(--text3);">${sub}</div>`:''}</div>`;
+  const orgRows=_lizOrgs.map(o=>{
+    const sum=_lizOrgSumme(o.id);
+    const liz=_lizOrgLizenzen[o.id]||{};
+    const teile=_lizArtikel.filter(a=>(liz[a.id]||{}).menge>0).map(a=>`${liz[a.id].menge}× ${dlEsc(a.name)}`);
+    const warn=_lizOrgUeberschreitung(o.id);
+    const open=_lizOpenOrg===o.id;
+    const hat=teile.length>0;
+    return `<tr onclick="lizToggleOrg('${_jsArg(o.id)}')" style="cursor:pointer;${warn?'background:#fdf6e7;':''}${hat?'':'opacity:.6;'}">
+      <td style="padding:8px 12px;font-weight:600;${warn?'color:#854f0b;':''}">${open?'▾':'▸'} ${dlEsc(o.name)}</td>
+      <td style="padding:8px 12px;font-size:12px;color:${warn?'#854f0b':'var(--text2)'};">${hat?teile.join(' · '):'<span style="color:var(--text3);">noch keine Lizenzen hinterlegt</span>'}${warn?' <span title="Mehr vergeben als lizenziert" style="font-weight:700;">⚠</span>':''}</td>
+      <td style="padding:8px 12px;text-align:right;white-space:nowrap;"><b>${_lizEur(sum)}</b><span style="font-size:10.5px;color:var(--text3);"> / Monat · ${_lizEur(sum*12)} / Jahr</span></td>
+    </tr>`;
+  }).join('')||'<tr><td colspan="3" style="padding:16px;text-align:center;color:var(--text3);">Keine Mandanten.</td></tr>';
+  const uebersicht=`<div class="dsh-card" style="margin-bottom:16px;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+      <span style="font-size:13.5px;font-weight:700;">Kunden</span>
+      <span style="font-size:11px;color:var(--text3);">Klick auf einen Kunden öffnet die Lizenz-Positionen</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;">
+      ${kpi(_lizEur(gesamt),'Monatsumsatz gesamt',_lizEur(gesamt*12)+' / Jahr','var(--green)')}
+      ${kpi(mitLiz+' / '+_lizOrgs.length,'Kunden mit Lizenzen','', 'var(--text)')}
+      ${kpi(String(ueber),'Überschreitungen',ueber?'mehr vergeben als lizenziert':'',ueber?'#b45309':'var(--text3)')}
+    </div>
+    <table class="ep-table"><thead><tr><th style="width:24%;">Kunde</th><th>Lizenzen</th><th style="width:230px;text-align:right;">Summe</th></tr></thead><tbody>${orgRows}</tbody></table>
+  </div>`;
+  // ── 3) Kunden-Detail ──
+  let detail='';
+  const dOrg=_lizOrgs.find(o=>o.id===_lizOpenOrg);
+  if(dOrg){
+    const liz=_lizOrgLizenzen[dOrg.id]||{};
+    const sum=_lizOrgSumme(dOrg.id);
+    const posRows=_lizArtikel.map(a=>{
+      const p=liz[a.id]||{menge:0,preis:null};
+      const ist=_lizIst(dOrg.id,a.zaehler);
+      const over=ist!=null&&ist>(p.menge||0);
+      const eff=_lizEffPreis(a,p);
+      const sonder=p.preis!=null;
+      return `<tr>
+        <td style="padding:6px 12px;font-weight:600;">${dlEsc(a.name)}${sonder?' <span style="font-size:10px;color:#1d4ed8;font-weight:700;">Sonderpreis</span>':''}<div style="font-size:10px;font-weight:400;color:var(--text3);">${dlEsc(a.einheit||'')}</div></td>
+        <td style="padding:5px 8px;text-align:right;"><input style="${inp}width:60px;text-align:right;" value="${p.menge||0}" onchange="lizPosField('${_jsArg(dOrg.id)}','${_jsArg(a.id)}','menge',this.value)"></td>
+        <td style="padding:6px 8px;text-align:right;">${ist==null?'<span style="color:var(--text3);">—</span>':(over?`<span style="background:#fef3c7;color:#854f0b;font-weight:700;padding:2px 8px;border-radius:99px;font-size:12px;" title="Mehr vergeben als lizenziert">⚠ ${ist}</span>`:`<span style="color:var(--green);font-weight:600;">${ist} ✓</span>`)}</td>
+        <td style="padding:5px 8px;text-align:right;"><input style="${inp}width:80px;text-align:right;${sonder?'border-color:#93c5fd;':''}" value="${dlEsc(sonder?_lizPreisStr(p.preis):'')}" placeholder="${dlEsc(_lizPreisStr(a.preis)||'0,00')}" onchange="lizPosField('${_jsArg(dOrg.id)}','${_jsArg(a.id)}','preis',this.value)" title="Leer = Katalogpreis · eigener Wert = Sonderpreis"></td>
+        <td style="padding:6px 12px;text-align:right;font-weight:600;white-space:nowrap;">${_lizEur((p.menge||0)*eff)}</td>
+      </tr>`;
+    }).join('')||'<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--text3);">Erst Artikel in der Preisliste anlegen.</td></tr>';
+    detail=`<div class="dsh-card" style="border:2px solid var(--green-mid);">
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+        <span style="font-size:13.5px;font-weight:700;">${dlEsc(dOrg.name)} — Lizenzen</span>
+        <span style="font-size:11px;color:var(--text3);">Anzahl = Vertragsmenge · „Vergeben" = tatsächliche Logins · Preis leer = Katalogpreis</span>
+        <button class="btn btn-primary" style="margin-left:auto;font-size:11px;padding:5px 14px;" onclick="lizSaveOrg('${_jsArg(dOrg.id)}')">Lizenzen speichern</button>
+      </div>
+      <table class="ep-table"><thead><tr><th>Artikel</th><th style="width:80px;text-align:right;">Anzahl</th><th style="width:96px;text-align:right;">Vergeben</th><th style="width:104px;text-align:right;">€ / Lizenz</th><th style="width:120px;text-align:right;">Summe</th></tr></thead>
+      <tbody>${posRows}</tbody>
+      <tfoot><tr style="border-top:2px solid var(--border);"><td colspan="4" style="padding:8px 12px;font-weight:700;">Gesamt</td><td style="padding:8px 12px;text-align:right;white-space:nowrap;"><b style="font-size:14px;">${_lizEur(sum)}</b><span style="font-size:10.5px;color:var(--text3);"> / Monat</span><div style="font-size:10.5px;color:var(--text3);">${_lizEur(sum*12)} / Jahr</div></td></tr></tfoot></table>
+    </div>`;
+  }
+  root.innerHTML=preisliste+uebersicht+detail;
+}
 async function initUsage(){
   await flushUsage().catch(()=>{}); // aktuelle Zähler erst persistieren
   const sel=document.getElementById('usage-month');
@@ -16304,6 +16483,7 @@ Object.assign(window,{
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleBhNames,toggleRequiredFeld,toggleRawSeg,_siInfo,
   createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,dashSetBh,tourSetBh,epChangeBh,epTogglePersnr,epToggleBhCol,psSetOrgFilter,setSiTab,
+  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizSaveArtikel,lizToggleOrg,lizPosField,lizSaveOrg,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,openMeldungFotos,stepMeldungFoto,closeMeldungFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,

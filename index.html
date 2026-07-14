@@ -440,6 +440,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <div data-module="__superadmin__" style="border-top:1px solid var(--border);margin:4px 0;"></div>
         <div data-module="__superadmin__" style="padding:5px 12px 2px;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text3);">Superadmin — alle Mandanten</div>
         <button data-module="__superadmin__" onclick="switchView('mandanten')">Mandanten</button>
+        <button data-module="__superadmin__" onclick="switchView('lizenzen')">Lizenzen</button>
         <button data-module="__superadmin__" onclick="switchView('usage')">Nutzung je Stadt</button>
         <button data-module="__superadmin__" onclick="openAllgemein()">Allgemein (ORS-Key)</button>
         <button data-module="__superadmin__" onclick="switchView('kiconfig')">KI-Config</button>
@@ -991,6 +992,20 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
       <button class="btn btn-secondary" style="padding:5px 11px;font-size:12px;" onclick="exportUsageCSV()">CSV-Export</button>
     </div>
     <div id="usage-body"></div>
+  </div>
+</div>
+
+<!-- LIZENZEN fullscreen overlay (nur Superadmin) -->
+<div id="view-lizenzen" style="display:none;position:fixed;top:54px;left:0;right:0;bottom:0;z-index:1500;background:var(--bg);overflow-y:auto;">
+  <div style="max-width:980px;margin:0 auto;padding:16px 20px;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+      <div>
+        <div style="font-size:16px;font-weight:700;">Lizenzen</div>
+        <div style="font-size:12px;color:var(--text3);">Preisliste, Lizenzen je Kunde und Monats-/Jahressummen — nur Superadmin.</div>
+      </div>
+      <button class="btn btn-secondary" style="margin-left:auto;padding:5px 11px;font-size:12px;" onclick="lizRefresh()">↻ Aktualisieren</button>
+    </div>
+    <div id="liz-root"><div style="padding:40px;text-align:center;color:var(--text3);">Lädt…</div></div>
   </div>
 </div>
 
