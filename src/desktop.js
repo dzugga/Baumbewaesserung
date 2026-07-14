@@ -8739,6 +8739,7 @@ let _lizRollen=[];             // Rollen-Katalog für die Auswahl: [{key,name,hi
 let _lizOrgs=[];               // [{id,name}]
 let _lizOrgLizenzen={};        // orgId -> {artikelId:{menge,preis}}
 let _lizCounts={};             // orgId -> {roleKey:count} (aktive PIN- + E-Mail-Konten je Rolle) + _total
+let _lizKonten={};             // orgId -> [{name,persnr,funktion,betriebshof,roleKey,email}] für die Druck-Mitarbeiterliste
 let _lizOpenOrg=null;          // aufgeklappter Kunde
 let _lizLoading=false;
 // Kunden-Tabelle kompakt (eine Zeile je Kunde, Positionen nur als Anzahl) oder mit voller Artikelliste
@@ -8792,10 +8793,10 @@ async function initLizenzen(){
     _lizOrgLizenzen={}; orgsSnap.docs.forEach(d=>{ _lizOrgLizenzen[d.id]=d.data().lizenzen?JSON.parse(JSON.stringify(d.data().lizenzen)):{}; });
     // Ist-Zähler je Mandant: aktive Konten (PIN-Logins UND E-Mail-Benutzer) je ROLLE zählen.
     // Rollen-Katalog für die Artikel-Auswahl parallel einsammeln (Builtin + Custom aller Mandanten).
-    _lizCounts={};
+    _lizCounts={}; _lizKonten={};
     const rollen={}; Object.entries(BUILTIN_ROLES).forEach(([k,r])=>{ if(k!=='superadmin') rollen[k]={key:k,name:r.name,hint:'eingebaut'}; });
     for(const o of _lizOrgs){
-      const c={};
+      const c={}; const konten=[];
       try{
         const [dr,us,rl]=await Promise.all([
           db.collection('drivers').where('orgId','==',o.id).get(),
@@ -8814,15 +8815,18 @@ async function initLizenzen(){
           if(p.active===false) return;
           const r=(p.role||'').trim(); if(!r||r==='superadmin') return;
           c[r]=(c[r]||0)+1;
+          konten.push({name:p.name||'',persnr:(p.persnr!=null?String(p.persnr):'').trim(),funktion:p.funktion||'',betriebshof:(p.betriebshof||'').trim(),roleKey:r,email:''});
         });
         us.forEach(d=>{ const u=d.data();
           if(u.active===false) return;
           const r=(u.role||'').trim(); if(!r||r==='superadmin') return;
           c[r]=(c[r]||0)+1;
+          konten.push({name:u.name||u.email||d.id,persnr:'',funktion:'',betriebshof:'',roleKey:r,email:u.email||''});
         });
       }catch(e){ console.warn('liz counts '+o.id,e); }
       c._total=Object.entries(c).reduce((s,[k,v])=>k==='_total'?s:s+v,0);
       _lizCounts[o.id]=c;
+      _lizKonten[o.id]=konten.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
     }
     _lizRollen=Object.values(rollen).sort((a,b)=>a.name.localeCompare(b.name));
   }catch(e){ console.warn('initLizenzen',e); if(root) root.innerHTML='<div style="padding:30px;color:var(--red);font-size:13px;">Laden fehlgeschlagen: '+dlEsc(e.message||e)+'</div>'; _lizLoading=false; return; }
@@ -8878,6 +8882,91 @@ function lizPosField(oid,artId,f,val){
   if(f==='menge') pos.menge=Math.max(0,Math.round(_lizNum(val)));
   else pos.preis=(String(val).trim()==='')?null:_lizNum(val);
   renderLizenzen();
+}
+// ── Druck: Stadt-Bericht (Lizenzen + Mitarbeiter) und Gesamtübersicht ──
+function _lizRoleName(key){ return (_lizRollen.find(r=>r.key===key)||{}).name||key; }
+function _lizFmtDatum(){ const d=new Date(); return String(d.getDate()).padStart(2,'0')+'.'+String(d.getMonth()+1).padStart(2,'0')+'.'+d.getFullYear(); }
+// Abschnitt für EINEN Kunden: KPI-Kacheln + Lizenztabelle (nur Positionen mit Menge) + Mitarbeiterliste
+function _lizPrintSection(o){
+  const liz=_lizOrgLizenzen[o.id]||{};
+  const sum=_lizOrgSumme(o.id);
+  const pos=_lizArtikel.filter(a=>(liz[a.id]||{}).menge>0);
+  const anzLiz=pos.reduce((s,a)=>s+liz[a.id].menge,0);
+  const konten=_lizKonten[o.id]||[];
+  const posRows=pos.map((a,i)=>{ const p=liz[a.id]; const eff=_lizEffPreis(a,p); const sonder=p.preis!=null;
+    return `<tr style="border-bottom:0.5px solid #ddd9d0;${i%2?'background:#faf9f5;':''}">
+      <td style="padding:4px 6px;">${dlEsc(a.name)}${sonder?' <span style="font-size:9px;color:#185FA5;">Sonderpreis</span>':''}</td>
+      <td style="text-align:right;padding:4px 6px;">${p.menge}</td>
+      <td style="text-align:right;padding:4px 6px;">${_lizEur(eff).replace(' €','')}</td>
+      <td style="text-align:right;padding:4px 6px;">${_lizEur(p.menge*eff)}</td>
+    </tr>`; }).join('')||'<tr><td colspan="4" style="padding:8px 6px;color:#9c9890;">Keine Lizenzen hinterlegt.</td></tr>';
+  const kontoRows=konten.map((k,i)=>`<tr style="border-bottom:0.5px solid #ddd9d0;${i%2?'background:#faf9f5;':''}">
+      <td style="padding:4px 6px;color:#6b6760;">${dlEsc(k.persnr||'—')}</td>
+      <td style="padding:4px 6px;">${dlEsc(k.name)}${k.email?` <span style="color:#6b6760;">(${dlEsc(k.email)})</span>`:''}</td>
+      <td style="padding:4px 6px;">${dlEsc(k.funktion||'—')}</td>
+      <td style="padding:4px 6px;"><span style="background:#e1f5ee;color:#0F6E56;padding:1px 7px;border-radius:99px;font-size:10px;white-space:nowrap;">${dlEsc(_lizRoleName(k.roleKey))}</span></td>
+      <td style="padding:4px 6px;">${dlEsc(k.betriebshof||'—')}</td>
+    </tr>`).join('')||'<tr><td colspan="5" style="padding:8px 6px;color:#9c9890;">Keine aktiven Konten mit Zugang.</td></tr>';
+  return `
+    <div style="display:flex;gap:10px;margin:14px 0;">
+      <div style="flex:1;background:#f1efe8;border-radius:6px;padding:8px 12px;"><div style="font-size:10px;color:#6b6760;">Monat</div><div style="font-size:17px;font-weight:600;">${_lizEur(sum)}</div></div>
+      <div style="flex:1;background:#f1efe8;border-radius:6px;padding:8px 12px;"><div style="font-size:10px;color:#6b6760;">Jahr</div><div style="font-size:17px;font-weight:600;">${_lizEur(sum*12)}</div></div>
+      <div style="flex:1;background:#f1efe8;border-radius:6px;padding:8px 12px;"><div style="font-size:10px;color:#6b6760;">Lizenzen</div><div style="font-size:17px;font-weight:600;">${anzLiz}</div></div>
+    </div>
+    <div style="font-size:12px;font-weight:700;margin:12px 0 6px;color:#2d6a4f;">1 · Lizenzen</div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;">
+      <thead><tr style="border-bottom:1px solid #1a1917;"><th style="text-align:left;padding:4px 6px;">Artikel</th><th style="text-align:right;padding:4px 6px;">Anzahl</th><th style="text-align:right;padding:4px 6px;">€ / Lizenz</th><th style="text-align:right;padding:4px 6px;">Summe / Monat</th></tr></thead>
+      <tbody>${posRows}</tbody>
+      <tfoot><tr style="border-top:1.5px solid #1a1917;"><td colspan="3" style="padding:5px 6px;font-weight:700;">Gesamt pro Monat</td><td style="text-align:right;padding:5px 6px;font-weight:700;">${_lizEur(sum)}</td></tr></tfoot>
+    </table>
+    <div style="font-size:12px;font-weight:700;margin:16px 0 6px;color:#2d6a4f;">2 · Mitarbeiter mit Zugang <span style="font-weight:400;color:#6b6760;">(${konten.length} Konten — aktive, ohne Superadmin)</span></div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;">
+      <thead><tr style="border-bottom:1px solid #1a1917;"><th style="text-align:left;padding:4px 6px;width:56px;">Nr.</th><th style="text-align:left;padding:4px 6px;">Name</th><th style="text-align:left;padding:4px 6px;">Funktion</th><th style="text-align:left;padding:4px 6px;">Rolle</th><th style="text-align:left;padding:4px 6px;width:90px;">Betriebshof</th></tr></thead>
+      <tbody>${kontoRows}</tbody>
+    </table>`;
+}
+function _lizPrintKopf(titel){
+  return `<div style="display:flex;align-items:baseline;justify-content:space-between;border-bottom:2px solid #2d6a4f;padding-bottom:10px;">
+    <div><div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#6b6760;">Planungsmanager · Lizenzen</div>
+    <div style="font-size:21px;font-weight:700;">${dlEsc(titel)}</div></div>
+    <div style="text-align:right;font-size:11px;color:#6b6760;">Stand ${_lizFmtDatum()}<br>vertraulich</div>
+  </div>`;
+}
+function _lizPrintWindow(bodyHtml,docTitle){
+  const w=window.open('','_blank'); if(!w){ notify('Popup blockiert — bitte Popups erlauben'); return; }
+  w.document.write(`<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><title>${dlEsc(docTitle)}</title>
+    <style>@page{size:A4;margin:16mm 14mm;} body{font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;color:#1a1917;margin:0;font-size:12px;}
+    .seite{max-width:720px;margin:0 auto;} .umbruch{page-break-before:always;} @media print{.noprint{display:none;}}</style></head>
+    <body><div class="noprint" style="padding:10px;text-align:right;background:#f1efe8;"><button onclick="window.print()" style="padding:8px 18px;font-size:13px;cursor:pointer;border:1px solid #2d6a4f;background:#2d6a4f;color:#fff;border-radius:7px;">🖨 Drucken / als PDF speichern</button></div>
+    <div class="seite">${bodyHtml}</div></body></html>`);
+  w.document.close();
+}
+function lizPrintOrg(oid){
+  const o=_lizOrgs.find(x=>x.id===oid); if(!o) return;
+  const fuss=`<div style="border-top:0.5px solid #ddd9d0;margin-top:16px;padding-top:6px;font-size:9px;color:#9c9890;">Planungsmanager · Lizenzübersicht ${dlEsc(o.name)} · ${_lizFmtDatum()}</div>`;
+  _lizPrintWindow(_lizPrintKopf(o.name)+_lizPrintSection(o)+fuss,'Lizenzübersicht '+o.name);
+}
+function lizPrintAll(){
+  const gesamt=_lizOrgs.reduce((s,o)=>s+_lizOrgSumme(o.id),0);
+  const mit=_lizOrgs.filter(o=>_lizOrgHatLizenzen(o.id));
+  const rows=_lizOrgs.map(o=>{ const s=_lizOrgSumme(o.id); const hat=_lizOrgHatLizenzen(o.id);
+    const liz=_lizOrgLizenzen[o.id]||{}; const n=_lizArtikel.reduce((x,a)=>x+((liz[a.id]||{}).menge||0),0);
+    return `<tr style="border-bottom:0.5px solid #ddd9d0;${hat?'':'color:#9c9890;'}"><td style="padding:4px 6px;">${dlEsc(o.name)}</td><td style="text-align:right;padding:4px 6px;">${hat?n:'—'}</td><td style="text-align:right;padding:4px 6px;">${_lizEur(s).replace(' €','')}</td><td style="text-align:right;padding:4px 6px;">${_lizEur(s*12).replace(' €','')}</td></tr>`; }).join('');
+  const anzGesamt=mit.reduce((s,o)=>{ const liz=_lizOrgLizenzen[o.id]||{}; return s+_lizArtikel.reduce((x,a)=>x+((liz[a.id]||{}).menge||0),0); },0);
+  let html=_lizPrintKopf('Gesamtübersicht alle Kunden')+`
+    <div style="display:flex;gap:10px;margin:14px 0;">
+      <div style="flex:1;background:#f1efe8;border-radius:6px;padding:8px 12px;"><div style="font-size:10px;color:#6b6760;">Monatsumsatz</div><div style="font-size:17px;font-weight:600;">${_lizEur(gesamt)}</div></div>
+      <div style="flex:1;background:#f1efe8;border-radius:6px;padding:8px 12px;"><div style="font-size:10px;color:#6b6760;">Jahresumsatz</div><div style="font-size:17px;font-weight:600;">${_lizEur(gesamt*12)}</div></div>
+      <div style="flex:1;background:#f1efe8;border-radius:6px;padding:8px 12px;"><div style="font-size:10px;color:#6b6760;">Kunden mit Lizenzen</div><div style="font-size:17px;font-weight:600;">${mit.length} / ${_lizOrgs.length}</div></div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;">
+      <thead><tr style="border-bottom:1px solid #1a1917;"><th style="text-align:left;padding:4px 6px;">Kunde</th><th style="text-align:right;padding:4px 6px;">Lizenzen</th><th style="text-align:right;padding:4px 6px;">€ / Monat</th><th style="text-align:right;padding:4px 6px;">€ / Jahr</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr style="border-top:1.5px solid #1a1917;"><td style="padding:5px 6px;font-weight:700;">Gesamt</td><td style="text-align:right;padding:5px 6px;font-weight:700;">${anzGesamt}</td><td style="text-align:right;padding:5px 6px;font-weight:700;">${_lizEur(gesamt).replace(' €','')}</td><td style="text-align:right;padding:5px 6px;font-weight:700;">${_lizEur(gesamt*12).replace(' €','')}</td></tr></tfoot>
+    </table>`;
+  mit.forEach(o=>{ html+=`<div class="umbruch">${_lizPrintKopf(o.name)}${_lizPrintSection(o)}</div>`; });
+  html+=`<div style="border-top:0.5px solid #ddd9d0;margin-top:16px;padding-top:6px;font-size:9px;color:#9c9890;">Planungsmanager · Lizenzen gesamt · ${_lizFmtDatum()}</div>`;
+  _lizPrintWindow(html,'Lizenzen — Gesamtübersicht');
 }
 async function lizSaveOrg(oid){
   const liz={}; Object.entries(_lizOrgLizenzen[oid]||{}).forEach(([k,p])=>{ if(p&&(p.menge>0||p.preis!=null)) liz[k]={menge:p.menge||0,preis:p.preis==null?null:p.preis}; });
@@ -8947,12 +9036,14 @@ function renderLizenzen(){
         ${_lizOrgs.map(o=>`<option value="${dlEsc(o.id)}"${_lizOpenOrg===o.id?' selected':''}>${dlEsc(o.name)}</option>`).join('')}
       </select>`;
   const _minBtn=`<button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="lizToggleListe()" title="${_lizListMin?'Kunden-Übersicht aufklappen':'Kunden-Übersicht minimieren — die Lizenz-Positionen darunter rücken in den Blick'}">${_lizListMin?'▸ aufklappen':'▾ minimieren'}</button>`;
+  const _printAllBtn=`<button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="lizPrintAll()" title="Gesamtübersicht aller Kunden drucken — Zusammenfassung + je Kunde Lizenzen und Mitarbeiterliste">🖨 Gesamtübersicht</button>`;
   const uebersicht=_lizListMin
     ? `<div class="dsh-card" style="margin-bottom:16px;padding:10px 14px;">
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
       <span style="font-size:13.5px;font-weight:700;">Kunden</span>
       <span style="font-size:11.5px;color:var(--text2);"><b style="color:var(--green);">${_lizEur(gesamt)}</b> / Monat · ${_lizEur(gesamt*12)} / Jahr · ${mitLiz} / ${_lizOrgs.length} mit Lizenzen${ueber?` · <b style="color:#b45309;">${ueber} ⚠</b>`:''}</span>
       ${_orgSel}
+      ${_printAllBtn}
       ${_minBtn}
     </div>
   </div>`
@@ -8962,6 +9053,7 @@ function renderLizenzen(){
       <span style="font-size:11px;color:var(--text3);">Klick auf einen Kunden öffnet die Lizenz-Positionen</span>
       ${_orgSel}
       <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="lizToggleKompakt()" title="Positionen als Anzahl (kompakt) oder als volle Artikelliste zeigen">${_lizKompakt?'▸ Details zeigen':'▾ kompakt'}</button>
+      ${_printAllBtn}
       ${_minBtn}
     </div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;">
@@ -8996,7 +9088,10 @@ function renderLizenzen(){
       <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
         <span style="font-size:13.5px;font-weight:700;">${dlEsc(dOrg.name)} — Lizenzen</span>
         <span style="font-size:11px;color:var(--text3);">Anzahl = Vertragsmenge · „Vergeben" = tatsächliche Logins · Preis leer = Katalogpreis</span>
-        <button class="btn btn-primary" style="margin-left:auto;font-size:11px;padding:5px 14px;" onclick="lizSaveOrg('${_jsArg(dOrg.id)}')">Lizenzen speichern</button>
+        <span style="margin-left:auto;display:flex;gap:8px;">
+          <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="lizPrintOrg('${_jsArg(dOrg.id)}')" title="Stadt-Bericht drucken: Lizenzen + Mitarbeiter mit Zugang">🖨 Bericht</button>
+          <button class="btn btn-primary" style="font-size:11px;padding:5px 14px;" onclick="lizSaveOrg('${_jsArg(dOrg.id)}')">Lizenzen speichern</button>
+        </span>
       </div>
       <table class="ep-table"><thead><tr><th>Artikel</th><th style="width:80px;text-align:right;">Anzahl</th><th style="width:96px;text-align:right;">Vergeben</th><th style="width:104px;text-align:right;">€ / Lizenz</th><th style="width:120px;text-align:right;">Summe</th></tr></thead>
       <tbody>${posRows}</tbody>
@@ -16582,7 +16677,7 @@ Object.assign(window,{
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleBhNames,toggleRequiredFeld,toggleRawSeg,_siInfo,
   createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,dashSetBh,tourSetBh,epChangeBh,epTogglePersnr,epToggleBhCol,psSetOrgFilter,setSiTab,
-  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizArtRolle,lizArtMove,lizZrFlip,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,
+  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizArtRolle,lizArtMove,lizZrFlip,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,lizPrintOrg,lizPrintAll,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,openMeldungFotos,stepMeldungFoto,closeMeldungFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
