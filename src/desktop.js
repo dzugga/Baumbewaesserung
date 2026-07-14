@@ -13705,7 +13705,8 @@ function epWeekHtml(){
       if(tourDueOn(t,d)) return `<td style="padding:3px;${we?'background:var(--surface2);':''}"><div title="${dlEsc(t.name||'Tour')} — ${_epWdLetter(d)} ${+d.slice(8)}.${+d.slice(5,7)}." style="height:22px;border-radius:5px;background:${col}26;border:1px solid ${col}66;display:flex;align-items:center;justify-content:center;"><span style="width:7px;height:7px;border-radius:50%;background:${col};"></span></div></td>`;
       return `<td style="padding:3px;${we?'background:var(--surface2);':''}"><div style="height:22px;"></div></td>`;
     }).join('');
-    return `<tr data-epname="${dlEsc(hay)}" style="border-top:1px solid var(--border);${cnt?'':'opacity:.5;'}${hide?'display:none;':''}"${cw?` oncontextmenu="epTourCtx(event,'${t.id}')"`:''}><td style="padding:6px 10px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><span class="ep-dot" style="background:${col};"></span>${dlEsc(t.name||'Tour')}${_epBhBadge(t.betriebshof)}<div style="font-size:10px;color:var(--text3);margin-left:16px;">${dlEsc(_epIntervalLabel(t))}${cnt?'':' · diese Woche kein Termin'}</div></td>${cells}</tr>`;
+    const _tip=_epIntervalLabel(t)+(cnt?'':' · diese Woche kein Termin'); // Rhythmus im Tooltip statt als eigene Zeile (kompakter)
+    return `<tr data-epname="${dlEsc(hay)}" style="border-top:1px solid var(--border);${cnt?'':'opacity:.5;'}${hide?'display:none;':''}"${cw?` oncontextmenu="epTourCtx(event,'${t.id}')"`:''}><td title="${dlEsc(_tip)}" style="padding:6px 10px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><span class="ep-dot" style="background:${col};"></span>${dlEsc(t.name||'Tour')}${_epBhBadge(t.betriebshof)}</td>${cells}</tr>`;
   };
   const _dueThisWeek=t=>days.some(d=>tourDueOn(t,d));
   const emptyCount=real.filter(t=>!_dueThisWeek(t)).length;
