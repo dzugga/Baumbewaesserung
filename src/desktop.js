@@ -14094,7 +14094,7 @@ function epAbsenceHtml(){
       </details>
       <span style="margin-left:auto;display:flex;gap:12px;align-items:center;">${legend}</span>
     </div>
-    <div style="overflow-x:auto;border:1px solid var(--border);border-radius:10px;background:var(--surface);">
+    <div class="ep-sticky-wrap">
       <table style="width:100%;border-collapse:collapse;table-layout:fixed;min-width:${150+(_epShowPersnr?72:0)+(_epShowBhCol?88:0)+days.length*colW}px;">
         <colgroup>${_epShowPersnr?'<col style="width:72px;">':''}<col style="width:150px;">${_epShowBhCol?'<col style="width:88px;">':''}${days.map(()=>`<col style="width:${colW}px;">`).join('')}</colgroup>
         <thead><tr>${_epShowPersnr?'<th style="text-align:left;padding:6px 10px;font-size:10px;color:var(--text3);">Nr.</th>':''}<th style="text-align:left;padding:6px 10px;font-size:10px;color:var(--text3);">Person</th>${_epShowBhCol?'<th style="text-align:left;padding:6px 8px;font-size:10px;color:var(--text3);">Betriebshof</th>':''}${headCells}</tr></thead>
@@ -14371,7 +14371,7 @@ function epFuhrparkHtml(){
     <datalist id="ep-veh-arten">${arten.map(a=>`<option value="${a}">`).join('')}</datalist>
     <div class="ep-sec-head"><h3>Fuhrpark <span class="ep-count">${_epVehicles.length} Fahrzeuge</span></h3>
       ${canEdit?`<button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="epVehAdd()">+ Fahrzeug</button><button class="btn btn-primary" style="font-size:11px;padding:5px 14px;margin-left:auto;" onclick="epVehSave()">Speichern</button>`:'<span class="ep-count" style="margin-left:auto;">nur Lesezugriff</span>'}</div>
-    <table class="ep-table"><thead><tr>${head}</tr></thead><tbody>${rows||`<tr><td colspan="${canEdit?7:6}" style="color:var(--text3);">Noch keine Fahrzeuge — „+ Fahrzeug" anlegen.</td></tr>`}</tbody></table>
+    <div class="ep-sticky-wrap"><table class="ep-table"><thead><tr>${head}</tr></thead><tbody>${rows||`<tr><td colspan="${canEdit?7:6}" style="color:var(--text3);">Noch keine Fahrzeuge — „+ Fahrzeug" anlegen.</td></tr>`}</tbody></table></div>
     <div class="ep-foot">Gemeinsame Fahrzeugquelle für Einsatzplaner und Disposition. Änderungen erst mit „Speichern" sichern. Der Betriebshof steuert den Filter oben im Einsatzplaner.</div>`;
 }
 // Eingehängten Nachrichten-Bereich VOR jedem innerHTML-Neuaufbau von #ep-root nach Hause retten —
