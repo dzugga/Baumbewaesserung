@@ -13506,15 +13506,8 @@ function _epRunsOn(t){ return !!t && ((t.interval||'')==='bedarf' ? _tourInValid
 function _epPersonActive(p){ return !!p && p.active!==false; } // inaktive werden im Personal-Reiter grau gezeigt, aber nicht verplant
 function _epHasLogin(p){ return !!p && !p.noLogin && (p.pinHash || p.role); }
 function _epPersByName(name){ return _epPersons.find(p=>p.name===name); }
-// Personalnummer + Betriebshof als kleine, dauerhaft sichtbare Labels (leer, wenn nichts gepflegt)
-function _epPersTags(p){
-  let h='';
-  const nr=(p&&p.persnr!=null?String(p.persnr):'').trim();
-  if(nr) h+=` <span style="font-size:9px;font-weight:700;color:#3730a3;background:#e0e7ff;padding:1px 6px;border-radius:5px;">Nr. ${dlEsc(nr)}</span>`;
-  const bh=(p&&p.betriebshof||'').trim();
-  if(bh) h+=` <span style="font-size:9px;font-weight:700;color:#3f6212;background:#ecfccb;padding:1px 6px;border-radius:5px;" title="Betriebshof">${dlEsc(bh)}</span>`;
-  return h;
-}
+// Personalnummer als dezenter Klartext (kein Farbbalken); leer, wenn nichts gepflegt
+function _epPersNr(p){ const nr=(p&&p.persnr!=null?String(p.persnr):'').trim(); return nr?` <span style="font-size:10px;color:var(--text3);">Nr. ${dlEsc(nr)}</span>`:''; }
 
 async function initEinsatzplaner(){
   const root=document.getElementById('ep-root'); if(!root) return;
@@ -14063,10 +14056,12 @@ function epAbsenceHtml(){
           ? '<span style="font-size:9px;font-weight:700;color:#9a6700;background:#fcefcb;padding:1px 6px;border-radius:5px;" title="App-Login beim Superadmin angefordert">🔑 Login angefordert</span>'
           : (_epHasLogin(p) ? '' : '<span style="font-size:9px;font-weight:700;color:var(--text3);background:var(--surface2);padding:1px 6px;border-radius:5px;">ohne Login</span>'));
     const nameCell=ro
-      ? `${dlEsc(p.name)}${p.funktion?` <span style="font-size:10px;color:var(--text3);">${dlEsc(p.funktion)}</span>`:''} ${badge}${_epPersTags(p)}`
-      : `<span onclick="epPersonOpenCard('${_jsArg(p.id)}')" title="Person verwalten${(p.betriebshof||'').trim()?' · Betriebshof '+dlEsc(p.betriebshof):''}" style="cursor:pointer;border-radius:5px;padding:1px 3px;">${dlEsc(p.name)}${p.funktion?` <span style="font-size:10px;color:var(--text3);">${dlEsc(p.funktion)}</span>`:''} ${badge}${_epPersTags(p)}</span>`;
-    return `<tr style="border-top:1px solid var(--border);${inactive?'opacity:.5;':''}"><td style="padding:4px 10px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${nameCell}</td>${cells}</tr>`;
-  }).join('')||`<tr><td colspan="${days.length+1}" style="padding:18px;color:var(--text3);text-align:center;">Noch kein Personal in diesem Mandanten — oben „＋ Mitarbeiter".</td></tr>`;
+      ? `${dlEsc(p.name)}${_epPersNr(p)}${p.funktion?` <span style="font-size:10px;color:var(--text3);">${dlEsc(p.funktion)}</span>`:''} ${badge}`
+      : `<span onclick="epPersonOpenCard('${_jsArg(p.id)}')" title="Person verwalten${(p.betriebshof||'').trim()?' · Betriebshof '+dlEsc(p.betriebshof):''}" style="cursor:pointer;border-radius:5px;padding:1px 3px;">${dlEsc(p.name)}${_epPersNr(p)}${p.funktion?` <span style="font-size:10px;color:var(--text3);">${dlEsc(p.funktion)}</span>`:''} ${badge}</span>`;
+    const _bh=(p.betriebshof||'').trim();
+    const bhCell=`<td style="padding:4px 8px;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_bh?`<span style="font-weight:600;color:#3f6212;">${dlEsc(_bh)}</span>`:'<span style="color:var(--text3);">—</span>'}</td>`;
+    return `<tr style="border-top:1px solid var(--border);${inactive?'opacity:.5;':''}"><td style="padding:4px 10px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${nameCell}</td>${bhCell}${cells}</tr>`;
+  }).join('')||`<tr><td colspan="${days.length+2}" style="padding:18px;color:var(--text3);text-align:center;">Noch kein Personal in diesem Mandanten — oben „＋ Mitarbeiter".</td></tr>`;
   const legend=_epAbsTypes().map(c=>`<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);"><span style="width:11px;height:11px;border-radius:3px;background:${c.color};"></span>${dlEsc(c.label)}</span>`).join('')
     +((_epCanWrite()&&(currentRole==='superadmin'||currentCap==='admin'))?`<button class="btn btn-secondary" style="font-size:11px;padding:2px 10px;margin-left:6px;" onclick="epAbsTypesOpen()" title="Abwesenheits-Typen dieses Mandanten pflegen">Typen…</button>`:'');
   return `
@@ -14080,9 +14075,9 @@ function epAbsenceHtml(){
       <span style="margin-left:auto;display:flex;gap:12px;align-items:center;">${legend}</span>
     </div>
     <div style="overflow-x:auto;border:1px solid var(--border);border-radius:10px;background:var(--surface);">
-      <table style="width:100%;border-collapse:collapse;table-layout:fixed;min-width:${124+days.length*colW}px;">
-        <colgroup><col style="width:124px;">${days.map(()=>`<col style="width:${colW}px;">`).join('')}</colgroup>
-        <thead><tr><th style="text-align:left;padding:6px 10px;font-size:10px;color:var(--text3);">Person</th>${headCells}</tr></thead>
+      <table style="width:100%;border-collapse:collapse;table-layout:fixed;min-width:${210+days.length*colW}px;">
+        <colgroup><col style="width:150px;"><col style="width:88px;">${days.map(()=>`<col style="width:${colW}px;">`).join('')}</colgroup>
+        <thead><tr><th style="text-align:left;padding:6px 10px;font-size:10px;color:var(--text3);">Person</th><th style="text-align:left;padding:6px 8px;font-size:10px;color:var(--text3);">Betriebshof</th>${headCells}</tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>
