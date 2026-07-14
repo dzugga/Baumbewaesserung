@@ -6147,6 +6147,7 @@ function switchView(v){
   const disposition=document.getElementById('view-disposition');
   const verwaltung=document.getElementById('view-verwaltung');
   const usage=document.getElementById('view-usage'); if(usage) usage.style.display=v==='usage'?'block':'none';
+  const lizenzen=document.getElementById('view-lizenzen'); if(lizenzen) lizenzen.style.display=v==='lizenzen'?'block':'none';
   const feldbez=document.getElementById('view-feldbezeichnungen');
   const benutzer=document.getElementById('view-benutzer');
   if(feldbez) feldbez.style.display=v==='feldbezeichnungen'?'block':'none';
