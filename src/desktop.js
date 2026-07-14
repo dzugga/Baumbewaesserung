@@ -8787,14 +8787,18 @@ async function initLizenzen(){
         ]);
         const roleMods={}; rl.forEach(r=>{ roleMods[r.id]=(r.data().modules)||{}; });
         const modOf=(role,mod)=>{ const m=roleMods[role]||((BUILTIN_ROLES[role]||{}).modules)||{}; return !!m[mod]; };
-        // NUR echte App-Logins zählen (PIN vergeben). Personen ohne Login (noLogin bzw. ohne pinHash)
-        // dienen nur der Einsatzplanung und sind nicht lizenzrelevant.
-        dr.forEach(d=>{ const p=d.data(); const hasLogin=!p.noLogin&&!!p.pinHash; if(!hasLogin) return;
+        // NUR echte, aktive App-Logins zählen: PIN vergeben, nicht deaktiviert, kein Superadmin.
+        // Personen ohne Login (noLogin/ohne pinHash) dienen nur der Einsatzplanung — nicht lizenzrelevant.
+        dr.forEach(d=>{ const p=d.data();
+          if(p.noLogin||!p.pinHash) return;          // kein echter Login
+          if(p.active===false) return;               // deaktiviert
+          if((p.role||'')==='superadmin') return;    // Superadmin zählt nie
           c.logins++;
           if(modOf(p.role||'','mobil')) c.fahrer++;
           if(modOf(p.role||'','einsatzleiter')) c.einsatzleiter++;
         });
-        c.planer=us.size;
+        // E-Mail-Benutzer: aktive, ohne Superadmins
+        c.planer=us.docs.filter(d=>{ const u=d.data(); return u.active!==false && (u.role||'')!=='superadmin'; }).length;
       }catch(e){ console.warn('liz counts '+o.id,e); }
       _lizCounts[o.id]=c;
     }
