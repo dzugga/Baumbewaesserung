@@ -8743,6 +8743,9 @@ let _lizLoading=false;
 // Kunden-Tabelle kompakt (eine Zeile je Kunde, Positionen nur als Anzahl) oder mit voller Artikelliste
 let _lizKompakt=(()=>{ try{ return localStorage.getItem('liz_kompakt')!=='0'; }catch(_){ return true; } })();
 function lizToggleKompakt(){ _lizKompakt=!_lizKompakt; try{ localStorage.setItem('liz_kompakt',_lizKompakt?'1':'0'); }catch(_){} renderLizenzen(); }
+// Kunden-Übersicht komplett ein-/ausklappbar (minimiert = eine Kopfzeile) — Detail darunter rückt in den Blick
+let _lizListMin=(()=>{ try{ return localStorage.getItem('liz_list_min')==='1'; }catch(_){ return false; } })();
+function lizToggleListe(){ _lizListMin=!_lizListMin; try{ localStorage.setItem('liz_list_min',_lizListMin?'1':'0'); }catch(_){} renderLizenzen(); }
 const LIZ_ZAEHLER=[['','— kein Zähler —'],['fahrer','Fahrer-App-Logins'],['einsatzleiter','Einsatzleiter-Logins'],['logins','alle PIN-Logins'],['planer','E-Mail-Benutzer']];
 function _lizNum(s){ const n=parseFloat(String(s??'').trim().replace(/,/g,'.')); return isNaN(n)?0:n; }
 function _lizEur(n){ return (Math.round(n*100)/100).toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2})+' €'; }
@@ -8882,15 +8885,27 @@ function renderLizenzen(){
       <td style="padding:8px 12px;text-align:right;white-space:nowrap;"><b>${_lizEur(sum)}</b><span style="font-size:10.5px;color:var(--text3);"> / Monat · ${_lizEur(sum*12)} / Jahr</span></td>
     </tr>`;
   }).join('')||'<tr><td colspan="3" style="padding:16px;text-align:center;color:var(--text3);">Keine Mandanten.</td></tr>';
-  const uebersicht=`<div class="dsh-card" style="margin-bottom:16px;">
+  const _orgSel=`<select onchange="lizSelectOrg(this.value)" style="margin-left:auto;padding:4px 9px;font-size:12px;border:1px solid var(--border);border-radius:7px;background:var(--surface);font-family:inherit;max-width:220px;">
+        <option value="">– Kunde wählen –</option>
+        ${_lizOrgs.map(o=>`<option value="${dlEsc(o.id)}"${_lizOpenOrg===o.id?' selected':''}>${dlEsc(o.name)}</option>`).join('')}
+      </select>`;
+  const _minBtn=`<button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="lizToggleListe()" title="${_lizListMin?'Kunden-Übersicht aufklappen':'Kunden-Übersicht minimieren — die Lizenz-Positionen darunter rücken in den Blick'}">${_lizListMin?'▸ aufklappen':'▾ minimieren'}</button>`;
+  const uebersicht=_lizListMin
+    ? `<div class="dsh-card" style="margin-bottom:16px;padding:10px 14px;">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <span style="font-size:13.5px;font-weight:700;">Kunden</span>
+      <span style="font-size:11.5px;color:var(--text2);"><b style="color:var(--green);">${_lizEur(gesamt)}</b> / Monat · ${_lizEur(gesamt*12)} / Jahr · ${mitLiz} / ${_lizOrgs.length} mit Lizenzen${ueber?` · <b style="color:#b45309;">${ueber} ⚠</b>`:''}</span>
+      ${_orgSel}
+      ${_minBtn}
+    </div>
+  </div>`
+    : `<div class="dsh-card" style="margin-bottom:16px;">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
       <span style="font-size:13.5px;font-weight:700;">Kunden</span>
       <span style="font-size:11px;color:var(--text3);">Klick auf einen Kunden öffnet die Lizenz-Positionen</span>
-      <select onchange="lizSelectOrg(this.value)" style="margin-left:auto;padding:4px 9px;font-size:12px;border:1px solid var(--border);border-radius:7px;background:var(--surface);font-family:inherit;max-width:220px;">
-        <option value="">– Kunde wählen –</option>
-        ${_lizOrgs.map(o=>`<option value="${dlEsc(o.id)}"${_lizOpenOrg===o.id?' selected':''}>${dlEsc(o.name)}</option>`).join('')}
-      </select>
+      ${_orgSel}
       <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="lizToggleKompakt()" title="Positionen als Anzahl (kompakt) oder als volle Artikelliste zeigen">${_lizKompakt?'▸ Details zeigen':'▾ kompakt'}</button>
+      ${_minBtn}
     </div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;">
       ${kpi(_lizEur(gesamt),'Monatsumsatz gesamt',_lizEur(gesamt*12)+' / Jahr','var(--green)')}
@@ -16509,7 +16524,7 @@ Object.assign(window,{
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleBhNames,toggleRequiredFeld,toggleRawSeg,_siInfo,
   createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,dashSetBh,tourSetBh,epChangeBh,epTogglePersnr,epToggleBhCol,psSetOrgFilter,setSiTab,
-  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizPosField,lizSaveOrg,
+  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,openMeldungFotos,stepMeldungFoto,closeMeldungFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
