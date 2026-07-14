@@ -52,10 +52,10 @@ service cloud.firestore {
     // ----- Mandanten -----
     match /orgs/{oid} {
       allow read:  if inOrg(oid);
-      // Stadt-Admins duerfen NUR die Abwesenheits-Typen am Org-Doc pflegen (Einsatzplaner → Personal);
+      // Stadt-Admins duerfen NUR Abwesenheits-Typen + Fahrzeug-Arten am Org-Doc pflegen (Einsatzplaner);
       // alle uebrigen Org-Felder (code, orsKey, dispoResources, ...) bleiben Superadmin/Functions.
       allow update: if isSuper() || (inOrg(oid) && cap() == 'admin'
-                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['absenceTypes']));
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['absenceTypes','vehicleTypes']));
       allow create, delete: if isSuper();
 
       // Rollen-/Modul-Definitionen je Mandant (Stadt-Admin pflegt eigene Rollen)

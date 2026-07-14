@@ -13499,6 +13499,11 @@ function epToggleBedarf(){ _epShowBedarf=!_epShowBedarf; renderEp(); }
 // ohne eigene Pflege gelten die drei Standard-Typen. Jeder Typ ≠ „anwesend" macht die Person unverfügbar.
 const EP_ABS_DEFAULT=[{id:'urlaub',label:'Urlaub',color:'#FAC775'},{id:'krank',label:'Krank',color:'#F09595'},{id:'abwesend',label:'Abwesend',color:'#B4B2A9'}];
 let _epAbsTypesOrg=null;
+// Fahrzeug-Arten: mandantenweit pflegbar (orgs/{org}.vehicleTypes, Verwaltung im Fahrzeuge-Reiter) — wie die Abwesenheits-Typen.
+// Ohne eigene Pflege gelten die Standard-Arten. Feld „Art/Typ" ist ein Dropdown aus dieser Liste (kein Freitext).
+const EP_VEH_TYPE_DEFAULT=['PKW','Kleintransporter','LKW','Schlepper','Kehrmaschine','Anhänger','Sonstiges'];
+let _epVehicleTypes=null;
+function _epVehTypeList(){ return (Array.isArray(_epVehicleTypes)&&_epVehicleTypes.length)?_epVehicleTypes:EP_VEH_TYPE_DEFAULT; }
 const _absColor=c=>/^#[0-9a-fA-F]{3,8}$/.test(c||'')?c:'#B4B2A9'; // Farbe härten (wird in style interpoliert)
 function _epAbsTypes(){ const l=(Array.isArray(_epAbsTypesOrg)&&_epAbsTypesOrg.length)?_epAbsTypesOrg:EP_ABS_DEFAULT; return l.map(x=>({...x, color:_absColor(x.color)})); }
 function _epAbsMeta(type){ return _epAbsTypes().find(x=>x.id===type) || EP_ABS_DEFAULT.find(x=>x.id===type) || {id:type,label:type||'Abwesend',color:'#B4B2A9'}; }
@@ -13537,7 +13542,7 @@ async function epLoadOrgScope(){
   _epPersons=[]; _epVehicles=[]; _epProjects=[];
   if(!_epOrg) return;
   try{ const qs=await db.collection('drivers').where('orgId','==',_epOrg).get(); _epPersons=qs.docs.map(d=>({id:d.id,...d.data()})).filter(p=>_epPersonInPlan(p)).sort((a,b)=>(a.name||'').localeCompare(b.name||'')); }catch(e){ console.warn('ep drivers',e); }
-  try{ const os=await db.collection('orgs').doc(_epOrg).get(); const od=os.exists?os.data():{}; const r=od.dispoResources; _epVehicles=(Array.isArray(r)&&r.length)?r.map(x=>({...x})):DISPO_DEFAULT_RES.map(x=>({...x})); _epFunktionen=_effFunktionen(od.funktionen, _epPersons); _epAbsTypesOrg=Array.isArray(od.absenceTypes)?od.absenceTypes.map(x=>({...x})):null; }catch(e){ _epVehicles=DISPO_DEFAULT_RES.map(x=>({...x})); _epFunktionen=_effFunktionen(null, _epPersons); _epAbsTypesOrg=null; }
+  try{ const os=await db.collection('orgs').doc(_epOrg).get(); const od=os.exists?os.data():{}; const r=od.dispoResources; _epVehicles=(Array.isArray(r)&&r.length)?r.map(x=>({...x})):DISPO_DEFAULT_RES.map(x=>({...x})); _epFunktionen=_effFunktionen(od.funktionen, _epPersons); _epAbsTypesOrg=Array.isArray(od.absenceTypes)?od.absenceTypes.map(x=>({...x})):null; _epVehicleTypes=Array.isArray(od.vehicleTypes)?od.vehicleTypes.slice():null; }catch(e){ _epVehicles=DISPO_DEFAULT_RES.map(x=>({...x})); _epFunktionen=_effFunktionen(null, _epPersons); _epAbsTypesOrg=null; _epVehicleTypes=null; }
   try{ const qs=await db.collection('projects').where('orgId','==',_epOrg).get(); _epProjects=qs.docs.map(d=>({id:d.id,name:d.data().name||d.id})).sort((a,b)=>a.name.localeCompare(b.name)); }catch(e){ console.warn('ep projects',e); }
   if(!_epProject || !_epProjects.find(p=>p.id===_epProject)) _epProject=(_epProjects.find(p=>p.id===currentProjectId)?.id)||_epProjects[0]?.id||'';
   await epLoadAvail(); await epLoadTours();
@@ -13675,8 +13680,10 @@ function epCycleVehicleStatus(id){ if(!_epCanWrite())return; const order=EP_VSTA
 function epFahrzeugeHtml(){
   const canWrite=_epCanWrite();                                    // Tagesstatus setzen
   const canEdit=currentRole==='superadmin'||currentCap==='admin';  // Stammdaten ändern
-  // Art/Typ ist frei eintippbar; die Vorschläge = Standardwerte + alle bereits verwendeten Arten (eigene bleiben so erhalten)
-  const arten=[...new Set(['PKW','Kleintransporter','LKW','Schlepper','Kehrmaschine','Anhänger','Sonstiges',...(_epVehicles||[]).map(v=>(v.art||'').trim()).filter(Boolean)])].sort((a,b)=>a.localeCompare(b));
+  // Art/Typ = verwaltete Liste (orgs.vehicleTypes, „Arten…" pflegbar), kein Freitext
+  const artList=_epVehTypeList();
+  const artSelFor=v=>{ const cur=(v.art||'').trim(); const opts=(cur&&!artList.includes(cur))?[...artList,cur]:artList;
+    return `<select class="ep-mini" style="width:100%;" onchange="epVehField('${v.id}','art',this.value)" title="Art/Typ (Liste über „Arten…" pflegen)"><option value=""${cur?'':' selected'}>— wählen —</option>${opts.map(a=>`<option value="${dlEsc(a)}"${a===cur?' selected':''}>${dlEsc(a)}</option>`).join('')}</select>`; };
   const visVeh=_epVehicles.filter(v=>_epBhVisible(v.betriebshof)); // Betriebshof-Filter (Unzugeordnete bleiben sichtbar)
   const vAvail=visVeh.filter(_epVehAvail).length;
   const bhOpts=_epBhOptions();
@@ -13690,7 +13697,7 @@ function epFahrzeugeHtml(){
     return `<tr>
       <td style="padding:6px 10px;">${statusCell(v)}</td>
       <td style="padding:5px 10px;"><input class="ep-mini" style="width:100%;" value="${dlEsc(v.name||'')}" onchange="epVehField('${v.id}','name',this.value)" placeholder="Bezeichnung"></td>
-      <td style="padding:5px 10px;"><input class="ep-mini" style="width:100%;" list="ep-veh-arten" value="${dlEsc(v.art||'')}" onchange="epVehField('${v.id}','art',this.value)" placeholder="Art/Typ"></td>
+      <td style="padding:5px 10px;">${artSelFor(v)}</td>
       <td style="padding:5px 10px;"><input class="ep-mini" style="width:100%;" value="${dlEsc(v.kennzeichen||'')}" onchange="epVehField('${v.id}','kennzeichen',this.value)" placeholder="z. B. RÜS-AB 123"></td>
       <td style="padding:5px 10px;">${bhSelFor(v)}</td>
       <td style="padding:5px 10px;"><input class="ep-mini" type="number" min="0" step="0.5" style="width:60px;" value="${std}" onchange="epVehField('${v.id}','arbeitszeitH',this.value)" title="Arbeitszeit Std/Tag"></td>
@@ -13703,11 +13710,10 @@ function epFahrzeugeHtml(){
     : '<th style="width:118px;">Status heute</th><th style="width:20%;">Bezeichnung</th><th>Art/Typ</th><th>Kennzeichen</th><th>Betriebshof</th><th style="width:72px;">Std/Tag</th><th>Notiz</th>';
   const wd=_WD_FULL[new Date(_epDate+'T12:00:00').getDay()];
   return `<div class="ep-fill">
-    <datalist id="ep-veh-arten">${arten.map(a=>`<option value="${a}">`).join('')}</datalist>
     <div class="ep-sec-head" style="align-items:baseline;flex-wrap:wrap;">
       <h3>Fahrzeuge <span style="font-size:12px;font-weight:400;color:var(--text3);">· Status am ${wd}, ${(+_epDate.slice(8,10))+'.'+(+_epDate.slice(5,7))+'.'}</span></h3>
       <span class="ep-count" style="margin-left:6px;color:${vAvail?'var(--green)':'var(--text3)'};">${vAvail}/${visVeh.length} verfügbar${_epBhScope?` · Hof „${dlEsc(_epBhScope)}"`:''}</span>
-      ${canEdit?`<span style="margin-left:auto;display:flex;gap:8px;"><button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="epVehAdd()">+ Fahrzeug</button><button class="btn btn-primary" style="font-size:11px;padding:5px 14px;" onclick="epVehSave()">Speichern</button></span>`:'<span class="ep-count" style="margin-left:auto;">nur Lesezugriff</span>'}
+      ${canEdit?`<span style="margin-left:auto;display:flex;gap:8px;"><button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="epVehTypesOpen()" title="Fahrzeug-Arten pflegen">Arten…</button><button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="epVehAdd()">+ Fahrzeug</button><button class="btn btn-primary" style="font-size:11px;padding:5px 14px;" onclick="epVehSave()">Speichern</button></span>`:'<span class="ep-count" style="margin-left:auto;">nur Lesezugriff</span>'}
     </div>
     <div style="font-size:11px;color:var(--text3);margin:-2px 0 10px;">Status gilt für den gewählten Tag und wird sofort übernommen${canEdit?' · Stammdaten-Änderungen erst mit „Speichern"':''}.</div>
     <div class="ep-sticky-wrap"><table class="ep-table"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>
@@ -14333,6 +14339,47 @@ function epAbsTypesOpen(){
       await db.collection('orgs').doc(_epOrg).set({absenceTypes:clean},{merge:true});
       _epAbsTypesOrg=clean.map(x=>({...x}));
       notify('✓ Abwesenheits-Typen gespeichert'); close(); renderEp();
+    }catch(e){ notify(dlErr(e)); }
+  };
+}
+// Fahrzeug-Arten pflegen (mandantenweit, orgs/{org}.vehicleTypes) — nur Administratoren. Reine Bezeichnungs-Liste.
+function epVehTypesOpen(){
+  if(!(currentRole==='superadmin'||currentCap==='admin')) return notify('Nur Administratoren');
+  const list=_epVehTypeList().slice();
+  const m=document.createElement('div');
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100001;display:flex;align-items:center;justify-content:center;padding:20px;';
+  const rowsHtml=()=>list.map((x,i)=>`<div style="display:flex;gap:8px;align-items:center;" data-i="${i}">
+      <input class="form-control" value="${dlEsc(x||'')}" data-f="label" placeholder="Bezeichnung" style="flex:1;padding:6px 9px;font-size:13px;">
+      <button data-del="${i}" class="btn btn-secondary" style="padding:4px 10px;font-size:12px;color:#991b1b;" title="Art entfernen">×</button>
+    </div>`).join('');
+  m.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:400px;max-width:94vw;overflow:hidden;">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;">Fahrzeug-Arten</div>
+    <div style="padding:14px 18px;display:flex;flex-direction:column;gap:8px;">
+      <div id="vt-rows" style="display:flex;flex-direction:column;gap:8px;">${rowsHtml()}</div>
+      <button id="vt-add" class="btn btn-secondary" style="font-size:12px;padding:5px 12px;align-self:flex-start;">+ Art hinzufügen</button>
+      <div style="font-size:11px;color:var(--text3);line-height:1.5;">Gilt mandantenweit. Diese Liste erscheint als Auswahl im Feld „Art/Typ". Eine bereits vergebene Art, die hier entfernt wird, bleibt am Fahrzeug erhalten, bis sie dort geändert wird.</div>
+    </div>
+    <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;">
+      <button id="vt-cancel" class="btn btn-secondary" style="padding:7px 12px;">Abbrechen</button>
+      <button id="vt-save" class="btn btn-primary" style="padding:7px 14px;">Speichern</button>
+    </div></div>`;
+  document.body.appendChild(m);
+  const close=()=>m.remove();
+  m.addEventListener('click',e=>{ if(e.target===m) close(); });
+  m.querySelector('#vt-cancel').onclick=close;
+  const syncFromDom=()=>{ m.querySelectorAll('#vt-rows > div').forEach(r=>{ const i=+r.dataset.i; list[i]=(r.querySelector('[data-f="label"]').value||'').trim(); }); };
+  const redraw=()=>{ m.querySelector('#vt-rows').innerHTML=rowsHtml(); bindDel(); };
+  const bindDel=()=>{ m.querySelectorAll('[data-del]').forEach(b=>{ b.onclick=()=>{ syncFromDom(); list.splice(+b.dataset.del,1); redraw(); }; }); };
+  bindDel();
+  m.querySelector('#vt-add').onclick=()=>{ syncFromDom(); list.push(''); redraw(); setTimeout(()=>{ const inps=m.querySelectorAll('[data-f="label"]'); inps[inps.length-1]?.focus(); },0); };
+  m.querySelector('#vt-save').onclick=async()=>{
+    syncFromDom();
+    const clean=[...new Set(list.map(x=>(x||'').trim()).filter(Boolean))];
+    if(!clean.length){ notify('Bitte mindestens eine Art angeben'); return; }
+    try{
+      await db.collection('orgs').doc(_epOrg).set({vehicleTypes:clean},{merge:true});
+      _epVehicleTypes=clean.slice();
+      notify('✓ Fahrzeug-Arten gespeichert'); close(); renderEp();
     }catch(e){ notify(dlErr(e)); }
   };
 }
@@ -16245,7 +16292,7 @@ Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,openKiConfigMenu,toggleKiAnalyse,resetKiAnalysen,
   renderHandbuch,setHbTab,hbSearchDebounced,openHbImg,closeHbImg,
   dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
-  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epApplyStandardOne,epTagesplanScope,epSendTagesplan,epTgInput,epTgRegen,epCycleVehicleStatus,epAbsTypesOpen,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,epWeekShift,epWeekThis,epWeekToggleEmpty,epWeekFilter,epDayFilter,epTourCtx,epEditTour,_epCloseCtx,epPersonOpenCard,
+  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epApplyStandardOne,epTagesplanScope,epSendTagesplan,epTgInput,epTgRegen,epCycleVehicleStatus,epVehTypesOpen,epAbsTypesOpen,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,epWeekShift,epWeekThis,epWeekToggleEmpty,epWeekFilter,epDayFilter,epTourCtx,epEditTour,_epCloseCtx,epPersonOpenCard,
   renderDashboard,refreshDashboard,
   saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterInlineTours,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
   filterAbschnitteTable,filterAbschnitteTableDebounced,toggleAbschnShowAll,downloadAbschnitteExport,
