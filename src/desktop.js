@@ -8732,12 +8732,13 @@ let _usageRows=[];
 // ─── LIZENZEN (Superadmin): Preisliste + Lizenzen je Kunde + Monats-/Jahressummen ───
 // Datenmodell: config/lizenzArtikel = {artikel:[{id,name,einheit,preis,zaehler}]} (global, Superadmin-only);
 // orgs/{org}.lizenzen = {artikelId:{menge:N, preis:number|null}} (null = Katalogpreis, Zahl = Sonderpreis).
-// zaehler: ''=kein Ist-Zähler | 'fahrer' (Logins mit Modul mobil) | 'einsatzleiter' (Modul einsatzleiter)
-//          | 'logins' (alle PIN-Logins) | 'planer' (E-Mail-Benutzer der users-Collection).
+// zaehlRollen: Rollen-Keys (Mehrfachauswahl aus Benutzer & Rollen) — gezählt werden aktive Konten
+// (PIN-Logins UND E-Mail-Benutzer) mit einer dieser Rollen; leer = kein Ist-Zähler (Pauschalartikel).
 let _lizArtikel=[];            // Preisliste (Draft = live editiert, Speichern schreibt)
+let _lizRollen=[];             // Rollen-Katalog für die Auswahl: [{key,name,hint}] (Builtin + Custom aller Mandanten, ohne Superadmin)
 let _lizOrgs=[];               // [{id,name}]
 let _lizOrgLizenzen={};        // orgId -> {artikelId:{menge,preis}}
-let _lizCounts={};             // orgId -> {fahrer,einsatzleiter,logins,planer}
+let _lizCounts={};             // orgId -> {roleKey:count} (aktive PIN- + E-Mail-Konten je Rolle) + _total
 let _lizOpenOrg=null;          // aufgeklappter Kunde
 let _lizLoading=false;
 // Kunden-Tabelle kompakt (eine Zeile je Kunde, Positionen nur als Anzahl) oder mit voller Artikelliste
@@ -8746,7 +8747,6 @@ function lizToggleKompakt(){ _lizKompakt=!_lizKompakt; try{ localStorage.setItem
 // Kunden-Übersicht komplett ein-/ausklappbar (minimiert = eine Kopfzeile) — Detail darunter rückt in den Blick
 let _lizListMin=(()=>{ try{ return localStorage.getItem('liz_list_min')==='1'; }catch(_){ return false; } })();
 function lizToggleListe(){ _lizListMin=!_lizListMin; try{ localStorage.setItem('liz_list_min',_lizListMin?'1':'0'); }catch(_){} renderLizenzen(); }
-const LIZ_ZAEHLER=[['','— kein Zähler —'],['fahrer','Fahrer-App-Logins'],['einsatzleiter','Einsatzleiter-Logins'],['logins','alle PIN-Logins'],['planer','E-Mail-Benutzer']];
 function _lizNum(s){ const n=parseFloat(String(s??'').trim().replace(/,/g,'.')); return isNaN(n)?0:n; }
 function _lizEur(n){ return (Math.round(n*100)/100).toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2})+' €'; }
 function _lizPreisStr(n){ return n==null?'':String(n).replace('.',','); }
@@ -8757,14 +8757,24 @@ function _lizOrgSumme(oid){
   _lizArtikel.forEach(a=>{ const p=liz[a.id]; if(p&&p.menge>0) sum+=p.menge*_lizEffPreis(a,p); });
   return sum;
 }
-function _lizIst(oid,zaehler){ const c=_lizCounts[oid]; return (c&&zaehler)?(c[zaehler]||0):null; }
+// Ist eines Artikels = Summe der aktiven Konten über dessen angehakte Rollen; keine Rollen = kein Zähler (null)
+function _lizIst(oid,art){
+  const zr=(art&&Array.isArray(art.zaehlRollen))?art.zaehlRollen:[];
+  if(!zr.length) return null;
+  const c=_lizCounts[oid]||{};
+  return zr.reduce((s,r)=>s+(c[r]||0),0);
+}
+function _lizIstTip(oid,art){ // Aufschlüsselung je Rolle für den Tooltip
+  const c=_lizCounts[oid]||{};
+  return ((art&&art.zaehlRollen)||[]).map(r=>`${(_lizRollen.find(x=>x.key===r)||{}).name||r}: ${c[r]||0}`).join(' · ');
+}
 function _lizOrgHatLizenzen(oid){ return Object.values(_lizOrgLizenzen[oid]||{}).some(p=>p&&p.menge>0); }
 // Überschreitung nur bewerten, wenn der Kunde überhaupt Lizenzen gepflegt hat —
 // unbepreiste Kunden mit vorhandenen Logins sind kein Alarm, sondern „noch offen".
 function _lizOrgUeberschreitung(oid){
   if(!_lizOrgHatLizenzen(oid)) return false;
   const liz=_lizOrgLizenzen[oid]||{};
-  return _lizArtikel.some(a=>{ const ist=_lizIst(oid,a.zaehler); return ist!=null && ist>((liz[a.id]||{}).menge||0); });
+  return _lizArtikel.some(a=>{ const ist=_lizIst(oid,a); return ist!=null && ist>((liz[a.id]||{}).menge||0); });
 }
 async function initLizenzen(){
   if(currentRole!=='superadmin'){ const r=document.getElementById('liz-root'); if(r) r.innerHTML='<div style="padding:30px;color:var(--text3);">Nur Superadmin.</div>'; return; }
@@ -8775,42 +8785,52 @@ async function initLizenzen(){
     // Preisliste + Mandanten
     const cfg=await db.collection('config').doc('lizenzArtikel').get();
     _lizArtikel=(cfg.exists&&Array.isArray(cfg.data().artikel))?cfg.data().artikel.map(x=>({...x})):[];
+    // Migration vom alten Einfach-Zähler (zaehler-String) auf Rollen-Mehrfachauswahl
+    _lizArtikel.forEach(a=>{ if(!Array.isArray(a.zaehlRollen)){ a.zaehlRollen=(a.zaehler==='fahrer')?['fahrer']:[]; } delete a.zaehler; });
     const orgsSnap=await db.collection('orgs').get();
     _lizOrgs=orgsSnap.docs.map(d=>({id:d.id,name:d.data().name||d.id})).sort((a,b)=>a.name.localeCompare(b.name));
     _lizOrgLizenzen={}; orgsSnap.docs.forEach(d=>{ _lizOrgLizenzen[d.id]=d.data().lizenzen?JSON.parse(JSON.stringify(d.data().lizenzen)):{}; });
-    // Ist-Zähler je Mandant: PIN-Logins nach Rollen-Modul (mobil/einsatzleiter) + E-Mail-Benutzer
+    // Ist-Zähler je Mandant: aktive Konten (PIN-Logins UND E-Mail-Benutzer) je ROLLE zählen.
+    // Rollen-Katalog für die Artikel-Auswahl parallel einsammeln (Builtin + Custom aller Mandanten).
     _lizCounts={};
+    const rollen={}; Object.entries(BUILTIN_ROLES).forEach(([k,r])=>{ if(k!=='superadmin') rollen[k]={key:k,name:r.name,hint:'eingebaut'}; });
     for(const o of _lizOrgs){
-      const c={fahrer:0,einsatzleiter:0,logins:0,planer:0};
+      const c={};
       try{
         const [dr,us,rl]=await Promise.all([
           db.collection('drivers').where('orgId','==',o.id).get(),
           db.collection('users').where('orgId','==',o.id).get(),
           db.collection('orgs').doc(o.id).collection('roles').get(),
         ]);
-        const roleMods={}; rl.forEach(r=>{ roleMods[r.id]=(r.data().modules)||{}; });
-        const modOf=(role,mod)=>{ const m=roleMods[role]||((BUILTIN_ROLES[role]||{}).modules)||{}; return !!m[mod]; };
-        // NUR echte, aktive App-Logins zählen: PIN vergeben, nicht deaktiviert, kein Superadmin.
+        rl.forEach(r=>{ if(r.id==='superadmin') return;
+          const nm=(r.data().name||r.id);
+          if(!rollen[r.id]) rollen[r.id]={key:r.id,name:nm,hint:o.name};
+          else if(rollen[r.id].name!==nm && rollen[r.id].hint!=='eingebaut') rollen[r.id].hint+=' u. a.';
+        });
+        // NUR echte, aktive Logins: PIN vergeben (bzw. E-Mail-Konto), nicht deaktiviert, kein Superadmin.
         // Personen ohne Login (noLogin/ohne pinHash) dienen nur der Einsatzplanung — nicht lizenzrelevant.
         dr.forEach(d=>{ const p=d.data();
-          if(p.noLogin||!p.pinHash) return;          // kein echter Login
-          if(p.active===false) return;               // deaktiviert
-          if((p.role||'')==='superadmin') return;    // Superadmin zählt nie
-          c.logins++;
-          if(modOf(p.role||'','mobil')) c.fahrer++;
-          if(modOf(p.role||'','einsatzleiter')) c.einsatzleiter++;
+          if(p.noLogin||!p.pinHash) return;
+          if(p.active===false) return;
+          const r=(p.role||'').trim(); if(!r||r==='superadmin') return;
+          c[r]=(c[r]||0)+1;
         });
-        // E-Mail-Benutzer: aktive, ohne Superadmins
-        c.planer=us.docs.filter(d=>{ const u=d.data(); return u.active!==false && (u.role||'')!=='superadmin'; }).length;
+        us.forEach(d=>{ const u=d.data();
+          if(u.active===false) return;
+          const r=(u.role||'').trim(); if(!r||r==='superadmin') return;
+          c[r]=(c[r]||0)+1;
+        });
       }catch(e){ console.warn('liz counts '+o.id,e); }
+      c._total=Object.entries(c).reduce((s,[k,v])=>k==='_total'?s:s+v,0);
       _lizCounts[o.id]=c;
     }
+    _lizRollen=Object.values(rollen).sort((a,b)=>a.name.localeCompare(b.name));
   }catch(e){ console.warn('initLizenzen',e); if(root) root.innerHTML='<div style="padding:30px;color:var(--red);font-size:13px;">Laden fehlgeschlagen: '+dlEsc(e.message||e)+'</div>'; _lizLoading=false; return; }
   _lizLoading=false;
   renderLizenzen();
 }
 function lizRefresh(){ _lizLoading=false; initLizenzen(); }
-function lizArtAdd(){ _lizArtikel.push({id:'a'+Math.random().toString(36).slice(2,8), name:'', einheit:'je Login', preis:0, zaehler:''}); renderLizenzen(); setTimeout(()=>{ const i=document.querySelector('#liz-art-rows tr:last-child input'); i?.focus(); },0); }
+function lizArtAdd(){ _lizArtikel.push({id:'a'+Math.random().toString(36).slice(2,8), name:'', einheit:'je Login', preis:0, zaehlRollen:[]}); renderLizenzen(); setTimeout(()=>{ const i=document.querySelector('#liz-art-rows tr:last-child input'); i?.focus(); },0); }
 async function lizArtDel(id){
   const a=_lizArtikel.find(x=>x.id===id); if(!a) return;
   const used=_lizOrgs.filter(o=>((_lizOrgLizenzen[o.id]||{})[id]||{}).menge>0).length;
@@ -8818,6 +8838,15 @@ async function lizArtDel(id){
   _lizArtikel=_lizArtikel.filter(x=>x.id!==id); renderLizenzen();
 }
 function lizArtField(id,f,val){ const a=_lizArtikel.find(x=>x.id===id); if(!a) return; if(f==='preis') a.preis=_lizNum(val); else a[f]=(val||'').trim(); renderLizenzen(); }
+// Rolle im Ist-Zähler an-/abhaken — bewusst OHNE Re-Render (das Dropdown soll für Mehrfachauswahl offen bleiben);
+// nur die Zusammenfassung wird aktualisiert. Zahlen ziehen beim nächsten Render/Speichern nach.
+function lizArtRolle(id,roleKey,on){
+  const a=_lizArtikel.find(x=>x.id===id); if(!a) return;
+  a.zaehlRollen=(a.zaehlRollen||[]).filter(r=>r!==roleKey);
+  if(on) a.zaehlRollen.push(roleKey);
+  const s=document.getElementById('liz-zr-sum-'+id);
+  if(s){ const n=a.zaehlRollen.length; s.textContent=(n?`${n} Rolle${n===1?'':'n'}`:'— kein Zähler —')+' ▾'; }
+}
 async function lizSaveArtikel(){
   const clean=_lizArtikel.filter(a=>(a.name||'').trim());
   if(_lizArtikel.length&&!clean.length){ notify('Bitte Artikel-Namen angeben'); return; }
@@ -8844,10 +8873,18 @@ function renderLizenzen(){
   if(currentRole!=='superadmin'){ root.innerHTML='<div style="padding:30px;color:var(--text3);">Nur Superadmin.</div>'; return; }
   const inp='padding:4px 7px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;box-sizing:border-box;';
   // ── 1) Preisliste ──
+  const _zrSummary=a=>{ const n=(a.zaehlRollen||[]).length; return n?`${n} Rolle${n===1?'':'n'}`:'— kein Zähler —'; };
   const artRows=_lizArtikel.map(a=>`<tr>
       <td style="padding:5px 10px;"><input style="${inp}width:100%;" value="${dlEsc(a.name||'')}" placeholder="z. B. Planer-Arbeitsplatz" onchange="lizArtField('${_jsArg(a.id)}','name',this.value)"></td>
       <td style="padding:5px 10px;"><input style="${inp}width:100%;" value="${dlEsc(a.einheit||'')}" placeholder="je Login" onchange="lizArtField('${_jsArg(a.id)}','einheit',this.value)"></td>
-      <td style="padding:5px 10px;"><select style="${inp}width:100%;" onchange="lizArtField('${_jsArg(a.id)}','zaehler',this.value)" title="Woraus der Ist-Zähler „vergeben" gezählt wird">${LIZ_ZAEHLER.map(([k,l])=>`<option value="${k}"${(a.zaehler||'')===k?' selected':''}>${l}</option>`).join('')}</select></td>
+      <td style="padding:5px 10px;">
+        <details style="position:relative;">
+          <summary id="liz-zr-sum-${dlEsc(a.id)}" title="Welche Rollen der Ist-Zähler „Vergeben" zählt (aktive PIN- und E-Mail-Konten)" style="list-style:none;cursor:pointer;${inp}width:100%;display:block;user-select:none;">${_zrSummary(a)} ▾</summary>
+          <div style="position:absolute;top:calc(100% + 3px);left:0;z-index:70;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);padding:8px 10px;min-width:210px;max-height:240px;overflow-y:auto;">
+            ${_lizRollen.map(r=>`<label style="display:flex;gap:7px;align-items:center;font-size:12px;cursor:pointer;padding:2px 0;white-space:nowrap;" title="${dlEsc(r.hint||'')}"><input type="checkbox" ${(a.zaehlRollen||[]).includes(r.key)?'checked':''} onchange="lizArtRolle('${_jsArg(a.id)}','${_jsArg(r.key)}',this.checked)" style="cursor:pointer;"> ${dlEsc(r.name)}</label>`).join('')||'<span style="font-size:11px;color:var(--text3);">Keine Rollen gefunden</span>'}
+          </div>
+        </details>
+      </td>
       <td style="padding:5px 10px;text-align:right;"><input style="${inp}width:84px;text-align:right;" value="${dlEsc(_lizPreisStr(a.preis))}" placeholder="0,00" onchange="lizArtField('${_jsArg(a.id)}','preis',this.value)"></td>
       <td style="padding:5px 8px;text-align:center;"><button class="btn btn-danger" style="padding:3px 8px;font-size:12px;" onclick="lizArtDel('${_jsArg(a.id)}')">✕</button></td>
     </tr>`).join('')||`<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--text3);">Noch keine Artikel — „+ Artikel" anlegen (z. B. Planer-Arbeitsplatz, Fahrer-App-Login).</td></tr>`;
@@ -8874,11 +8911,11 @@ function renderLizenzen(){
     const warn=_lizOrgUeberschreitung(o.id);
     const open=_lizOpenOrg===o.id;
     const hat=teile.length>0;
-    const logins=(_lizCounts[o.id]||{}).logins||0;
+    const konten=(_lizCounts[o.id]||{})._total||0;
     const anzLiz=_lizArtikel.reduce((s,a)=>s+((liz[a.id]||{}).menge||0),0);
     const lizTxt=hat
       ? (_lizKompakt?`${anzLiz} Lizenz${anzLiz===1?'':'en'} · ${teile.length} Position${teile.length===1?'':'en'}`:teile.join(' · '))
-      : `<span style="color:var(--text3);">noch keine Lizenzen hinterlegt${logins?` · ${logins} Login${logins===1?'':'s'} vorhanden`:''}</span>`;
+      : `<span style="color:var(--text3);">noch keine Lizenzen hinterlegt${konten?` · ${konten} Konto${konten===1?'':'en'} vorhanden`:''}</span>`;
     return `<tr onclick="lizToggleOrg('${_jsArg(o.id)}')" style="cursor:pointer;${warn?'background:#fdf6e7;':''}${hat?'':'opacity:.6;'}">
       <td style="padding:8px 12px;font-weight:600;white-space:nowrap;${warn?'color:#854f0b;':''}">${open?'▾':'▸'} ${dlEsc(o.name)}</td>
       <td style="padding:8px 12px;font-size:12px;${_lizKompakt?'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;':''}color:${warn?'#854f0b':'var(--text2)'};">${lizTxt}${warn?' <span title="Mehr vergeben als lizenziert" style="font-weight:700;">⚠</span>':''}</td>
@@ -8922,14 +8959,15 @@ function renderLizenzen(){
     const sum=_lizOrgSumme(dOrg.id);
     const posRows=_lizArtikel.map(a=>{
       const p=liz[a.id]||{menge:0,preis:null};
-      const ist=_lizIst(dOrg.id,a.zaehler);
+      const ist=_lizIst(dOrg.id,a);
+      const istTip=dlEsc(_lizIstTip(dOrg.id,a));
       const over=ist!=null&&ist>(p.menge||0);
       const eff=_lizEffPreis(a,p);
       const sonder=p.preis!=null;
       return `<tr>
         <td style="padding:6px 12px;font-weight:600;">${dlEsc(a.name)}${sonder?' <span style="font-size:10px;color:#1d4ed8;font-weight:700;">Sonderpreis</span>':''}<div style="font-size:10px;font-weight:400;color:var(--text3);">${dlEsc(a.einheit||'')}</div></td>
         <td style="padding:5px 8px;text-align:right;"><input style="${inp}width:60px;text-align:right;" value="${p.menge||0}" onchange="lizPosField('${_jsArg(dOrg.id)}','${_jsArg(a.id)}','menge',this.value)"></td>
-        <td style="padding:6px 8px;text-align:right;">${ist==null?'<span style="color:var(--text3);">—</span>':(over?`<span style="background:#fef3c7;color:#854f0b;font-weight:700;padding:2px 8px;border-radius:99px;font-size:12px;" title="Mehr vergeben als lizenziert">⚠ ${ist}</span>`:`<span style="color:var(--green);font-weight:600;">${ist} ✓</span>`)}</td>
+        <td style="padding:6px 8px;text-align:right;">${ist==null?'<span style="color:var(--text3);" title="Kein Ist-Zähler — keine Rollen am Artikel angehakt">—</span>':(over?`<span style="background:#fef3c7;color:#854f0b;font-weight:700;padding:2px 8px;border-radius:99px;font-size:12px;" title="Mehr vergeben als lizenziert · ${istTip}">⚠ ${ist}</span>`:`<span style="color:var(--green);font-weight:600;" title="${istTip}">${ist} ✓</span>`)}</td>
         <td style="padding:5px 8px;text-align:right;"><input style="${inp}width:80px;text-align:right;${sonder?'border-color:#93c5fd;':''}" value="${dlEsc(sonder?_lizPreisStr(p.preis):'')}" placeholder="${dlEsc(_lizPreisStr(a.preis)||'0,00')}" onchange="lizPosField('${_jsArg(dOrg.id)}','${_jsArg(a.id)}','preis',this.value)" title="Leer = Katalogpreis · eigener Wert = Sonderpreis"></td>
         <td style="padding:6px 12px;text-align:right;font-weight:600;white-space:nowrap;">${_lizEur((p.menge||0)*eff)}</td>
       </tr>`;
@@ -16524,7 +16562,7 @@ Object.assign(window,{
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleBhNames,toggleRequiredFeld,toggleRawSeg,_siInfo,
   createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,dashSetBh,tourSetBh,epChangeBh,epTogglePersnr,epToggleBhCol,psSetOrgFilter,setSiTab,
-  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,
+  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizArtRolle,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,openMeldungFotos,stepMeldungFoto,closeMeldungFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
