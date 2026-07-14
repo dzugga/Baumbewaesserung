@@ -13675,7 +13675,8 @@ function epCycleVehicleStatus(id){ if(!_epCanWrite())return; const order=EP_VSTA
 function epFahrzeugeHtml(){
   const canWrite=_epCanWrite();                                    // Tagesstatus setzen
   const canEdit=currentRole==='superadmin'||currentCap==='admin';  // Stammdaten ändern
-  const arten=['PKW','Kleintransporter','LKW','Schlepper','Kehrmaschine','Anhänger','Sonstiges'];
+  // Art/Typ ist frei eintippbar; die Vorschläge = Standardwerte + alle bereits verwendeten Arten (eigene bleiben so erhalten)
+  const arten=[...new Set(['PKW','Kleintransporter','LKW','Schlepper','Kehrmaschine','Anhänger','Sonstiges',...(_epVehicles||[]).map(v=>(v.art||'').trim()).filter(Boolean)])].sort((a,b)=>a.localeCompare(b));
   const visVeh=_epVehicles.filter(v=>_epBhVisible(v.betriebshof)); // Betriebshof-Filter (Unzugeordnete bleiben sichtbar)
   const vAvail=visVeh.filter(_epVehAvail).length;
   const bhOpts=_epBhOptions();
