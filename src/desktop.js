@@ -13482,9 +13482,12 @@ function epDayFilter(q){
   const c=document.getElementById('ep-day-count'); if(c) c.textContent=_epDayQuery?`${vis} / ${total}`:'';
 }
 let _epAbsMonth=''; // YYYY-MM für die Abwesenheits-Timeline
-// Personalnummer-Spalte im Personal-Reiter (vor „Person") ein-/ausblendbar; Wahl gemerkt
-let _epShowPersnr=(()=>{ try{ return localStorage.getItem('ep_persnr_col')!=='0'; }catch(_){ return true; } })();
+// Optionale Spalten im Personal-Reiter (Personalnummer, Betriebshof) ein-/ausblendbar; Wahl gemerkt.
+// Standard: Personalnummer aus, Betriebshof an.
+let _epShowPersnr=(()=>{ try{ return localStorage.getItem('ep_persnr_col')==='1'; }catch(_){ return false; } })();
+let _epShowBhCol=(()=>{ try{ return localStorage.getItem('ep_bh_col')!=='0'; }catch(_){ return true; } })();
 function epTogglePersnr(){ _epShowPersnr=!_epShowPersnr; try{ localStorage.setItem('ep_persnr_col',_epShowPersnr?'1':'0'); }catch(_){} renderEp(); }
+function epToggleBhCol(){ _epShowBhCol=!_epShowBhCol; try{ localStorage.setItem('ep_bh_col',_epShowBhCol?'1':'0'); }catch(_){} renderEp(); }
 let _epShowBedarf=false; // Bedarfstouren-Abschnitt im Einsatzplan aufgeklappt?
 function epToggleBedarf(){ _epShowBedarf=!_epShowBedarf; renderEp(); }
 // Abwesenheits-Typen: mandantenweit pflegbar (orgs/{org}.absenceTypes, Verwaltung im Personal-Reiter);
@@ -14063,9 +14066,9 @@ function epAbsenceHtml(){
     const _nr=(p.persnr!=null?String(p.persnr):'').trim();
     const nrCell=_epShowPersnr?`<td style="padding:4px 10px;font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_nr?dlEsc(_nr):'<span style="color:var(--text3);font-weight:400;">—</span>'}</td>`:'';
     const _bh=(p.betriebshof||'').trim();
-    const bhCell=`<td style="padding:4px 8px;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_bh?`<span style="font-weight:600;color:#3f6212;">${dlEsc(_bh)}</span>`:'<span style="color:var(--text3);">—</span>'}</td>`;
+    const bhCell=_epShowBhCol?`<td style="padding:4px 8px;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_bh?`<span style="font-weight:600;color:#3f6212;">${dlEsc(_bh)}</span>`:'<span style="color:var(--text3);">—</span>'}</td>`:'';
     return `<tr style="border-top:1px solid var(--border);${inactive?'opacity:.5;':''}">${nrCell}<td style="padding:4px 10px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${nameCell}</td>${bhCell}${cells}</tr>`;
-  }).join('')||`<tr><td colspan="${days.length+2+(_epShowPersnr?1:0)}" style="padding:18px;color:var(--text3);text-align:center;">Noch kein Personal in diesem Mandanten — oben „＋ Mitarbeiter".</td></tr>`;
+  }).join('')||`<tr><td colspan="${days.length+1+(_epShowPersnr?1:0)+(_epShowBhCol?1:0)}" style="padding:18px;color:var(--text3);text-align:center;">Noch kein Personal in diesem Mandanten — oben „＋ Mitarbeiter".</td></tr>`;
   const legend=_epAbsTypes().map(c=>`<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);"><span style="width:11px;height:11px;border-radius:3px;background:${c.color};"></span>${dlEsc(c.label)}</span>`).join('')
     +((_epCanWrite()&&(currentRole==='superadmin'||currentCap==='admin'))?`<button class="btn btn-secondary" style="font-size:11px;padding:2px 10px;margin-left:6px;" onclick="epAbsTypesOpen()" title="Abwesenheits-Typen dieses Mandanten pflegen">Typen…</button>`:'');
   return `
@@ -14076,13 +14079,20 @@ function epAbsenceHtml(){
       <span style="font-size:12px;background:var(--surface2);padding:4px 11px;border-radius:99px;color:var(--text2);" title="Anwesend am oben gewählten Tag">Gewählter Tag: <b>${anw}/${activePersons.length}</b> anwesend</span>
       ${ro?'':`<button class="btn btn-secondary" style="font-size:12px;padding:5px 12px;" onclick="epAbsOpenForm('','','')">+ Abwesenheit</button>
       <button class="btn btn-primary" style="font-size:12px;padding:5px 12px;" onclick="epPersonOpenCard('')">+ Mitarbeiter</button>`}
-      <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="epTogglePersnr()" title="Spalte Personalnummer ein-/ausblenden">${_epShowPersnr?'Nr.-Spalte ausblenden':'Nr.-Spalte einblenden'}</button>
+      <details style="position:relative;">
+        <summary style="list-style:none;cursor:pointer;font-size:11px;padding:5px 11px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text2);user-select:none;">⚙ Darstellung</summary>
+        <div style="position:absolute;top:calc(100% + 4px);left:0;z-index:60;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);padding:8px 10px;white-space:nowrap;">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text3);margin-bottom:6px;">Spalten</div>
+          <label style="display:flex;gap:7px;align-items:center;font-size:12px;cursor:pointer;padding:3px 0;"><input type="checkbox" ${_epShowPersnr?'checked':''} onchange="epTogglePersnr()" style="cursor:pointer;"> Personalnummer</label>
+          <label style="display:flex;gap:7px;align-items:center;font-size:12px;cursor:pointer;padding:3px 0;"><input type="checkbox" ${_epShowBhCol?'checked':''} onchange="epToggleBhCol()" style="cursor:pointer;"> Betriebshof</label>
+        </div>
+      </details>
       <span style="margin-left:auto;display:flex;gap:12px;align-items:center;">${legend}</span>
     </div>
     <div style="overflow-x:auto;border:1px solid var(--border);border-radius:10px;background:var(--surface);">
-      <table style="width:100%;border-collapse:collapse;table-layout:fixed;min-width:${210+(_epShowPersnr?72:0)+days.length*colW}px;">
-        <colgroup>${_epShowPersnr?'<col style="width:72px;">':''}<col style="width:150px;"><col style="width:88px;">${days.map(()=>`<col style="width:${colW}px;">`).join('')}</colgroup>
-        <thead><tr>${_epShowPersnr?'<th style="text-align:left;padding:6px 10px;font-size:10px;color:var(--text3);">Nr.</th>':''}<th style="text-align:left;padding:6px 10px;font-size:10px;color:var(--text3);">Person</th><th style="text-align:left;padding:6px 8px;font-size:10px;color:var(--text3);">Betriebshof</th>${headCells}</tr></thead>
+      <table style="width:100%;border-collapse:collapse;table-layout:fixed;min-width:${150+(_epShowPersnr?72:0)+(_epShowBhCol?88:0)+days.length*colW}px;">
+        <colgroup>${_epShowPersnr?'<col style="width:72px;">':''}<col style="width:150px;">${_epShowBhCol?'<col style="width:88px;">':''}${days.map(()=>`<col style="width:${colW}px;">`).join('')}</colgroup>
+        <thead><tr>${_epShowPersnr?'<th style="text-align:left;padding:6px 10px;font-size:10px;color:var(--text3);">Nr.</th>':''}<th style="text-align:left;padding:6px 10px;font-size:10px;color:var(--text3);">Person</th>${_epShowBhCol?'<th style="text-align:left;padding:6px 8px;font-size:10px;color:var(--text3);">Betriebshof</th>':''}${headCells}</tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>
@@ -16244,7 +16254,7 @@ Object.assign(window,{
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleRequiredFeld,toggleRawSeg,_siInfo,
-  createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,dashSetBh,tourSetBh,epChangeBh,epTogglePersnr,psSetOrgFilter,setSiTab,
+  createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,dashSetBh,tourSetBh,epChangeBh,epTogglePersnr,epToggleBhCol,psSetOrgFilter,setSiTab,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,openMeldungFotos,stepMeldungFoto,closeMeldungFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
