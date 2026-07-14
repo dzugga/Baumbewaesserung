@@ -8941,6 +8941,23 @@ function _lizPrintWindow(bodyHtml,docTitle){
     <div class="seite">${bodyHtml}</div></body></html>`);
   w.document.close();
 }
+function lizPrintPreisliste(){
+  const rows=_lizArtikel.map((a,i)=>{ const zr=(a.zaehlRollen||[]).map(_lizRoleName).join(', ')||'— kein Zähler —';
+    return `<tr style="border-bottom:0.5px solid #ddd9d0;${i%2?'background:#faf9f5;':''}">
+      <td style="padding:4px 6px;">${dlEsc(a.name||'')}</td>
+      <td style="padding:4px 6px;color:#6b6760;">${dlEsc(a.einheit||'')}</td>
+      <td style="padding:4px 6px;">${dlEsc(zr)}</td>
+      <td style="text-align:right;padding:4px 6px;">${_lizEur(a.preis||0)}</td>
+    </tr>`; }).join('')||'<tr><td colspan="4" style="padding:8px 6px;color:#9c9890;">Keine Artikel in der Preisliste.</td></tr>';
+  const html=_lizPrintKopf('Preisliste (Katalog)')+`
+    <div style="font-size:11px;color:#6b6760;margin:10px 0 8px;">Katalogpreise pro Monat je Lizenz — gelten für alle Kunden, sofern nicht kundenindividuell überschrieben.</div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;">
+      <thead><tr style="border-bottom:1px solid #1a1917;"><th style="text-align:left;padding:4px 6px;">Artikel</th><th style="text-align:left;padding:4px 6px;width:90px;">Einheit</th><th style="text-align:left;padding:4px 6px;">Ist-Zähler (Rollen)</th><th style="text-align:right;padding:4px 6px;width:96px;">€ / Monat</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="border-top:0.5px solid #ddd9d0;margin-top:16px;padding-top:6px;font-size:9px;color:#9c9890;">Planungsmanager · Preisliste · ${_lizFmtDatum()}</div>`;
+  _lizPrintWindow(html,'Preisliste');
+}
 function lizPrintOrg(oid){
   const o=_lizOrgs.find(x=>x.id===oid); if(!o) return;
   const fuss=`<div style="border-top:0.5px solid #ddd9d0;margin-top:16px;padding-top:6px;font-size:9px;color:#9c9890;">Planungsmanager · Lizenzübersicht ${dlEsc(o.name)} · ${_lizFmtDatum()}</div>`;
@@ -9002,6 +9019,7 @@ function renderLizenzen(){
       <span style="font-size:13.5px;font-weight:700;">Preisliste</span>
       <span style="font-size:11px;color:var(--text3);">Katalogpreis gilt für alle Kunden — je Kunde überschreibbar</span>
       <span style="margin-left:auto;display:flex;gap:8px;">
+        <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="lizPrintPreisliste()" title="Preisliste als A4-Bericht drucken / als PDF speichern">🖨 Drucken</button>
         <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="lizArtAdd()">+ Artikel</button>
         <button class="btn btn-primary" style="font-size:11px;padding:5px 14px;" onclick="lizSaveArtikel()">Preisliste speichern</button>
       </span>
@@ -16677,7 +16695,7 @@ Object.assign(window,{
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleBhNames,toggleRequiredFeld,toggleRawSeg,_siInfo,
   createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,dashSetBh,tourSetBh,epChangeBh,epTogglePersnr,epToggleBhCol,psSetOrgFilter,setSiTab,
-  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizArtRolle,lizArtMove,lizZrFlip,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,lizPrintOrg,lizPrintAll,
+  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizArtRolle,lizArtMove,lizZrFlip,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,lizPrintOrg,lizPrintAll,lizPrintPreisliste,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,openMeldungFotos,stepMeldungFoto,closeMeldungFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
