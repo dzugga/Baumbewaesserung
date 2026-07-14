@@ -14053,6 +14053,9 @@ function epAbsenceHtml(){
   const reqCount=visPersons.filter(p=>p.loginRequested && !_epHasLogin(p)).length;
   const todayMark=d=>d===sel?'box-shadow:inset 2px 0 0 #1d9e75,inset -2px 0 0 #1d9e75;':'';
   const headCells=days.map(d=>`<th style="padding:4px 0;font-weight:${d===sel?'700':'400'};font-size:9px;color:${d===sel?'#0f6e56':'var(--text3)'};${_epWeekend(d)?'background:var(--surface2);':''}${todayMark(d)}">${+d.slice(8)}<br>${_epWdLetter(d)}</th>`).join('');
+  // Linke Spalten (Nr./Person/Betriebshof) beim horizontalen Scrollen fixieren — Offsets = Spaltenbreiten
+  const _lName=(_epShowPersnr?72:0), _lBh=_lName+150;
+  const _stk=left=>`position:sticky;left:${left}px;z-index:2;background:var(--surface);`;
   const rows=visPersons.map(p=>{
     const cells=days.map(d=>{
       const a=_epAbsenceFor(p,d), we=_epWeekend(d);
@@ -14069,14 +14072,14 @@ function epAbsenceHtml(){
       ? `${dlEsc(p.name)}${p.funktion?` <span style="font-size:10px;color:var(--text3);">${dlEsc(p.funktion)}</span>`:''} ${badge}`
       : `<span onclick="epPersonOpenCard('${_jsArg(p.id)}')" title="Person verwalten${(p.betriebshof||'').trim()?' · Betriebshof '+dlEsc(p.betriebshof):''}" style="cursor:pointer;border-radius:5px;padding:1px 3px;">${dlEsc(p.name)}${p.funktion?` <span style="font-size:10px;color:var(--text3);">${dlEsc(p.funktion)}</span>`:''} ${badge}</span>`;
     const _nr=(p.persnr!=null?String(p.persnr):'').trim();
-    const nrCell=_epShowPersnr?`<td style="padding:4px 10px;font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_nr?dlEsc(_nr):'<span style="color:var(--text3);font-weight:400;">—</span>'}</td>`:'';
+    const nrCell=_epShowPersnr?`<td style="padding:4px 10px;font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${_stk(0)}">${_nr?dlEsc(_nr):'<span style="color:var(--text3);font-weight:400;">—</span>'}</td>`:'';
     const _bh=(p.betriebshof||'').trim();
-    const bhCell=_epShowBhCol?`<td style="padding:4px 8px;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${_bh?`<span style="font-weight:600;color:#3f6212;">${dlEsc(_bh)}</span>`:'<span style="color:var(--text3);">—</span>'}</td>`:'';
-    return `<tr style="border-top:1px solid var(--border);${inactive?'opacity:.5;':''}">${nrCell}<td style="padding:4px 10px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${nameCell}</td>${bhCell}${cells}</tr>`;
+    const bhCell=_epShowBhCol?`<td style="padding:4px 8px;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${_stk(_lBh)}">${_bh?`<span style="font-weight:600;color:#3f6212;">${dlEsc(_bh)}</span>`:'<span style="color:var(--text3);">—</span>'}</td>`:'';
+    return `<tr style="border-top:1px solid var(--border);${inactive?'opacity:.5;':''}">${nrCell}<td style="padding:4px 10px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${_stk(_lName)}">${nameCell}</td>${bhCell}${cells}</tr>`;
   }).join('')||`<tr><td colspan="${days.length+1+(_epShowPersnr?1:0)+(_epShowBhCol?1:0)}" style="padding:18px;color:var(--text3);text-align:center;">Noch kein Personal in diesem Mandanten — oben „＋ Mitarbeiter".</td></tr>`;
   const legend=_epAbsTypes().map(c=>`<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);"><span style="width:11px;height:11px;border-radius:3px;background:${c.color};"></span>${dlEsc(c.label)}</span>`).join('')
     +((_epCanWrite()&&(currentRole==='superadmin'||currentCap==='admin'))?`<button class="btn btn-secondary" style="font-size:11px;padding:2px 10px;margin-left:6px;" onclick="epAbsTypesOpen()" title="Abwesenheits-Typen dieses Mandanten pflegen">Typen…</button>`:'');
-  return `
+  return `<div class="ep-fill">
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
       <button class="btn btn-secondary" style="padding:4px 11px;font-size:14px;" onclick="epAbsShiftMonth(-1)">‹</button>
       <span style="font-size:14px;font-weight:700;min-width:130px;text-align:center;">${_epMonthLabel(_epAbsMonth)}</span>
@@ -14097,11 +14100,12 @@ function epAbsenceHtml(){
     <div class="ep-sticky-wrap">
       <table style="width:100%;border-collapse:collapse;table-layout:fixed;min-width:${150+(_epShowPersnr?72:0)+(_epShowBhCol?88:0)+days.length*colW}px;">
         <colgroup>${_epShowPersnr?'<col style="width:72px;">':''}<col style="width:150px;">${_epShowBhCol?'<col style="width:88px;">':''}${days.map(()=>`<col style="width:${colW}px;">`).join('')}</colgroup>
-        <thead><tr>${_epShowPersnr?'<th style="text-align:left;padding:6px 10px;font-size:10px;color:var(--text3);">Nr.</th>':''}<th style="text-align:left;padding:6px 10px;font-size:10px;color:var(--text3);">Person</th>${_epShowBhCol?'<th style="text-align:left;padding:6px 8px;font-size:10px;color:var(--text3);">Betriebshof</th>':''}${headCells}</tr></thead>
+        <thead><tr>${_epShowPersnr?`<th style="text-align:left;padding:6px 10px;font-size:10px;color:var(--text3);left:0;z-index:4;">Nr.</th>`:''}<th style="text-align:left;padding:6px 10px;font-size:10px;color:var(--text3);left:${_lName}px;z-index:4;">Person</th>${_epShowBhCol?`<th style="text-align:left;padding:6px 8px;font-size:10px;color:var(--text3);left:${_lBh}px;z-index:4;">Betriebshof</th>`:''}${headCells}</tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>
-    <div class="ep-foot">Klick auf einen <b>Namen</b> verwaltet die Person (umbenennen, Funktion, App-Login anfordern, deaktivieren/löschen). Klick auf eine <b>Tageszelle</b> setzt/bearbeitet eine Abwesenheit (auch „heute krank" = 1 Tag). „＋ Mitarbeiter" legt eine Person ohne Login an (kostenlos, sofort planbar). Den App-Login aktiviert nur der Superadmin.${reqCount?` · <b style="color:#9a6700;">${reqCount} Login-Anfrage${reqCount>1?'n':''} offen</b>`:''}</div>`;
+    <div class="ep-foot">Klick auf einen <b>Namen</b> verwaltet die Person (umbenennen, Funktion, App-Login anfordern, deaktivieren/löschen). Klick auf eine <b>Tageszelle</b> setzt/bearbeitet eine Abwesenheit (auch „heute krank" = 1 Tag). „＋ Mitarbeiter" legt eine Person ohne Login an (kostenlos, sofort planbar). Den App-Login aktiviert nur der Superadmin.${reqCount?` · <b style="color:#9a6700;">${reqCount} Login-Anfrage${reqCount>1?'n':''} offen</b>`:''}</div>
+  </div>`;
 }
 // ── Person verwalten (Login-lose Mitarbeiter anlegen/pflegen; Login anfordern; deaktivieren/löschen) ──
 function epPersonOpenCard(personId){
@@ -14367,12 +14371,13 @@ function epFuhrparkHtml(){
   }).join('');
   const head=canEdit?'<th style="width:20%;">Bezeichnung</th><th style="width:15%;">Art/Typ</th><th style="width:15%;">Kennzeichen</th><th style="width:15%;">Betriebshof</th><th style="width:80px;">Std/Tag</th><th>Notiz</th><th style="width:40px;"></th>'
                     :'<th style="width:24%;">Bezeichnung</th><th>Art/Typ</th><th>Kennzeichen</th><th>Betriebshof</th><th style="width:80px;">Std/Tag</th><th>Notiz</th>';
-  return `
+  return `<div class="ep-fill">
     <datalist id="ep-veh-arten">${arten.map(a=>`<option value="${a}">`).join('')}</datalist>
     <div class="ep-sec-head"><h3>Fuhrpark <span class="ep-count">${_epVehicles.length} Fahrzeuge</span></h3>
       ${canEdit?`<button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="epVehAdd()">+ Fahrzeug</button><button class="btn btn-primary" style="font-size:11px;padding:5px 14px;margin-left:auto;" onclick="epVehSave()">Speichern</button>`:'<span class="ep-count" style="margin-left:auto;">nur Lesezugriff</span>'}</div>
     <div class="ep-sticky-wrap"><table class="ep-table"><thead><tr>${head}</tr></thead><tbody>${rows||`<tr><td colspan="${canEdit?7:6}" style="color:var(--text3);">Noch keine Fahrzeuge — „+ Fahrzeug" anlegen.</td></tr>`}</tbody></table></div>
-    <div class="ep-foot">Gemeinsame Fahrzeugquelle für Einsatzplaner und Disposition. Änderungen erst mit „Speichern" sichern. Der Betriebshof steuert den Filter oben im Einsatzplaner.</div>`;
+    <div class="ep-foot">Gemeinsame Fahrzeugquelle für Einsatzplaner und Disposition. Änderungen erst mit „Speichern" sichern. Der Betriebshof steuert den Filter oben im Einsatzplaner.</div>
+  </div>`;
 }
 // Eingehängten Nachrichten-Bereich VOR jedem innerHTML-Neuaufbau von #ep-root nach Hause retten —
 // sonst wird der DOM-Knoten zerstört und der Reiter bleibt dauerhaft leer. MUSS überall dort laufen,
