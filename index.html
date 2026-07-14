@@ -1489,7 +1489,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .ep-fill{display:flex;flex-direction:column;height:calc(100vh - 150px);min-height:300px;}
 .ep-sticky-wrap{overflow:auto;border:1px solid var(--border);border-radius:12px;background:var(--surface);}
 .ep-fill .ep-sticky-wrap{flex:1;min-height:0;}
-.ep-sticky-wrap .ep-table{border:none;border-radius:0;}
+/* overflow:hidden der .ep-table aufheben — sonst kappt es den sticky-Kontext und der Kopf klebt nicht */
+.ep-sticky-wrap .ep-table{border:none;border-radius:0;overflow:visible;}
 .ep-sticky-wrap thead th{position:sticky;top:0;z-index:3;background:var(--surface2);}
 .ep-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:8px;vertical-align:middle;}
 .ep-mini{font-family:inherit;font-size:12px;padding:5px 7px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text);max-width:100%;}
