@@ -8740,6 +8740,9 @@ let _lizOrgLizenzen={};        // orgId -> {artikelId:{menge,preis}}
 let _lizCounts={};             // orgId -> {fahrer,einsatzleiter,logins,planer}
 let _lizOpenOrg=null;          // aufgeklappter Kunde
 let _lizLoading=false;
+// Kunden-Tabelle kompakt (eine Zeile je Kunde, Positionen nur als Anzahl) oder mit voller Artikelliste
+let _lizKompakt=(()=>{ try{ return localStorage.getItem('liz_kompakt')!=='0'; }catch(_){ return true; } })();
+function lizToggleKompakt(){ _lizKompakt=!_lizKompakt; try{ localStorage.setItem('liz_kompakt',_lizKompakt?'1':'0'); }catch(_){} renderLizenzen(); }
 const LIZ_ZAEHLER=[['','— kein Zähler —'],['fahrer','Fahrer-App-Logins'],['einsatzleiter','Einsatzleiter-Logins'],['logins','alle PIN-Logins'],['planer','E-Mail-Benutzer']];
 function _lizNum(s){ const n=parseFloat(String(s??'').trim().replace(/,/g,'.')); return isNaN(n)?0:n; }
 function _lizEur(n){ return (Math.round(n*100)/100).toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2})+' €'; }
@@ -8865,9 +8868,13 @@ function renderLizenzen(){
     const open=_lizOpenOrg===o.id;
     const hat=teile.length>0;
     const logins=(_lizCounts[o.id]||{}).logins||0;
+    const anzLiz=_lizArtikel.reduce((s,a)=>s+((liz[a.id]||{}).menge||0),0);
+    const lizTxt=hat
+      ? (_lizKompakt?`${anzLiz} Lizenz${anzLiz===1?'':'en'} · ${teile.length} Position${teile.length===1?'':'en'}`:teile.join(' · '))
+      : `<span style="color:var(--text3);">noch keine Lizenzen hinterlegt${logins?` · ${logins} Login${logins===1?'':'s'} vorhanden`:''}</span>`;
     return `<tr onclick="lizToggleOrg('${_jsArg(o.id)}')" style="cursor:pointer;${warn?'background:#fdf6e7;':''}${hat?'':'opacity:.6;'}">
-      <td style="padding:8px 12px;font-weight:600;${warn?'color:#854f0b;':''}">${open?'▾':'▸'} ${dlEsc(o.name)}</td>
-      <td style="padding:8px 12px;font-size:12px;color:${warn?'#854f0b':'var(--text2)'};">${hat?teile.join(' · '):`<span style="color:var(--text3);">noch keine Lizenzen hinterlegt${logins?` · ${logins} Login${logins===1?'':'s'} vorhanden`:''}</span>`}${warn?' <span title="Mehr vergeben als lizenziert" style="font-weight:700;">⚠</span>':''}</td>
+      <td style="padding:8px 12px;font-weight:600;white-space:nowrap;${warn?'color:#854f0b;':''}">${open?'▾':'▸'} ${dlEsc(o.name)}</td>
+      <td style="padding:8px 12px;font-size:12px;${_lizKompakt?'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;':''}color:${warn?'#854f0b':'var(--text2)'};">${lizTxt}${warn?' <span title="Mehr vergeben als lizenziert" style="font-weight:700;">⚠</span>':''}</td>
       <td style="padding:8px 12px;text-align:right;white-space:nowrap;"><b>${_lizEur(sum)}</b><span style="font-size:10.5px;color:var(--text3);"> / Monat · ${_lizEur(sum*12)} / Jahr</span></td>
     </tr>`;
   }).join('')||'<tr><td colspan="3" style="padding:16px;text-align:center;color:var(--text3);">Keine Mandanten.</td></tr>';
@@ -8879,13 +8886,14 @@ function renderLizenzen(){
         <option value="">– Kunde wählen –</option>
         ${_lizOrgs.map(o=>`<option value="${dlEsc(o.id)}"${_lizOpenOrg===o.id?' selected':''}>${dlEsc(o.name)}</option>`).join('')}
       </select>
+      <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="lizToggleKompakt()" title="Positionen als Anzahl (kompakt) oder als volle Artikelliste zeigen">${_lizKompakt?'▸ Details zeigen':'▾ kompakt'}</button>
     </div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;">
       ${kpi(_lizEur(gesamt),'Monatsumsatz gesamt',_lizEur(gesamt*12)+' / Jahr','var(--green)')}
       ${kpi(mitLiz+' / '+_lizOrgs.length,'Kunden mit Lizenzen','', 'var(--text)')}
       ${kpi(String(ueber),'Überschreitungen',ueber?'mehr vergeben als lizenziert':'',ueber?'#b45309':'var(--text3)')}
     </div>
-    <table class="ep-table"><thead><tr><th style="width:24%;">Kunde</th><th>Lizenzen</th><th style="width:230px;text-align:right;">Summe</th></tr></thead><tbody>${orgRows}</tbody></table>
+    <table class="ep-table" style="table-layout:fixed;"><thead><tr><th style="width:24%;">Kunde</th><th>Lizenzen</th><th style="width:230px;text-align:right;">Summe</th></tr></thead><tbody>${orgRows}</tbody></table>
   </div>`;
   // ── 3) Kunden-Detail ──
   let detail='';
@@ -16497,7 +16505,7 @@ Object.assign(window,{
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleBhNames,toggleRequiredFeld,toggleRawSeg,_siInfo,
   createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,dashSetBh,tourSetBh,epChangeBh,epTogglePersnr,epToggleBhCol,psSetOrgFilter,setSiTab,
-  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizPosField,lizSaveOrg,
+  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizPosField,lizSaveOrg,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,openMeldungFotos,stepMeldungFoto,closeMeldungFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
