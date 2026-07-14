@@ -2107,11 +2107,11 @@ function renderObjFilterUI(){
       ${!isReadonly()?`<button onclick="openObjFilterConfig(this)" title="Auswählen, welche Filter angezeigt werden" style="border:none;background:none;cursor:pointer;color:var(--text3);padding:0;margin-left:4px;display:flex;align-items:center;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>`:''}
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;">
-      ${_objFilterShown('stadtteil')?`<select id="of-stadtteil" style="${ss}">${opt(distinct('stadtteil'),objFilter.stadtteil,'Alle Stadtteile')}</select>`:''}
-      ${_objFilterShown('art')?`<select id="of-art" style="${ss}">${opt(distinct('art'),objFilter.art,'Alle Typen')}</select>`:''}
-      ${_objFilterShown('pflanzjahr')?`<select id="of-pflanzjahr" style="${ss}">${opt(distinct('pflanzjahr'),objFilter.pflanzjahr,'Alle Jahre')}</select>`:''}
-      ${_objFilterShown('zustand')?`<select id="of-zustand" style="${ss}">${optRank('zustand',objFilter.zustand,'Alle '+FL.zustand)}</select>`:''}
-      ${_objFilterShown('wasser')?`<select id="of-wasser" style="${ss}">${optRank('wasser',objFilter.wasser,'Alle '+FL.wasser)}</select>`:''}
+      ${_objFilterShown('stadtteil')?`<select id="of-stadtteil" style="${ss}">${opt(distinct('stadtteil'),objFilter.stadtteil,'Alle: '+FL.stadtteil)}</select>`:''}
+      ${_objFilterShown('art')?`<select id="of-art" style="${ss}">${opt(distinct('art'),objFilter.art,'Alle: '+FL.art)}</select>`:''}
+      ${_objFilterShown('pflanzjahr')?`<select id="of-pflanzjahr" style="${ss}">${opt(distinct('pflanzjahr'),objFilter.pflanzjahr,'Alle: '+FL.pflanzjahr)}</select>`:''}
+      ${_objFilterShown('zustand')?`<select id="of-zustand" style="${ss}">${optRank('zustand',objFilter.zustand,'Alle: '+FL.zustand)}</select>`:''}
+      ${_objFilterShown('wasser')?`<select id="of-wasser" style="${ss}">${optRank('wasser',objFilter.wasser,'Alle: '+FL.wasser)}</select>`:''}
       ${_objFilterShown('status')?`<select id="of-status" style="${ss}"><option value="">Alle Status</option><option value="bewaessert"${objFilter.status==='bewaessert'?' selected':''}>✓ Erledigt</option><option value="nicht"${objFilter.status==='nicht'?' selected':''}>✕ Nicht erledigt</option><option value="offen"${objFilter.status==='offen'?' selected':''}>○ Offen</option></select>`:''}
       ${customFields.filter(c=>_objFilterShown('cf:'+c.key)).map(c=>`<select id="of-cf-${c.key}" style="${ss}">${opt(distinct(c.key),objFilter[c.key]||'','Alle: '+esc(c.label))}</select>`).join('')}
     </div>
