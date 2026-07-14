@@ -13505,6 +13505,16 @@ function _epPersonInPlan(p){ if(typeof p.einsatz==='boolean') return p.einsatz; 
 function _epRunsOn(t){ return !!t && ((t.interval||'')==='bedarf' ? _tourInValidity(t,_epDate) : tourDueOn(t,_epDate)); }
 function _epPersonActive(p){ return !!p && p.active!==false; } // inaktive werden im Personal-Reiter grau gezeigt, aber nicht verplant
 function _epHasLogin(p){ return !!p && !p.noLogin && (p.pinHash || p.role); }
+function _epPersByName(name){ return _epPersons.find(p=>p.name===name); }
+// Personalnummer + Betriebshof als kleine, dauerhaft sichtbare Labels (leer, wenn nichts gepflegt)
+function _epPersTags(p){
+  let h='';
+  const nr=(p&&p.persnr!=null?String(p.persnr):'').trim();
+  if(nr) h+=` <span style="font-size:9px;font-weight:700;color:#3730a3;background:#e0e7ff;padding:1px 6px;border-radius:5px;">Nr. ${dlEsc(nr)}</span>`;
+  const bh=(p&&p.betriebshof||'').trim();
+  if(bh) h+=` <span style="font-size:9px;font-weight:700;color:#3f6212;background:#ecfccb;padding:1px 6px;border-radius:5px;" title="Betriebshof">${dlEsc(bh)}</span>`;
+  return h;
+}
 
 async function initEinsatzplaner(){
   const root=document.getElementById('ep-root'); if(!root) return;
@@ -13600,6 +13610,11 @@ async function epAddDriver(tid, name){
   if(drivers.includes(name)){ notify('Bereits zugewiesen'); return; }
   const other=_epTours.find(x=>x.id!==tid && _epRunsOn(x) && _epEffCrew(x).drivers.includes(name));
   if(other){ notify('„'+name+'" ist heute schon in „'+(other.name||'Tour')+'" verplant'); return; }
+  // Betriebshof-Warnung: Person und Tour aus unterschiedlichen Betriebshöfen (nur wenn beide gesetzt) — nicht hart blockiert
+  const pBh=(_epPersByName(name)?.betriebshof||'').trim(), tBh=(t.betriebshof||'').trim();
+  if(pBh && tBh && pBh!==tBh){
+    if(!await _confirmBox('Anderer Betriebshof', `„${name}" gehört zum Betriebshof „${pBh}", die Tour „${t.name||'Tour'}" zu „${tBh}".\n\nTrotzdem zuweisen?`, 'Trotzdem zuweisen', 'Abbrechen')) return;
+  }
   drivers.push(name);
   const patch={drivers, assignedDriver:drivers[0], vehicleId:eff.vehicleId, vehicleName:eff.vehicleName, crewDate:_epDate};
   if(await epTourUpdate(tid,patch)){ Object.assign(t,patch); renderEp(); }
@@ -13782,15 +13797,18 @@ function epPlanHtml(){
     const _hide=_epDayQuery && !_hay.includes(_epDayQuery);
     const vehOk=!eff.vehicleId || availVeh.find(v=>v.id===eff.vehicleId);
     const badVeh=eff.vehicleId && !vehOk;
+    const _tBh=(t.betriebshof||'').trim();
     const driverChips=drivers.length?drivers.map((n,i)=>{
       const pp=_epPersons.find(x=>x.name===n);
       const stat=pp?_epPStatus(pp.id):'anwesend';
       const unavail=!!pp && stat!=='anwesend';
       const dup=(load[n]||0)>1;
-      const reason=unavail?_epAbsMeta(stat).label:(dup?'doppelt':'');
-      const bad=unavail||dup;
+      const pBh=(pp?.betriebshof||'').trim();
+      const bhMiss=!!pBh && !!_tBh && pBh!==_tBh; // Fahrer aus anderem Betriebshof
+      const reason=unavail?_epAbsMeta(stat).label:(dup?'doppelt':(bhMiss?pBh:''));
+      const bad=unavail||dup||bhMiss;
       const _absNote=unavail&&pp?((_epAbsenceFor(pp,_epDate)||{}).note||''):'';
-      const tip=n+(unavail?' — heute '+reason+(_absNote?' ('+_absNote+')':''):(dup?' — an diesem Tag in mehreren Touren verplant':''));
+      const tip=n+(pp?.persnr?' (Nr. '+String(pp.persnr).trim()+')':'')+(unavail?' — heute '+reason+(_absNote?' ('+_absNote+')':''):(dup?' — an diesem Tag in mehreren Touren verplant':(bhMiss?' — Betriebshof „'+pBh+'" ≠ Tour-Hof „'+_tBh+'"':'')));
       return `<span class="ep-chip${bad?' warn':''}" title="${dlEsc(tip)}">${dlEsc(n)}${bad?` <span class="ep-chip-r">${dlEsc(reason)}</span>`:''}${ro?'':`<i onclick="epRemoveDriver('${t.id}',${i})">×</i>`}</span>`;
     }).join(''):'';
     const vehSel=ro
@@ -13844,7 +13862,8 @@ function epPlanHtml(){
   const dayCountTxt=_epDayQuery?`${dueTours.filter(t=>_dayHay(t).includes(_epDayQuery)).length} / ${dueTours.length}`:'';
   const rows=dueTours.map(rowFor).join('')||`<tr><td colspan="4" style="padding:18px;text-align:center;color:var(--text3);">${_epBhScope?`Am Betriebshof „${dlEsc(_epBhScope)}" läuft heute keine planmäßige Tour.`:'Heute läuft keine planmäßige Tour.'}</td></tr>`;
   const usedVehIds=new Set(activeTours.map(x=>_epEffCrew(x).vehicleId).filter(Boolean));
-  const poolPers=availPers.filter(p=>_epBhVisible(p.betriebshof)).map(p=>{ const used=(load[p.name]||0)>0; return `<span class="ep-pool${used?' used':''}" ${used?'':`draggable="true" ondragstart="epDragStart(event,'driver','${_jsArg(p.name)}')"`} title="${used?'bereits verplant':'auf eine Tour ziehen'}${_epBhScope&&!(p.betriebshof||'').trim()?' · ohne Betriebshof':''}">${dlEsc(p.name)}${used?' ✓':''}</span>`; }).join('')||'<span class="ep-dash">keine anwesend</span>';
+  const poolPers=availPers.filter(p=>_epBhVisible(p.betriebshof)).map(p=>{ const used=(load[p.name]||0)>0; const bh=(p.betriebshof||'').trim(); const nr=(p.persnr!=null?String(p.persnr):'').trim();
+    return `<span class="ep-pool${used?' used':''}" ${used?'':`draggable="true" ondragstart="epDragStart(event,'driver','${_jsArg(p.name)}')"`} title="${used?'bereits verplant':'auf eine Tour ziehen'}${nr?' · Nr. '+dlEsc(nr):''}${bh?' · Betriebshof '+dlEsc(bh):(_epBhScope?' · ohne Betriebshof':'')}">${dlEsc(p.name)}${bh?` <span style="font-size:9px;font-weight:700;color:#3f6212;opacity:.85;">${dlEsc(bh)}</span>`:''}${used?' ✓':''}</span>`; }).join('')||'<span class="ep-dash">keine anwesend</span>';
   const poolVeh=availVeh.filter(v=>_epBhVisible(v.betriebshof)).map(v=>{ const used=usedVehIds.has(v.id); return `<span class="ep-pool veh${used?' used':''}" ${used?'':`draggable="true" ondragstart="epDragStart(event,'vehicle','${_jsArg(v.id)}')"`} title="${used?'bereits verplant':'auf eine Tour ziehen'}${_epBhScope&&!(v.betriebshof||'').trim()?' · ohne Betriebshof':''}">${dlEsc(v.name)}${used?' ✓':''}</span>`; }).join('')||'<span class="ep-dash">keine verfügbar</span>';
   const stdBar=ro?'':`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
     <button class="btn btn-secondary" style="font-size:12px;padding:6px 12px;${anyStd?'':'opacity:.5;cursor:not-allowed;'}" ${anyStd?'onclick="epApplyStandards()"':'disabled title="Noch keine Standards gespeichert"'}>★ Standardbesetzung übernehmen</button>
@@ -14044,8 +14063,8 @@ function epAbsenceHtml(){
           ? '<span style="font-size:9px;font-weight:700;color:#9a6700;background:#fcefcb;padding:1px 6px;border-radius:5px;" title="App-Login beim Superadmin angefordert">🔑 Login angefordert</span>'
           : (_epHasLogin(p) ? '' : '<span style="font-size:9px;font-weight:700;color:var(--text3);background:var(--surface2);padding:1px 6px;border-radius:5px;">ohne Login</span>'));
     const nameCell=ro
-      ? `${dlEsc(p.name)}${p.funktion?` <span style="font-size:10px;color:var(--text3);">${dlEsc(p.funktion)}</span>`:''} ${badge}${_epBhBadge(p.betriebshof)}`
-      : `<span onclick="epPersonOpenCard('${_jsArg(p.id)}')" title="Person verwalten${(p.betriebshof||'').trim()?' · Betriebshof '+dlEsc(p.betriebshof):''}" style="cursor:pointer;border-radius:5px;padding:1px 3px;">${dlEsc(p.name)}${p.funktion?` <span style="font-size:10px;color:var(--text3);">${dlEsc(p.funktion)}</span>`:''} ${badge}${_epBhBadge(p.betriebshof)}</span>`;
+      ? `${dlEsc(p.name)}${p.funktion?` <span style="font-size:10px;color:var(--text3);">${dlEsc(p.funktion)}</span>`:''} ${badge}${_epPersTags(p)}`
+      : `<span onclick="epPersonOpenCard('${_jsArg(p.id)}')" title="Person verwalten${(p.betriebshof||'').trim()?' · Betriebshof '+dlEsc(p.betriebshof):''}" style="cursor:pointer;border-radius:5px;padding:1px 3px;">${dlEsc(p.name)}${p.funktion?` <span style="font-size:10px;color:var(--text3);">${dlEsc(p.funktion)}</span>`:''} ${badge}${_epPersTags(p)}</span>`;
     return `<tr style="border-top:1px solid var(--border);${inactive?'opacity:.5;':''}"><td style="padding:4px 10px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${nameCell}</td>${cells}</tr>`;
   }).join('')||`<tr><td colspan="${days.length+1}" style="padding:18px;color:var(--text3);text-align:center;">Noch kein Personal in diesem Mandanten — oben „＋ Mitarbeiter".</td></tr>`;
   const legend=_epAbsTypes().map(c=>`<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);"><span style="width:11px;height:11px;border-radius:3px;background:${c.color};"></span>${dlEsc(c.label)}</span>`).join('')
@@ -14095,6 +14114,7 @@ function epPersonOpenCard(personId){
     <div style="padding:14px 18px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;">${isNew?'Mitarbeiter anlegen':'Person verwalten'}<div style="font-size:11px;font-weight:400;color:var(--text3);margin-top:2px;">${dlEsc(orgName)}</div></div>
     <div style="padding:16px 18px;display:flex;flex-direction:column;gap:12px;">
       <label style="font-size:12px;color:var(--text3);">Name<input id="pc-name" class="form-control" style="width:100%;margin-top:3px;" value="${dlEsc(p?p.name:'')}" placeholder="Vor- und Nachname" ${readOnly?'readonly':''}></label>
+      <label style="font-size:12px;color:var(--text3);">Personalnummer / ID <span style="color:var(--text3);font-size:10px;">(optional)</span><input id="pc-persnr" class="form-control" style="width:100%;margin-top:3px;" value="${dlEsc(p&&p.persnr!=null?String(p.persnr):'')}" placeholder="z. B. 10427" ${readOnly?'readonly':''}></label>
       <label style="font-size:12px;color:var(--text3);">Funktion / Einsatzgruppe<select id="pc-funktion" class="form-control" style="width:100%;margin-top:3px;" ${readOnly?'disabled':''}>${funktionenOptions(_epFunktionen, p?p.funktion||'':'')}</select></label>
       <label style="font-size:12px;color:var(--text3);">Betriebshof <span style="color:var(--text3);font-size:10px;">(steuert den Filter im Einsatzplaner)</span><select id="pc-bh" class="form-control" style="width:100%;margin-top:3px;" ${readOnly?'disabled':''}>${(()=>{ const cur=(p&&p.betriebshof||'').trim(); const opts=_epBhOptions(); if(cur&&!opts.includes(cur)) opts.push(cur); return '<option value="">— kein —</option>'+opts.map(b=>`<option value="${dlEsc(b)}"${b===cur?' selected':''}>${dlEsc(b)}</option>`).join(''); })()}</select></label>
       ${loginBox}
@@ -14115,29 +14135,30 @@ function epPersonOpenCard(personId){
     const name=(m.querySelector('#pc-name').value||'').trim();
     const funktion=(m.querySelector('#pc-funktion').value||'').trim();
     const betriebshof=(m.querySelector('#pc-bh').value||'').trim();
+    const persnr=(m.querySelector('#pc-persnr').value||'').trim();
     if(!name){ notify('Bitte Name eingeben'); return; }
     close();
-    if(isNew) await epPersonCreate(name, funktion, betriebshof);
-    else await epPersonSave(p.id, name, funktion, betriebshof);
+    if(isNew) await epPersonCreate(name, funktion, betriebshof, persnr);
+    else await epPersonSave(p.id, name, funktion, betriebshof, persnr);
   };
   const reqBtn=m.querySelector('#pc-req'); if(reqBtn) reqBtn.onclick=()=>{ close(); epPersonRequestLogin(p.id, !requested); };
   const actBtn=m.querySelector('#pc-active'); if(actBtn) actBtn.onclick=()=>{ close(); epPersonToggleActive(p.id, !inactive); };
   const delBtn=m.querySelector('#pc-del'); if(delBtn) delBtn.onclick=()=>{ close(); epPersonDelete(p.id, p.name); };
   setTimeout(()=>m.querySelector('#pc-name')?.focus(),0);
 }
-async function epPersonCreate(name, funktion, betriebshof){
+async function epPersonCreate(name, funktion, betriebshof, persnr){
   if(!_epCanWrite()||!_epOrg) return;
   try{
-    await db.collection('drivers').add({ orgId:_epOrg, name, nameLower:name.toLowerCase(), funktion, betriebshof:betriebshof||'', einsatz:true, noLogin:true, role:'', active:true, createdAt:firebase.firestore.FieldValue.serverTimestamp() });
+    await db.collection('drivers').add({ orgId:_epOrg, name, nameLower:name.toLowerCase(), funktion, betriebshof:betriebshof||'', persnr:persnr||'', einsatz:true, noLogin:true, role:'', active:true, createdAt:firebase.firestore.FieldValue.serverTimestamp() });
     notify('✓ „'+name+'" angelegt (ohne Login)');
     await epLoadOrgScope(); renderEp();
   }catch(e){ notify('Anlegen fehlgeschlagen: '+(e.message||e)); }
 }
-async function epPersonSave(id, name, funktion, betriebshof){
+async function epPersonSave(id, name, funktion, betriebshof, persnr){
   const p=_epPersons.find(x=>x.id===id); if(!p) return;
   try{
-    await db.collection('drivers').doc(id).update({ name, nameLower:name.toLowerCase(), funktion, betriebshof:betriebshof||'' });
-    p.name=name; p.nameLower=name.toLowerCase(); p.funktion=funktion; p.betriebshof=betriebshof||''; notify('✓ Gespeichert'); renderEp();
+    await db.collection('drivers').doc(id).update({ name, nameLower:name.toLowerCase(), funktion, betriebshof:betriebshof||'', persnr:persnr||'' });
+    p.name=name; p.nameLower=name.toLowerCase(); p.funktion=funktion; p.betriebshof=betriebshof||''; p.persnr=persnr||''; notify('✓ Gespeichert'); renderEp();
   }catch(e){ notify('Speichern fehlgeschlagen: '+(e.message||e)); }
 }
 async function epPersonRequestLogin(id, want){
