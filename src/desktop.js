@@ -13563,9 +13563,7 @@ async function epLoadTours(){
 async function epChangeOrg(v){ _epOrg=v; _epProject=''; _epWeekQuery=''; _epDayQuery=''; const r=document.getElementById('ep-root'); if(r){ _epRescueNachrichten(); r.innerHTML='<div style="padding:48px;text-align:center;color:var(--text3);">Lädt…</div>'; } await epLoadOrgScope(); renderEp(); }
 async function epChangeProject(v){ _epProject=v; _epWeekQuery=''; _epDayQuery=''; _epTgDraft=null; await epLoadTours(); renderEp(); }
 async function epChangeDate(v){ _epDate=v||_epToday(); _epTgDraft=null; await epLoadAvail(); renderEp(); }
-let _epVehSub='heute'; // Unterreiter im Tab „Fahrzeuge": 'heute' (Tagesstatus) | 'fuhrpark' (Stammdaten)
-function epVehSubSet(s){ _epVehSub=s==='fuhrpark'?'fuhrpark':'heute'; renderEp(); }
-function epSetTab(t){ _epTab=t; if(t==='fahrzeuge') _epVehSub='heute'; renderEp(); }
+function epSetTab(t){ _epTab=t; renderEp(); }
 function _epCanWrite(){ return currentRole==='superadmin'||currentCap==='admin'||currentCap==='editor'; }
 function epPersist(){
   if(!_epCanWrite()) return;
@@ -13671,23 +13669,49 @@ async function epApplyStandards(){
 }
 
 function _epInitials(n){ return (n||'?').split(/\s+/).map(w=>w[0]||'').join('').slice(0,2).toUpperCase(); }
-function _epSeg(states, cur, fn, id){
-  return `<div class="ep-seg">${states.map(([k,lbl,col,bg])=>`<button class="${cur===k?'on':''}" style="${cur===k?`background:${bg};color:${col};border-color:${col}55;`:''}" onclick="${fn}('${id}','${k}')">${lbl}</button>`).join('')}</div>`;
-}
-function epVerfuegbarHtml(){
-  const ro=!_epCanWrite();
+// Status heute zyklisch umschalten (Verfügbar → Werkstatt → Ausgefallen → …); sofort gespeichert.
+function epCycleVehicleStatus(id){ if(!_epCanWrite())return; const order=EP_VSTATES.map(s=>s[0]); const nx=order[(order.indexOf(_epVStatus(id))+1)%order.length]; epSetVehicleStatus(id,nx); }
+// Fahrzeuge: EINE Tabelle vereint Tagesstatus (heute, sofort setzbar) und Stammdaten (Admin, „Speichern").
+function epFahrzeugeHtml(){
+  const canWrite=_epCanWrite();                                    // Tagesstatus setzen
+  const canEdit=currentRole==='superadmin'||currentCap==='admin';  // Stammdaten ändern
+  const arten=['PKW','Kleintransporter','LKW','Schlepper','Kehrmaschine','Anhänger','Sonstiges'];
   const visVeh=_epVehicles.filter(v=>_epBhVisible(v.betriebshof)); // Betriebshof-Filter (Unzugeordnete bleiben sichtbar)
   const vAvail=visVeh.filter(_epVehAvail).length;
-  const vCards=visVeh.length? visVeh.map(v=>{
-    const st=_epVStatus(v.id); const meta=EP_VSTATES.find(s=>s[0]===st);
-    return `<div class="ep-card">
-      <div class="ep-card-head"><span class="ep-ava" style="background:${meta[3]};color:${meta[2]};"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17h13V7H3zM16 10h3l2 3v4h-5z"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg></span><div style="min-width:0;"><div class="ep-name">${dlEsc(v.name||'–')}</div>${(v.art||v.kennzeichen||v.betriebshof)?`<div style="font-size:11px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc([v.art,v.kennzeichen,v.betriebshof].filter(Boolean).join(' · '))}</div>`:''}<div class="ep-sub" style="color:${meta[2]};">${meta[1]}${_epBhBadge(v.betriebshof)}</div></div></div>
-      ${ro?'':_epSeg(EP_VSTATES, st, 'epSetVehicleStatus', v.id)}</div>`;
-  }).join('') : '<div class="ep-empty">Keine Fahrzeuge hinterlegt. (Reiter „Fuhrpark")</div>';
-  return `
-    <div class="ep-sec-head"><h3>Fahrzeuge — heute <span class="ep-count">${vAvail}/${visVeh.length} verfügbar${_epBhScope?` · Hof „${dlEsc(_epBhScope)}" + ohne Zuordnung`:''}</span></h3>
-      <span style="margin-left:auto;font-size:11px;color:var(--text3);">Stammdaten im Unterreiter „Fuhrpark" · Personal im Reiter „Personal"</span></div>
-    <div class="ep-grid">${vCards}</div>`;
+  const bhOpts=_epBhOptions();
+  const bhSelFor=v=>{ const cur=(v.betriebshof||'').trim(); const opts=(cur&&!bhOpts.includes(cur))?[...bhOpts,cur]:bhOpts;
+    return `<select class="ep-mini" style="width:100%;" onchange="epVehField('${v.id}','betriebshof',this.value)" title="Betriebshof-Zuordnung"><option value="">— kein —</option>${opts.map(b=>`<option value="${dlEsc(b)}"${b===cur?' selected':''}>${dlEsc(b)}</option>`).join('')}</select>`; };
+  const statusCell=v=>{ const st=_epVStatus(v.id); const m=EP_VSTATES.find(s=>s[0]===st)||EP_VSTATES[0];
+    return `<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;background:${m[3]};color:${m[2]};padding:3px 10px;border-radius:99px;white-space:nowrap;${canWrite?'cursor:pointer;':''}" ${canWrite?`onclick="epCycleVehicleStatus('${v.id}')" title="Klicken: Status umschalten (Verfügbar → Werkstatt → Ausgefallen)"`:''}><span style="width:7px;height:7px;border-radius:50%;background:${m[2]};"></span>${m[1]}</span>`; };
+  const rows=visVeh.map(v=>{
+    const std=v.arbeitszeitMin?+(v.arbeitszeitMin/60):'';
+    if(!canEdit) return `<tr><td style="padding:7px 10px;">${statusCell(v)}</td><td style="padding:7px 10px;font-weight:600;">${dlEsc(v.name||'–')}</td><td style="padding:7px 10px;color:var(--text2);">${dlEsc(v.art||'–')}</td><td style="padding:7px 10px;color:var(--text2);">${dlEsc(v.kennzeichen||'–')}</td><td style="padding:7px 10px;color:#3f6212;font-weight:600;">${dlEsc(v.betriebshof||'–')}</td><td style="padding:7px 10px;">${std||'–'}</td><td style="padding:7px 10px;color:var(--text2);">${dlEsc(v.notiz||'')}</td></tr>`;
+    return `<tr>
+      <td style="padding:6px 10px;">${statusCell(v)}</td>
+      <td style="padding:5px 10px;"><input class="ep-mini" style="width:100%;" value="${dlEsc(v.name||'')}" onchange="epVehField('${v.id}','name',this.value)" placeholder="Bezeichnung"></td>
+      <td style="padding:5px 10px;"><input class="ep-mini" style="width:100%;" list="ep-veh-arten" value="${dlEsc(v.art||'')}" onchange="epVehField('${v.id}','art',this.value)" placeholder="Art/Typ"></td>
+      <td style="padding:5px 10px;"><input class="ep-mini" style="width:100%;" value="${dlEsc(v.kennzeichen||'')}" onchange="epVehField('${v.id}','kennzeichen',this.value)" placeholder="z. B. RÜS-AB 123"></td>
+      <td style="padding:5px 10px;">${bhSelFor(v)}</td>
+      <td style="padding:5px 10px;"><input class="ep-mini" type="number" min="0" step="0.5" style="width:60px;" value="${std}" onchange="epVehField('${v.id}','arbeitszeitH',this.value)" title="Arbeitszeit Std/Tag"></td>
+      <td style="padding:5px 10px;"><input class="ep-mini" style="width:100%;" value="${dlEsc(v.notiz||'')}" onchange="epVehField('${v.id}','notiz',this.value)" placeholder="Notiz"></td>
+      <td style="padding:5px 10px;text-align:right;"><button class="btn btn-danger" style="padding:3px 8px;font-size:12px;" onclick="epVehRemove('${v.id}')">✕</button></td>
+    </tr>`;
+  }).join('')||`<tr><td colspan="${canEdit?8:7}" style="padding:18px;text-align:center;color:var(--text3);">Keine Fahrzeuge${_epBhScope?' an diesem Betriebshof':''}${canEdit?' — „+ Fahrzeug" anlegen.':'.'}</td></tr>`;
+  const head=canEdit
+    ? '<th style="width:118px;">Status heute</th><th style="width:18%;">Bezeichnung</th><th>Art/Typ</th><th>Kennzeichen</th><th style="width:15%;">Betriebshof</th><th style="width:72px;">Std/Tag</th><th>Notiz</th><th style="width:40px;"></th>'
+    : '<th style="width:118px;">Status heute</th><th style="width:20%;">Bezeichnung</th><th>Art/Typ</th><th>Kennzeichen</th><th>Betriebshof</th><th style="width:72px;">Std/Tag</th><th>Notiz</th>';
+  const wd=_WD_FULL[new Date(_epDate+'T12:00:00').getDay()];
+  return `<div class="ep-fill">
+    <datalist id="ep-veh-arten">${arten.map(a=>`<option value="${a}">`).join('')}</datalist>
+    <div class="ep-sec-head" style="align-items:baseline;flex-wrap:wrap;">
+      <h3>Fahrzeuge <span style="font-size:12px;font-weight:400;color:var(--text3);">· Status am ${wd}, ${(+_epDate.slice(8,10))+'.'+(+_epDate.slice(5,7))+'.'}</span></h3>
+      <span class="ep-count" style="margin-left:6px;color:${vAvail?'var(--green)':'var(--text3)'};">${vAvail}/${visVeh.length} verfügbar${_epBhScope?` · Hof „${dlEsc(_epBhScope)}"`:''}</span>
+      ${canEdit?`<span style="margin-left:auto;display:flex;gap:8px;"><button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="epVehAdd()">+ Fahrzeug</button><button class="btn btn-primary" style="font-size:11px;padding:5px 14px;" onclick="epVehSave()">Speichern</button></span>`:'<span class="ep-count" style="margin-left:auto;">nur Lesezugriff</span>'}
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin:-2px 0 10px;">Status gilt für den gewählten Tag und wird sofort übernommen${canEdit?' · Stammdaten-Änderungen erst mit „Speichern"':''}.</div>
+    <div class="ep-sticky-wrap"><table class="ep-table"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="ep-foot">Gemeinsame Fahrzeugquelle für Einsatzplaner und Disposition. Der Betriebshof steuert den Filter oben.</div>
+  </div>`;
 }
 // ── Wochenübersicht: welche Tour an welchem Tag fällig ist (reiner Lesemodus, Rhythmus aus tourDueOn) ──
 function epWeekHtml(){
@@ -14350,35 +14374,6 @@ async function epVehSave(){
     notify('✓ Fuhrpark gespeichert');
   }catch(e){ notify(fnErr(e)); }
 }
-function _epH(min){ return min?(+(min/60).toFixed(1))+' h':'–'; }
-function epFuhrparkHtml(){
-  const canEdit=currentRole==='superadmin'||currentCap==='admin';
-  const arten=['PKW','Kleintransporter','LKW','Schlepper','Kehrmaschine','Anhänger','Sonstiges'];
-  const bhOpts=_epBhOptions();
-  const bhSelFor=v=>{ const cur=(v.betriebshof||'').trim(); const opts=(cur&&!bhOpts.includes(cur))?[...bhOpts,cur]:bhOpts;
-    return `<select class="ep-mini" style="width:100%;" onchange="epVehField('${v.id}','betriebshof',this.value)" title="Betriebshof-Zuordnung (für den Filter oben)"><option value="">— kein —</option>${opts.map(b=>`<option value="${dlEsc(b)}"${b===cur?' selected':''}>${dlEsc(b)}</option>`).join('')}</select>`; };
-  const rows=_epVehicles.map(v=>{
-    if(!canEdit) return `<tr><td><span class="ep-dot" style="background:#888;"></span>${dlEsc(v.name||'–')}</td><td>${dlEsc(v.art||'–')}</td><td>${dlEsc(v.kennzeichen||'–')}</td><td>${dlEsc(v.betriebshof||'–')}</td><td>${_epH(v.arbeitszeitMin)}</td><td>${dlEsc(v.notiz||'')}</td></tr>`;
-    return `<tr>
-      <td><input class="ep-mini" style="width:100%;" value="${dlEsc(v.name||'')}" onchange="epVehField('${v.id}','name',this.value)" placeholder="Bezeichnung"></td>
-      <td><input class="ep-mini" style="width:100%;" list="ep-veh-arten" value="${dlEsc(v.art||'')}" onchange="epVehField('${v.id}','art',this.value)" placeholder="Art/Typ"></td>
-      <td><input class="ep-mini" style="width:100%;" value="${dlEsc(v.kennzeichen||'')}" onchange="epVehField('${v.id}','kennzeichen',this.value)" placeholder="z. B. RÜS-AB 123"></td>
-      <td>${bhSelFor(v)}</td>
-      <td><input class="ep-mini" type="number" min="0" step="0.5" style="width:64px;" value="${v.arbeitszeitMin?+(v.arbeitszeitMin/60):''}" onchange="epVehField('${v.id}','arbeitszeitH',this.value)" title="Arbeitszeit Std/Tag"></td>
-      <td><input class="ep-mini" style="width:100%;" value="${dlEsc(v.notiz||'')}" onchange="epVehField('${v.id}','notiz',this.value)" placeholder="Notiz"></td>
-      <td style="text-align:right;"><button class="btn btn-danger" style="padding:3px 8px;font-size:12px;" onclick="epVehRemove('${v.id}')">✕</button></td>
-    </tr>`;
-  }).join('');
-  const head=canEdit?'<th style="width:20%;">Bezeichnung</th><th style="width:15%;">Art/Typ</th><th style="width:15%;">Kennzeichen</th><th style="width:15%;">Betriebshof</th><th style="width:80px;">Std/Tag</th><th>Notiz</th><th style="width:40px;"></th>'
-                    :'<th style="width:24%;">Bezeichnung</th><th>Art/Typ</th><th>Kennzeichen</th><th>Betriebshof</th><th style="width:80px;">Std/Tag</th><th>Notiz</th>';
-  return `<div class="ep-fill">
-    <datalist id="ep-veh-arten">${arten.map(a=>`<option value="${a}">`).join('')}</datalist>
-    <div class="ep-sec-head"><h3>Fuhrpark <span class="ep-count">${_epVehicles.length} Fahrzeuge</span></h3>
-      ${canEdit?`<button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="epVehAdd()">+ Fahrzeug</button><button class="btn btn-primary" style="font-size:11px;padding:5px 14px;margin-left:auto;" onclick="epVehSave()">Speichern</button>`:'<span class="ep-count" style="margin-left:auto;">nur Lesezugriff</span>'}</div>
-    <div class="ep-sticky-wrap"><table class="ep-table"><thead><tr>${head}</tr></thead><tbody>${rows||`<tr><td colspan="${canEdit?7:6}" style="color:var(--text3);">Noch keine Fahrzeuge — „+ Fahrzeug" anlegen.</td></tr>`}</tbody></table></div>
-    <div class="ep-foot">Gemeinsame Fahrzeugquelle für Einsatzplaner und Disposition. Änderungen erst mit „Speichern" sichern. Der Betriebshof steuert den Filter oben im Einsatzplaner.</div>
-  </div>`;
-}
 // Eingehängten Nachrichten-Bereich VOR jedem innerHTML-Neuaufbau von #ep-root nach Hause retten —
 // sonst wird der DOM-Knoten zerstört und der Reiter bleibt dauerhaft leer. MUSS überall dort laufen,
 // wo ep-root.innerHTML gesetzt wird (renderEp, initEinsatzplaner, epChangeOrg).
@@ -14406,11 +14401,7 @@ function renderEp(){
       <div class="ep-tabs">${tab('plan','Tag')}${tab('woche','Woche')}${tab('abwesenheiten','Personal')}${tab('fahrzeuge','Fahrzeuge')}${nmTab}</div>
     </div>
     <div class="ep-body">${
-      _epTab==='fahrzeuge'?(
-        `<div style="display:flex;gap:6px;margin-bottom:14px;">
-          <button class="btn ${_epVehSub==='heute'?'btn-primary':'btn-secondary'}" style="font-size:12px;padding:5px 14px;" onclick="epVehSubSet('heute')">Fahrzeuge heute</button>
-          <button class="btn ${_epVehSub==='fuhrpark'?'btn-primary':'btn-secondary'}" style="font-size:12px;padding:5px 14px;" onclick="epVehSubSet('fuhrpark')">Fuhrpark (Stammdaten)</button>
-        </div>`+(_epVehSub==='fuhrpark'?epFuhrparkHtml():epVerfuegbarHtml()))
+      _epTab==='fahrzeuge'?epFahrzeugeHtml()
       :_epTab==='woche'?epWeekHtml()
       :_epTab==='plan'?epPlanHtml()
       :_epTab==='abwesenheiten'?epAbsenceHtml()
@@ -16253,7 +16244,7 @@ Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,openKiConfigMenu,toggleKiAnalyse,resetKiAnalysen,
   renderHandbuch,setHbTab,hbSearchDebounced,openHbImg,closeHbImg,
   dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
-  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epApplyStandardOne,epTagesplanScope,epSendTagesplan,epTgInput,epTgRegen,epVehSubSet,epAbsTypesOpen,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,epWeekShift,epWeekThis,epWeekToggleEmpty,epWeekFilter,epDayFilter,epTourCtx,epEditTour,_epCloseCtx,epPersonOpenCard,
+  epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epApplyStandardOne,epTagesplanScope,epSendTagesplan,epTgInput,epTgRegen,epCycleVehicleStatus,epAbsTypesOpen,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,epWeekShift,epWeekThis,epWeekToggleEmpty,epWeekFilter,epDayFilter,epTourCtx,epEditTour,_epCloseCtx,epPersonOpenCard,
   renderDashboard,refreshDashboard,
   saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterInlineTours,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
   filterAbschnitteTable,filterAbschnitteTableDebounced,toggleAbschnShowAll,downloadAbschnitteExport,
