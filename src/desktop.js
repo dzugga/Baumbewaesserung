@@ -8838,6 +8838,22 @@ async function lizArtDel(id){
   _lizArtikel=_lizArtikel.filter(x=>x.id!==id); renderLizenzen();
 }
 function lizArtField(id,f,val){ const a=_lizArtikel.find(x=>x.id===id); if(!a) return; if(f==='preis') a.preis=_lizNum(val); else a[f]=(val||'').trim(); renderLizenzen(); }
+// Artikel in der Reihenfolge verschieben (gilt überall: Preisliste, Kunden-Detail, Druck); gespeichert mit „Preisliste speichern"
+function lizArtMove(id,delta){
+  const i=_lizArtikel.findIndex(x=>x.id===id); if(i<0) return;
+  const j=i+delta; if(j<0||j>=_lizArtikel.length) return;
+  const [a]=_lizArtikel.splice(i,1); _lizArtikel.splice(j,0,a);
+  renderLizenzen();
+}
+// Rollen-Dropdown: bei wenig Platz unterhalb nach OBEN öffnen (letzte Zeilen liefen sonst aus dem Bild)
+function lizZrFlip(det){
+  if(!det.open) return;
+  const panel=det.querySelector('div'); if(!panel) return;
+  const r=det.getBoundingClientRect();
+  const need=Math.min(260, panel.scrollHeight+16);
+  if(window.innerHeight-r.bottom<need){ panel.style.top='auto'; panel.style.bottom='calc(100% + 3px)'; }
+  else { panel.style.bottom='auto'; panel.style.top='calc(100% + 3px)'; }
+}
 // Rolle im Ist-Zähler an-/abhaken — bewusst OHNE Re-Render (das Dropdown soll für Mehrfachauswahl offen bleiben);
 // nur die Zusammenfassung wird aktualisiert. Zahlen ziehen beim nächsten Render/Speichern nach.
 function lizArtRolle(id,roleKey,on){
@@ -8878,7 +8894,7 @@ function renderLizenzen(){
       <td style="padding:5px 10px;"><input style="${inp}width:100%;" value="${dlEsc(a.name||'')}" placeholder="z. B. Planer-Arbeitsplatz" onchange="lizArtField('${_jsArg(a.id)}','name',this.value)"></td>
       <td style="padding:5px 10px;"><input style="${inp}width:100%;" value="${dlEsc(a.einheit||'')}" placeholder="je Login" onchange="lizArtField('${_jsArg(a.id)}','einheit',this.value)"></td>
       <td style="padding:5px 10px;">
-        <details style="position:relative;">
+        <details style="position:relative;" ontoggle="lizZrFlip(this)">
           <summary id="liz-zr-sum-${dlEsc(a.id)}" title="Welche Rollen der Ist-Zähler „Vergeben" zählt (aktive PIN- und E-Mail-Konten)" style="list-style:none;cursor:pointer;${inp}width:100%;display:block;user-select:none;">${_zrSummary(a)} ▾</summary>
           <div style="position:absolute;top:calc(100% + 3px);left:0;z-index:70;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);padding:8px 10px;min-width:210px;max-height:240px;overflow-y:auto;">
             ${_lizRollen.map(r=>`<label style="display:flex;gap:7px;align-items:center;font-size:12px;cursor:pointer;padding:2px 0;white-space:nowrap;" title="${dlEsc(r.hint||'')}"><input type="checkbox" ${(a.zaehlRollen||[]).includes(r.key)?'checked':''} onchange="lizArtRolle('${_jsArg(a.id)}','${_jsArg(r.key)}',this.checked)" style="cursor:pointer;"> ${dlEsc(r.name)}</label>`).join('')||'<span style="font-size:11px;color:var(--text3);">Keine Rollen gefunden</span>'}
@@ -8886,7 +8902,11 @@ function renderLizenzen(){
         </details>
       </td>
       <td style="padding:5px 10px;text-align:right;"><input style="${inp}width:84px;text-align:right;" value="${dlEsc(_lizPreisStr(a.preis))}" placeholder="0,00" onchange="lizArtField('${_jsArg(a.id)}','preis',this.value)"></td>
-      <td style="padding:5px 8px;text-align:center;"><button class="btn btn-danger" style="padding:3px 8px;font-size:12px;" onclick="lizArtDel('${_jsArg(a.id)}')">✕</button></td>
+      <td style="padding:5px 8px;text-align:right;white-space:nowrap;">
+        <button class="btn btn-secondary" style="padding:3px 7px;font-size:11px;" title="nach oben" onclick="lizArtMove('${_jsArg(a.id)}',-1)">↑</button>
+        <button class="btn btn-secondary" style="padding:3px 7px;font-size:11px;" title="nach unten" onclick="lizArtMove('${_jsArg(a.id)}',1)">↓</button>
+        <button class="btn btn-danger" style="padding:3px 8px;font-size:12px;" onclick="lizArtDel('${_jsArg(a.id)}')">✕</button>
+      </td>
     </tr>`).join('')||`<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--text3);">Noch keine Artikel — „+ Artikel" anlegen (z. B. Planer-Arbeitsplatz, Fahrer-App-Login).</td></tr>`;
   const preisliste=`<div class="dsh-card" style="margin-bottom:16px;">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
@@ -8897,7 +8917,7 @@ function renderLizenzen(){
         <button class="btn btn-primary" style="font-size:11px;padding:5px 14px;" onclick="lizSaveArtikel()">Preisliste speichern</button>
       </span>
     </div>
-    <table class="ep-table"><thead><tr><th style="width:30%;">Artikel</th><th style="width:18%;">Einheit</th><th style="width:24%;">Ist-Zähler</th><th style="width:110px;text-align:right;">€ / Monat</th><th style="width:44px;"></th></tr></thead><tbody id="liz-art-rows">${artRows}</tbody></table>
+    <table class="ep-table"><thead><tr><th style="width:29%;">Artikel</th><th style="width:16%;">Einheit</th><th style="width:24%;">Ist-Zähler</th><th style="width:100px;text-align:right;">€ / Monat</th><th style="width:112px;"></th></tr></thead><tbody id="liz-art-rows">${artRows}</tbody></table>
   </div>`;
   // ── 2) Kunden-Übersicht ──
   const gesamt=_lizOrgs.reduce((s,o)=>s+_lizOrgSumme(o.id),0);
@@ -16562,7 +16582,7 @@ Object.assign(window,{
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleBhNames,toggleRequiredFeld,toggleRawSeg,_siInfo,
   createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,dashSetBh,tourSetBh,epChangeBh,epTogglePersnr,epToggleBhCol,psSetOrgFilter,setSiTab,
-  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizArtRolle,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,
+  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizArtRolle,lizArtMove,lizZrFlip,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,openMeldungFotos,stepMeldungFoto,closeMeldungFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
