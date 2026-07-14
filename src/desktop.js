@@ -14056,7 +14056,7 @@ function epAbsenceHtml(){
       ? '<span style="font-size:9px;font-weight:700;color:var(--text3);background:var(--surface2);padding:1px 6px;border-radius:5px;">inaktiv</span>'
       : (p.loginRequested && !_epHasLogin(p)
           ? '<span style="font-size:9px;font-weight:700;color:#9a6700;background:#fcefcb;padding:1px 6px;border-radius:5px;" title="App-Login beim Superadmin angefordert">🔑 Login angefordert</span>'
-          : (_epHasLogin(p) ? '' : '<span style="font-size:9px;font-weight:700;color:var(--text3);background:var(--surface2);padding:1px 6px;border-radius:5px;">ohne Login</span>'));
+          : (_epHasLogin(p) ? '' : '<span title="Ohne App-Login (Person ist trotzdem planbar)" style="display:inline-flex;vertical-align:middle;color:var(--text3);"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></svg></span>'));
     const nameCell=ro
       ? `${dlEsc(p.name)}${p.funktion?` <span style="font-size:10px;color:var(--text3);">${dlEsc(p.funktion)}</span>`:''} ${badge}`
       : `<span onclick="epPersonOpenCard('${_jsArg(p.id)}')" title="Person verwalten${(p.betriebshof||'').trim()?' · Betriebshof '+dlEsc(p.betriebshof):''}" style="cursor:pointer;border-radius:5px;padding:1px 3px;">${dlEsc(p.name)}${p.funktion?` <span style="font-size:10px;color:var(--text3);">${dlEsc(p.funktion)}</span>`:''} ${badge}</span>`;
