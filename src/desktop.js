@@ -2607,7 +2607,8 @@ function renderDisplayPanel(){
   h+=chk(routesVisible,'toggleRouteLines()','Routenlinien ein/aus');
   h+=chk(_showTourCounts,'toggleTourCounts()','Tourhäufigkeit ein/aus');
   h+=chk(_showRouteNums,'toggleRouteNums()','Routennummern ein/aus');
-  if((listValues.betriebshof||[]).some(b=>b.lat!=null)) h+=chk(_showBetriebshoefe,'toggleBetriebshoefe()','Betriebshöfe ein/aus');
+  if((listValues.betriebshof||[]).some(b=>b.lat!=null)){ h+=chk(_showBetriebshoefe,'toggleBetriebshoefe()','Betriebshöfe ein/aus');
+    if(_showBetriebshoefe) h+=`<div style="margin-left:24px;">${chk(_showBhNames,'toggleBhNames()','Betriebshofname ein/aus')}</div>`; }
   if((trees||[]).some(_isRawSeg)) h+=chk(!_hideRawSeg,'toggleRawSeg()','Ausgeschlossene Segmente (Teiler/Ausschluss) anzeigen');
   if(hasCont) h+=chk(_versatzOn,'toggleVersatz()','Objekte nach Lage versetzt');
   const hasBh=(listValues.betriebshof||[]).length>0;
@@ -3154,7 +3155,9 @@ function rebuildMarkersWithNumbers(){
 }
 
 let _bhLayer=null, _showBetriebshoefe=true;
-function toggleBetriebshoefe(){ _showBetriebshoefe=!_showBetriebshoefe; renderDepotMarker(); }
+let _showBhNames=(()=>{ try{ return localStorage.getItem('map_bh_names')==='1'; }catch(_){ return false; } })(); // Betriebshof-Namen als festes Label auf der Karte
+function toggleBetriebshoefe(){ _showBetriebshoefe=!_showBetriebshoefe; renderDepotMarker(); renderDisplayPanel(); }
+function toggleBhNames(){ _showBhNames=!_showBhNames; try{ localStorage.setItem('map_bh_names',_showBhNames?'1':'0'); }catch(_){} renderDepotMarker(); }
 function toggleRawSeg(){ _hideRawSeg=!_hideRawSeg; try{ renderDrawnGeoms(); }catch(_){} try{ renderList(); }catch(_){} try{ renderLegend(); }catch(_){} }
 function renderDepotMarker(){
   if(depotMarker){map.removeLayer(depotMarker);depotMarker=null;}
@@ -3167,7 +3170,9 @@ function renderDepotMarker(){
     _bhLayer=L.layerGroup();
     bhs.forEach(b=>{ const col=b.color||'#f59e0b'; const start=activeName&&b.label===activeName;
       const icon=L.divIcon({className:'',html:`<div style="width:34px;height:34px;border-radius:10px;background:${col};border:3px solid ${start?'#111827':'#fff'};box-shadow:0 2px 8px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;font-size:17px;">🏭</div>`,iconSize:[34,34],iconAnchor:[17,17]});
-      L.marker([+b.lat,+b.lng],{icon,zIndexOffset:1000}).addTo(_bhLayer).bindTooltip(`<b>${dlEsc(b.label||'Betriebshof')}</b>${start?' · Start dieser Tour':''}`,{direction:'top',offset:[0,-18]});
+      const tipHtml=`<b>${dlEsc(b.label||'Betriebshof')}</b>${start?' · Start dieser Tour':''}`;
+      const tipOpts=_showBhNames?{permanent:true,direction:'right',offset:[16,0]}:{direction:'top',offset:[0,-18]};
+      L.marker([+b.lat,+b.lng],{icon,zIndexOffset:1000}).addTo(_bhLayer).bindTooltip(tipHtml,tipOpts);
     });
     _bhLayer.addTo(map);
     return;
@@ -16253,7 +16258,7 @@ Object.assign(window,{
   rankAdd,rankRename,rankSetColor,rankSetZahl,rankSetZahlWinter,rankMove,rankMerge,rankDelete,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
-  importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleRequiredFeld,toggleRawSeg,_siInfo,
+  importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleBhNames,toggleRequiredFeld,toggleRawSeg,_siInfo,
   createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,dashSetBh,tourSetBh,epChangeBh,epTogglePersnr,epToggleBhCol,psSetOrgFilter,setSiTab,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,openMeldungFotos,stepMeldungFoto,closeMeldungFoto,
