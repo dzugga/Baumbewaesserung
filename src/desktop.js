@@ -13226,9 +13226,9 @@ function showTreeTourContextMenu(tree, e){
   if(_isContainer(tree)){
     const map=new Map();
     for(const s of _ausstattungOf(tree.extId)){ for(const id of getTreeTourIds(s)){ const tr=tours.find(t=>t.id===id); if(!tr) continue; if(!map.has(id)) map.set(id,{tour:tr,sides:[]}); map.get(id).sides.push(_elemLabel(s)); } }
-    rows=[...map.values()].map(v=>({color:v.tour.color,name:v.tour.name,sub:v.sides.join(' · '),ueb:!!v.tour.uebersicht}));
+    rows=[...map.values()].map(v=>({color:v.tour.color,name:v.tour.name,sub:v.sides.join(' · '),ueb:!!v.tour.uebersicht,occ:_tourWeeklyOcc(v.tour,_curCheckSaison(),_todayStr())}));
   } else {
-    rows=getTreeTourIds(tree).map(id=>tours.find(t=>t.id===id)).filter(Boolean).map(t=>({color:t.color,name:t.name,sub:'',ueb:!!t.uebersicht}));
+    rows=getTreeTourIds(tree).map(id=>tours.find(t=>t.id===id)).filter(Boolean).map(t=>({color:t.color,name:t.name,sub:'',ueb:!!t.uebersicht,occ:_tourWeeklyOcc(t,_curCheckSaison(),_todayStr())}));
   }
   rows.sort((a,b)=>(a.ueb?1:0)-(b.ueb?1:0)); // echte Touren zuerst, Übersicht unten
   const _ps=planStatusOf(tree);
@@ -13268,11 +13268,14 @@ function showTreeTourContextMenu(tree, e){
       return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;padding:5px 8px;border-radius:6px;background:${col}1f;"><span style="width:9px;height:9px;border-radius:50%;background:${col};flex:none;"></span><span style="font-size:12px;"><b style="color:${col};">${planStatusLabel(_ps)}</b> · Soll ${+_ps.soll.toFixed(2)} · Plan ${+_ps.plan.toFixed(2)}</span></div>`; })()}
     ${(()=>{ if(!_ovdProblem) return ''; const col=_checkColor('overdue',_ovd.status);
       return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;padding:5px 8px;border-radius:6px;background:${col}1f;"><span style="width:9px;height:9px;border-radius:50%;background:${col};flex:none;"></span><span style="font-size:12px;"><b style="color:${col};">${overdueLabel(_ovd)}</b>${_ovd.status==='ueber'&&_ovd.overdue!=null?' · '+Math.round(_ovd.overdue)+' Tage über':(_ovd.last?' · zuletzt '+_ovd.last.split('-').reverse().join('.'):'')}</span></div>`; })()}
-    ${treeTourList.map(t=>`
-      <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);${t.ueb?'opacity:.75;':''}">
+    ${(()=>{ const soll=_ps&&_ps.status!=='kein'; return treeTourList.map(t=>{
+      const badge=(soll&&!t.ueb) ? (t.occ>0
+        ? `<span style="margin-left:auto;flex-shrink:0;font-size:10px;font-weight:600;color:#15803d;background:#dcfce7;padding:1px 6px;border-radius:5px;" title="Zählt zum Plan: ${+t.occ.toFixed(2)} Wochen-Einsatz${t.occ===1?'':'e'}">${+t.occ.toFixed(2)}×/Wo</span>`
+        : `<span style="margin-left:auto;flex-shrink:0;font-size:10px;font-weight:600;color:#854f0b;background:#fef3c7;padding:1px 6px;border-radius:5px;" title="Zählt NICHT zum Soll/Plan — kein Wochen-Rhythmus/Betriebstage, Bedarfstour oder andere Saison">zählt nicht</span>`) : '';
+      return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);${t.ueb?'opacity:.75;':''}">
         <div style="width:10px;height:10px;border-radius:50%;background:${t.color};flex-shrink:0;margin-top:2px;align-self:flex-start;"></div>
-        <span style="min-width:0;"><span style="font-weight:600;color:${t.color};">${dlEsc(t.name)}</span>${t.ueb?_uebTag:''}${t.sub?`<br><span style="font-size:11px;color:var(--text3);">${dlEsc(t.sub)}</span>`:''}</span>
-      </div>`).join('')}
+        <span style="min-width:0;"><span style="font-weight:600;color:${t.color};">${dlEsc(t.name)}</span>${t.ueb?_uebTag:''}${t.sub?`<br><span style="font-size:11px;color:var(--text3);">${dlEsc(t.sub)}</span>`:''}</span>${badge}
+      </div>`; }).join(''); })()}
     <div style="margin-top:8px;font-size:11px;color:var(--text3);">${_rc} Tour${_rc!==1?'en':''}${_uc?` · ${_uc} Übersicht`:''}</div>
   `;
   document.body.appendChild(popup);
