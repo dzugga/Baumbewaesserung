@@ -10002,6 +10002,15 @@ function utmToLatLng(easting,northing,zone){
 function impCoords(a,b){
   if(isNaN(a)||isNaN(b)) return {lat:null,lng:null};
   if(Math.abs(a)<=1000 && Math.abs(b)<=1000) return {lat:a,lng:b}; // Dezimalgrad
+  // Dezimalgrad OHNE Dezimaltrenner als Ganzzahl gespeichert („microdegrees", E6/E7 —
+  // z. B. 50126350 = 50.126350°, 8684142 = 8.684142°). Gängig bei GIS-/Kataster-Exporten.
+  // Muss VOR mm-/UTM-Logik greifen. E5 wird bewusst NICHT geraten (Bereich kollidiert mit
+  // UTM-Northing); E6/E7-Werte sind für UTM unplausibel klein → keine Verwechslung.
+  for(const f of [1e6,1e7]){
+    const la=a/f, lo=b/f;
+    if(impInDE(la,lo)) return {lat:la,lng:lo};
+    if(impInDE(lo,la)) return {lat:lo,lng:la}; // Spalten vertauscht (Grad-Wert egal in welcher Spalte)
+  }
   let A=Math.abs(a), B=Math.abs(b);
   if(Math.max(A,B)>1e8){ A/=1000; B/=1000; } // sehr große Werte = Millimeter (z. B. NRW-Altdaten in mm) → Meter
   // Northing = Wert im DE-Bereich (~5,2–6,1 Mio); der andere ist Easting (egal welche Spalte)
