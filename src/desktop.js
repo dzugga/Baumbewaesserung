@@ -4091,8 +4091,15 @@ function openDetail(id){
     ${(()=>{ const ps=planStatusOf(tree); if(!ps) return '';
       if(ps.status==='kein') return `<div class="form-section">Planung</div><div class="detail-field" style="padding:5px 0;"><span class="detail-key">Soll / Plan</span><span class="detail-val" style="color:var(--text3);">kein Soll hinterlegt</span></div>`;
       const col=planStatusColor(ps);
+      // Beitrag je zugeordneter Tour zum Wochen-Plan: Touren ohne Rhythmus/Betriebstage, Bedarf oder in
+      // anderer Saison zählen 0 — das erklärt „unterplant" trotz mehrerer zugeordneter Touren.
+      const _saison=ps.saison, _t=_todayStr();
+      const _nicht=realTourIds(tree).map(id=>tours.find(x=>x.id===id)).filter(t=>t&&_tourWeeklyOcc(t,_saison,_t)<=0);
+      const hint=(ps.status!=='ok'&&_nicht.length)
+        ? `<div class="detail-field" style="padding:2px 0 5px;"><span class="detail-key"></span><span class="detail-val" style="font-size:11px;color:var(--text3);line-height:1.5;"><b style="color:${col};">${+ps.plan.toFixed(2)} von ${+ps.soll.toFixed(2)}</b> Leerungen/Woche durch gültige Touren gedeckt · ${_nicht.length} zugeordnete Tour${_nicht.length===1?' zählt':'en zählen'} nicht (kein Rhythmus/Betriebstage): ${_nicht.map(t=>dlEsc(t.name||'Tour')).join(', ')}</span></div>`
+        : '';
       return `<div class="form-section">Planung</div>
-      <div class="detail-field" style="padding:5px 0;align-items:center;"><span class="detail-key">Soll / Plan</span><span class="detail-val"><b>${+ps.soll.toFixed(2)}</b>×/Wo · Plan <b>${+ps.plan.toFixed(2)}</b> <span style="color:var(--text3);font-size:11px;">(${ps.tours} Tour${ps.tours===1?'':'en'})</span> <span style="display:inline-block;margin-left:4px;padding:1px 8px;border-radius:6px;font-size:11px;font-weight:600;background:${col}22;color:${col};">${planStatusLabel(ps)}</span></span></div>`;
+      <div class="detail-field" style="padding:5px 0;align-items:center;"><span class="detail-key">Soll / Plan</span><span class="detail-val"><b>${+ps.soll.toFixed(2)}</b>×/Wo · Plan <b>${+ps.plan.toFixed(2)}</b> <span style="color:var(--text3);font-size:11px;">(${ps.tours} Tour${ps.tours===1?'':'en'})</span> <span style="display:inline-block;margin-left:4px;padding:1px 8px;border-radius:6px;font-size:11px;font-weight:600;background:${col}22;color:${col};">${planStatusLabel(ps)}</span></span></div>${hint}`;
     })()}
     ${(()=>{ const o=overdueInfoOf(tree); if(!o||o.status==='kein') return ''; const col=_checkColor('overdue',o.status);
       const zuletzt = o.status==='nie' ? 'noch nie erledigt' : (o.last?('zuletzt '+o.last.split('-').reverse().join('.')):'');
@@ -4559,13 +4566,23 @@ function renderInlineTourChips(){
   // Zugeordnete Touren nach oben (stabile Sortierung erhält die übrige Reihenfolge)
   const visible=[...visible0].sort((a,b)=>(cur.includes(b.id)?1:0)-(cur.includes(a.id)?1:0));
   const ro=isReadonly();
+  const _hasSoll=!!(currentProjectData&&currentProjectData.sollFeld);
+  const _saison=_curCheckSaison(), _today2=_todayStr();
   const rowHtml=(t,first)=>{
     const sel=cur.includes(t.id);
     const div=first?'border-top:2px solid var(--border);':''; // Trenner zwischen zugeordnet/übrige
+    // Bei zugeordneten Touren zeigen, ob sie zum Soll/Plan zählen (Wochen-Einsätze > 0) oder nicht
+    let badge='';
+    if(sel && _hasSoll && !isOverviewTour(t.id)){
+      const occ=_tourWeeklyOcc(t,_saison,_today2);
+      badge = occ>0
+        ? `<span style="font-size:10px;font-weight:600;color:#15803d;background:#dcfce7;padding:1px 6px;border-radius:5px;flex-shrink:0;" title="Zählt zum Plan: ${+occ.toFixed(2)} Wochen-Einsatz${occ===1?'':'e'}">${+occ.toFixed(2)}×/Wo</span>`
+        : `<span style="font-size:10px;font-weight:600;color:#854f0b;background:#fef3c7;padding:1px 6px;border-radius:5px;flex-shrink:0;" title="Zählt NICHT zum Soll/Plan — kein Wochen-Rhythmus/Betriebstage, Bedarfstour oder andere Saison">zählt nicht</span>`;
+    }
     return `<label data-tourid="${t.id}" data-tourname="${(t.name||'').toLowerCase().replace(/"/g,'&quot;')}" style="display:flex;align-items:center;gap:9px;padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--border);${div}font-size:13px;background:${sel?t.color+'14':'transparent'};">
       <input type="checkbox"${sel?' checked':''} style="width:15px;height:15px;flex-shrink:0;cursor:pointer;accent-color:${t.color};">
       <span style="width:11px;height:11px;border-radius:50%;background:${t.color};flex-shrink:0;"></span>
-      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(t.name)}${isOverviewTour(t.id)?' <span style="font-size:10px;color:var(--text3);font-weight:600;">Übersicht</span>':''}</span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(t.name)}${isOverviewTour(t.id)?' <span style="font-size:10px;color:var(--text3);font-weight:600;">Übersicht</span>':''}</span>${badge}
     </label>`;
   };
   const _selCount=visible.filter(t=>cur.includes(t.id)).length;
