@@ -789,22 +789,28 @@ function openGlobalSearch(){
     items=[];
     // Ansichten (modul-gefiltert)
     const views=[['karte','Karte'],['baeume','Objekte (Tabelle)'],['touren','Touren'],['dashboard','Dashboard'],['controlling','Controlling'],['sollist','Soll-Ist'],['einsatzplaner','Einsatzplaner'],['disposition','Disposition'],['verwaltung','Verwaltung'],['handbuch','Handbuch']];
-    const modOf={disposition:'disposition',controlling:'controlling',dashboard:'dashboard',baeume:'objekte',touren:'touren',einsatzplaner:'einsatzplaner'};
+    // VOLLSTÄNDIGES View→Modul-Mapping: eine Ansicht ohne Eintrag wäre für ALLE sichtbar und würde die
+    // Rollen-/Modulsperre aushebeln (Bug: „Verwaltung/Gründe" per Suche trotz Sperre). Nur 'handbuch' ist
+    // bewusst ohne Modul (immer erlaubt).
+    const modOf={karte:'planung',baeume:'objekte',touren:'touren',dashboard:'dashboard',controlling:'controlling',sollist:'sollist',einsatzplaner:'einsatzplaner',disposition:'disposition',verwaltung:'verwaltung'};
     views.filter(([k,l])=>(!q||l.toLowerCase().includes(q))&&(!modOf[k]||canUseModule(modOf[k])))
       .slice(0,q?4:5).forEach(([k,l])=>items.push({grp:'Ansicht', label:l, sub:'', go:()=>switchView(k)}));
     if(q){
-      (tours||[]).filter(t=>(t.name||'').toLowerCase().includes(q)).slice(0,4)
+      if(canUseModule('touren')) (tours||[]).filter(t=>(t.name||'').toLowerCase().includes(q)).slice(0,4)
         .forEach(t=>items.push({grp:'Tour', label:t.name||t.id, sub:(t.uebersicht?'Übersicht':'Tour'), go:()=>{ switchView('touren'); setTimeout(()=>filterTourenGrid(t.name||''),80); }}));
-      let n=0;
-      for(const t of (trees||[])){
-        if(n>=7) break;
-        if(!isActive(t)) continue;
-        const hay=((t.name||'')+' '+(t.baumId||'')+' '+(t.art||'')+' '+(t.stadtteil||'')).toLowerCase();
-        if(!hay.includes(q)) continue;
-        n++;
-        const isCont=_isContainer(t);
-        items.push({grp:'Objekt', label:(t.name||t.baumId||'–')+(t.containerExtId?' · '+_elemLabel(t):''), sub:[t.baumId,t.art,t.stadtteil].filter(Boolean).join(' · '),
-          go:()=>{ switchView('karte'); setTimeout(()=>{ try{ isCont?openAbschnitt(t.id):selectTree(t.id); }catch(e){ console.warn(e); } },120); }});
+      const canKarte=canUseModule('planung'), canObj=canUseModule('objekte');
+      if(canKarte||canObj){
+        let n=0;
+        for(const t of (trees||[])){
+          if(n>=7) break;
+          if(!isActive(t)) continue;
+          const hay=((t.name||'')+' '+(t.baumId||'')+' '+(t.art||'')+' '+(t.stadtteil||'')).toLowerCase();
+          if(!hay.includes(q)) continue;
+          n++;
+          const isCont=_isContainer(t);
+          items.push({grp:'Objekt', label:(t.name||t.baumId||'–')+(t.containerExtId?' · '+_elemLabel(t):''), sub:[t.baumId,t.art,t.stadtteil].filter(Boolean).join(' · '),
+            go:()=>{ if(canKarte){ switchView('karte'); setTimeout(()=>{ try{ isCont?openAbschnitt(t.id):selectTree(t.id); }catch(e){ console.warn(e); } },120); } else { switchView('baeume'); } }}); // ohne Karten-Recht: Objekt-Tabelle statt Karte
+        }
       }
     }
     sel=Math.min(sel,Math.max(0,items.length-1));
