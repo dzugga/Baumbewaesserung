@@ -8360,7 +8360,15 @@ async function printTourMap(){
   if(routeData){
     const gj=routeData.geojsonStr?(()=>{try{return JSON.parse(routeData.geojsonStr);}catch(e){return null;}})():routeData.geojson;
     if(gj){ const coords=[]; const push=c=>c.forEach(p=>coords.push([p[1],p[0]]));
-      const walk=g=>{ if(!g)return; if(g.type==='FeatureCollection')g.features.forEach(f=>walk(f.geometry)); else if(g.type==='Feature')walk(g.geometry); else if(g.type==='LineString')push(g.coordinates); else if(g.type==='MultiLineString')g.coordinates.forEach(push); };
+      // Robust gegen fehlendes type:'FeatureCollection' — die gespeicherte Route ist teils nur {features:[…]}
+      // ohne Top-Level-type. Leaflet iteriert das features-Array trotzdem; hier ebenso über features/geometry
+      // gehen statt strikt auf type zu prüfen (sonst Luftlinie-Fallback trotz vorhandener Straßengeometrie).
+      const walk=g=>{ if(!g||typeof g!=='object')return;
+        if(Array.isArray(g.features))g.features.forEach(walk);
+        else if(g.geometry)walk(g.geometry);
+        else if(g.type==='GeometryCollection'&&Array.isArray(g.geometries))g.geometries.forEach(walk);
+        else if(g.type==='LineString')push(g.coordinates);
+        else if(g.type==='MultiLineString')g.coordinates.forEach(push); };
       walk(gj); if(coords.length) routeLatLngs=coords; }
   }
   if(!routeLatLngs && stopsTrees.length){ const pts=stopsTrees.map(t=>[t.lat,t.lng]); routeLatLngs=useDepot?(getDepotMode()==='round'?[[depot.lat,depot.lng],...pts,[depot.lat,depot.lng]]:[[depot.lat,depot.lng],...pts]):pts; }
