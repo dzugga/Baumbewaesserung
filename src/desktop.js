@@ -9482,7 +9482,7 @@ function dlRow(d){
   const inPlan = (typeof d.einsatz==='boolean')?d.einsatz:!['superadmin','orgadmin','admin','planer'].includes(d.role||'');
   const roleSel=`<select onchange="changeDriverRole('${_jsArg(d.id)}',this.value)" title="Rolle ändern" style="font-size:11px;padding:2px 5px;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-family:inherit;">${personRoleOptionsHtml(d.role||'fahrer')}</select>`;
   return `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--bg);border-radius:6px;flex-wrap:wrap;">
-    <span style="flex:1;min-width:120px;font-size:13px;${active?'':'color:var(--text3);text-decoration:line-through;'}">${dlEsc(d.name)}</span>
+    <span onclick="renameDriver('${_jsArg(d.id)}','${_jsArg(d.name||'')}')" title="Name ändern" style="flex:1;min-width:120px;font-size:13px;cursor:pointer;${active?'':'color:var(--text3);text-decoration:line-through;'}">${dlEsc(d.name)} <span style="color:var(--text3);font-size:11px;font-weight:400;">✎</span></span>
     <select title="Funktion / Einsatzgruppe" onchange="setDriverFunktion('${_jsArg(d.id)}',this.value)" style="width:118px;font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-family:inherit;">${funktionenOptions(_dlFunktionen, d.funktion)}</select>
     <label style="font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--text2);" title="Im Einsatzplaner berücksichtigen"><input type="checkbox" ${inPlan?'checked':''} onchange="setDriverEinsatz('${_jsArg(d.id)}',this.checked)" style="margin:0;cursor:pointer;"> Einsatz</label>
     ${hasLogin?roleSel:(d.loginRequested?'<span style="font-size:10px;font-weight:700;color:#9a6700;background:#fcefcb;padding:2px 7px;border-radius:5px;" title="App-Login vom Einsatzleiter angefordert">🔑 Login angefordert</span>':'<span style="font-size:10px;font-weight:700;color:var(--text3);background:var(--surface2);padding:2px 7px;border-radius:5px;">ohne Login</span>')}
@@ -9513,6 +9513,16 @@ async function addDriverLogin(){
   }catch(e){ notify(fnErr(e)); }
 }
 async function setDriverFunktion(id,val){ try{ await db.collection('drivers').doc(id).set({funktion:(val||'').trim()},{merge:true}); }catch(e){ notify(dlErr(e)); } }
+async function renameDriver(id, cur){
+  const neu=prompt('Neuer Name für „'+(cur||'')+'":', cur||''); if(neu==null) return;
+  const name=neu.trim(); if(!name||name===cur) return;
+  try{
+    // nameLower muss mit — die App-Anmeldung sucht die Person darüber.
+    await db.collection('drivers').doc(id).set({name, nameLower:name.toLowerCase()},{merge:true});
+    notify('✓ Name geändert — App-Login (falls vorhanden) läuft künftig über den neuen Namen.');
+    renderDriverLogins();
+  }catch(e){ notify(dlErr(e)); }
+}
 async function _dlSaveFunktionen(list){
   const org=driverLoginsOrg||currentOrg; if(!org){ notify('Kein Mandant gewählt'); return; }
   try{ const r=await dlFnCall('setOrgFunktionen',{orgId:org,funktionen:list}); _dlFunktionen=(r&&r.data&&r.data.funktionen)||list; notify('✓ Funktionen gespeichert'); renderDriverLogins(); }
@@ -16967,7 +16977,7 @@ Object.assign(window,{
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,openObjFilterConfig,setObjFilterField,toggleTourCounts,toggleRouteNums,toggleVersatz,toggleTypeFilter,setTypeVisible,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,
   openPilotScope,closePilot,pilotSetField,pilotAddValue,pilotRemoveValue,pilotToggleActive,pilotToggleShowAll,pilotSave,
   apGenerate,apSelect,apDelete,apSetSolverUrl,apAssignSel,apClearSel,apRecalc,apSelectDay,apRahmenDay,apRahmenFreqDay,apSetSaison,apRahmenMode,apRahmenErlaubtDay,apToggleTourVis,apShowAllTours,apColorBy,apClearLocks,archivBereinigen,
-  renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,saveOrgCode,dlToggleNoLogin,setDriverFunktion,setDriverEinsatz,dlDismissLoginRequest,dlFunktionAdd,dlFunktionRemove,
+  renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,saveOrgCode,dlToggleNoLogin,setDriverFunktion,renameDriver,setDriverEinsatz,dlDismissLoginRequest,dlFunktionAdd,dlFunktionRemove,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
   renderRollenView,saveRole,addRole,deleteRole,toggleBenutzerRollen,toggleBenutzerTouren,changeBenutzerOrg,changeDtaProject,renderUsage,exportUsageCSV,
