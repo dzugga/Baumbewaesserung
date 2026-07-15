@@ -16224,7 +16224,7 @@ async function flaechenTourGenRun(){
 }
 
 // ── Geometrie-Datensätze einspielen (Superadmin): Linien/Flächen mit geomStr am Doc (kein Bundle) ──
-// Für gezeichnete-/OSM-Geometrie (z. B. Ahlen-Straßen aus import-osm-ahlen.mjs).
+// Für vorbereitete Linien-/Flächen-Geometrie (z. B. aus Shapefile-Import erzeugte Datensätze).
 async function geomDocsImportOpen(){
   if(currentRole!=='superadmin'){ notify('Nur Superadmin'); return; }
   let projs=[];
