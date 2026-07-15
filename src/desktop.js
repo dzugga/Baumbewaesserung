@@ -8270,7 +8270,7 @@ function printReport(){
   });
   body+=`<tr class="sum"><td>Σ ${R.count}</td>`+R.cols.map((k,ci)=>`<td class="num">${R.sums[ci]!=null?_repNum(R.sums[ci]):''}</td>`).join('')+R.abhakCols.map(()=>'<td></td>').join('')+'</tr>';
   const html=`<!doctype html><html lang="de"><head><meta charset="utf-8"><title>${esc(tour&&tour.name||'Bericht')}</title>
-   <style>@page{size:landscape;margin:12mm;} body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;} h1{font-size:15px;font-style:italic;margin:0 0 2px;} .sub{font-size:11px;color:#444;margin:0 0 10px;} table{border-collapse:collapse;width:100%;} th,td{border:1px solid #888;padding:4px 6px;font-size:10px;text-align:left;vertical-align:top;} th{background:#eee;} td.num,th.num{text-align:right;} .nr{text-align:right;width:26px;} .rem{font-style:italic;color:#555;font-size:9px;} tr.sum td{font-weight:bold;background:#f3f3f3;} td.num{text-align:right;}</style></head>
+   <style>@page{size:landscape;margin:0;} body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;padding:12mm;} h1{font-size:15px;font-style:italic;margin:0 0 2px;} .sub{font-size:11px;color:#444;margin:0 0 10px;} table{border-collapse:collapse;width:100%;} th,td{border:1px solid #888;padding:4px 6px;font-size:10px;text-align:left;vertical-align:top;} th{background:#eee;} td.num,th.num{text-align:right;} .nr{text-align:right;width:26px;} .rem{font-style:italic;color:#555;font-size:9px;} tr.sum td{font-weight:bold;background:#f3f3f3;} td.num{text-align:right;}</style></head>
    <body><h1>${esc(tour&&tour.name||'Bericht')}</h1>${cfg.title||cfg.sub?`<div class="sub"><b>${esc(cfg.title||'')}</b> ${esc(cfg.sub||'')}</div>`:''}
    <table><thead><tr>${th}</tr></thead><tbody>${body}</tbody></table>
    </body></html>`;
@@ -8417,10 +8417,13 @@ async function printTourMap(){
   // eine A4-Seite fuellt — robust gegen Drucker/Skalierung/Papier (kein Leaflet im Druck).
   const applyStyle=o=>{
     styleEl.textContent=baseCss
-      +'@page{size:A4 '+o+';margin:6mm;}'
+      // margin:0 → Browser druckt keine Kopf-/Fußzeile (Datum/URL/Seitenzahl); die 6-mm-Ränder stecken
+      // bereits im gerenderten Bild (A4-druckbar). Ausblenden nur während des Drucks (Klasse mp-printing) —
+      // sonst erzeugt ein versehentliches Strg+P (ohne #mapprint-out) eine komplett leere Seite.
+      +'@page{size:A4 '+o+';margin:0;}'
       +'@media print{html,body{height:auto!important;margin:0!important;background:#fff!important;}'
-      +'body>*{display:none!important;}'
-      +'#mapprint-out{display:block!important;position:static!important;inset:auto!important;width:auto!important;height:auto!important;overflow:visible!important;}'
+      +'body.mp-printing>*{display:none!important;}'
+      +'body.mp-printing #mapprint-out{display:block!important;position:static!important;inset:auto!important;width:auto!important;height:auto!important;overflow:visible!important;}'
       +'#mapprint-out .pg{width:100%;height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden;break-inside:avoid;}'
       +'#mapprint-out .pg:not(:last-child){page-break-after:always;break-after:page;}'
       +'#mapprint-out .pg img{max-width:100%;max-height:100%;object-fit:contain;}}';
@@ -8508,9 +8511,12 @@ async function printTourMap(){
     const out=document.createElement('div'); out.id='mapprint-out'; out.style.cssText='position:fixed;inset:0;z-index:100000;background:#fff;overflow:auto;';
     out.innerHTML=imgs.map(u=>'<div class="pg"><img src="'+u+'" style="display:block;"></div>').join('');
     document.body.appendChild(out);
-    const cleanup=()=>{ out.remove(); window.removeEventListener('afterprint',cleanup); };
+    const cleanup=()=>{ out.remove(); document.body.classList.remove('mp-printing'); window.removeEventListener('afterprint',cleanup); };
     window.addEventListener('afterprint',cleanup);
-    setTimeout(()=>{ window.print(); setTimeout(cleanup,1800); }, 80);
+    // Erst drucken, wenn ALLE Bilder wirklich dekodiert sind — sonst leere Seite(n), v. a. bei mehreren Ausschnitten
+    try{ await Promise.all([...out.querySelectorAll('img')].map(im=>im.decode?im.decode().catch(()=>{}):new Promise(r=>{im.onload=im.onerror=r;}))); }catch(_){}
+    document.body.classList.add('mp-printing');
+    setTimeout(()=>{ window.print(); setTimeout(cleanup,1800); }, 120);
   };
   modal.querySelector('#mp-close').onclick=close;
   modal.addEventListener('keydown',e=>{ if(e.key==='Escape') close(); });
@@ -10578,7 +10584,7 @@ function _mrRender(w, from, to){
     td{padding:5px 6px;border-bottom:1px solid #eceae4;}
     h2{font-size:13px;margin:20px 0 8px;}
     @media print{ body{background:#fff;} .page{box-shadow:none;margin:0;max-width:none;padding:10mm 12mm;} .noprint{display:none;} }
-    @page{ size:A4; margin:10mm; }
+    @page{ size:A4; margin:0; } /* kein Browser-Kopf/-Fuß (Datum/URL); Rand liegt im .page-padding */
   </style></head><body>
   <div class="noprint" style="text-align:center;padding:12px;"><button onclick="window.print()" style="padding:9px 22px;font-size:14px;background:#2d6a4f;color:#fff;border:none;border-radius:8px;cursor:pointer;">Drucken / Als PDF speichern</button></div>
   <div class="page">
@@ -15757,7 +15763,7 @@ function kiReportHtml(title,ans,periodLabel){
     code{background:#f1efe9;padding:1px 4px;border-radius:3px;font-size:11.5px;}
     .meta{color:#6b7280;font-size:11.5px;margin:2px 0 16px;padding-bottom:10px;border-bottom:2px solid #2d6a4f;}
     .disc{margin-top:26px;padding-top:8px;border-top:1px solid #d9d4c8;color:#9ca3af;font-size:10.5px;}
-    @page{margin:18mm 16mm;} @media print{body{padding:0;}}
+    @page{margin:0;} @media print{body{padding:18mm 16mm;}} /* margin:0 → kein Browser-Kopf/-Fuß (Datum/URL) */
   </style></head><body>
     <h1>${dlEsc(title)}</h1>
     <div class="meta">Stadt/Projekt: ${proj} &nbsp;·&nbsp; Auswertungszeitraum: ${dlEsc(periodLabel)} &nbsp;·&nbsp; Erstellt am: ${today} &nbsp;·&nbsp; Quelle: KI-Analyse (Google Gemini)</div>

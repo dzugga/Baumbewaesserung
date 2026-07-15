@@ -1515,8 +1515,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
   #print-overlay{position:static !important;background:#fff !important;display:block !important;}
   #print-overlay .pv-bar{display:none !important;}
   #print-overlay .pv-scroll{overflow:visible !important;padding:0 !important;display:block !important;}
-  #print-overlay .pv-sheet{box-shadow:none !important;width:auto !important;max-width:none !important;padding:0 !important;}
-  @page{size:A4;margin:16mm 14mm;}
+  #print-overlay .pv-sheet{box-shadow:none !important;width:auto !important;max-width:none !important;padding:14mm !important;}
+  @page{size:A4;margin:0;} /* margin:0 → Browser druckt keine Kopf-/Fußzeile (Datum/URL); Rand liegt im Sheet-Padding */
 }
 /* Feststehender Tabellenkopf (Fuhrpark, Personal): der Tabellenbereich füllt den Rest der Höhe und
    scrollt INTERN, damit die Kopfzeile beim Scrollen immer sichtbar bleibt (statt dass ep-root scrollt). */
