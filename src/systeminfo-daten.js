@@ -15,7 +15,7 @@ export const SI_DSGVO = [
   { status: 'ok',    label: 'Karten von amtlichen Servern', note: 'Hintergrundkarten kommen von basemap.de (Bundesamt für Kartographie/BKG), nicht von Google/Esri — keine Standortdaten-Übertragung an kommerzielle Drittanbieter.' },
   { status: 'ok',    label: 'Datensparsamkeit', note: 'Von Personen werden nur Name, Rolle und Anmeldedaten verarbeitet.' },
   { status: 'ok',    label: 'Datenschutzerklärung & Impressum', note: 'In der Desktop-App (Planungsmanager) verlinkt — Avatar-Menü und Anmeldeseite.' },
-  { status: 'offen', label: 'Platzhalter der Datenschutzerklärung ausfüllen', note: 'Betreiber, Datenschutzbeauftragter und Speicherfristen sind noch als Platzhalter hinterlegt.' },
+  { status: 'ok',    label: 'Platzhalter der Datenschutzerklärung ausgefüllt', note: 'Betreiber/Auftragsverarbeiter (INFA GmbH, mit Kontakt) eingetragen; Verantwortlicher allgemein gefasst (jeweilige Stadt/Arbeitgeber, kein Platzhalter je Stadt mehr); Speicherfrist als Regelfall (3 Jahre / Verjährung) formuliert. Text durchgehend objekt-neutral. Inhaltliche Endabnahme durch den DSB empfohlen.' },
   { status: 'offen', label: 'Auftragsverarbeitungsvertrag (AVV) mit Google Cloud', note: 'Google bietet die EU-Standardklauseln/AVV an — Abschluss dokumentieren.' },
   { status: 'offen', label: 'TOMs dokumentieren', note: 'Technische und organisatorische Maßnahmen schriftlich festhalten (Grundlage: Reiter „Sicherheit").' },
   { status: 'offen', label: 'Löschkonzept', note: 'Aufbewahrungs- und Löschfristen für Meldungen, Verläufe und Fotos festlegen.' },
