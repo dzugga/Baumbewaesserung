@@ -256,7 +256,10 @@ const MODULES = [
   {key:'touren',      label:'Touren'},
   {key:'verwaltung',  label:'Gründe'},
   {key:'wms',         label:'WMS-Karten'},
-  {key:'import',      label:'Import'},
+  {key:'imp_excel',   label:'Import: Excel/CSV'},
+  {key:'imp_shape',   label:'Import: Shapefile'},
+  {key:'exp_obj',     label:'Export: Objekte (Excel, inkl. Tour)'},
+  {key:'exp_shape',   label:'Export: Shapefile'},
   {key:'erfassung',   label:'Erfassungs-App ↗'},
   {key:'mobil',       label:'Fahrer-App (Mobil) ↗'},
   {key:'fotomeldung', label:'Foto-Meldung (Fahrer-App)'},
@@ -275,7 +278,7 @@ const _mods = (keys)=>Object.fromEntries(_allModKeys.map(k=>[k, keys.includes(k)
 const BUILTIN_ROLES = {
   superadmin: {name:'Superadmin', baseType:'admin', modules:_mods(_allModKeys), builtin:true},
   orgadmin:   {name:'Org-Admin',  baseType:'admin', modules:_mods(_allModKeys.filter(k=>k!=='admin'&&k!=='massenwerkzeuge')), builtin:true}, // Massen-Werkzeuge default NUR Superadmin — pro Rolle zuschaltbar
-  planer:     {name:'Planer',     baseType:'editor', modules:_mods(['planung','disposition','einsatzplaner','nachrichten','segmentnetz','dashboard','controlling','sollist','datenqualitaet','ausfaelle','meldungen','listen','ki','objekte','touren','import','wms','einsatzleiter']), builtin:true},
+  planer:     {name:'Planer',     baseType:'editor', modules:_mods(['planung','disposition','einsatzplaner','nachrichten','segmentnetz','dashboard','controlling','sollist','datenqualitaet','ausfaelle','meldungen','listen','ki','objekte','touren','wms','einsatzleiter']), builtin:true},
   erfasser:   {name:'Erfasser',   baseType:'editor', modules:_mods(['erfassung','objekte']), builtin:true},
   fahrer:     {name:'Fahrer',     baseType:'driver', modules:_mods(['mobil','fotomeldung']), builtin:true},
 };
@@ -5815,7 +5818,7 @@ function openImport(){
   m.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:460px;max-width:94vw;overflow:hidden;">
     <div style="padding:16px 20px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;display:flex;justify-content:space-between;align-items:center;">Import / Export<button id="imp-x" style="border:none;background:none;cursor:pointer;font-size:20px;line-height:1;color:var(--text3);">×</button></div>
     <div style="padding:18px 20px;">
-      ${sec('Import')}
+      <div id="imp-sec-in">${sec('Import')}</div>
       <button class="btn btn-secondary" id="imp-btn" style="width:100%;margin-bottom:8px;">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
         Excel / CSV importieren
@@ -5824,8 +5827,8 @@ function openImport(){
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
         Shapefile importieren (ZIP · Punkte/Strecken/Flächen)
       </button>
-      <div style="font-size:11px;color:var(--text3);line-height:1.6;margin-bottom:14px;">Nach der Dateiwahl folgt die <b>Feld-Zuordnung</b> (Spalte → Feld, vorbelegt) und eine Vorschau. <a href="#" id="imp-tpl" style="color:var(--green);">Importvorlage (Excel) herunterladen</a></div>
-      ${sec('Export')}
+      <div id="imp-hint-in" style="font-size:11px;color:var(--text3);line-height:1.6;margin-bottom:14px;">Nach der Dateiwahl folgt die <b>Feld-Zuordnung</b> (Spalte → Feld, vorbelegt) und eine Vorschau. <a href="#" id="imp-tpl" style="color:var(--green);">Importvorlage (Excel) herunterladen</a></div>
+      <div id="imp-sec-ex">${sec('Export')}</div>
       <button class="btn btn-secondary" id="imp-export" style="width:100%;margin-bottom:8px;">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 15V3"/><polyline points="7 8 12 3 17 8"/><path d="M5 21h14"/></svg>
         Alle Objekte exportieren (Excel)
@@ -5834,7 +5837,7 @@ function openImport(){
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 15V3"/><polyline points="7 8 12 3 17 8"/><path d="M5 21h14"/></svg>
         Objekte mit Tour-Zuordnung exportieren (Excel)
       </button>
-      <div style="font-size:11px;color:var(--text3);line-height:1.6;margin-bottom:8px;">„Mit Tour-Zuordnung": je Objekt und zugeordneter Tour eine Zeile (inkl. Koordinaten) — mehrfach zugeordnete Objekte erscheinen mehrfach.</div>
+      <div id="imp-hint-ex" style="font-size:11px;color:var(--text3);line-height:1.6;margin-bottom:8px;">„Mit Tour-Zuordnung": je Objekt und zugeordneter Tour eine Zeile (inkl. Koordinaten) — mehrfach zugeordnete Objekte erscheinen mehrfach.</div>
       <button class="btn btn-secondary" id="imp-shp" style="width:100%;">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
         Als Shapefile exportieren (ZIP · ETRS89/UTM 32N)
@@ -5850,6 +5853,12 @@ function openImport(){
   m.querySelector('#imp-export').onclick=()=>{ downloadObjectsExport(); };
   m.querySelector('#imp-export-tour').onclick=()=>{ downloadObjectsTourExport(); };
   m.querySelector('#imp-shp').onclick=()=>{ exportShapefile(); };
+  // Feingranulare Freigabe (Standard nur Superadmin, sonst je Rolle/Mandant freigeben):
+  // einzelne Funktionen ausblenden, wenn das zugehörige Modul für die Rolle nicht frei ist.
+  const _mv=(id,mod)=>{ const el=m.querySelector('#'+id); if(el&&!canUseModule(mod)) el.style.display='none'; };
+  _mv('imp-btn','imp_excel'); _mv('imp-shp-in','imp_shape'); _mv('imp-export','exp_obj'); _mv('imp-export-tour','exp_obj'); _mv('imp-shp','exp_shape');
+  const anyImp=canUseModule('imp_excel')||canUseModule('imp_shape'), anyExp=canUseModule('exp_obj')||canUseModule('exp_shape');
+  [['imp-sec-in',anyImp],['imp-hint-in',anyImp],['imp-sec-ex',anyExp],['imp-hint-ex',anyExp]].forEach(([id,keep])=>{ const el=m.querySelector('#'+id); if(el&&!keep) el.style.display='none'; });
 }
 
 // Allgemein (ORS API-Key) – eigenes Menü unter „INFA-Admin“
