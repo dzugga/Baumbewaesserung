@@ -32,7 +32,7 @@ export const SI_STACK = [
   { gruppe: 'Frontend', items: [
     { name: 'JavaScript (Vanilla) + Vite', zweck: 'Anwendungslogik und Build-Werkzeug, keine Framework-Abhängigkeit' },
     { name: 'Leaflet', zweck: 'Interaktive Karten in allen Apps', versionKey: 'leaflet' },
-    { name: 'OpenStreetMap', zweck: 'Kartenkacheln (Standard-Hintergrundkarte)' },
+    { name: 'basemap.de (BKG / AdV)', zweck: 'Amtliche Kartenkacheln (Standard-Hintergrundkarte)' },
     { name: 'Chart.js', zweck: 'Diagramme im Controlling und Einsatzleiter', versionKey: 'chartjs' },
     { name: 'SheetJS', zweck: 'Excel-Import im Planungsmanager', versionKey: 'sheetjs' },
   ]},
