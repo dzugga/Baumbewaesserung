@@ -23,7 +23,7 @@ import { titelOf as orTitel, ELEM_GRUPPE_ORDER, ELEM_GRUPPE_LABEL, haeufigkeitOf
 import { initVersionCheck } from './version-check.js';
 // Tourkalender (Soll-Logik) zentral — auch die Einsatzleiter-App nutzt exakt diese Regeln
 import { tourDueOn as _tkTourDueOn, tourInValidity as _tourInValidity, tourBetriebstage as _tourBetriebstage, isoWeekIndex as _isoWeekIndex, saisonForDate as _tkSaisonForDate, SAISON_DEFAULT } from './tour-kalender.js';
-import { printA4 } from './printview.js';
+import { printA4, printDoc, printDocFrame } from './printview.js';
 import { buildShapefileZip, PRJ_ETRS89_UTM32N } from './geo-export.js';
 import { readShapefileZip } from './geo-import.js';
 initVersionCheck();   // erkennt neue Deploys während die App offen ist → „Neu laden"-Banner
@@ -8260,8 +8260,8 @@ function printReport(){
    <style>@page{size:landscape;margin:12mm;} body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;} h1{font-size:15px;font-style:italic;margin:0 0 2px;} .sub{font-size:11px;color:#444;margin:0 0 10px;} table{border-collapse:collapse;width:100%;} th,td{border:1px solid #888;padding:4px 6px;font-size:10px;text-align:left;vertical-align:top;} th{background:#eee;} td.num,th.num{text-align:right;} .nr{text-align:right;width:26px;} .rem{font-style:italic;color:#555;font-size:9px;} tr.sum td{font-weight:bold;background:#f3f3f3;} td.num{text-align:right;}</style></head>
    <body><h1>${esc(tour&&tour.name||'Bericht')}</h1>${cfg.title||cfg.sub?`<div class="sub"><b>${esc(cfg.title||'')}</b> ${esc(cfg.sub||'')}</div>`:''}
    <table><thead><tr>${th}</tr></thead><tbody>${body}</tbody></table>
-   <script>window.onload=function(){window.print();}<\/script></body></html>`;
-  const w=window.open('','_blank'); if(!w){ notify('Bitte Pop-ups erlauben'); return; } w.document.write(html); w.document.close();
+   </body></html>`;
+  printDoc(html, tour&&tour.name||'Bericht'); // In-App-Overlay (iframe) statt window.open
 }
 function exportReportExcel(){
   if(!_rep||typeof XLSX==='undefined') { notify('Excel nicht verfügbar'); return; }
@@ -10499,9 +10499,8 @@ function openManagementReport(){
   m.querySelector('#mr-ok').onclick=async()=>{
     const from=m.querySelector('#mr-from').value, to=m.querySelector('#mr-to').value;
     if(!from||!to||to<from){ notify('Bitte gültigen Zeitraum wählen'); return; }
-    const w=window.open('','_blank'); // im Klick öffnen (Popup-Blocker), dann füllen
+    const w=printDocFrame('Managementbericht'); // In-App-Overlay (iframe) statt window.open
     close();
-    if(!w){ notify('Popup blockiert — bitte für diese Seite erlauben'); return; }
     w.document.write('<title>Bericht</title><body style="font-family:sans-serif;padding:40px;color:#666;">Bericht wird erstellt…</body>');
     try{
       if(!window._tourHistoryCache || window._tourHistoryCache.projectId!==currentProjectId) await loadTourHistoryForControlling();
@@ -15711,10 +15710,7 @@ function kiReportHtml(title,ans,periodLabel){
   </body></html>`;
 }
 function kiExportPdf(html){
-  const w=window.open('','_blank','width=920,height=720');
-  if(!w){ notify('Popup blockiert — bitte Popups für diese Seite erlauben'); return; }
-  w.document.write(html); w.document.close();
-  setTimeout(()=>{ try{ w.focus(); w.print(); }catch(_){} },450);
+  printDoc(html, 'KI-Bericht'); // In-App-Overlay (iframe) statt window.open — Drucken über den Knopf in der Vorschau
 }
 function kiExportWord(html,title){
   const blob=new Blob(['﻿'+html],{type:'application/msword'});
