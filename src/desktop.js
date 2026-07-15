@@ -296,6 +296,15 @@ function canUseModule(key){
   if(currentRole==='superadmin') return true;
   const m=roleModules(currentRole); return !!m[key];
 }
+// Zentrale Berechtigungsprüfung für ein data-module-Attribut (Komma-Liste). Genutzt von
+// applyModulePermissions (Nav-Sichtbarkeit) UND switchView (Öffnen-Sperre) → keine Divergenz.
+function _moduleAllowed(modStr){
+  const mods=String(modStr||'').split(',').map(s=>s.trim()).filter(Boolean);
+  if(!mods.length) return true;
+  if(mods.includes('__superadmin__')) return currentRole==='superadmin';
+  if(mods.includes('__admin__')) return currentRole==='superadmin'||currentCap==='admin';
+  return mods.some(m=>canUseModule(m));
+}
 let _dataViewProject = null;      // Projekt, für das Controlling/Dashboard zuletzt aufgebaut wurde
 let _dataViewSyncQueued = false;  // Debounce für Neuaufbau beim Projektwechsel
 let _histListProject = null;      // Projekt, für das die untere Historie-Liste geladen wurde
@@ -6163,6 +6172,12 @@ function openProjekte(){
 
 // ─── VIEWS ────────────────────────────────────────────────────
 function switchView(v){
+  // Zweite Verteidigungslinie: einen für die Rolle gesperrten Bereich nie öffnen — egal über welchen
+  // Einstieg (Suche, Deep-Link, programmatisch). Maßstab ist das data-module des zugehörigen Nav-Buttons,
+  // also exakt dieselbe Regel wie die Menü-Sichtbarkeit. Bereiche ohne Nav-Button/ohne data-module (frei
+  // oder mit eigener interner Prüfung wie Lizenzen/Präsenz) bleiben unberührt.
+  const _nav=document.querySelector(`[onclick="switchView('${v}')"]`);
+  if(_nav && _nav.dataset.module && !_moduleAllowed(_nav.dataset.module)){ notify('Kein Zugriff auf diesen Bereich'); return; }
   currentView=v;
   // Nav buttons
   document.querySelectorAll('.nav-btn, .nav-dropdown button').forEach(b=>b.classList.remove('active'));
@@ -9747,14 +9762,8 @@ async function deleteRole(key){
 
 // Module-Sichtbarkeit auf die Navigation anwenden
 function applyModulePermissions(){
-  const isSuper=currentRole==='superadmin';
   document.querySelectorAll('[data-module]').forEach(el=>{
-    const mods=el.dataset.module.split(',').map(s=>s.trim());
-    let ok;
-    if(mods.includes('__superadmin__')) ok=isSuper;
-    else if(mods.includes('__admin__')) ok=isSuper||currentCap==='admin';
-    else ok=mods.some(m=>canUseModule(m)); // canUseModule = Projekt-Gate UND (Superadmin ODER Rolle)
-    el.style.display = ok ? '' : 'none';
+    el.style.display = _moduleAllowed(el.dataset.module) ? '' : 'none';
   });
   // leere Nav-Gruppen ausblenden
   document.querySelectorAll('.topbar-nav .nav-group').forEach(g=>{
