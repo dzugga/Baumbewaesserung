@@ -8869,7 +8869,16 @@ function _lizOrgUeberschreitung(oid){
   return _lizArtikel.some(a=>_lizPosOver(_lizIst(oid,a),(liz[a.id]||{}).menge||0));
 }
 // ── Präsenz/Sitzungen (Superadmin): wer ist online, Verlauf, Parallelnutzung ──
-let _praesenzData=null, _praesenzTimer=null, _praesOrgNames=null;
+let _praesenzData=null, _praesenzTimer=null, _praesOrgNames=null, _presLoggingOn=true;
+async function praesenzToggleLogging(){
+  const on=!_presLoggingOn;
+  try{
+    await db.collection('appsettings').doc('presence').set({logging:on, updatedAt:new Date().toISOString()},{merge:true});
+    _presLoggingOn=on;
+    notify(on?'✓ Präsenz-Erfassung aktiviert — neue Anmeldungen werden protokolliert':'✓ Präsenz-Erfassung pausiert — neue Anmeldungen werden NICHT mehr protokolliert (laufende Sitzungen bis zum Abmelden noch)');
+    renderPraesenz();
+  }catch(e){ notify(dlErr(e)); }
+}
 const _PRAES_KIND={desktop:['Desktop','#2563eb'],fahrer:['Fahrer','#16a34a'],einsatzleiter:['Einsatzleiter','#9333ea'],erfassung:['Erfassung','#ea580c']};
 function _praesenzStopTimer(){ if(_praesenzTimer){ clearInterval(_praesenzTimer); _praesenzTimer=null; } }
 function _praesLive(){ try{ return localStorage.getItem('praesenzLive')==='1'; }catch(_){ return false; } }
@@ -8884,6 +8893,7 @@ async function initPraesenz(){
   const root=document.getElementById('praesenz-root');
   if(currentRole!=='superadmin'){ if(root) root.innerHTML='<div style="padding:30px;color:var(--text3);">Nur Superadmin.</div>'; return; }
   if(!_praesOrgNames){ try{ const qs=await db.collection('orgs').get(); _praesOrgNames={}; qs.forEach(d=>{ _praesOrgNames[d.id]=d.data().name||d.id; }); }catch(_){ _praesOrgNames={}; } }
+  try{ const s=await db.collection('appsettings').doc('presence').get(); _presLoggingOn=!(s.exists&&s.data().logging===false); }catch(_){ _presLoggingOn=true; }
   await _praesenzLoad(true);
   _praesenzApplyTimer(); // Timer nur, wenn Live eingeschaltet
 }
@@ -8958,10 +8968,12 @@ function renderPraesenz(){
     <div style="overflow-x:auto;"><table style="border-collapse:collapse;font-size:12px;width:100%;min-width:640px;">
       <thead><tr style="color:var(--text3);text-align:left;"><th style="padding:4px 10px;">Name</th><th style="padding:4px 10px;">App</th><th style="padding:4px 10px;">Mandant</th><th style="padding:4px 10px;">Rolle</th><th style="padding:4px 10px;">Login</th><th style="padding:4px 10px;">Logout/aktiv</th><th style="padding:4px 10px;text-align:right;">Dauer</th></tr></thead>
       <tbody>${histRows}</tbody></table></div>`;
-  const live=_praesLive();
+  const live=_praesLive(), logOn=_presLoggingOn;
   const liveBar=`<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
+    <button onclick="praesenzToggleLogging()" style="padding:6px 14px;font-size:12px;font-weight:700;border-radius:7px;cursor:pointer;border:1px solid ${logOn?'#16a34a':'#b45309'};background:${logOn?'#16a34a':'#fff7ed'};color:${logOn?'#fff':'#b45309'};" title="Steuert das Protokollieren von An-/Abmeldungen in ALLEN Apps (nicht nur diese Ansicht)">${logOn?'⏺ Erfassung an':'⏹ Erfassung aus'}</button>
     <button onclick="praesenzToggleLive()" style="padding:6px 14px;font-size:12px;font-weight:600;border-radius:7px;cursor:pointer;border:1px solid ${live?'#16a34a':'var(--border)'};background:${live?'#16a34a':'var(--surface)'};color:${live?'#fff':'var(--text)'};">${live?'⏸ Live-Aktualisierung aus':'▶ Live-Aktualisierung an'}</button>
-    <span style="font-size:11px;color:var(--text3);">${live?'Aktualisiert automatisch alle 2 Min (nur aktive Sitzungen).':'Standardmäßig aus (spart Lesevorgänge) — „↻" oben lädt manuell neu.'}</span></div>`;
+    <span style="font-size:11px;color:var(--text3);">${live?'Aktualisiert automatisch alle 2 Min.':'Anzeige-Aktualisierung aus — „↻" oben lädt manuell.'}</span>
+    ${logOn?'':'<div style="flex-basis:100%;font-size:12px;color:#b45309;background:#fff7ed;border:1px solid #fed7aa;border-radius:7px;padding:6px 10px;">⏹ Erfassung pausiert: Neue An-/Abmeldungen werden in keiner App protokolliert. Der bisherige Verlauf bleibt erhalten.</div>'}</div>`;
   root.innerHTML=`${liveBar}${kpis}
     <div class="dsh-card" style="margin-bottom:14px;"><div style="font-weight:700;font-size:13px;margin-bottom:6px;">Gerade online (${online.length})</div>${onlineList}</div>
     <div class="dsh-card" style="margin-bottom:14px;">${parallel}</div>
@@ -16932,7 +16944,7 @@ Object.assign(window,{
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleBhNames,toggleRequiredFeld,toggleRawSeg,_siInfo,
   createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,dashSetBh,tourSetBh,epChangeBh,epTogglePersnr,epToggleBhCol,psSetOrgFilter,setSiTab,
-  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizArtRolle,lizArtMove,lizZrFlip,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,lizPrintOrg,lizPrintAll,lizPrintPreisliste,praesenzRefresh,praesenzToggleLive,
+  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizArtRolle,lizArtMove,lizZrFlip,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,lizPrintOrg,lizPrintAll,lizPrintPreisliste,praesenzRefresh,praesenzToggleLive,praesenzToggleLogging,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,openMeldungFotos,stepMeldungFoto,closeMeldungFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,

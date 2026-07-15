@@ -54,6 +54,13 @@ service cloud.firestore {
       allow read, write: if isSuper();
     }
 
+    // ----- Globale App-Einstellungen (z. B. Präsenz-Erfassung an/aus) -----
+    // Alle eingeloggten Apps müssen das Flag lesen können (steuert das Loggen); schreiben nur Superadmin.
+    match /appsettings/{id} {
+      allow read: if signedIn();
+      allow write: if isSuper();
+    }
+
     // ----- Präsenz/Sitzungserfassung (Superadmin-Auswertung) -----
     // Jede eingeloggte App legt ihre eigene Sitzung an und aktualisiert Heartbeat/Logout;
     // lesen/aufräumen nur Superadmin. Enthält nur Präsenzdaten (kein fachlicher Inhalt).

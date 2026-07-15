@@ -13,32 +13,44 @@ export const PRESENCE_HEARTBEAT_MS = 5 * 60 * 1000;   // 5 min — sparsam; nur 
 export const PRESENCE_STALE_MS = 11 * 60 * 1000;      // „online"/„läuft" = lastSeen jünger als das (≥ 2× Heartbeat)
 
 // Erfassung. Gibt ein Handle mit stop() zurück. db = compat-Firestore-Instanz.
+// Loggt nur, wenn der globale Erfassungs-Schalter aktiv ist: appsettings/presence.logging !== false
+// (Standard = an; vom Superadmin im Präsenz-Reiter umschaltbar). So lässt sich das Loggen z. B. in
+// der Entwicklung abschalten, ohne die Auswertung/Historie zu verlieren.
 export function startPresence(opts) {
   const o = opts || {};
   const db = o.db;
   if (!db || !o.orgId || !o.userKey) return { stop() {}, id: null };
   const now = () => Date.now();
-  const doc = {
-    orgId: o.orgId, kind: o.kind || '', userKey: o.userKey, name: o.name || '',
-    role: o.role || '', app: o.app || '', buildId: o.buildId || '',
-    loginAt: now(), lastSeen: now(), logoutAt: null,
-  };
-  let ref, timer = null, stopped = false;
-  try { ref = db.collection('presence').doc(); ref.set(doc); }
-  catch (e) { try { console.warn('presence start', e); } catch (_) {} return { stop() {}, id: null }; }
-  const beat = () => { if (stopped) return; try { ref.update({ lastSeen: now() }); } catch (_) {} };
-  timer = setInterval(beat, o.intervalMs || PRESENCE_HEARTBEAT_MS);
+  let ref = null, timer = null, stopped = false;
+  const beat = () => { if (stopped || !ref) return; try { ref.update({ lastSeen: now() }); } catch (_) {} };
   const logout = () => {
     if (stopped) return; stopped = true;
     try { clearInterval(timer); } catch (_) {}
-    try { ref.update({ lastSeen: now(), logoutAt: now() }); } catch (_) {}
+    try { if (ref) ref.update({ lastSeen: now(), logoutAt: now() }); } catch (_) {}
   };
+  const begin = () => {
+    if (stopped || ref) return;
+    const doc = {
+      orgId: o.orgId, kind: o.kind || '', userKey: o.userKey, name: o.name || '',
+      role: o.role || '', app: o.app || '', buildId: o.buildId || '',
+      loginAt: now(), lastSeen: now(), logoutAt: null,
+    };
+    try { ref = db.collection('presence').doc(); ref.set(doc); }
+    catch (e) { try { console.warn('presence start', e); } catch (_) {} return; }
+    timer = setInterval(beat, o.intervalMs || PRESENCE_HEARTBEAT_MS);
+  };
+  // Globalen Erfassungs-Schalter lesen, dann ggf. loggen. Flag nicht lesbar → im Zweifel loggen.
+  try {
+    db.collection('appsettings').doc('presence').get()
+      .then(s => { if (!s || !s.exists || s.data().logging !== false) begin(); })
+      .catch(() => begin());
+  } catch (_) { begin(); }
   try {
     window.addEventListener('pagehide', logout);
     window.addEventListener('beforeunload', logout);
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') beat(); });
   } catch (_) {}
-  return { stop: logout, beat, id: ref.id };
+  return { stop: logout, beat, get id() { return ref && ref.id; } };
 }
 
 // ── Auswertung (pure) ──
