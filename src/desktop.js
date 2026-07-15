@@ -13316,6 +13316,16 @@ function ctxCalcActive(){
   closeCtxMenu();
   if(activeTourOnMap)calculateAndSaveRoute(activeTourOnMap);
 }
+// Routen genau der eingeblendeten (aktiven) echten Touren berechnen — Auswahl als Steuergröße.
+async function ctxCalcSelected(){
+  closeCtxMenu();
+  if(isReadonly()){ notify('Nur Lesezugriff'); return; }
+  if(!getRoutePlanningEnabled()){ notify('Reihenfolgeplanung ist deaktiviert'); return; }
+  const ids=[...activeTours].filter(id=>!isOverviewTour(id));
+  if(!ids.length){ notify('Keine echte Tour eingeblendet'); return; }
+  for(const id of ids){ await calculateAndSaveRoute(id); }
+  notify(`✓ ${ids.length} Tour${ids.length===1?'':'en'} berechnet`);
+}
 
 // Right-click on map
 map.on('contextmenu',e=>{
@@ -13323,15 +13333,26 @@ map.on('contextmenu',e=>{
   ctxPendingLat=e.latlng.lat;ctxPendingLng=e.latlng.lng;
   const menu=document.getElementById('ctx-menu');
   const calcItem=document.getElementById('ctx-calc-active');
+  const calcSel=document.getElementById('ctx-calc-selected');
   const calcAll=document.getElementById('ctx-calc-all');
   const rpOn=getRoutePlanningEnabled();
   if(calcAll) calcAll.style.display=rpOn?'flex':'none'; // ohne Reihenfolgeplanung keine Routenberechnung
+  const realActive=[...activeTours].filter(id=>!isOverviewTour(id));
+  // Genau eine echte Tour eingeblendet → Einzel-Eintrag mit Name; ≥2 → Sammel-Eintrag für die Auswahl
   if(activeTourOnMap && rpOn && !isOverviewTour(activeTourOnMap)){
     const t=tours.find(x=>x.id===activeTourOnMap);
     calcItem.style.display='flex';
     calcItem.innerHTML=`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>Route berechnen: ${t?.name||''}`;
   } else {
     calcItem.style.display='none';
+  }
+  if(calcSel){
+    if(rpOn && realActive.length>=2){
+      calcSel.style.display='flex';
+      calcSel.innerHTML=`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>Routen der ${realActive.length} eingeblendeten Touren berechnen`;
+    } else {
+      calcSel.style.display='none';
+    }
   }
   // Position menu
   const mx=e.originalEvent.clientX,my=e.originalEvent.clientY;
@@ -16739,7 +16760,7 @@ Object.assign(window,{
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
   openAddTree,openEditTree,closeTreeModal,saveTree,deleteTree,
   archiveTree,reactivateTree,archiveTreeFromModal,reactivateTreeFromModal,deleteTreeFromModal,toggleShowInactive,showTreeOnMapFromModal,bulkSetInactive,bulkDelete,
-  openTourModal,closeTourModal,saveTour,deleteTour,toggleTourUebersicht,toggleOverviewInGrid,filterTourenGrid,showTourViolations,toggleTourKontrolle,setTourZeitBasis,
+  openTourModal,closeTourModal,saveTour,deleteTour,toggleTourUebersicht,toggleOverviewInGrid,filterTourenGrid,showTourViolations,toggleTourKontrolle,ctxCalcSelected,setTourZeitBasis,
   tourZusatzAdd,tourZusatzDel,tourRegelToggle,tourUpdWeekday,tourRhythmusUI,tourToggleBetriebstag,tourGueltigAdd,tourGueltigDel,tourGueltigSet,_sx,_sxClear,
   openTourReport,closeReportModal,repAddCol,repRemoveCol,repMoveCol,repApplyFromControls,
   printReport,exportReportExcel,saveReportTemplate,loadReportTemplate,printTourMap,
