@@ -1499,6 +1499,23 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 .ep-table{width:100%;border-collapse:collapse;font-size:13px;background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
 .ep-table th{background:var(--surface2);text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);padding:9px 14px;}
 .ep-table td{padding:9px 14px;border-top:1px solid var(--border);vertical-align:middle;}
+/* Druckvorschau als In-App-Overlay (printview.js) — PWA-tauglich, ersetzt window.open */
+#print-overlay{position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.5);display:flex;flex-direction:column;}
+#print-overlay .pv-bar{display:flex;align-items:center;gap:10px;padding:10px 16px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;}
+#print-overlay .pv-title{font-weight:700;font-size:14px;color:var(--text);}
+#print-overlay .pv-bar button{padding:7px 16px;font-size:13px;cursor:pointer;border-radius:7px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:inherit;}
+#print-overlay .pv-bar .pv-print{background:#2d6a4f;color:#fff;border-color:#2d6a4f;}
+#print-overlay .pv-scroll{flex:1;overflow:auto;padding:20px;display:flex;justify-content:center;align-items:flex-start;}
+#print-overlay .pv-sheet{background:#fff;color:#1a1917;width:210mm;max-width:100%;padding:16mm 14mm;box-shadow:0 4px 24px rgba(0,0,0,.35);box-sizing:border-box;font-size:12px;line-height:1.5;}
+#print-overlay .pv-sheet .umbruch{page-break-before:always;}
+@media print{
+  body > *:not(#print-overlay){display:none !important;}
+  #print-overlay{position:static !important;background:#fff !important;display:block !important;}
+  #print-overlay .pv-bar{display:none !important;}
+  #print-overlay .pv-scroll{overflow:visible !important;padding:0 !important;display:block !important;}
+  #print-overlay .pv-sheet{box-shadow:none !important;width:auto !important;max-width:none !important;padding:0 !important;}
+  @page{size:A4;margin:16mm 14mm;}
+}
 /* Feststehender Tabellenkopf (Fuhrpark, Personal): der Tabellenbereich füllt den Rest der Höhe und
    scrollt INTERN, damit die Kopfzeile beim Scrollen immer sichtbar bleibt (statt dass ep-root scrollt). */
 .ep-fill{display:flex;flex-direction:column;height:calc(100vh - 150px);min-height:300px;}

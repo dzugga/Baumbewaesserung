@@ -23,6 +23,7 @@ import { titelOf as orTitel, ELEM_GRUPPE_ORDER, ELEM_GRUPPE_LABEL, haeufigkeitOf
 import { initVersionCheck } from './version-check.js';
 // Tourkalender (Soll-Logik) zentral — auch die Einsatzleiter-App nutzt exakt diese Regeln
 import { tourDueOn as _tkTourDueOn, tourInValidity as _tourInValidity, tourBetriebstage as _tourBetriebstage, isoWeekIndex as _isoWeekIndex, saisonForDate as _tkSaisonForDate, SAISON_DEFAULT } from './tour-kalender.js';
+import { printA4 } from './printview.js';
 import { buildShapefileZip, PRJ_ETRS89_UTM32N } from './geo-export.js';
 import { readShapefileZip } from './geo-import.js';
 initVersionCheck();   // erkennt neue Deploys während die App offen ist → „Neu laden"-Banner
@@ -8950,13 +8951,7 @@ function _lizPrintKopf(titel){
   </div>`;
 }
 function _lizPrintWindow(bodyHtml,docTitle){
-  const w=window.open('','_blank'); if(!w){ notify('Popup blockiert — bitte Popups erlauben'); return; }
-  w.document.write(`<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><title>${dlEsc(docTitle)}</title>
-    <style>@page{size:A4;margin:16mm 14mm;} body{font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;color:#1a1917;margin:0;font-size:12px;}
-    .seite{max-width:720px;margin:0 auto;} .umbruch{page-break-before:always;} @media print{.noprint{display:none;}}</style></head>
-    <body><div class="noprint" style="padding:10px;text-align:right;background:#f1efe8;"><button onclick="window.print()" style="padding:8px 18px;font-size:13px;cursor:pointer;border:1px solid #2d6a4f;background:#2d6a4f;color:#fff;border-radius:7px;">🖨 Drucken / als PDF speichern</button></div>
-    <div class="seite">${bodyHtml}</div></body></html>`);
-  w.document.close();
+  printA4(bodyHtml, docTitle); // In-App-Overlay statt window.open — bleibt in der App (auch als PWA)
 }
 function lizPrintPreisliste(){
   const rows=_lizArtikel.map((a,i)=>{ const zr=(a.zaehlRollen||[]).map(_lizRoleName).join(', ')||'— kein Zähler —';
