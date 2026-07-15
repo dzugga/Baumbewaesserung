@@ -7976,13 +7976,23 @@ function renderTourKontrolle(){
   ].filter(k=>k.items.length);
   const total=cats.reduce((a,k)=>a+k.items.length,0);
   if(!cats.length){ el.innerHTML=`<div style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--green);padding:2px 0 12px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6 9 17l-5-5"/></svg>Tour-Kontrolle: alle Touren plausibel.</div>`; return; }
+  let min=false; try{ min=localStorage.getItem('tourKontrolleMin')==='1'; }catch(_){}
+  const summary=cats.map(k=>`${dlEsc(k.label)} ${k.items.length}`).join(' · ');
   el.innerHTML=`<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:10px;padding:10px 14px;margin-bottom:14px;">
-    <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:6px;">⚠ Tour-Kontrolle — ${total} Auffälligkeit(en)</div>
-    ${cats.map(k=>`<div style="display:flex;align-items:baseline;gap:8px;padding:5px 0;flex-wrap:wrap;border-top:1px solid #f8d377;">
+    <div onclick="toggleTourKontrolle()" style="cursor:pointer;display:flex;align-items:baseline;gap:8px;font-size:12px;font-weight:700;color:#92400e;${min?'':'margin-bottom:6px;'}" title="${min?'Aufklappen':'Minimieren'}">
+      <span style="font-size:10px;flex:none;">${min?'▸':'▾'}</span>
+      <span style="flex:none;">⚠ Tour-Kontrolle — ${total} Auffälligkeit(en)</span>
+      ${min?`<span style="font-weight:400;color:#a16207;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${summary}</span>`:''}
+    </div>
+    ${min?'':cats.map(k=>`<div style="display:flex;align-items:baseline;gap:8px;padding:5px 0;flex-wrap:wrap;border-top:1px solid #f8d377;">
       <span style="font-size:12px;font-weight:600;color:#92400e;min-width:170px;flex:none;">${dlEsc(k.label)} · ${k.items.length}</span>
       <span style="display:flex;gap:5px;flex-wrap:wrap;">${k.items.slice(0,40).map(t=>`<button onclick="${k.fn(t)}" title="${dlEsc(k.act)}" style="font-size:11px;border:1px solid #f59e0b;background:#fff;color:#92400e;border-radius:5px;padding:1px 7px;cursor:pointer;font-family:inherit;white-space:nowrap;">${dlEsc(t.name||'Tour')} ›</button>`).join('')}${k.items.length>40?`<span style="font-size:11px;color:#92400e;align-self:center;">+${k.items.length-40}</span>`:''}</span>
     </div>`).join('')}
   </div>`;
+}
+function toggleTourKontrolle(){
+  let min=false; try{ min=localStorage.getItem('tourKontrolleMin')==='1'; localStorage.setItem('tourKontrolleMin', min?'0':'1'); }catch(_){}
+  renderTourKontrolle();
 }
 
 function renderTourenGrid(){
@@ -16729,7 +16739,7 @@ Object.assign(window,{
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
   openAddTree,openEditTree,closeTreeModal,saveTree,deleteTree,
   archiveTree,reactivateTree,archiveTreeFromModal,reactivateTreeFromModal,deleteTreeFromModal,toggleShowInactive,showTreeOnMapFromModal,bulkSetInactive,bulkDelete,
-  openTourModal,closeTourModal,saveTour,deleteTour,toggleTourUebersicht,toggleOverviewInGrid,filterTourenGrid,showTourViolations,setTourZeitBasis,
+  openTourModal,closeTourModal,saveTour,deleteTour,toggleTourUebersicht,toggleOverviewInGrid,filterTourenGrid,showTourViolations,toggleTourKontrolle,setTourZeitBasis,
   tourZusatzAdd,tourZusatzDel,tourRegelToggle,tourUpdWeekday,tourRhythmusUI,tourToggleBetriebstag,tourGueltigAdd,tourGueltigDel,tourGueltigSet,_sx,_sxClear,
   openTourReport,closeReportModal,repAddCol,repRemoveCol,repMoveCol,repApplyFromControls,
   printReport,exportReportExcel,saveReportTemplate,loadReportTemplate,printTourMap,
