@@ -4569,9 +4569,8 @@ function renderInlineTourChips(){
   const ro=isReadonly();
   const _hasSoll=!!(currentProjectData&&currentProjectData.sollFeld);
   const _saison=_curCheckSaison(), _today2=_todayStr();
-  const rowHtml=(t,first)=>{
+  const rowHtml=(t)=>{
     const sel=cur.includes(t.id);
-    const div=first?'border-top:2px solid var(--border);':''; // Trenner zwischen zugeordnet/übrige
     // Bei zugeordneten Touren zeigen, ob sie zum Soll/Plan zählen (Wochen-Einsätze > 0) oder nicht
     let badge='';
     if(sel && _hasSoll && !isOverviewTour(t.id)){
@@ -4580,24 +4579,27 @@ function renderInlineTourChips(){
         ? `<span style="font-size:10px;font-weight:600;color:#15803d;background:#dcfce7;padding:1px 6px;border-radius:5px;flex-shrink:0;" title="Zählt zum Plan: ${+occ.toFixed(2)} Wochen-Einsatz${occ===1?'':'e'}">${+occ.toFixed(2)}×/Wo</span>`
         : `<span style="font-size:10px;font-weight:600;color:#854f0b;background:#fef3c7;padding:1px 6px;border-radius:5px;flex-shrink:0;" title="Zählt NICHT zum Soll/Plan — kein Wochen-Rhythmus/Betriebstage, Bedarfstour oder andere Saison">zählt nicht</span>`;
     }
-    return `<label data-tourid="${t.id}" data-tourname="${(t.name||'').toLowerCase().replace(/"/g,'&quot;')}" style="display:flex;align-items:center;gap:9px;padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--border);${div}font-size:13px;background:${sel?t.color+'14':'transparent'};">
+    return `<label data-tourid="${t.id}" data-tourname="${(t.name||'').toLowerCase().replace(/"/g,'&quot;')}" style="display:flex;align-items:center;gap:9px;padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px;background:${sel?t.color+'14':'transparent'};">
       <input type="checkbox"${sel?' checked':''} style="width:15px;height:15px;flex-shrink:0;cursor:pointer;accent-color:${t.color};">
       <span style="width:11px;height:11px;border-radius:50%;background:${t.color};flex-shrink:0;"></span>
-      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(t.name)}${isOverviewTour(t.id)?' <span style="font-size:10px;color:var(--text3);font-weight:600;">Übersicht</span>':''}</span>${badge}
+      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(t.name)}${isOverviewTour(t.id)?' <span style="font-size:10px;color:var(--text3);font-weight:600;">Übersicht</span>':''}</span>${badge}
     </label>`;
   };
   const _selCount=visible.filter(t=>cur.includes(t.id)).length;
+  const _zug=visible.filter(t=>cur.includes(t.id)), _rest=visible.filter(t=>!cur.includes(t.id));
+  const _sep=(_zug.length&&_rest.length)?`<div id="inline-tour-sep" style="padding:3px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text3);background:var(--surface2);border-bottom:1px solid var(--border);">Weitere Touren</div>`:'';
   const chips = tours.length===0
     ? '<div style="padding:10px;font-size:12px;color:var(--text3);">Keine Touren angelegt</div>'
-    : (visible.map((t,i)=>rowHtml(t, i===_selCount && _selCount>0)).join('') || '<div style="padding:10px;font-size:12px;color:var(--text3);">Keine echten Touren — über „Übersichten einblenden" anzeigen.</div>');
+    : ((_zug.map(rowHtml).join('')+_sep+_rest.map(rowHtml).join('')) || '<div style="padding:10px;font-size:12px;color:var(--text3);">Keine echten Touren — über „Übersichten einblenden" anzeigen.</div>');
   // Suchfeld erst ab vielen Touren einblenden
   const search = visible0.length>6
     ? `<input id="inline-tour-search" type="text" placeholder="Tour suchen…" oninput="filterInlineTours(this.value)" autocomplete="off" style="width:100%;padding:6px 9px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;font-family:inherit;margin-bottom:5px;box-sizing:border-box;outline:none;">`
     : '';
+  const zaehler=`<div style="font-size:11px;color:var(--text3);margin-bottom:4px;">${_selCount} von ${visible0.length} Touren zugeordnet</div>`;
   const toggle = ueb.length
     ? `<div onclick="toggleOverviewInDetail()" style="cursor:pointer;font-size:12px;font-weight:600;color:var(--green);padding:5px 2px;">${showOverviewInDetail?'− Übersichten ausblenden':`+ Übersichten einblenden (${ueb.length})`}</div>`
     : '';
-  wrap.innerHTML=`${search}<div id="inline-tour-chips" style="max-height:170px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:6px;">${chips}</div><div id="inline-tour-empty" style="display:none;padding:10px;font-size:12px;color:var(--text3);">Keine Tour gefunden.</div>${toggle}
+  wrap.innerHTML=`${zaehler}${search}<div id="inline-tour-chips" style="display:flex;flex-direction:column;max-height:190px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:6px;">${chips}</div><div id="inline-tour-empty" style="display:none;padding:10px;font-size:12px;color:var(--text3);">Keine Tour gefunden.</div>${toggle}
     <button class="btn btn-primary" style="padding:5px 12px;font-size:12px;width:100%;${ro?'opacity:.45;cursor:not-allowed;':''}" ${ro?'disabled title="Nur Lesezugriff"':`onclick="saveInlineFields('${selectedTreeId}')"`}>Touren speichern</button>`;
 }
 // Live-Filter der Detail-Tourliste: blendet nur aus (Häkchen ausgeblendeter Touren bleiben im DOM → kein Datenverlust beim Speichern)
@@ -4609,6 +4611,7 @@ function filterInlineTours(q){
     r.style.display=show?'':'none'; if(show) vis++;
   });
   const empty=document.getElementById('inline-tour-empty'); if(empty) empty.style.display=(q&&vis===0)?'block':'none';
+  const sep=document.getElementById('inline-tour-sep'); if(sep) sep.style.display=q?'none':''; // beim Suchen kein „Weitere Touren"-Trenner
 }
 async function saveInlineFields(id){
   if(isReadonly()){ notify('Nur Lesezugriff'); return; }
