@@ -6928,8 +6928,8 @@ function renderArtenList(){
       ${showKl?`<td style="padding:7px 12px;">${ro?dlEsc(objektklassen.find(k=>k.id===a.klasse)?.name||'alle'):`<select onchange="artSetKlasse('${_jsArg(a.id)}',this.value)" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;max-width:140px;"><option value="">alle Klassen</option>${objektklassen.map(k=>`<option value="${dlEsc(k.id)}"${a.klasse===k.id?' selected':''}>${dlEsc(k.name)}</option>`).join('')}</select>`}</td>`:''}
       <td style="padding:7px 12px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text2);">${c}</td>
       <td style="padding:4px 12px;text-align:right;white-space:nowrap;">${ro
-        ?(typeof a.zeitaufwand==='number'&&a.zeitaufwand>0?a.zeitaufwand+' min':'<span style="color:var(--text3);font-size:11px;">Standard</span>')
-        :`<input type="number" min="0" step="1" value="${typeof a.zeitaufwand==='number'&&a.zeitaufwand>0?a.zeitaufwand:''}" placeholder="${getBewDuration()}" onchange="artSetTime('${_jsArg(a.id)}',this.value)" style="width:50px;padding:3px 6px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;" title="Minuten je Objekt (Stück); leer = Projekt-Standard (${getBewDuration()} min)"><span style="font-size:10px;color:var(--text3);"> min/Stk</span>${_geomActive()?`<br><input type="number" min="0" step="0.1" value="${typeof a.zeitaufwandM==='number'&&a.zeitaufwandM>0?a.zeitaufwandM:''}" placeholder="–" onchange="artSetRate('${_jsArg(a.id)}','zeitaufwandM',this.value)" style="width:50px;padding:3px 6px;margin-top:3px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;" title="Minuten je 100 m (Strecken)"><span style="font-size:10px;color:var(--text3);"> min/100m</span><br><input type="number" min="0" step="0.1" value="${typeof a.zeitaufwandM2==='number'&&a.zeitaufwandM2>0?a.zeitaufwandM2:''}" placeholder="–" onchange="artSetRate('${_jsArg(a.id)}','zeitaufwandM2',this.value)" style="width:50px;padding:3px 6px;margin-top:3px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;" title="Minuten je 100 m² (Flächen)"><span style="font-size:10px;color:var(--text3);"> min/100m²</span>`:''}`}</td>
+        ?(typeof a.zeitaufwand==='number'&&a.zeitaufwand>0?(''+a.zeitaufwand).replace('.',',')+' min':'<span style="color:var(--text3);font-size:11px;">Standard</span>')
+        :`<input type="number" min="0" step="0.1" value="${typeof a.zeitaufwand==='number'&&a.zeitaufwand>0?a.zeitaufwand:''}" placeholder="${getBewDuration()}" onchange="artSetTime('${_jsArg(a.id)}',this.value)" style="width:50px;padding:3px 6px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;" title="Minuten je Objekt (Stück); leer = Projekt-Standard (${getBewDuration()} min)"><span style="font-size:10px;color:var(--text3);"> min/Stk</span>${_geomActive()?`<br><input type="number" min="0" step="0.1" value="${typeof a.zeitaufwandM==='number'&&a.zeitaufwandM>0?a.zeitaufwandM:''}" placeholder="–" onchange="artSetRate('${_jsArg(a.id)}','zeitaufwandM',this.value)" style="width:50px;padding:3px 6px;margin-top:3px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;" title="Minuten je 100 m (Strecken)"><span style="font-size:10px;color:var(--text3);"> min/100m</span><br><input type="number" min="0" step="0.1" value="${typeof a.zeitaufwandM2==='number'&&a.zeitaufwandM2>0?a.zeitaufwandM2:''}" placeholder="–" onchange="artSetRate('${_jsArg(a.id)}','zeitaufwandM2',this.value)" style="width:50px;padding:3px 6px;margin-top:3px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;" title="Minuten je 100 m² (Flächen)"><span style="font-size:10px;color:var(--text3);"> min/100m²</span>`:''}`}</td>
       <td style="padding:7px 12px;white-space:nowrap;text-align:right;">${ro?'<span style="font-size:11px;color:var(--text3);">nur Lesezugriff</span>':`
         <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" onclick="renameArt('${a.id}')">Umbenennen</button>
         <select data-merge-field="__art__" data-merge-self="${dlEsc(a.id)}" onmousedown="_fillMerge(this)" onfocus="_fillMerge(this)" onchange="if(this.value)mergeArt('${a.id}',this.value);this.selectedIndex=0;" style="padding:3px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
@@ -6947,7 +6947,7 @@ function renderArtenList(){
     </div>
     ${ro?'':`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin-bottom:10px;">
       <span style="font-size:12px;font-weight:600;color:var(--text2);">⏱ Standard-Zeitaufwand</span>
-      <input id="art-default-time" type="number" min="1" max="240" step="1" value="${getBewDuration()}" onchange="setArtDefaultTime(this.value)" style="width:64px;padding:4px 6px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
+      <input id="art-default-time" type="number" min="0.1" max="240" step="0.1" value="${getBewDuration()}" onchange="setArtDefaultTime(this.value)" style="width:64px;padding:4px 6px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
       <span style="font-size:12px;color:var(--text3);">Min/Objekt — gilt für Arten ohne eigenen Wert</span>
       ${artenList.length?`<button class="btn btn-secondary" style="margin-left:auto;padding:4px 10px;font-size:12px;white-space:nowrap;" onclick="artApplyTimeToAll()" title="Diesen Wert in alle ${artenList.length} Arten als eigenen Zeitaufwand schreiben">Für alle Arten übernehmen</button>`:''}
     </div>`}
@@ -6985,7 +6985,7 @@ async function artSetIcon(id){
 async function artSetTime(id,val){
   if(isReadonly()) return;
   const s=(''+(val??'')).trim().replace(',','.');
-  const n=s===''?null:Math.max(0,Math.round(parseFloat(s)||0));
+  const n=s===''?null:Math.max(0,Math.round((parseFloat(s)||0)*100)/100); // auch < 1 min (2 Nachkommastellen)
   try{
     const useDefault=(n==null||!(n>0));
     await updateDoc(doc(db,'projects',currentProjectId,'arten',id), useDefault?{zeitaufwand:firebase.firestore.FieldValue.delete()}:{zeitaufwand:n});
@@ -6994,7 +6994,7 @@ async function artSetTime(id,val){
     try{ updateRouteInfoBar(); }catch(e){}
     try{ renderLegend(); }catch(e){}
     try{ renderTourenGrid(); }catch(e){}
-    notify(useDefault?'✓ Zeitaufwand: Projekt-Standard':'✓ Zeitaufwand '+n+' min/Objekt');
+    notify(useDefault?'✓ Zeitaufwand: Projekt-Standard':'✓ Zeitaufwand '+(''+n).replace('.',',')+' min/Objekt');
   }catch(e){ notify(dlErr(e)); }
 }
 // Längen-/Flächen-Aufwandssatz je Art: zeitaufwandM (min/100 m) bzw. zeitaufwandM2 (min/100 m²)
@@ -7016,7 +7016,7 @@ async function artSetRate(id, field, val){
 // Standard-Zeitaufwand (Fallback für Arten ohne eigenen Wert) — am Projekt-Doc.
 async function setArtDefaultTime(val){
   if(isReadonly()) return;
-  const n=Math.max(1,Math.round(parseFloat((''+(val??'')).replace(',','.'))||0))||5;
+  const n=Math.max(0.1,Math.round((parseFloat((''+(val??'')).replace(',','.'))||5)*100)/100); // auch < 1 min zulässig
   try{
     await updateDoc(doc(db,'projects',currentProjectId),{bewDuration:n});
     if(currentProjectData) currentProjectData.bewDuration=n;
@@ -7025,7 +7025,7 @@ async function setArtDefaultTime(val){
     try{ updateRouteInfoBar(); }catch(e){}
     try{ renderLegend(); }catch(e){}
     try{ renderTourenGrid(); }catch(e){}
-    notify('✓ Standard-Zeitaufwand '+n+' min/Objekt');
+    notify('✓ Standard-Zeitaufwand '+(''+n).replace('.',',')+' min/Objekt');
   }catch(e){ notify(dlErr(e)); }
 }
 // Komfort: den Standardwert als eigenen Zeitaufwand in ALLE Arten schreiben.
