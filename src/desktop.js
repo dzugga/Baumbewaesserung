@@ -5830,6 +5830,11 @@ function openImport(){
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 15V3"/><polyline points="7 8 12 3 17 8"/><path d="M5 21h14"/></svg>
         Alle Objekte exportieren (Excel)
       </button>
+      <button class="btn btn-secondary" id="imp-export-tour" style="width:100%;margin-bottom:8px;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 15V3"/><polyline points="7 8 12 3 17 8"/><path d="M5 21h14"/></svg>
+        Objekte mit Tour-Zuordnung exportieren (Excel)
+      </button>
+      <div style="font-size:11px;color:var(--text3);line-height:1.6;margin-bottom:8px;">„Mit Tour-Zuordnung": je Objekt und zugeordneter Tour eine Zeile (inkl. Koordinaten) — mehrfach zugeordnete Objekte erscheinen mehrfach.</div>
       <button class="btn btn-secondary" id="imp-shp" style="width:100%;">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
         Als Shapefile exportieren (ZIP · ETRS89/UTM 32N)
@@ -5843,6 +5848,7 @@ function openImport(){
   m.querySelector('#imp-shp-in').onclick=()=>{ close(); document.getElementById('shape-import-input').click(); };
   m.querySelector('#imp-tpl').onclick=e=>{ e.preventDefault(); downloadImportTemplate(); };
   m.querySelector('#imp-export').onclick=()=>{ downloadObjectsExport(); };
+  m.querySelector('#imp-export-tour').onclick=()=>{ downloadObjectsTourExport(); };
   m.querySelector('#imp-shp').onclick=()=>{ exportShapefile(); };
 }
 
@@ -10029,6 +10035,35 @@ function downloadObjectsExport(){
   const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Objekte');
   XLSX.writeFile(wb, ((currentProjectData?.name||'Objekte').replace(/[^\w-]+/g,'_'))+'_Export.xlsx');
   notify(`✓ ${list.length} Objekte exportiert`);
+}
+// Export MIT Tour-Zuordnung: je Objekt und zugeordneter (echter) Tour eine Zeile — mehrfach
+// zugeordnete Objekte erscheinen mehrfach; Objekte ohne Tour einmal mit leeren Tour-Spalten.
+function downloadObjectsTourExport(){
+  const XLSX=window.XLSX; if(!XLSX){ notify('SheetJS nicht geladen'); return; }
+  const _WDN={0:'So',1:'Mo',2:'Di',3:'Mi',4:'Do',5:'Fr',6:'Sa'};
+  const _IVL={taeglich:'täglich',woechentlich:'wöchentlich','14taeglich':'14-täglich','4woechentlich':'4-wöchentlich',bedarf:'Bedarf'};
+  const headers=[FL.name,FL.stadtteil,FL.baumnr,FL.art,FL.pflanzjahr,FL.pflanzzeitpunkt,FL.zustand,FL.wasser,...customFields.map(c=>c.label),FL.notiz,'Objektklasse','Koordinate 1','Koordinate 2','Objekt-ID','Tour','Tour-Wochentag','Tour-Betriebshof','Tour-Intervall','Tour-Startdatum'];
+  const list=((_allTrees&&_allTrees.length)?_allTrees:trees).filter(isActive);
+  const _klName=t=>{ const k=objektklassen.find(x=>x.id===t.klasse); return k?k.name:''; };
+  const baseRow=t=>{ const kf=_klasseFelder(t), ok=key=>!kf||kf.includes(key), gt=geomTypeOf(t);
+    return [ orTitel(t,_containerByExt)||'',
+      ok('stadtteil')?(t.stadtteil||''):'', ok('baumnr')?(t.baumnr||''):'', ok('art')?(t.art||''):'',
+      ok('pflanzjahr')?(t.pflanzjahr||''):'', ok('pflanzzeitpunkt')?(t.pflanzzeitpunkt||''):'',
+      ok('zustand')?rankLabel('zustand',t.zustand):'', ok('wasser')?rankLabel('wasser',t.wasser):'',
+      ...customFields.map(c=>(ok(c.key)&&fieldAppliesTo(c,gt))?(t[c.key]||''):''),
+      ok('notiz')?(t.notiz||''):'', _klName(t), (t.lat==null?'':t.lat), (t.lng==null?'':t.lng), t.baumId||'' ]; };
+  const tourCols=tr=>tr?[tr.name||'', (Array.isArray(tr.betriebstage)?tr.betriebstage.map(c=>_WDN[c]||c).join('/'):''), tr.betriebshof||'', (_IVL[tr.interval]||tr.interval||''), tr.startDate||'']:['','','','',''];
+  const rows=[]; let zug=0;
+  list.forEach(t=>{
+    const ids=getTreeTourIds(t).filter(id=>!isOverviewTour(id));
+    const trs=ids.map(id=>tours.find(x=>x.id===id)).filter(Boolean);
+    if(trs.length){ trs.forEach(tr=>{ rows.push([...baseRow(t),...tourCols(tr)]); zug++; }); }
+    else rows.push([...baseRow(t),...tourCols(null)]); // ohne Tour: eine Zeile, leere Tour-Spalten
+  });
+  const ws=XLSX.utils.aoa_to_sheet([headers,...rows]);
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Objekte je Tour');
+  XLSX.writeFile(wb, ((currentProjectData?.name||'Objekte').replace(/[^\w-]+/g,'_'))+'_Export_Touren.xlsx');
+  notify(`✓ ${rows.length} Zeilen (${list.length} Objekte · ${zug} Tour-Zuordnungen)`);
 }
 
 // ── Shapefile-Export (Punkte/Strecken/Flächen, ETRS89/UTM 32N) ───────────────
