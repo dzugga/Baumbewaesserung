@@ -4,11 +4,13 @@
 // Datenmodell: Collection `presence`, ein Doc je Sitzung:
 //   {orgId, kind:'desktop'|'fahrer'|'einsatzleiter'|'erfassung', userKey, name, role, app, buildId,
 //    loginAt(ms), lastSeen(ms), logoutAt(ms|null)}
-// Login → Doc anlegen · Heartbeat (~60 s) → lastSeen · Logout/Tab-schließen → logoutAt.
-// Impliziter Abbruch (Absturz): über lastSeen-Alter erkannt (kein logoutAt).
+// Login → Doc anlegen · Lebenszeichen (~5 min) → lastSeen · Logout/Tab-schließen → logoutAt.
+// Das Lebenszeichen misst KEINE Aktivität — es dient allein dazu, das Sitzungsende zu erkennen,
+// wenn kein sauberer Logout kommt (Absturz/Tab zu/Netz weg): dann gilt die Sitzung nach
+// Ablauf von PRESENCE_STALE_MS als beendet (kein logoutAt).
 
-export const PRESENCE_HEARTBEAT_MS = 60 * 1000;
-export const PRESENCE_STALE_MS = 150 * 1000; // „online" = lastSeen jünger als das (≥ 2× Heartbeat)
+export const PRESENCE_HEARTBEAT_MS = 5 * 60 * 1000;   // 5 min — sparsam; nur Lebenszeichen
+export const PRESENCE_STALE_MS = 11 * 60 * 1000;      // „online"/„läuft" = lastSeen jünger als das (≥ 2× Heartbeat)
 
 // Erfassung. Gibt ein Handle mit stop() zurück. db = compat-Firestore-Instanz.
 export function startPresence(opts) {

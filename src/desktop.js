@@ -8841,7 +8841,7 @@ function _praesOrg(oid){ if(!oid) return '—'; if(String(oid).startsWith('super
 function _praesenzApplyTimer(){
   _praesenzStopTimer();
   if(!_praesLive()) return; // Live-Aktualisierung nur wenn eingeschaltet (spart Lesevorgänge)
-  _praesenzTimer=setInterval(()=>{ if(document.getElementById('view-praesenz')?.style.display==='block') _praesenzLoad(false); else _praesenzStopTimer(); },60000);
+  _praesenzTimer=setInterval(()=>{ if(document.getElementById('view-praesenz')?.style.display==='block') _praesenzLoad(false); else _praesenzStopTimer(); },120000);
 }
 function praesenzToggleLive(){ try{ localStorage.setItem('praesenzLive', _praesLive()?'0':'1'); }catch(_){} _praesenzApplyTimer(); if(_praesLive()) _praesenzLoad(false); else renderPraesenz(); }
 async function initPraesenz(){
@@ -8925,12 +8925,12 @@ function renderPraesenz(){
   const live=_praesLive();
   const liveBar=`<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
     <button onclick="praesenzToggleLive()" style="padding:6px 14px;font-size:12px;font-weight:600;border-radius:7px;cursor:pointer;border:1px solid ${live?'#16a34a':'var(--border)'};background:${live?'#16a34a':'var(--surface)'};color:${live?'#fff':'var(--text)'};">${live?'⏸ Live-Aktualisierung aus':'▶ Live-Aktualisierung an'}</button>
-    <span style="font-size:11px;color:var(--text3);">${live?'Aktualisiert automatisch alle 60 s (nur aktive Sitzungen).':'Standardmäßig aus (spart Lesevorgänge) — „↻" oben lädt manuell neu.'}</span></div>`;
+    <span style="font-size:11px;color:var(--text3);">${live?'Aktualisiert automatisch alle 2 Min (nur aktive Sitzungen).':'Standardmäßig aus (spart Lesevorgänge) — „↻" oben lädt manuell neu.'}</span></div>`;
   root.innerHTML=`${liveBar}${kpis}
     <div class="dsh-card" style="margin-bottom:14px;"><div style="font-weight:700;font-size:13px;margin-bottom:6px;">Gerade online (${online.length})</div>${onlineList}</div>
     <div class="dsh-card" style="margin-bottom:14px;">${parallel}</div>
     <div class="dsh-card">${verlauf}</div>
-    <div style="font-size:11px;color:var(--text3);margin-top:10px;">„Online" = Signal jünger als ${Math.round(PRESENCE_STALE_MS/1000)} s (Heartbeat ~60 s). Erfasst Desktop-, Fahrer-, Einsatzleiter- und Erfassungs-App. „↻" oben lädt die volle Historie neu.</div>`;
+    <div style="font-size:11px;color:var(--text3);margin-top:10px;">„Online"/„läuft" = Lebenszeichen jünger als ${Math.round(PRESENCE_STALE_MS/60000)} Min (Ping ~5 Min; dient nur der Ende-Erkennung, keine Aktivitätsmessung). Erfasst Desktop-, Fahrer-, Einsatzleiter- und Erfassungs-App. „↻" oben lädt die volle Historie neu.</div>`;
 }
 async function initLizenzen(){
   if(currentRole!=='superadmin'){ const r=document.getElementById('liz-root'); if(r) r.innerHTML='<div style="padding:30px;color:var(--text3);">Nur Superadmin.</div>'; return; }
