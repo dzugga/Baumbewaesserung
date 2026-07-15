@@ -8786,6 +8786,11 @@ function _lizIst(oid,art){
   const c=_lizCounts[oid]||{};
   return zr.reduce((s,r)=>s+(c[r]||0),0);
 }
+// Überschreitung nur, wenn das Modul beim Kunden auch gebucht ist (Vertragsmenge > 0).
+// Die „Vergeben"-Zahl zählt Logins rollenbasiert; eine Rolle kann mehreren Artikeln zugeordnet
+// sein. Bei nicht gebuchtem Modul (menge 0) ist ein Login mit passender Rolle KEINE Überschreitung
+// — die Person nutzt ihre Lizenz über ein gebuchtes Modul.
+function _lizPosOver(ist,menge){ return ist!=null && (menge||0)>0 && ist>(menge||0); }
 function _lizIstTip(oid,art){ // Aufschlüsselung je Rolle für den Tooltip
   const c=_lizCounts[oid]||{};
   return ((art&&art.zaehlRollen)||[]).map(r=>`${(_lizRollen.find(x=>x.key===r)||{}).name||r}: ${c[r]||0}`).join(' · ');
@@ -8796,7 +8801,7 @@ function _lizOrgHatLizenzen(oid){ return Object.values(_lizOrgLizenzen[oid]||{})
 function _lizOrgUeberschreitung(oid){
   if(!_lizOrgHatLizenzen(oid)) return false;
   const liz=_lizOrgLizenzen[oid]||{};
-  return _lizArtikel.some(a=>{ const ist=_lizIst(oid,a); return ist!=null && ist>((liz[a.id]||{}).menge||0); });
+  return _lizArtikel.some(a=>_lizPosOver(_lizIst(oid,a),(liz[a.id]||{}).menge||0));
 }
 async function initLizenzen(){
   if(currentRole!=='superadmin'){ const r=document.getElementById('liz-root'); if(r) r.innerHTML='<div style="padding:30px;color:var(--text3);">Nur Superadmin.</div>'; return; }
@@ -9106,13 +9111,13 @@ function renderLizenzen(){
       const p=liz[a.id]||{menge:0,preis:null};
       const ist=_lizIst(dOrg.id,a);
       const istTip=dlEsc(_lizIstTip(dOrg.id,a));
-      const over=ist!=null&&ist>(p.menge||0);
+      const over=_lizPosOver(ist,p.menge||0);
       const eff=_lizEffPreis(a,p);
       const sonder=p.preis!=null;
       return `<tr>
         <td style="padding:6px 12px;font-weight:600;">${dlEsc(a.name)}${sonder?' <span style="font-size:10px;color:#1d4ed8;font-weight:700;">Sonderpreis</span>':''}<div style="font-size:10px;font-weight:400;color:var(--text3);">${dlEsc(a.einheit||'')}</div></td>
         <td style="padding:5px 8px;text-align:right;"><input style="${inp}width:60px;text-align:right;" value="${p.menge||0}" onchange="lizPosField('${_jsArg(dOrg.id)}','${_jsArg(a.id)}','menge',this.value)"></td>
-        <td style="padding:6px 8px;text-align:right;">${ist==null?'<span style="color:var(--text3);" title="Kein Ist-Zähler — keine Rollen am Artikel angehakt">—</span>':(over?`<span style="background:#fef3c7;color:#854f0b;font-weight:700;padding:2px 8px;border-radius:99px;font-size:12px;" title="Mehr vergeben als lizenziert · ${istTip}">⚠ ${ist}</span>`:`<span style="color:var(--green);font-weight:600;" title="${istTip}">${ist} ✓</span>`)}</td>
+        <td style="padding:6px 8px;text-align:right;">${ist==null?'<span style="color:var(--text3);" title="Kein Ist-Zähler — keine Rollen am Artikel angehakt">—</span>':((p.menge||0)===0?`<span style="color:var(--text3);" title="Modul nicht gebucht (Vertragsmenge 0) — ${ist} Login(s) mit passender Rolle nutzen ihre Lizenz über ein gebuchtes Modul · ${istTip}">${ist}</span>`:(over?`<span style="background:#fef3c7;color:#854f0b;font-weight:700;padding:2px 8px;border-radius:99px;font-size:12px;" title="Mehr vergeben als lizenziert · ${istTip}">⚠ ${ist}</span>`:`<span style="color:var(--green);font-weight:600;" title="${istTip}">${ist} ✓</span>`))}</td>
         <td style="padding:5px 8px;text-align:right;"><input style="${inp}width:80px;text-align:right;${sonder?'border-color:#93c5fd;':''}" value="${dlEsc(sonder?_lizPreisStr(p.preis):'')}" placeholder="${dlEsc(_lizPreisStr(a.preis)||'0,00')}" onchange="lizPosField('${_jsArg(dOrg.id)}','${_jsArg(a.id)}','preis',this.value)" title="Leer = Katalogpreis · eigener Wert = Sonderpreis"></td>
         <td style="padding:6px 12px;text-align:right;font-weight:600;white-space:nowrap;">${_lizEur((p.menge||0)*eff)}</td>
       </tr>`;
