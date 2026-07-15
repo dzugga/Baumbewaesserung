@@ -8833,18 +8833,23 @@ function _lizOrgUeberschreitung(oid){
   return _lizArtikel.some(a=>_lizPosOver(_lizIst(oid,a),(liz[a.id]||{}).menge||0));
 }
 // ── Präsenz/Sitzungen (Superadmin): wer ist online, Verlauf, Parallelnutzung ──
-let _praesenzData=null, _praesenzTimer=null;
+let _praesenzData=null, _praesenzTimer=null, _praesOrgNames=null;
 const _PRAES_KIND={desktop:['Desktop','#2563eb'],fahrer:['Fahrer','#16a34a'],einsatzleiter:['Einsatzleiter','#9333ea'],erfassung:['Erfassung','#ea580c']};
 function _praesenzStopTimer(){ if(_praesenzTimer){ clearInterval(_praesenzTimer); _praesenzTimer=null; } }
+function _praesLive(){ try{ return localStorage.getItem('praesenzLive')==='1'; }catch(_){ return false; } }
+function _praesOrg(oid){ if(!oid) return '—'; if(String(oid).startsWith('super:')) return 'Superadmin'; return (_praesOrgNames&&_praesOrgNames[oid])||oid; }
+function _praesenzApplyTimer(){
+  _praesenzStopTimer();
+  if(!_praesLive()) return; // Live-Aktualisierung nur wenn eingeschaltet (spart Lesevorgänge)
+  _praesenzTimer=setInterval(()=>{ if(document.getElementById('view-praesenz')?.style.display==='block') _praesenzLoad(false); else _praesenzStopTimer(); },60000);
+}
+function praesenzToggleLive(){ try{ localStorage.setItem('praesenzLive', _praesLive()?'0':'1'); }catch(_){} _praesenzApplyTimer(); if(_praesLive()) _praesenzLoad(false); else renderPraesenz(); }
 async function initPraesenz(){
   const root=document.getElementById('praesenz-root');
   if(currentRole!=='superadmin'){ if(root) root.innerHTML='<div style="padding:30px;color:var(--text3);">Nur Superadmin.</div>'; return; }
+  if(!_praesOrgNames){ try{ const qs=await db.collection('orgs').get(); _praesOrgNames={}; qs.forEach(d=>{ _praesOrgNames[d.id]=d.data().name||d.id; }); }catch(_){ _praesOrgNames={}; } }
   await _praesenzLoad(true);
-  _praesenzStopTimer();
-  // Kostensparend: NICHT alle 800 Docs neu lesen, sondern im Intervall nur die aktuell aktiven
-  // Sitzungen (where lastSeen>=cutoff, wenige Docs) und in den Bestand mergen. Volle Historie
-  // nur beim Öffnen / bei „↻". Intervall 60 s (= Heartbeat-Takt).
-  _praesenzTimer=setInterval(()=>{ if(document.getElementById('view-praesenz')?.style.display==='block') _praesenzLoad(false); else _praesenzStopTimer(); },60000);
+  _praesenzApplyTimer(); // Timer nur, wenn Live eingeschaltet
 }
 async function _praesenzLoad(full){
   const root=document.getElementById('praesenz-root');
@@ -8898,7 +8903,8 @@ function renderPraesenz(){
       <span style="width:9px;height:9px;border-radius:50%;background:#16a34a;flex:none;"></span>
       <span style="font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(s.name||s.userKey||'?')}</span>
       <span style="font-size:10px;font-weight:700;color:#fff;background:${_praesKindCol(s.kind)};padding:1px 6px;border-radius:5px;flex:none;">${_praesKindLbl(s.kind)}</span>
-      <span style="color:var(--text3);flex:1;">${dlEsc(s.role||'')}</span>
+      <span style="color:var(--text2);font-weight:600;flex:none;">${dlEsc(_praesOrg(s.orgId))}</span>
+      <span style="color:var(--text3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(s.role||'')}</span>
       <span style="color:var(--text3);flex:none;">seit ${_praesFmtDT(s.loginAt)} · Signal ${_praesAgo(s.lastSeen)}</span>
     </div>`).join(''):'<div style="padding:10px;color:var(--text3);font-size:12px;">Aktuell niemand online.</div>';
   // Verlauf (letzte 60 Sitzungen nach Login)
@@ -8907,19 +8913,24 @@ function renderPraesenz(){
     return `<tr style="border-bottom:1px solid var(--border);">
       <td style="padding:4px 10px;">${dlEsc(s.name||s.userKey||'?')}</td>
       <td style="padding:4px 10px;"><span style="font-size:10px;font-weight:700;color:#fff;background:${_praesKindCol(s.kind)};padding:1px 6px;border-radius:5px;">${_praesKindLbl(s.kind)}</span></td>
+      <td style="padding:4px 10px;font-weight:600;">${dlEsc(_praesOrg(s.orgId))}</td>
       <td style="padding:4px 10px;color:var(--text3);">${dlEsc(s.role||'')}</td>
       <td style="padding:4px 10px;white-space:nowrap;">${_praesFmtDT(s.loginAt)}</td>
       <td style="padding:4px 10px;white-space:nowrap;">${on?'<span style="color:#16a34a;font-weight:600;">● läuft</span>':_praesFmtDT(presenceSessionEnd(s))}</td>
       <td style="padding:4px 10px;text-align:right;">${dur} min</td></tr>`; }).join('');
   const verlauf=`<div style="font-weight:700;font-size:13px;margin:16px 0 6px;">Verlauf (letzte ${hist.length} Sitzungen)</div>
     <div style="overflow-x:auto;"><table style="border-collapse:collapse;font-size:12px;width:100%;min-width:640px;">
-      <thead><tr style="color:var(--text3);text-align:left;"><th style="padding:4px 10px;">Name</th><th style="padding:4px 10px;">App</th><th style="padding:4px 10px;">Rolle</th><th style="padding:4px 10px;">Login</th><th style="padding:4px 10px;">Logout/aktiv</th><th style="padding:4px 10px;text-align:right;">Dauer</th></tr></thead>
+      <thead><tr style="color:var(--text3);text-align:left;"><th style="padding:4px 10px;">Name</th><th style="padding:4px 10px;">App</th><th style="padding:4px 10px;">Mandant</th><th style="padding:4px 10px;">Rolle</th><th style="padding:4px 10px;">Login</th><th style="padding:4px 10px;">Logout/aktiv</th><th style="padding:4px 10px;text-align:right;">Dauer</th></tr></thead>
       <tbody>${histRows}</tbody></table></div>`;
-  root.innerHTML=`${kpis}
+  const live=_praesLive();
+  const liveBar=`<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
+    <button onclick="praesenzToggleLive()" style="padding:6px 14px;font-size:12px;font-weight:600;border-radius:7px;cursor:pointer;border:1px solid ${live?'#16a34a':'var(--border)'};background:${live?'#16a34a':'var(--surface)'};color:${live?'#fff':'var(--text)'};">${live?'⏸ Live-Aktualisierung aus':'▶ Live-Aktualisierung an'}</button>
+    <span style="font-size:11px;color:var(--text3);">${live?'Aktualisiert automatisch alle 60 s (nur aktive Sitzungen).':'Standardmäßig aus (spart Lesevorgänge) — „↻" oben lädt manuell neu.'}</span></div>`;
+  root.innerHTML=`${liveBar}${kpis}
     <div class="dsh-card" style="margin-bottom:14px;"><div style="font-weight:700;font-size:13px;margin-bottom:6px;">Gerade online (${online.length})</div>${onlineList}</div>
     <div class="dsh-card" style="margin-bottom:14px;">${parallel}</div>
     <div class="dsh-card">${verlauf}</div>
-    <div style="font-size:11px;color:var(--text3);margin-top:10px;">„Online" = Signal jünger als ${Math.round(PRESENCE_STALE_MS/1000)} s (Heartbeat ~60 s). Erfasst Desktop-, Fahrer-, Einsatzleiter- und Erfassungs-App. Aktualisierung alle 60 s (nur aktive Sitzungen, kostensparend); „↻" lädt die volle Historie neu.</div>`;
+    <div style="font-size:11px;color:var(--text3);margin-top:10px;">„Online" = Signal jünger als ${Math.round(PRESENCE_STALE_MS/1000)} s (Heartbeat ~60 s). Erfasst Desktop-, Fahrer-, Einsatzleiter- und Erfassungs-App. „↻" oben lädt die volle Historie neu.</div>`;
 }
 async function initLizenzen(){
   if(currentRole!=='superadmin'){ const r=document.getElementById('liz-root'); if(r) r.innerHTML='<div style="padding:30px;color:var(--text3);">Nur Superadmin.</div>'; return; }
@@ -16862,7 +16873,7 @@ Object.assign(window,{
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleBhNames,toggleRequiredFeld,toggleRawSeg,_siInfo,
   createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,dashSetBh,tourSetBh,epChangeBh,epTogglePersnr,epToggleBhCol,psSetOrgFilter,setSiTab,
-  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizArtRolle,lizArtMove,lizZrFlip,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,lizPrintOrg,lizPrintAll,lizPrintPreisliste,praesenzRefresh,
+  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizArtRolle,lizArtMove,lizZrFlip,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,lizPrintOrg,lizPrintAll,lizPrintPreisliste,praesenzRefresh,praesenzToggleLive,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,openMeldungFotos,stepMeldungFoto,closeMeldungFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
