@@ -24,6 +24,7 @@ import { initVersionCheck } from './version-check.js';
 // Tourkalender (Soll-Logik) zentral — auch die Einsatzleiter-App nutzt exakt diese Regeln
 import { tourDueOn as _tkTourDueOn, tourInValidity as _tourInValidity, tourBetriebstage as _tourBetriebstage, isoWeekIndex as _isoWeekIndex, saisonForDate as _tkSaisonForDate, SAISON_DEFAULT } from './tour-kalender.js';
 import { printA4, printDoc, printDocFrame } from './printview.js';
+import { startPresence, presenceIsOnline, presenceMaxParallel, presenceDurationMs, presenceSessionEnd, PRESENCE_STALE_MS } from './presence.js';
 import { buildShapefileZip, PRJ_ETRS89_UTM32N } from './geo-export.js';
 import { readShapefileZip } from './geo-import.js';
 initVersionCheck();   // erkennt neue Deploys während die App offen ist → „Neu laden"-Banner
@@ -230,6 +231,7 @@ let currentRole = '';     // aus Custom Claims (Rollen-Key)
 let currentCap  = '';     // aus Custom Claims (Basis-Typ: admin|editor|readonly|driver)
 let currentOrg  = '';     // aus Custom Claims
 let currentName = '';     // Anzeigename (E-Mail oder PIN-Name)
+let _presence = null;     // aktive Präsenz-Sitzung (src/presence.js)
 
 // ─── ROLLEN & MODULE ──────────────────────────────────────────
 // Pro Rolle zuweisbare Module = die operativen Reiter. NICHT enthalten (bewusst nur Superadmin):
@@ -6169,6 +6171,8 @@ function switchView(v){
   const verwaltung=document.getElementById('view-verwaltung');
   const usage=document.getElementById('view-usage'); if(usage) usage.style.display=v==='usage'?'block':'none';
   const lizenzen=document.getElementById('view-lizenzen'); if(lizenzen) lizenzen.style.display=v==='lizenzen'?'block':'none';
+  const praesenz=document.getElementById('view-praesenz'); if(praesenz) praesenz.style.display=v==='praesenz'?'block':'none';
+  if(v!=='praesenz') _praesenzStopTimer();
   const feldbez=document.getElementById('view-feldbezeichnungen');
   const benutzer=document.getElementById('view-benutzer');
   if(feldbez) feldbez.style.display=v==='feldbezeichnungen'?'block':'none';
@@ -6228,6 +6232,7 @@ function switchView(v){
   if(v==='feldbezeichnungen') initFeldbezeichnungen();
   if(v==='usage') initUsage();
   if(v==='lizenzen') initLizenzen();
+  if(v==='praesenz') initPraesenz();
   if(v==='benutzer') initBenutzer();
 }
 async function initBenutzer(){
@@ -8826,6 +8831,81 @@ function _lizOrgUeberschreitung(oid){
   if(!_lizOrgHatLizenzen(oid)) return false;
   const liz=_lizOrgLizenzen[oid]||{};
   return _lizArtikel.some(a=>_lizPosOver(_lizIst(oid,a),(liz[a.id]||{}).menge||0));
+}
+// ── Präsenz/Sitzungen (Superadmin): wer ist online, Verlauf, Parallelnutzung ──
+let _praesenzData=null, _praesenzTimer=null;
+const _PRAES_KIND={desktop:['Desktop','#2563eb'],fahrer:['Fahrer','#16a34a'],einsatzleiter:['Einsatzleiter','#9333ea'],erfassung:['Erfassung','#ea580c']};
+function _praesenzStopTimer(){ if(_praesenzTimer){ clearInterval(_praesenzTimer); _praesenzTimer=null; } }
+async function initPraesenz(){
+  const root=document.getElementById('praesenz-root');
+  if(currentRole!=='superadmin'){ if(root) root.innerHTML='<div style="padding:30px;color:var(--text3);">Nur Superadmin.</div>'; return; }
+  await _praesenzLoad();
+  _praesenzStopTimer();
+  // solange die Ansicht offen ist, alle 30 s neu laden (Online-Ampel bleibt aktuell)
+  _praesenzTimer=setInterval(()=>{ if(document.getElementById('view-praesenz')?.style.display==='block') _praesenzLoad(); else _praesenzStopTimer(); },30000);
+}
+async function _praesenzLoad(){
+  const root=document.getElementById('praesenz-root');
+  try{ const snap=await db.collection('presence').orderBy('lastSeen','desc').limit(800).get();
+    _praesenzData=snap.docs.map(d=>({id:d.id,...d.data()})); }
+  catch(e){ console.warn('praesenz laden',e); if(root) root.innerHTML='<div style="padding:30px;color:var(--red);">Laden fehlgeschlagen: '+dlEsc(e.message||String(e))+'</div>'; return; }
+  renderPraesenz();
+}
+function praesenzRefresh(){ _praesenzLoad(); }
+function _praesKindLbl(k){ return (_PRAES_KIND[k]||[k||'?'])[0]; }
+function _praesKindCol(k){ return (_PRAES_KIND[k]||['','#64748b'])[1]; }
+function _praesFmtDT(ms){ if(!ms) return '—'; const d=new Date(ms); return d.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'})+' '+d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}); }
+function _praesAgo(ms){ const s=Math.round((Date.now()-ms)/1000); if(s<60) return 'vor '+s+' s'; if(s<3600) return 'vor '+Math.round(s/60)+' min'; if(s<86400) return 'vor '+Math.round(s/3600)+' h'; return 'vor '+Math.round(s/86400)+' Tg'; }
+function renderPraesenz(){
+  const root=document.getElementById('praesenz-root'); if(!root) return;
+  const now=Date.now(); const data=_praesenzData||[];
+  if(!data.length){ root.innerHTML='<div style="padding:30px;color:var(--text3);">Noch keine Sitzungen erfasst. Die Erfassung greift ab dem nächsten Login in einer der Apps.</div>'; return; }
+  const online=data.filter(s=>presenceIsOnline(s,now)).sort((a,b)=>(b.lastSeen||0)-(a.lastSeen||0));
+  const byKind={}; online.forEach(s=>{ byKind[s.kind]=(byKind[s.kind]||0)+1; });
+  // KPI-Kacheln: gesamt online + je Art
+  const kinds=['desktop','fahrer','einsatzleiter','erfassung'];
+  const kpi=(label,val,col)=>`<div style="flex:1;min-width:120px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 14px;"><div style="font-size:22px;font-weight:800;color:${col||'var(--text)'};">${val}</div><div style="font-size:11px;color:var(--text3);font-weight:600;">${dlEsc(label)}</div></div>`;
+  const kpis=`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
+    ${kpi('gerade online',online.length,online.length?'#16a34a':'var(--text3)')}
+    ${kinds.map(k=>kpi(_praesKindLbl(k),byKind[k]||0,_praesKindCol(k))).join('')}</div>`;
+  // Parallel-Maximum: heute + letzte 7 Tage (gesamt und je Art)
+  const dS=new Date(); dS.setHours(0,0,0,0); const todayFrom=dS.getTime(), todayTo=now;
+  const weekFrom=now-7*86400000;
+  const par=(from,to,filt)=>presenceMaxParallel(data,from,to,filt).max;
+  const parRow=(lbl,from,to)=>`<tr><td style="padding:4px 10px;">${dlEsc(lbl)}</td>
+    <td style="padding:4px 10px;text-align:right;font-weight:700;">${par(from,to)}</td>
+    ${kinds.map(k=>`<td style="padding:4px 10px;text-align:right;color:${_praesKindCol(k)};">${par(from,to,s=>s.kind===k)}</td>`).join('')}</tr>`;
+  const parallel=`<div style="font-weight:700;font-size:13px;margin:6px 0 6px;">Maximale gleichzeitige Nutzung</div>
+    <div style="overflow-x:auto;"><table style="border-collapse:collapse;font-size:12px;min-width:520px;">
+      <thead><tr style="color:var(--text3);"><th style="text-align:left;padding:4px 10px;">Zeitraum</th><th style="padding:4px 10px;text-align:right;">gesamt</th>${kinds.map(k=>`<th style="padding:4px 10px;text-align:right;">${_praesKindLbl(k)}</th>`).join('')}</tr></thead>
+      <tbody>${parRow('Heute',todayFrom,todayTo)}${parRow('Letzte 7 Tage',weekFrom,now)}</tbody></table></div>`;
+  // Online-Liste
+  const onlineList=online.length?online.map(s=>`<div style="display:flex;align-items:center;gap:9px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12.5px;">
+      <span style="width:9px;height:9px;border-radius:50%;background:#16a34a;flex:none;"></span>
+      <span style="font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(s.name||s.userKey||'?')}</span>
+      <span style="font-size:10px;font-weight:700;color:#fff;background:${_praesKindCol(s.kind)};padding:1px 6px;border-radius:5px;flex:none;">${_praesKindLbl(s.kind)}</span>
+      <span style="color:var(--text3);flex:1;">${dlEsc(s.role||'')}</span>
+      <span style="color:var(--text3);flex:none;">seit ${_praesFmtDT(s.loginAt)} · Signal ${_praesAgo(s.lastSeen)}</span>
+    </div>`).join(''):'<div style="padding:10px;color:var(--text3);font-size:12px;">Aktuell niemand online.</div>';
+  // Verlauf (letzte 60 Sitzungen nach Login)
+  const hist=[...data].sort((a,b)=>(b.loginAt||0)-(a.loginAt||0)).slice(0,60);
+  const histRows=hist.map(s=>{ const on=presenceIsOnline(s,now); const dur=Math.round(presenceDurationMs(s)/60000);
+    return `<tr style="border-bottom:1px solid var(--border);">
+      <td style="padding:4px 10px;">${dlEsc(s.name||s.userKey||'?')}</td>
+      <td style="padding:4px 10px;"><span style="font-size:10px;font-weight:700;color:#fff;background:${_praesKindCol(s.kind)};padding:1px 6px;border-radius:5px;">${_praesKindLbl(s.kind)}</span></td>
+      <td style="padding:4px 10px;color:var(--text3);">${dlEsc(s.role||'')}</td>
+      <td style="padding:4px 10px;white-space:nowrap;">${_praesFmtDT(s.loginAt)}</td>
+      <td style="padding:4px 10px;white-space:nowrap;">${on?'<span style="color:#16a34a;font-weight:600;">● läuft</span>':_praesFmtDT(presenceSessionEnd(s))}</td>
+      <td style="padding:4px 10px;text-align:right;">${dur} min</td></tr>`; }).join('');
+  const verlauf=`<div style="font-weight:700;font-size:13px;margin:16px 0 6px;">Verlauf (letzte ${hist.length} Sitzungen)</div>
+    <div style="overflow-x:auto;"><table style="border-collapse:collapse;font-size:12px;width:100%;min-width:640px;">
+      <thead><tr style="color:var(--text3);text-align:left;"><th style="padding:4px 10px;">Name</th><th style="padding:4px 10px;">App</th><th style="padding:4px 10px;">Rolle</th><th style="padding:4px 10px;">Login</th><th style="padding:4px 10px;">Logout/aktiv</th><th style="padding:4px 10px;text-align:right;">Dauer</th></tr></thead>
+      <tbody>${histRows}</tbody></table></div>`;
+  root.innerHTML=`${kpis}
+    <div class="dsh-card" style="margin-bottom:14px;"><div style="font-weight:700;font-size:13px;margin-bottom:6px;">Gerade online (${online.length})</div>${onlineList}</div>
+    <div class="dsh-card" style="margin-bottom:14px;">${parallel}</div>
+    <div class="dsh-card">${verlauf}</div>
+    <div style="font-size:11px;color:var(--text3);margin-top:10px;">„Online" = Signal jünger als ${Math.round(PRESENCE_STALE_MS/1000)} s (Heartbeat ~60 s). Erfasst Desktop-, Fahrer-, Einsatzleiter- und Erfassungs-App. Automatische Aktualisierung alle 30 s.</div>`;
 }
 async function initLizenzen(){
   if(currentRole!=='superadmin'){ const r=document.getElementById('liz-root'); if(r) r.innerHTML='<div style="padding:30px;color:var(--text3);">Nur Superadmin.</div>'; return; }
@@ -16768,7 +16848,7 @@ Object.assign(window,{
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleBhNames,toggleRequiredFeld,toggleRawSeg,_siInfo,
   createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,dashSetBh,tourSetBh,epChangeBh,epTogglePersnr,epToggleBhCol,psSetOrgFilter,setSiTab,
-  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizArtRolle,lizArtMove,lizZrFlip,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,lizPrintOrg,lizPrintAll,lizPrintPreisliste,
+  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizArtRolle,lizArtMove,lizZrFlip,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,lizPrintOrg,lizPrintAll,lizPrintPreisliste,praesenzRefresh,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,openMeldungFotos,stepMeldungFoto,closeMeldungFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
@@ -16876,7 +16956,7 @@ async function doLogin(){
     await firebase.auth().signInWithCustomToken(res.data.token);
   }catch(e){ const c=e&&e.code||'',m=e&&e.message||''; if(err) err.textContent=/permission-denied|not-found|unauthenticated|resource-exhausted/.test(c)?(m||'Name oder PIN falsch'):('Fehler: '+(m||c)); if(btn){ btn.disabled=false; btn.textContent='Anmelden'; } }
 }
-async function doLogout(){ try{ await flushUsage(); }catch(_){} try{ await firebase.auth().signOut(); }catch(e){} location.reload(); }
+async function doLogout(){ try{ _presence&&_presence.stop(); }catch(_){} try{ await flushUsage(); }catch(_){} try{ await firebase.auth().signOut(); }catch(e){} location.reload(); }
 
 firebase.auth().onAuthStateChanged(async (user)=>{
   if(user){
@@ -16888,6 +16968,7 @@ firebase.auth().onAuthStateChanged(async (user)=>{
     if(currentCap==='driver'){ showLogin('Dieses Konto ist ein Fahrer-Zugang und hat keinen Zugriff auf den Planungsmanager. Bitte die Fahrer-App nutzen oder mit einem Planer-/Admin-Konto anmelden.'); return; }
     await loadRoles();
     hideLogin(); updateUserChip(); applyModulePermissions(); initProjectScreen();
+    try{ _presence=startPresence({db, orgId:currentOrg||('super:'+currentUser.uid), kind:'desktop', userKey:currentUser.uid, name:currentName||currentUser.email||'', role:currentRole, app:'desktop', buildId:(typeof __BUILD_ID__!=='undefined'?__BUILD_ID__:'')}); }catch(_){}
   } else {
     currentUser=null; currentRole=''; currentCap=''; currentOrg='';
     showLogin('');

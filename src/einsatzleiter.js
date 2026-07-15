@@ -7,6 +7,8 @@ import { titelOf as orTitel, buildContainerIndex } from './objektrollen.js';
 // Tourkalender (Soll-Logik) — geteilt mit dem Desktop: beide Apps rechnen das Soll identisch
 import { tourDueOn as tkDueOn, SAISON_DEFAULT, todayStr, addDays } from './tour-kalender.js';
 import { startSession, endSession } from './session.js';
+import { startPresence } from './presence.js';
+let _presence = null;   // Präsenz-Sitzung (src/presence.js)
 import { initVersionCheck } from './version-check.js';
 initVersionCheck();   // erkennt neue Deploys während die App offen ist → „Neu laden"-Banner
 // Lazy Container-Index für Anzeige-Rollen; baut neu, sobald sich trees ändert.
@@ -541,6 +543,7 @@ async function startEinsatzleiter(pid){
 async function doLogout(){
   if(!confirm('Abmelden?')) return;
   if(unsubTrees) unsubTrees(); if(unsubTours) unsubTours(); if(unsubHistory) unsubHistory();
+  try{ _presence&&_presence.stop(); }catch(_){}
   try{ await endSession(); }catch(_){}
   try{ await firebase.auth().signOut(); }catch(_){}
   location.reload();
@@ -569,6 +572,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         if(rs.exists) elRoles[currentRole]=rs.data();
       }catch(e){}
       if(!canUseEinsatzleiter()){ showLoginStep1('Diese Rolle hat keinen Zugriff auf die Einsatzleiter-App.'); return; }
+      try{ _presence=startPresence({db, orgId:currentOrg||('super:'+currentUser.uid), kind:'einsatzleiter', userKey:currentUser.uid, name:currentUser.email||'', role:currentRole, app:'einsatzleiter'}); }catch(_){}
       showProjectStep();
     } else {
       currentUser=null; currentRole=''; currentCap=''; currentOrg='';

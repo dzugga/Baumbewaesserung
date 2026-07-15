@@ -5,6 +5,7 @@ import { firebaseConfig } from './firebase-config.js';
 import { esc } from './esc.js';
 import { titelOf, typOf, buildContainerIndex, klasseFelderOf } from './objektrollen.js';
 import { startSession, endSession } from './session.js';
+import { startPresence } from './presence.js';
 import { initVersionCheck } from './version-check.js';
 import { onlyTreeStatusFields } from './driver-fields.js';
 initVersionCheck();   // erkennt neue Deploys während die App offen ist → „Neu laden"-Banner
@@ -93,6 +94,7 @@ async function orsDirections(pts, withSteps){
 
 // ─── STATE ────────────────────────────────────────────────────
 let currentDriver = null;
+let _presence = null;   // Präsenz-Sitzung (src/presence.js)
 let currentProjectData = null;
 // Füllgrad-Stufen (je Projekt aktivierbar; v = Prozent für die Dispo-Lernlogik)
 const FUELLGRAD_OPTS = [{v:0,l:'leer'},{v:25,l:'25 %'},{v:50,l:'50 %'},{v:75,l:'75 %'},{v:100,l:'voll'},{v:120,l:'übervoll'}];
@@ -304,6 +306,7 @@ async function doLogin() {
     await firebase.auth().signInWithCustomToken(data.token);
     startSession(data.sessionId, _onSessionKicked);
     _driverAuth={orgId:data.orgId, name:data.name||name, driverId:data.driverId};
+    try{ _presence=startPresence({db, orgId:data.orgId, kind:'fahrer', userKey:data.driverId||('drv:'+(data.name||name)), name:data.name||name, role:'fahrer', app:'mobil'}); }catch(_){}
     _checkFotoAllowed(data.orgId); // Rollen-Modul „Foto-Meldung" (async, Default an)
     _naviEnabled=!!data.naviEnabled; // Mandanten-Flag (Superadmin) steuert die Navi-Funktion
     _orsKey=data.orsKey||''; // Routing-Key (ORS) des Mandanten
@@ -380,6 +383,7 @@ async function doLogout() {
     if (!confirm('Abmelden?')) return;
   }
   try{ await endSession(); }catch(_){}
+  try{ _presence&&_presence.stop(); }catch(_){}
   try{ localStorage.removeItem('bwt_mobile_session'); }catch(_){}
   try{ await firebase.auth().signOut(); }catch(_){}
   location.reload();

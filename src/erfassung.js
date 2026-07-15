@@ -5,6 +5,8 @@ import { firebaseConfig } from './firebase-config.js';
 import { esc } from './esc.js';
 import { titelOf as orTitel, buildContainerIndex, klasseFelderOf } from './objektrollen.js';
 import { startSession, endSession } from './session.js';
+import { startPresence } from './presence.js';
+let _presence = null;   // Präsenz-Sitzung (src/presence.js)
 import { initVersionCheck } from './version-check.js';
 initVersionCheck();   // erkennt neue Deploys während die App offen ist → „Neu laden"-Banner
 // Lazy Container-Index für Anzeige-Rollen; baut neu, sobald sich allTrees ändert.
@@ -599,6 +601,7 @@ async function doLogin() {
     try{ localStorage.setItem('bwt_mobile_orgcode',orgcode.toUpperCase()); localStorage.setItem('bwt_mobile_name',name); }catch(_){}
     await firebase.auth().signInWithCustomToken(res.data.token);
     startSession(res.data.sessionId, _onSessionKicked);
+    try{ _presence=startPresence({db, orgId:res.data.orgId, kind:'erfassung', userKey:res.data.driverId||('drv:'+name), name:res.data.name||name, role:'erfasser', app:'erfassung'}); }catch(_){}
   }catch(e){ const c=e&&e.code||'',m=e&&e.message||''; if(/already-exists/.test(c)){ _erfErr(m||'Diese Kennung ist bereits an einem anderen Gerät angemeldet.'); _erfBtn('Anmelden',false); return; } _erfErr(/permission-denied|not-found|unauthenticated|resource-exhausted/.test(c)?(m||'Name oder PIN falsch'):('Fehler: '+(m||c))); _erfBtn('Anmelden',false); }
 }
 
@@ -673,6 +676,7 @@ async function startErfassung(pid){
 
 async function doLogout() {
   if (!confirm('Abmelden?')) return;
+  try{ _presence&&_presence.stop(); }catch(_){}
   try{ await endSession(); }catch(_){}
   try{ await firebase.auth().signOut(); }catch(_){}
   location.reload();
