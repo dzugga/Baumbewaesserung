@@ -8839,19 +8839,33 @@ function _praesenzStopTimer(){ if(_praesenzTimer){ clearInterval(_praesenzTimer)
 async function initPraesenz(){
   const root=document.getElementById('praesenz-root');
   if(currentRole!=='superadmin'){ if(root) root.innerHTML='<div style="padding:30px;color:var(--text3);">Nur Superadmin.</div>'; return; }
-  await _praesenzLoad();
+  await _praesenzLoad(true);
   _praesenzStopTimer();
-  // solange die Ansicht offen ist, alle 30 s neu laden (Online-Ampel bleibt aktuell)
-  _praesenzTimer=setInterval(()=>{ if(document.getElementById('view-praesenz')?.style.display==='block') _praesenzLoad(); else _praesenzStopTimer(); },30000);
+  // Kostensparend: NICHT alle 800 Docs neu lesen, sondern im Intervall nur die aktuell aktiven
+  // Sitzungen (where lastSeen>=cutoff, wenige Docs) und in den Bestand mergen. Volle Historie
+  // nur beim Öffnen / bei „↻". Intervall 60 s (= Heartbeat-Takt).
+  _praesenzTimer=setInterval(()=>{ if(document.getElementById('view-praesenz')?.style.display==='block') _praesenzLoad(false); else _praesenzStopTimer(); },60000);
 }
-async function _praesenzLoad(){
+async function _praesenzLoad(full){
   const root=document.getElementById('praesenz-root');
-  try{ const snap=await db.collection('presence').orderBy('lastSeen','desc').limit(800).get();
-    _praesenzData=snap.docs.map(d=>({id:d.id,...d.data()})); }
-  catch(e){ console.warn('praesenz laden',e); if(root) root.innerHTML='<div style="padding:30px;color:var(--red);">Laden fehlgeschlagen: '+dlEsc(e.message||String(e))+'</div>'; return; }
+  try{
+    if(full || !_praesenzData){
+      const snap=await db.collection('presence').orderBy('lastSeen','desc').limit(500).get();
+      _praesenzData=snap.docs.map(d=>({id:d.id,...d.data()}));
+    } else {
+      // nur aktive Sitzungen frisch holen (billig) und per id in den vorhandenen Bestand mergen;
+      // beendete Sitzungen veralten automatisch (lastSeen wird nicht mehr aktualisiert)
+      const cutoff=Date.now()-PRESENCE_STALE_MS;
+      const snap=await db.collection('presence').where('lastSeen','>=',cutoff).get();
+      const map=new Map(_praesenzData.map(s=>[s.id,s]));
+      snap.docs.forEach(d=>map.set(d.id,{id:d.id,...d.data()}));
+      _praesenzData=[...map.values()];
+    }
+  }
+  catch(e){ console.warn('praesenz laden',e); if(root&&full) root.innerHTML='<div style="padding:30px;color:var(--red);">Laden fehlgeschlagen: '+dlEsc(e.message||String(e))+'</div>'; return; }
   renderPraesenz();
 }
-function praesenzRefresh(){ _praesenzLoad(); }
+function praesenzRefresh(){ _praesenzLoad(true); }
 function _praesKindLbl(k){ return (_PRAES_KIND[k]||[k||'?'])[0]; }
 function _praesKindCol(k){ return (_PRAES_KIND[k]||['','#64748b'])[1]; }
 function _praesFmtDT(ms){ if(!ms) return '—'; const d=new Date(ms); return d.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'})+' '+d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}); }
@@ -8905,7 +8919,7 @@ function renderPraesenz(){
     <div class="dsh-card" style="margin-bottom:14px;"><div style="font-weight:700;font-size:13px;margin-bottom:6px;">Gerade online (${online.length})</div>${onlineList}</div>
     <div class="dsh-card" style="margin-bottom:14px;">${parallel}</div>
     <div class="dsh-card">${verlauf}</div>
-    <div style="font-size:11px;color:var(--text3);margin-top:10px;">„Online" = Signal jünger als ${Math.round(PRESENCE_STALE_MS/1000)} s (Heartbeat ~60 s). Erfasst Desktop-, Fahrer-, Einsatzleiter- und Erfassungs-App. Automatische Aktualisierung alle 30 s.</div>`;
+    <div style="font-size:11px;color:var(--text3);margin-top:10px;">„Online" = Signal jünger als ${Math.round(PRESENCE_STALE_MS/1000)} s (Heartbeat ~60 s). Erfasst Desktop-, Fahrer-, Einsatzleiter- und Erfassungs-App. Aktualisierung alle 60 s (nur aktive Sitzungen, kostensparend); „↻" lädt die volle Historie neu.</div>`;
 }
 async function initLizenzen(){
   if(currentRole!=='superadmin'){ const r=document.getElementById('liz-root'); if(r) r.innerHTML='<div style="padding:30px;color:var(--text3);">Nur Superadmin.</div>'; return; }
