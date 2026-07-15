@@ -9481,12 +9481,23 @@ function dlRow(d){
   const hasLogin = !d.noLogin && (d.pinHash || d.role);
   const inPlan = (typeof d.einsatz==='boolean')?d.einsatz:!['superadmin','orgadmin','admin','planer'].includes(d.role||'');
   const roleSel=`<select onchange="changeDriverRole('${_jsArg(d.id)}',this.value)" title="Rolle ändern" style="font-size:11px;padding:2px 5px;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-family:inherit;">${personRoleOptionsHtml(d.role||'fahrer')}</select>`;
-  return `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--bg);border-radius:6px;flex-wrap:wrap;">
-    <span onclick="renameDriver('${_jsArg(d.id)}','${_jsArg(d.name||'')}')" title="Name ändern" style="flex:1;min-width:120px;font-size:13px;cursor:pointer;${active?'':'color:var(--text3);text-decoration:line-through;'}">${dlEsc(d.name)} <span style="color:var(--text3);font-size:11px;font-weight:400;">✎</span></span>
-    <select title="Funktion / Einsatzgruppe" onchange="setDriverFunktion('${_jsArg(d.id)}',this.value)" style="width:118px;font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-family:inherit;">${funktionenOptions(_dlFunktionen, d.funktion)}</select>
-    <label style="font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--text2);" title="Im Einsatzplaner berücksichtigen"><input type="checkbox" ${inPlan?'checked':''} onchange="setDriverEinsatz('${_jsArg(d.id)}',this.checked)" style="margin:0;cursor:pointer;"> Einsatz</label>
-    ${hasLogin?roleSel:(d.loginRequested?'<span style="font-size:10px;font-weight:700;color:#9a6700;background:#fcefcb;padding:2px 7px;border-radius:5px;" title="App-Login vom Einsatzleiter angefordert">🔑 Login angefordert</span>':'<span style="font-size:10px;font-weight:700;color:var(--text3);background:var(--surface2);padding:2px 7px;border-radius:5px;">ohne Login</span>')}
-    <span style="font-size:10px;font-weight:700;color:${active?'var(--green)':'var(--text3)'};">${active?'aktiv':'inaktiv'}</span>
+  const ctrl='width:100%;max-width:210px;font-size:12px;padding:4px 7px;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-family:inherit;';
+  const lbl='font-size:11px;color:var(--text2);align-self:center;';
+  const zugang=hasLogin?roleSel:(d.loginRequested?'<span style="font-size:10px;font-weight:700;color:#9a6700;background:#fcefcb;padding:3px 8px;border-radius:5px;" title="App-Login vom Einsatzleiter angefordert">🔑 Login angefordert</span>':'<span style="font-size:10px;font-weight:700;color:var(--text3);background:var(--surface2);padding:3px 8px;border-radius:5px;">ohne Login</span>');
+  return `<div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:9px 11px;margin-bottom:7px;display:flex;flex-direction:column;gap:7px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+      <span onclick="renameDriver('${_jsArg(d.id)}','${_jsArg(d.name||'')}')" title="Name ändern" style="font-weight:600;font-size:14px;cursor:pointer;${active?'':'color:var(--text3);text-decoration:line-through;'}">${dlEsc(d.name)} <span style="color:var(--text3);font-size:11px;font-weight:400;">✎</span></span>
+      <span style="font-size:10px;font-weight:700;flex:none;color:${active?'var(--green)':'var(--text3)'};">${active?'aktiv':'inaktiv'}</span>
+    </div>
+    <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center;">
+      <span style="${lbl}">Funktion</span>
+      <span><select title="Funktion / Einsatzgruppe" onchange="setDriverFunktion('${_jsArg(d.id)}',this.value)" style="${ctrl}">${funktionenOptions(_dlFunktionen, d.funktion)}</select></span>
+      <span style="${lbl}">Zugang / Rolle</span>
+      <span>${zugang}</span>
+      <span style="${lbl}">Einsatzplanung</span>
+      <span><label style="font-size:12px;display:inline-flex;align-items:center;gap:5px;cursor:pointer;color:var(--text2);" title="Im Einsatzplaner berücksichtigen"><input type="checkbox" ${inPlan?'checked':''} onchange="setDriverEinsatz('${_jsArg(d.id)}',this.checked)" style="margin:0;cursor:pointer;"> berücksichtigen</label></span>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:7px;">
     ${editing
       ? `<input id="dl-pin-${dlEsc(d.id)}" class="form-control" placeholder="neue PIN" inputmode="numeric" maxlength="6" style="width:110px;padding:4px 6px;font-size:12px;">
          <button class="btn btn-primary" style="padding:4px 8px;font-size:11px;" onclick="saveDriverPin('${_jsArg(d.id)}')">OK</button>
@@ -9494,6 +9505,7 @@ function dlRow(d){
       : `<button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="dlEditPin('${_jsArg(d.id)}')">PIN setzen</button>
          <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;" onclick="toggleDriverLoginActive('${_jsArg(d.id)}',${active})">${active?'deaktivieren':'aktivieren'}</button>
          <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;color:#c0392b;" onclick="deleteDriverUi('${_jsArg(d.id)}','${_jsArg(d.name||'')}')">Löschen</button>`}
+    </div>
   </div>`;
 }
 function dlToggleNoLogin(){ const no=document.getElementById('dl-new-nologin')?.checked; ['dl-new-role','dl-new-pin'].forEach(id=>{ const el=document.getElementById(id); if(el) el.style.display=no?'none':''; }); }
