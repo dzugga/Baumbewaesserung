@@ -50,6 +50,7 @@
     <ul>
       <li>Die Daten werden bei <b>Google Cloud (Firebase)</b> verarbeitet — Datenbank, Dateispeicher und Serverfunktionen in der Region <b>Frankfurt am Main (europe-west3)</b>. Mit Google besteht ein Auftragsverarbeitungsvertrag (Cloud Data Processing Addendum); Google ist u. a. nach ISO 27001 zertifiziert und BSI-C5-testiert.</li>
       <li>Der Anmeldedienst (Firebase Authentication) ist ein globaler Dienst von Google; Übermittlungen in Drittländer sind durch das EU-US Data Privacy Framework bzw. EU-Standardvertragsklauseln abgesichert.</li>
+      <li>Zum Schutz vor missbräuchlicher Nutzung durch fremde Programme setzt die Anwendung <b>Firebase App Check mit Google reCAPTCHA v3</b> ein. reCAPTCHA läuft unsichtbar im Hintergrund (keine Rätsel-Abfrage) und übermittelt dabei technische Geräte- und Nutzungssignale an Google zur Erkennung automatisierter Zugriffe. Es dient ausschließlich der Missbrauchsabwehr, nicht der Werbung; es gelten die Datenschutzhinweise von Google.</li>
       <li>Bei aktivierter <b>KI-Analyse</b> (optional, je Stadt abschaltbar) werden aggregierte Projektstatistiken — <u>ohne Personendaten</u> — an Google Gemini (Vertex AI, Region Frankfurt) übermittelt.</li>
       <li>Kartendarstellung: Kartenkacheln werden von OpenStreetMap bzw. den von der Stadt konfigurierten Kartendiensten (WMS) geladen; dabei erhält der jeweilige Dienst technisch bedingt die IP-Adresse des Geräts.</li>
       <li>Jede Stadt sieht ausschließlich ihre eigenen Daten (Mandantentrennung).</li>
