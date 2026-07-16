@@ -9824,12 +9824,36 @@ async function addDriverLogin(){
 }
 async function setDriverFunktion(id,val){ try{ await db.collection('drivers').doc(id).set({funktion:(val||'').trim()},{merge:true}); }catch(e){ notify(dlErr(e)); } }
 async function renameDriver(id, cur){
+  const org=driverLoginsOrg||currentOrg; if(!org){ notify('Kein Mandant gewählt'); return; }
   const neu=prompt('Neuer Name für „'+(cur||'')+'":', cur||''); if(neu==null) return;
   const name=neu.trim(); if(!name||name===cur) return;
+  const nl=name.toLowerCase();
   try{
+    // Dubletten-Prüfung: kein zweiter AKTIVER Datensatz mit gleichem nameLower — sonst wird die Anmeldung
+    // mehrdeutig und das Name→driverId-Mapping (Touren, Tagesplan-Versand) trifft die falsche Person.
+    const dupQs=await db.collection('drivers').where('orgId','==',org).where('nameLower','==',nl).get();
+    if(dupQs.docs.some(d=>d.id!==id && d.data().active!==false)){ notify('Eine andere aktive Person heißt bereits „'+name+'" — Name nicht eindeutig.'); return; }
     // nameLower muss mit — die App-Anmeldung sucht die Person darüber.
-    await db.collection('drivers').doc(id).set({name, nameLower:name.toLowerCase()},{merge:true});
-    notify('✓ Name geändert — App-Login (falls vorhanden) läuft künftig über den neuen Namen.');
+    await db.collection('drivers').doc(id).set({name, nameLower:nl},{merge:true});
+    // Touren referenzieren den KLARNAMEN (drivers[]/stdDrivers[]/assignedDriver) über ALLE Projekte des Mandanten;
+    // ohne Nachziehen gilt die Tour als unbesetzt und der Tagesplan-Versand läuft ins Leere.
+    let touched=0;
+    try{
+      const projQs=await db.collection('projects').where('orgId','==',org).get();
+      for(const p of projQs.docs){
+        const toursQs=await db.collection('projects').doc(p.id).collection('tours').get();
+        let batch=db.batch(), inBatch=0;
+        for(const ts of toursQs.docs){
+          const t=ts.data(); const patch={}; let chg=false;
+          if(Array.isArray(t.drivers)&&t.drivers.includes(cur)){ patch.drivers=t.drivers.map(n=>n===cur?name:n); chg=true; }
+          if(Array.isArray(t.stdDrivers)&&t.stdDrivers.includes(cur)){ patch.stdDrivers=t.stdDrivers.map(n=>n===cur?name:n); chg=true; }
+          if(t.assignedDriver===cur){ patch.assignedDriver=name; chg=true; }
+          if(chg){ batch.update(ts.ref,patch); touched++; if(++inBatch>=400){ await batch.commit(); batch=db.batch(); inBatch=0; } }
+        }
+        if(inBatch>0) await batch.commit();
+      }
+    }catch(e){ console.warn('renameDriver Tour-Migration', e); notify('Name geändert, aber Tour-Besetzungen nicht vollständig angepasst: '+dlErr(e)); renderDriverLogins(); return; }
+    notify('✓ Name geändert'+(touched?` · ${touched} Tour-Besetzung(en) angepasst`:'')+'. App-Login (falls vorhanden) läuft künftig über den neuen Namen.');
     renderDriverLogins();
   }catch(e){ notify(dlErr(e)); }
 }
@@ -11889,9 +11913,18 @@ function renderMeldungen(){
 async function setMeldungBearb(treeId, at, val){
   if(isReadonly()) return notify('Nur Lesezugriff');
   const t=trees.find(x=>x.id===treeId); if(!t||!at) return;
-  const hist=(t.history||[]).map(h=>(h&&String(h.at)===at)?{...h, bearb:val, bearbBy:currentName||'', bearbAt:new Date().toISOString()}:h);
+  const ref=db.collection('projects').doc(currentProjectId).collection('trees').doc(treeId);
   try{
-    await updateDoc(doc(db,'projects',currentProjectId,'trees',treeId),{history:hist});
+    // Transaktion mit frischem Read statt Voll-Array-Write: sonst überschreibt der lokale (evtl. veraltete)
+    // history-Stand eine parallel per arrayUnion gemeldete Fahrer-Meldung, die der onSnapshot noch nicht geliefert hat.
+    const hist=await db.runTransaction(async tx=>{
+      const s=await tx.get(ref); if(!s.exists) return null;
+      const next=(s.data().history||[]).map(h=>(h&&String(h.at)===at)?{...h, bearb:val, bearbBy:currentName||'', bearbAt:new Date().toISOString()}:h);
+      tx.update(ref,{history:next});
+      return next;
+    });
+    if(hist==null){ notify('Objekt nicht gefunden'); return; }
+    _bumpUsage('writes',1,ref);
     t.history=hist;
     notify('✓ Bearbeitungsstatus gesetzt');
     renderMeldungen();
