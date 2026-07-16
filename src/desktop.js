@@ -25,6 +25,7 @@ import { initVersionCheck } from './version-check.js';
 import { tourDueOn as _tkTourDueOn, tourInValidity as _tourInValidity, tourBetriebstage as _tourBetriebstage, isoWeekIndex as _isoWeekIndex, saisonForDate as _tkSaisonForDate, SAISON_DEFAULT } from './tour-kalender.js';
 import { printA4, printDoc, printDocFrame } from './printview.js';
 import { startPresence, presenceIsOnline, presenceMaxParallel, presenceDurationMs, presenceSessionEnd, PRESENCE_STALE_MS } from './presence.js';
+import { buildBatchDocHtml, REPORT_PRINT_CSS } from './report-batch.js';
 import { buildShapefileZip, PRJ_ETRS89_UTM32N } from './geo-export.js';
 import { readShapefileZip } from './geo-import.js';
 initVersionCheck();   // erkennt neue Deploys während die App offen ist → „Neu laden"-Banner
@@ -8294,11 +8295,31 @@ function openTourReport(tourId){
   const isFl=trees.some(t=>treeInTour(t,tourId)&&geomTypeOf(t)==='flaeche');
   const tpls=currentProjectData?.reportTemplates||[];
   let cfg;
-  if(tpls.length){ const t=tpls[0]; cfg={columns:[...(t.columns||[])],showNotiz:!!t.showNotiz,abhak:t.abhak||'leer',sort:t.sort||'route',title:t.title||'',sub:t.sub||''}; }
+  // Vorrang: an der TOUR gespeicherter Standard > erste Projekt-Vorlage > eingebauter Default
+  if(tour.reportCfg&&Array.isArray(tour.reportCfg.columns)){ const t=tour.reportCfg; cfg={columns:[...t.columns],showNotiz:!!t.showNotiz,abhak:t.abhak||'leer',sort:t.sort||'route',title:t.title||'',sub:t.sub||''}; }
+  else if(tpls.length){ const t=tpls[0]; cfg={columns:[...(t.columns||[])],showNotiz:!!t.showNotiz,abhak:t.abhak||'leer',sort:t.sort||'route',title:t.title||'',sub:t.sub||''}; }
   else cfg={columns:(isFl?['name','objektart','menge']:['name','baumnr','art']).filter(k=>fields.some(f=>f.key===k)),showNotiz:true,abhak:'leer',sort:(tour.manualOrder?'manual':'route'),title:'Bemerkungen',sub:''};
   _rep={tourId,cfg}; window._rep=_rep;
   document.getElementById('report-modal').classList.add('open');
   renderReportDialog();
+  // Gespeicherte Karten-Optionen des Tour-Standards in die Auswahlfelder übernehmen
+  const mp=tour.reportCfg&&tour.reportCfg.map;
+  if(mp){ const set=(id,v)=>{ const el=document.getElementById(id); if(el&&v!=null) el[el.type==='checkbox'?'checked':'value']=v; };
+    set('repmap-format',mp.format); set('repmap-bg',mp.bg); set('repmap-depot',!!mp.depot); set('repmap-detail',mp.detail); }
+}
+// Aktuelle Dialog-Einstellungen (inkl. Karten-Optionen) als Standard AN DER TOUR speichern —
+// wird beim nächsten Öffnen und beim Massendruck („Berichte") verwendet.
+async function saveTourReportStd(){
+  if(!_rep) return; if(isReadonly()){ notify('Nur Lesezugriff'); return; }
+  repApplyFromControls();
+  const g=id=>document.getElementById(id);
+  const map={ format:g('repmap-format')?.value||'auto', bg:g('repmap-bg')?.value||'grau', depot:!!(g('repmap-depot')?.checked), detail:g('repmap-detail')?.value||'auto' };
+  const cfg={ columns:[..._rep.cfg.columns], showNotiz:!!_rep.cfg.showNotiz, abhak:_rep.cfg.abhak||'leer', sort:_rep.cfg.sort||'route', title:_rep.cfg.title||'', sub:_rep.cfg.sub||'', map };
+  try{
+    await updateDoc(doc(db,'projects',currentProjectId,'tours',_rep.tourId),{reportCfg:cfg});
+    const t=tours.find(x=>x.id===_rep.tourId); if(t) t.reportCfg=cfg;
+    notify('✓ Als Standard dieser Tour gespeichert — gilt auch für den Massendruck');
+  }catch(e){ notify(dlErr(e)); }
 }
 function closeReportModal(){ document.getElementById('report-modal')?.classList.remove('open'); }
 function _repH(t){ return `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin-bottom:8px;">${t}</div>`; }
@@ -8338,6 +8359,7 @@ function renderReportDialog(){
    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
      <select id="rep-template" class="form-control" style="flex:1;" onchange="loadReportTemplate(this.value)">${tplOpts}</select>
      <button class="btn btn-secondary" style="white-space:nowrap;" onclick="saveReportTemplate()">Als Vorlage speichern</button>
+     <button class="btn btn-secondary" style="white-space:nowrap;${tour.reportCfg?'border-color:var(--green-mid);color:var(--green);':''}" onclick="saveTourReportStd()" title="Spalten, Sortierung, Titel und Karten-Optionen an dieser Tour speichern — gilt beim nächsten Öffnen und im Massendruck („Berichte")">${tour.reportCfg?'★ Tour-Standard aktualisieren':'☆ Als Standard dieser Tour'}</button>
    </div>
    ${_repH('Vorschau')}
    <div id="rep-preview" style="overflow:auto;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--surface);max-height:280px;"></div>
@@ -8386,8 +8408,10 @@ function renderReportPreview(){
   const sumRow=`<tr><td style="border:1px solid var(--border);padding:3px 6px;font-size:11px;font-weight:700;">Σ ${R.count}</td>`+R.cols.map((k,ci)=>`<td style="border:1px solid var(--border);padding:3px 6px;font-size:11px;font-weight:700;text-align:right;">${R.sums[ci]!=null?_repNum(R.sums[ci]):''}</td>`).join('')+R.abhakCols.map(()=>'<td style="border:1px solid var(--border);"></td>').join('')+'</tr>';
   el.innerHTML=`<table style="border-collapse:collapse;width:100%;"><thead><tr>${th}</tr></thead><tbody>${body}${sumRow}</tbody></table>`;
 }
-function printReport(){
-  if(!_rep) return; const {tourId,cfg}=_rep; const tour=tours.find(t=>t.id===tourId); const R=reportRows(tourId,cfg);
+// Innen-HTML des Tabellen-Berichts einer Tour (h1 + Untertitel + Tabelle) — genutzt vom
+// Einzeldruck UND vom Massendruck (report-batch.js liefert die gemeinsamen Styles).
+function _repTableHtml(tourId,cfg){
+  const tour=tours.find(t=>t.id===tourId); const R=reportRows(tourId,cfg);
   const esc=dlEsc;
   const th=R.headers.map(h=>`<th>${esc(h)}</th>`).join('');
   let body='';
@@ -8396,11 +8420,13 @@ function printReport(){
     if(cfg.showNotiz && R.notiz[i]) body+=`<tr><td></td><td colspan="${R.headers.length-1}" class="rem">${esc(R.notiz[i])}</td></tr>`;
   });
   body+=`<tr class="sum"><td>Σ ${R.count}</td>`+R.cols.map((k,ci)=>`<td class="num">${R.sums[ci]!=null?_repNum(R.sums[ci]):''}</td>`).join('')+R.abhakCols.map(()=>'<td></td>').join('')+'</tr>';
-  const html=`<!doctype html><html lang="de"><head><meta charset="utf-8"><title>${esc(tour&&tour.name||'Bericht')}</title>
-   <style>@page{size:landscape;margin:0;} body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;padding:12mm;} h1{font-size:15px;font-style:italic;margin:0 0 2px;} .sub{font-size:11px;color:#444;margin:0 0 10px;} table{border-collapse:collapse;width:100%;} th,td{border:1px solid #888;padding:4px 6px;font-size:10px;text-align:left;vertical-align:top;} th{background:#eee;} td.num,th.num{text-align:right;} .nr{text-align:right;width:26px;} .rem{font-style:italic;color:#555;font-size:9px;} tr.sum td{font-weight:bold;background:#f3f3f3;} td.num{text-align:right;}</style></head>
-   <body><h1>${esc(tour&&tour.name||'Bericht')}</h1>${cfg.title||cfg.sub?`<div class="sub"><b>${esc(cfg.title||'')}</b> ${esc(cfg.sub||'')}</div>`:''}
-   <table><thead><tr>${th}</tr></thead><tbody>${body}</tbody></table>
-   </body></html>`;
+  return `<h1>${esc(tour&&tour.name||'Bericht')}</h1>${cfg.title||cfg.sub?`<div class="sub"><b>${esc(cfg.title||'')}</b> ${esc(cfg.sub||'')}</div>`:''}
+   <table><thead><tr>${th}</tr></thead><tbody>${body}</tbody></table>`;
+}
+function printReport(){
+  if(!_rep) return; const {tourId,cfg}=_rep; const tour=tours.find(t=>t.id===tourId);
+  const html=`<!doctype html><html lang="de"><head><meta charset="utf-8"><title>${dlEsc(tour&&tour.name||'Bericht')}</title>
+   <style>${REPORT_PRINT_CSS}</style></head><body><div class="sec">${_repTableHtml(tourId,cfg)}</div></body></html>`;
   printDoc(html, tour&&tour.name||'Bericht'); // In-App-Overlay (iframe) statt window.open
 }
 function exportReportExcel(){
@@ -8412,6 +8438,152 @@ function exportReportExcel(){
   const sumRow=['Σ '+R.count]; R.cols.forEach((k,ci)=>sumRow.push(R.sums[ci]!=null?R.sums[ci]:'')); R.abhakCols.forEach(()=>sumRow.push('')); if(cfg.showNotiz) sumRow.push(''); aoa.push(sumRow);
   const ws=XLSX.utils.aoa_to_sheet(aoa); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Bericht');
   XLSX.writeFile(wb, ((tour&&tour.name||'Bericht').replace(/[^\wäöüÄÖÜß-]+/g,'_'))+'.xlsx');
+}
+// ── Massendruck („Berichte"): mehrere Touren in EINEM Druckdokument ───────────
+// Je Tour gilt der an der Tour gespeicherte Standard (reportCfg), sonst die erste
+// Projekt-Vorlage, sonst der eingebaute Default — identisch zum Einzel-Dialog.
+function _tourBatchCfg(tour){
+  const fields=reportFields(tour.id);
+  const isFl=trees.some(t=>treeInTour(t,tour.id)&&geomTypeOf(t)==='flaeche');
+  const tpls=currentProjectData?.reportTemplates||[];
+  let cfg;
+  if(tour.reportCfg&&Array.isArray(tour.reportCfg.columns)){ const t=tour.reportCfg; cfg={columns:[...t.columns],showNotiz:!!t.showNotiz,abhak:t.abhak||'leer',sort:t.sort||'route',title:t.title||'',sub:t.sub||''}; }
+  else if(tpls.length){ const t=tpls[0]; cfg={columns:[...(t.columns||[])],showNotiz:!!t.showNotiz,abhak:t.abhak||'leer',sort:t.sort||'route',title:t.title||'',sub:t.sub||''}; }
+  else cfg={columns:(isFl?['name','objektart','menge']:['name','baumnr','art']).filter(k=>fields.some(f=>f.key===k)),showNotiz:true,abhak:'leer',sort:(tour.manualOrder?'manual':'route'),title:'Bemerkungen',sub:''};
+  const map=(tour.reportCfg&&tour.reportCfg.map)||{format:'auto',bg:'grau',depot:true,detail:'auto'};
+  return {cfg,map};
+}
+// Karte einer Tour vollautomatisch als PNG-Seiten rastern (Übersicht + optionale Ausschnitte).
+// Läuft in einem Offscreen-Container in Druckauflösung; kein manuelles Verschieben/Zoomen —
+// dafür bleibt der Einzeldruck (printTourMap). Gibt [] zurück, wenn nichts zu zeichnen ist.
+async function _batchCaptureTourMap(tourId, mapCfg){
+  if(typeof htmlToImage==='undefined') return [];
+  const tour=tours.find(t=>t.id===tourId); if(!tour) return [];
+  const stopsTrees0=trees.filter(t=>treeInTour(t,tourId)&&t.lat&&t.lng);
+  const flTrees0=trees.filter(t=>treeInTour(t,tourId)&&geomTypeOf(t)==='flaeche'&&(t.extId||_treeGeom(t)));
+  if(!stopsTrees0.length && !flTrees0.length) return [];
+  const flFeatures=flTrees0.length?await _repFlaechenFeatures(tourId):[];
+  let routeData=_routesCache[tourId]||null;
+  if(!routeData){ try{ const s=await getDoc(doc(db,'projects',currentProjectId,'routes',tourId)); if(s&&s.exists){ routeData=s.data(); _routesCache[tourId]=routeData; } }catch(_){} }
+  const order=(tour.manualOrder&&tour.manualOrder.length)?tour.manualOrder:((routeData&&routeData.orderIds)||tourOrder[tourId]||[]);
+  let stopsTrees=order.length?order.map(id=>stopsTrees0.find(t=>t.id===id)).filter(Boolean):stopsTrees0;
+  if(!stopsTrees.length) stopsTrees=stopsTrees0;
+  const stops=stopsTrees.map((t,i)=>({lat:t.lat,lng:t.lng,n:i+1}));
+  const _flByExt={}; flFeatures.forEach(f=>{ const e=f.properties&&f.properties.extId; if(e) _flByExt[e]=f; });
+  flTrees0.forEach((t,i)=>{ const bb=_featBounds(_flByExt[t.extId||('_gezeichnet_'+t.id)]); if(!bb)return; const c=bb.getCenter(); stops.push({lat:c.lat,lng:c.lng,n:stops.length+1}); });
+  // Routenlinie (robust: features/geometry-Baum, type kann fehlen — vgl. route-geojson-ohne-type)
+  let routeLatLngs=null;
+  if(routeData){ const gj=routeData.geojsonStr?(()=>{try{return JSON.parse(routeData.geojsonStr);}catch(_){return null;}})():routeData.geojson;
+    if(gj){ const coords=[]; const push=c=>c.forEach(p=>coords.push([p[1],p[0]]));
+      const walk=g=>{ if(!g||typeof g!=='object')return; if(Array.isArray(g.features))g.features.forEach(walk); else if(g.geometry)walk(g.geometry); else if(g.type==='GeometryCollection'&&Array.isArray(g.geometries))g.geometries.forEach(walk); else if(g.type==='LineString')push(g.coordinates); else if(g.type==='MultiLineString')g.coordinates.forEach(push); };
+      walk(gj); if(coords.length) routeLatLngs=coords; } }
+  const depot=getDepot();
+  const useDepot=!!(mapCfg.depot&&depot&&depot.lat&&depot.lng);
+  if(!routeLatLngs&&stopsTrees.length){ const pts=stopsTrees.map(t=>[t.lat,t.lng]); routeLatLngs=useDepot?(getDepotMode()==='round'?[[depot.lat,depot.lng],...pts,[depot.lat,depot.lng]]:[[depot.lat,depot.lng],...pts]):pts; }
+  // Ausrichtung
+  const lats=stops.map(s=>s.lat).concat(useDepot?[depot.lat]:[]), lngs=stops.map(s=>s.lng).concat(useDepot?[depot.lng]:[]);
+  const latSpan=(Math.max(...lats)-Math.min(...lats))||0.001, lngSpan=(Math.max(...lngs)-Math.min(...lngs))||0.001;
+  const midLat=(Math.max(...lats)+Math.min(...lats))/2;
+  const orient=mapCfg.format==='quer'?'landscape':mapCfg.format==='hoch'?'portrait':((lngSpan*Math.cos(midLat*Math.PI/180))>=latSpan?'landscape':'portrait');
+  const PW=orient==='landscape'?1077:748, PH=orient==='landscape'?748:1077;
+  // Offscreen-Seite (Leaflet lädt Kacheln auch außerhalb des Viewports)
+  const page=document.createElement('div');
+  page.style.cssText=`position:fixed;left:-2400px;top:0;width:${PW}px;height:${PH}px;background:#fff;overflow:hidden;z-index:-1;`;
+  const inner=document.createElement('div'); inner.style.cssText='position:absolute;inset:0;'; page.appendChild(inner);
+  const ttl=document.createElement('div'); ttl.style.cssText='position:absolute;z-index:600;top:8px;left:8px;background:rgba(255,255,255,.9);border:1px solid #999;border-radius:5px;padding:4px 9px;font-size:13px;color:#222;';
+  ttl.innerHTML=`<b style="font-style:italic;">${dlEsc(tour.name||'Tour')}</b><span style="font-size:10px;color:#555;margin-left:6px;">Kartenausdruck · ${dlEsc(currentProjectData?.name||'')} · ${dlEsc(dashFmtDE(new Date()))}</span>`;
+  page.appendChild(ttl);
+  document.body.appendChild(page);
+  const color=tour.color||'#d11149';
+  let baseAttr=BASEMAP_ATTR, base;
+  if(mapCfg.bg==='luftbild'){ const w=getWmsLayers().find(l=>l.type==='base'&&l.layers); base=w?{kind:'wms',url:w.url,layers:w.layers,version:w.version||'1.3.0'}:{kind:'xyz',url:BASEMAP_FARBE}; if(w&&w.attribution)baseAttr=w.attribution; }
+  else if(mapCfg.bg==='farbe') base={kind:'xyz',url:BASEMAP_FARBE};
+  else base={kind:'xyz',url:BASEMAP_GRAU};
+  const imgs=[];
+  const pmap=L.map(inner,{zoomControl:false,attributionControl:true,zoomSnap:0.25});
+  try{
+    const pbase=base.kind==='wms'?L.tileLayer.wms(base.url,{layers:base.layers,format:'image/png',version:base.version,transparent:false,maxZoom:20,attribution:baseAttr,crossOrigin:true}):L.tileLayer(base.url,{maxZoom:20,maxNativeZoom:18,attribution:baseAttr,crossOrigin:true});
+    pbase.addTo(pmap);
+    const pb=L.latLngBounds([]);
+    if(flFeatures.length){ const fl=L.geoJSON({type:'FeatureCollection',features:flFeatures},{renderer:L.canvas({padding:0.5}),style:{color,weight:1.5,fillColor:color,fillOpacity:0.45}}).addTo(pmap); try{ pb.extend(fl.getBounds()); }catch(_){} }
+    if(routeLatLngs&&routeLatLngs.length){ L.polyline(routeLatLngs,{color,weight:4,opacity:.9}).addTo(pmap); if(useDepot) routeLatLngs.forEach(p=>pb.extend(p)); }
+    stops.forEach(s=>{ L.marker([s.lat,s.lng],{icon:L.divIcon({className:'',html:'<div style="width:23px;height:23px;border-radius:50%;border:2px solid #fff;color:#fff;font:600 11px/19px monospace;text-align:center;box-shadow:0 0 2px rgba(0,0,0,.6);background:'+color+'">'+s.n+'</div>',iconSize:[23,23],iconAnchor:[11,11]})}).addTo(pmap); pb.extend([s.lat,s.lng]); });
+    if(useDepot){ L.marker([depot.lat,depot.lng],{icon:L.divIcon({className:'',html:'<div style="width:20px;height:20px;border-radius:4px;background:#EF9F27;border:2px solid #fff;box-shadow:0 0 2px rgba(0,0,0,.5)"></div>',iconSize:[20,20],iconAnchor:[10,10]})}).addTo(pmap); pb.extend([depot.lat,depot.lng]); }
+    const tilesSettled=()=>new Promise(r=>{ let done=false; const fin=()=>{ if(!done){done=true;r();} }; pbase.once('load',fin); setTimeout(fin,5000); });
+    const cap=async()=>{ await new Promise(r=>setTimeout(r,450)); return htmlToImage.toPng(page,{width:PW,height:PH,pixelRatio:2,backgroundColor:'#fff'}); };
+    pmap.invalidateSize();
+    if(pb.isValid()) pmap.fitBounds(pb,{padding:[24,24]});
+    await tilesSettled();
+    // Übersicht (mit A/B/C-Rahmen, falls Ausschnitte folgen)
+    const sections=_repSections(stops, mapCfg.detail||'auto');
+    let rects=[];
+    if(sections.length){ sections.forEach((sec,i)=>{ rects.push(L.rectangle(sec.bounds,{color:'#993C1D',weight:2,dashArray:'6 4',fill:false}).addTo(pmap)); rects.push(L.marker(sec.bounds.getNorthWest(),{interactive:false,icon:L.divIcon({className:'',html:'<div style="background:#993C1D;color:#fff;font:700 11px/1 Arial;padding:3px 6px;border-radius:4px;">'+String.fromCharCode(65+i)+'</div>',iconSize:[18,16],iconAnchor:[-1,-1]})}).addTo(pmap)); }); }
+    imgs.push(await cap());
+    rects.forEach(r=>r.remove());
+    for(const sec of sections){ pmap.fitBounds(sec.bounds,{padding:[34,34]}); await tilesSettled(); imgs.push(await cap()); }
+  }catch(e){ console.warn('Batch-Kartenausdruck '+(tour.name||tourId), e); }
+  try{ pmap.remove(); }catch(_){}
+  page.remove();
+  return imgs;
+}
+function openTourBatchPrint(){
+  const real=tours.filter(t=>!t.uebersicht);
+  if(!real.length){ notify('Keine Touren vorhanden'); return; }
+  const m=document.createElement('div');
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;';
+  m.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:500px;max-width:94vw;max-height:86vh;display:flex;flex-direction:column;overflow:hidden;">
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;display:flex;justify-content:space-between;align-items:center;">Berichte drucken<button id="bp-x" style="border:none;background:none;cursor:pointer;font-size:20px;line-height:1;color:var(--text3);">×</button></div>
+    <div style="padding:12px 20px 4px;font-size:12px;color:var(--text2);line-height:1.55;">Erzeugt EIN Druckdokument (je Tour ab neuer Seite). Je Tour gilt ihr gespeicherter <b>Tour-Standard</b> (★ im Bericht-Dialog), sonst die erste Projekt-Vorlage, sonst der eingebaute Bericht. Karten werden automatisch eingepasst — für Feinjustierung den Einzeldruck nutzen.</div>
+    <div style="padding:8px 20px 0;display:flex;gap:14px;font-size:13px;">
+      <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="radio" name="bp-mode" value="bericht" checked style="margin:0;"> Tourbericht</label>
+      <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="radio" name="bp-mode" value="karte" style="margin:0;"> Karte</label>
+      <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="radio" name="bp-mode" value="beides" style="margin:0;"> beides</label>
+    </div>
+    <div id="bp-list" style="flex:1;overflow:auto;padding:8px 20px;display:flex;flex-direction:column;gap:2px;">
+      ${real.map(t=>`<label style="display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:13px;">
+        <input type="checkbox" class="bp-cb" value="${dlEsc(t.id)}" style="margin:0;cursor:pointer;">
+        <span style="width:10px;height:10px;border-radius:50%;background:${t.color||'#888'};flex:none;"></span>
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;">${dlEsc(t.name||t.id)}</span>
+        ${t.reportCfg?'<span title="Tour-Standard hinterlegt" style="font-size:11px;color:var(--green);flex:none;">★ Standard</span>':'<span style="font-size:11px;color:var(--text3);flex:none;">Vorlage/Default</span>'}
+      </label>`).join('')}
+    </div>
+    <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:center;">
+      <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" id="bp-all" style="margin:0;cursor:pointer;"> alle</label>
+      <span style="flex:1;"></span>
+      <button id="bp-cancel" class="btn btn-secondary" style="padding:7px 14px;font-size:13px;">Abbrechen</button>
+      <button id="bp-go" class="btn btn-primary" style="padding:7px 14px;font-size:13px;" disabled>Drucken</button>
+    </div>
+  </div>`;
+  document.body.appendChild(m);
+  const close=()=>m.remove();
+  m.querySelector('#bp-x').onclick=close; m.querySelector('#bp-cancel').onclick=close;
+  m.addEventListener('click',e=>{ if(e.target===m) close(); });
+  const go=m.querySelector('#bp-go');
+  const upd=()=>{ const n=m.querySelectorAll('.bp-cb:checked').length; go.disabled=!n; go.textContent=n?`${n} Tour${n===1?'':'en'} drucken`:'Drucken'; };
+  m.querySelectorAll('.bp-cb').forEach(cb=>cb.onchange=upd);
+  m.querySelector('#bp-all').onchange=e=>{ m.querySelectorAll('.bp-cb').forEach(cb=>cb.checked=e.target.checked); upd(); };
+  go.onclick=async()=>{
+    const ids=[...m.querySelectorAll('.bp-cb:checked')].map(cb=>cb.value);
+    const mode=m.querySelector('input[name="bp-mode"]:checked')?.value||'bericht';
+    if(!ids.length) return;
+    go.disabled=true;
+    try{
+      const sections=[]; let i=0;
+      for(const id of ids){
+        const tour=tours.find(t=>t.id===id); if(!tour) continue;
+        i++; go.textContent=`Erzeuge ${i}/${ids.length}…`;
+        const {cfg,map}=_tourBatchCfg(tour);
+        const sec={name:tour.name||''};
+        if(mode!=='karte') sec.tableHtml=_repTableHtml(id,cfg);
+        if(mode!=='bericht') sec.mapImgs=await _batchCaptureTourMap(id,map);
+        sections.push(sec);
+      }
+      const leer=sections.filter(s=>!s.tableHtml&&!(s.mapImgs&&s.mapImgs.length)).length;
+      if(leer) notify('⚠ '+leer+' Tour(en) ohne Inhalt übersprungen');
+      close();
+      printDoc(buildBatchDocHtml('Berichte · '+(currentProjectData?.name||''), sections), 'Berichte ('+ids.length+' Touren)');
+    }catch(e){ console.warn('Massendruck',e); notify('⚠ Massendruck fehlgeschlagen: '+(e.message||e)); go.disabled=false; }
+  };
 }
 // Teilt die geordneten Stopps in K zusammenhängende Abschnitte (für Detail-/Szenenkarten).
 // mode: 'aus' = keine; 'auto' = K nach Tour-Ausdehnung; '2'/'3'/'4'/'6' = feste Anzahl.
@@ -17075,7 +17247,7 @@ Object.assign(window,{
   openTourModal,closeTourModal,saveTour,deleteTour,openTourCopyDialog,toggleTourUebersicht,toggleOverviewInGrid,filterTourenGrid,showTourViolations,toggleTourKontrolle,ctxCalcSelected,setTourZeitBasis,
   tourZusatzAdd,tourZusatzDel,tourRegelToggle,tourUpdWeekday,tourRhythmusUI,tourToggleBetriebstag,tourGueltigAdd,tourGueltigDel,tourGueltigSet,_sx,_sxClear,
   openTourReport,closeReportModal,repAddCol,repRemoveCol,repMoveCol,repApplyFromControls,
-  printReport,exportReportExcel,saveReportTemplate,loadReportTemplate,printTourMap,
+  printReport,exportReportExcel,saveReportTemplate,loadReportTemplate,printTourMap,saveTourReportStd,openTourBatchPrint,
   openOrderEditor,repOrderMove,closeOrderEditor,saveManualOrder,
   focusTour,focusTourAndSwitch,
   startPlacement,cancelMode,setDepotOnMap,startDraw,finishDraw,cancelDraw,
