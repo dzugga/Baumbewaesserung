@@ -3100,7 +3100,15 @@ async function finishDraw(){
   }
   setSyncState('ok','Synchronisiert');
   notify(`✓ ${type==='flaeche'?'Fläche '+_fmtArea(menge):'Strecke '+_fmtLen(menge)} angelegt`);
-  setTimeout(()=>{ try{ renderDrawnGeoms(); }catch(_){} selectTree(ref.id,false); }, 350);
+  // Wie bei der Punkt-Neuanlage das Bearbeiten-Formular öffnen, sobald das Objekt im Snapshot da ist.
+  // So werden auch bei Linien/Flächen die Pflichtfelder (MUSS) erzwungen — saveTree prüft sie und lässt
+  // die Geometrie unangetastet (updateDoc schreibt nur die Formularfelder, kein geomStr).
+  const _openDrawEdit=(n=0)=>{ try{ renderDrawnGeoms(); }catch(_){}
+    if(trees.find(t=>t.id===ref.id)) openEditTree(ref.id);
+    else if(n<20) setTimeout(()=>_openDrawEdit(n+1), 150);
+    else selectTree(ref.id,false); // Fallback (Snapshot ausgeblieben): wenigstens das Detail-Panel zeigen
+  };
+  setTimeout(()=>_openDrawEdit(), 300);
   _assignBaumIdSafe(ref.id); // fortlaufende Objekt-ID entkoppelt + konfliktfest nachvergeben
 }
 // Nach Speicherfehler: Zeichenmodus mit den bereits gesetzten Punkten wieder aufnehmen (kein Verlust).
