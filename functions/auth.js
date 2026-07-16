@@ -73,8 +73,14 @@ exports.driverLogin = onCall({ region: REGION }, async (req) => {
   if (matches.length === 1) {
     const { ref, d } = matches[0];
     const oid2 = d.orgId;
-    // Single-Session: nur EIN Gerät je Kennung gleichzeitig (Desktop schickt allowParallel=true → ausgenommen).
-    const allowParallel = !!(req.data && req.data.allowParallel);
+    // Sicherheit: Eine per Roh-Firestore-Write in den drivers-Datensatz geschleuste Superadmin-Rolle darf
+    // NIE zu einem Superadmin-Token führen (Superadmin wird ausschließlich über Claims/setUserRole vergeben).
+    let personRole = d.role || 'fahrer';
+    if (personRole === 'superadmin') personRole = 'fahrer';
+    const personCap = await capForRole(personRole, oid2);
+    // Single-Session: nur EIN Gerät je Kennung gleichzeitig. allowParallel (Desktop-Planer) wird NUR für
+    // Nicht-Fahrer honoriert — sonst könnte ein Fahrer-Client die Einzel-Sitzungssperre einfach überspringen.
+    const allowParallel = !!(req.data && req.data.allowParallel) && personCap !== 'driver';
     const upd = { failedAttempts: 0, lockedUntil: 0, lastLogin: new Date().toISOString() };
     let sessionId = '';
     if (!allowParallel) {
@@ -86,11 +92,6 @@ exports.driverLogin = onCall({ region: REGION }, async (req) => {
       upd.session = { id: sessionId, lastSeen: now, app: String((req.data && req.data.app) || '') };
     }
     await ref.update(upd);
-    // Sicherheit: Eine per Roh-Firestore-Write in den drivers-Datensatz geschleuste Superadmin-Rolle darf
-    // NIE zu einem Superadmin-Token führen (Superadmin wird ausschließlich über Claims/setUserRole vergeben).
-    let personRole = d.role || 'fahrer';
-    if (personRole === 'superadmin') personRole = 'fahrer';
-    const personCap = await capForRole(personRole, oid2);
     // Mandanten-Feature-Flags (Navi) + Routing-Key — Default aus; Fahrer dürfen das orgs-Doc nicht direkt lesen.
     let naviEnabled = false, orsKey = '';
     try { const og = await db.collection('orgs').doc(oid2).get(); if (og.exists) { const od = og.data(); naviEnabled = !!od.naviEnabled; orsKey = od.orsKey || ''; } } catch (_) {}
@@ -313,6 +314,9 @@ exports.setUserRole = onCall({ region: REGION }, async (req) => {
   if (!isSuper) {
     if (orgId !== callerOrg) throw new HttpsError('permission-denied', 'Fremder Mandant');
     if (newRole === 'superadmin') throw new HttpsError('permission-denied', 'Rolle nicht erlaubt');
+    // WICHTIG: Der Ziel-Nutzer muss BEREITS zum eigenen Mandanten gehören — sonst könnte ein Admin ein
+    // fremdes Konto (bekannte UID) in seinen Mandanten ziehen und übernehmen. Wie bei setUserPassword/-Active.
+    await assertSameOrg(role, callerOrg, targetUid);
   }
   const cap = await capForRole(newRole, orgId);
   await admin.auth().setCustomUserClaims(targetUid, { orgId, role: newRole, cap });

@@ -39,6 +39,8 @@ exports.geminiAnalyse = onRequest(
     try { claims = await admin.auth().verifyIdToken(m[1]); }
     catch (e) { res.status(401).json({ error: 'Token ungültig' }); return; }
     if (!claims.orgId) { res.status(403).json({ error: 'Keine Berechtigung' }); return; }
+    // Fahrer (cap 'driver') dürfen den kostenpflichtigen KI-Endpunkt nicht auslösen (Kostenschutz).
+    if (claims.cap === 'driver') { res.status(403).json({ error: 'Keine Berechtigung' }); return; }
     const prompt = (req.body && req.body.prompt) || '';
     const model = ALLOWED_MODELS.includes(req.body && req.body.model) ? req.body.model : DEFAULT_MODEL;
     if (!prompt) { res.status(400).json({ error: 'prompt fehlt' }); return; }

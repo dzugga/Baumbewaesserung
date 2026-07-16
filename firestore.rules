@@ -174,8 +174,13 @@ service cloud.firestore {
         // request.auth.uid — nur DER laesst sich gegen where('ownerUid','==',uid) garantieren (Rules sind keine Filter).
         allow read:   if canPlan(resource.data.orgId)
                       || request.auth.uid == resource.data.ownerUid;
+        // ownerUid an driverId gebunden; zusätzlich MUSS der Ziel-Fahrer im selben Mandanten liegen — sonst
+        // könnte ein Planer eine Push-/Postfach-Meldung an einen FREMD-Mandanten-Fahrer einschleusen.
+        // (Kein get() auf die Parent-Nachricht: die wird im selben Batch angelegt und wäre für get() noch
+        //  nicht sichtbar → würde jeden Versand blocken. Das drivers-Doc existiert dagegen bereits.)
         allow create: if canPlan(request.resource.data.orgId)
-                      && request.resource.data.ownerUid == 'drv_' + request.resource.data.driverId; // ownerUid an driverId gebunden
+                      && request.resource.data.ownerUid == 'drv_' + request.resource.data.driverId
+                      && get(/databases/$(database)/documents/drivers/$(request.resource.data.driverId)).data.orgId == request.resource.data.orgId;
         allow update: if (canPlan(resource.data.orgId) && orgUnchanged())
                       || (request.auth.uid == resource.data.ownerUid && orgUnchanged() && onlyMessageStatusFields());
         allow delete: if canManage(resource.data.orgId);

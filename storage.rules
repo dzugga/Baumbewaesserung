@@ -1,6 +1,13 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    // Schreib-/Löschrecht über die Grundrolle (cap): Planer/Admin dürfen löschen & überschreiben.
+    // Fahrer/Erfasser dürfen NEUE Dateien anlegen (Foto-Meldung), aber nicht Fremddateien löschen.
+    function canEditStorage() {
+      return request.auth != null
+             && (request.auth.token.role == 'superadmin'
+                 || request.auth.token.cap == 'admin' || request.auth.token.cap == 'editor');
+    }
     // Objektfotos: Pfad objektfotos/{orgId}/{projectId}/{treeId}/{datei}
     // Mandanten-isoliert über Custom Claim orgId; Superadmin darf alles.
     // Objektdokumente: Pfad objektdokumente/{orgId}/{projectId}/{treeId}/{datei}
@@ -11,9 +18,11 @@ service firebase.storage {
                && (request.auth.token.orgId == orgId || request.auth.token.role == 'superadmin');
       }
       allow read: if okDoc();
+      // Löschen (request.resource == null) nur Planer/Admin; Anlegen/Überschreiben mit Typ-/Größenprüfung.
       allow write: if okDoc()
                    && (request.resource == null
-                       || (request.resource.size < 20 * 1024 * 1024
+                       ? canEditStorage()
+                       : (request.resource.size < 20 * 1024 * 1024
                            && (request.resource.contentType.matches('application/pdf')
                                || request.resource.contentType.matches('image/.*')
                                || request.resource.contentType.matches('application/msword')
@@ -42,10 +51,12 @@ service firebase.storage {
                && (request.auth.token.orgId == orgId || request.auth.token.role == 'superadmin');
       }
       allow read: if ok();
-      // write deckt create/update/delete ab; bei delete ist request.resource == null
+      // write deckt create/update/delete ab; bei delete ist request.resource == null → nur Planer/Admin.
+      // Anlegen/Überschreiben (Bild < 5 MB) bleibt jedem Org-Mitglied erlaubt (Fahrer-Foto-Meldung).
       allow write: if ok()
                    && (request.resource == null
-                       || (request.resource.size < 5 * 1024 * 1024
+                       ? canEditStorage()
+                       : (request.resource.size < 5 * 1024 * 1024
                            && request.resource.contentType.matches('image/.*')));
     }
   }

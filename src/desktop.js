@@ -4058,7 +4058,7 @@ function openDetail(id){
   if(_meta) _meta.textContent=`${tree.baumnr?'Nr. '+tree.baumnr+' · ':''}${tree.art||''}${tree.stadtteil?' · '+tree.stadtteil:''}`;
   // Build tour options for inline select
   const currentTourIds=getTreeTourIds(tree);
-  const tourOptions=tours.map(t=>`<option value="${t.id}"${currentTourIds.includes(t.id)?' selected':''}>${t.name}</option>`).join('');
+  const tourOptions=tours.map(t=>`<option value="${t.id}"${currentTourIds.includes(t.id)?' selected':''}>${dlEsc(t.name)}</option>`).join('');
 
   // Kompakt: leere Felder ausblenden (kein „–"-Rauschen), Koordinaten ganz raus
   const drow=(k,v,vs)=>v?`<div class="detail-field" style="padding:5px 0;"><span class="detail-key">${k}</span><span class="detail-val"${vs?` style="${vs}"`:''}>${dlEsc(''+v)}</span></div>`:'';
@@ -4687,7 +4687,7 @@ async function logWatering(id){
 // ─── TREE CRUD ────────────────────────────────────────────────
 function fillTourSelect(sel){
   document.getElementById('f-tour').innerHTML='<option value="">– Keine Tour –</option>'+
-    tours.map(t=>`<option value="${t.id}"${t.id===sel?' selected':''}>${t.name}</option>`).join('');
+    tours.map(t=>`<option value="${t.id}"${t.id===sel?' selected':''}>${dlEsc(t.name)}</option>`).join('');
 }
 
 function openAddTree(lat,lng){
@@ -8210,8 +8210,8 @@ function renderTourenGrid(){
       :'<span style="color:var(--text3);font-size:12px;">–</span>';
     return `<tr style="border-top:1px solid var(--border);" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''">
       <td style="padding:10px 16px;"><div style="width:14px;height:14px;border-radius:3px;background:${tour.color};flex-shrink:0;"></div></td>
-      <td style="padding:10px 16px;font-weight:600;white-space:nowrap;">${tour.name}${tour.routeStale&&!tour.uebersicht&&_tourEffSource(tour.id)!=='system'?` <span title="Zusammenstellung geändert — Route neu berechnen" style="font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⚠ Route veraltet</span>`:''}${tour.uebersicht?' <span style="font-size:10px;font-weight:600;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Übersicht</span>':''}${_violCnt?` <span onclick="showTourViolations('${tour.id}')" title="Anzeigen: welche Objekte die Zuordnungsregeln verletzen" style="cursor:pointer;font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⚠ ${_violCnt} Regelverstoß</span>`:(_rulesActive?' <span title="Zuordnungsregeln aktiv" style="font-size:10px;font-weight:600;color:var(--text3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Regeln</span>':'')}</td>
-      <td style="padding:10px 16px;color:var(--text2);font-size:12px;">${tour.desc||'–'}</td>
+      <td style="padding:10px 16px;font-weight:600;white-space:nowrap;">${dlEsc(tour.name)}${tour.routeStale&&!tour.uebersicht&&_tourEffSource(tour.id)!=='system'?` <span title="Zusammenstellung geändert — Route neu berechnen" style="font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⚠ Route veraltet</span>`:''}${tour.uebersicht?' <span style="font-size:10px;font-weight:600;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Übersicht</span>':''}${_violCnt?` <span onclick="showTourViolations('${tour.id}')" title="Anzeigen: welche Objekte die Zuordnungsregeln verletzen" style="cursor:pointer;font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⚠ ${_violCnt} Regelverstoß</span>`:(_rulesActive?' <span title="Zuordnungsregeln aktiv" style="font-size:10px;font-weight:600;color:var(--text3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Regeln</span>':'')}</td>
+      <td style="padding:10px 16px;color:var(--text2);font-size:12px;">${dlEsc(tour.desc||'–')}</td>
       <td style="padding:10px 16px;text-align:center;"><input type="checkbox" ${tour.uebersicht?'checked':''} onchange="toggleTourUebersicht('${tour.id}',this.checked)" style="cursor:pointer;width:16px;height:16px;" title="Als Übersicht markieren (keine echte Tour)"></td>
       <td style="padding:10px 16px;text-align:right;font-weight:600;">${cnt}</td>
       <td style="padding:10px 16px;text-align:right;color:var(--text2);font-size:12px;">${km}</td>
@@ -10185,13 +10185,13 @@ async function renderDriverMgmt(){
       const drivers=(t.drivers||[t.assignedDriver].filter(Boolean));
       const tags=drivers.map((d,i)=>
         `<span style="display:inline-flex;align-items:center;gap:3px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:2px 8px;font-size:11px;">
-          ${d}<button onclick="removeDriver('${t.id}',${i})" style="border:none;background:none;color:var(--text3);cursor:pointer;font-size:13px;line-height:1;padding:0;">×</button>
+          ${dlEsc(d)}<button onclick="removeDriver('${t.id}',${i})" style="border:none;background:none;color:var(--text3);cursor:pointer;font-size:13px;line-height:1;padding:0;">×</button>
         </span>`
       ).join('');
       return `<div style="background:var(--surface);padding:10px 12px;border-right:${borderRight};border-bottom:${borderBottom};">
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
           <div style="width:8px;height:8px;border-radius:50%;background:${t.color};flex-shrink:0;"></div>
-          <span style="font-size:12px;font-weight:600;">${t.name}</span>
+          <span style="font-size:12px;font-weight:600;">${dlEsc(t.name)}</span>
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;min-height:20px;">
           ${tags||'<span style="font-size:11px;color:var(--text3);">Kein Fahrer</span>'}
@@ -10318,7 +10318,7 @@ async function renderDriverAssignment(){
   el.innerHTML=tours.map(t=>`
     <div style="display:flex;align-items:center;gap:8px;">
       <div style="width:10px;height:10px;border-radius:50%;background:${t.color};flex-shrink:0;"></div>
-      <span style="font-size:12px;font-weight:600;min-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${t.name}</span>
+      <span style="font-size:12px;font-weight:600;min-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(t.name)}</span>
       <input class="form-control" style="flex:1;padding:5px 8px;font-size:12px;" placeholder="Fahrername…" value="${t.assignedDriver||''}" data-tourid="${t.id}" onchange="saveDriverAssignment('${t.id}',this.value)">
     </div>`).join('');
 }
@@ -11230,7 +11230,7 @@ function initControlling(){
   // Tours
   const tourSel=document.getElementById('ctrl-filter-tour');
   if(tourSel) tourSel.innerHTML='<option value="">Alle Touren</option>'+
-    tours.map(t=>`<option value="${t.id}"${t.id===prev('ctrl-filter-tour')?' selected':''}>${t.name}</option>`).join('');
+    tours.map(t=>`<option value="${t.id}"${t.id===prev('ctrl-filter-tour')?' selected':''}>${dlEsc(t.name)}</option>`).join('');
 
   // Stadtteile
   const stadtSel=document.getElementById('ctrl-filter-stadtteil');
@@ -13361,7 +13361,7 @@ function startLassoMode(){
   // Build tour pills
   const pills=document.getElementById('lasso-tour-pills');
   pills.innerHTML=tours.map(t=>
-    `<span class="lasso-tour-pill${t.id===lassoTourId?' selected':''}" style="background:${t.color};" onclick="setLassoTour('${t.id}',this)">${t.name}</span>`
+    `<span class="lasso-tour-pill${t.id===lassoTourId?' selected':''}" style="background:${t.color};" onclick="setLassoTour('${t.id}',this)">${dlEsc(t.name)}</span>`
   ).join('');
   document.getElementById('lasso-banner').classList.add('visible');
   // map dragging stays enabled — canvas pointer-events handles drawing
@@ -15683,7 +15683,7 @@ function dispoRow(b,v,idx,opts){
   const assignSel=(opts.assign && plan && plan.R && plan.R.length)
     ? `<select onchange="if(this.value){dispoAssign('${b.id}',this.value);}" style="flex-basis:100%;margin-top:4px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text2);">
         <option value="">＋ einer Ressource zuteilen…</option>
-        ${plan.R.map(r=>`<option value="${r.id}">${r.name}</option>`).join('')}
+        ${plan.R.map(r=>`<option value="${r.id}">${dlEsc(r.name)}</option>`).join('')}
       </select>`
     : '';
   const removeBtn=opts.remove
@@ -15691,7 +15691,7 @@ function dispoRow(b,v,idx,opts){
     : '';
   return `<div class="dispo-list-row" data-bin="${b.id}" onclick="dispoFocusPoint('${b.id}',event)" oncontextmenu="event.preventDefault()" style="cursor:pointer;">
     ${idx!=null?`<span style="flex-shrink:0;min-width:18px;height:18px;border-radius:9px;background:var(--surface2);color:var(--text2);font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;">${idx}</span>`:''}
-    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${b.name} <b>${b.fuellstand}%</b></span>
+    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(b.name)} <b>${b.fuellstand}%</b></span>
     <span class="dispo-badge" style="${DISPO_BADGE[v.status]||''}">${v.status}${v._manual?' ✋':''}</span>
     ${removeBtn}
     <span style="flex-basis:100%;font-size:11px;color:var(--text3);">${v.grund}${dispoProg(b)}</span>
@@ -15801,7 +15801,7 @@ function dispoRenderResults(){
     const isolated=dispoVisible && dispoVisible.size===1 && dispoVisible.has(r.id);
     return `<div class="dispo-res" style="${vis?'':'opacity:.5;'}${isolated?`box-shadow:inset 3px 0 0 ${dispoResColor(i)};`:''}">
       <div class="dispo-res-head" style="cursor:pointer;" onclick="dispoFocusVehicle('${r.id}')" title="${isolated?'Klick: alle Fahrzeuge zeigen':'Klick: nur diese Route zeigen'}">
-        <span class="dispo-res-dot" style="background:${dispoResColor(i)};${vis?'':'opacity:.4;'}"></span>${r.name}
+        <span class="dispo-res-dot" style="background:${dispoResColor(i)};${vis?'':'opacity:.4;'}"></span>${dlEsc(r.name)}
         <span style="margin-left:auto;font-size:11px;color:var(--text3);display:flex;align-items:center;gap:6px;">
           <button onclick="event.stopPropagation();dispoToggleVehicle('${r.id}')" title="Auf Karte ein-/ausblenden" style="border:none;background:none;cursor:pointer;font-size:13px;line-height:1;padding:0;">${vis?'👁':'🙈'}</button>
           ${r.route.length} Körbe
@@ -15869,7 +15869,7 @@ function dispoDrawDepots(L, plan, pts){
     const col=allStd?'#475569':g.items.find(it=>!it.std).col;
     const label=allStd?stdName:(g.depot.adresse||'Eigener Hof');
     const pop=`<b>${allStd?'Standard-Betriebshof':'Betriebshof'}</b><br><span style="font-size:11px;color:#666;">${label}</span><div style="margin-top:6px;border-top:1px solid #eee;padding-top:6px;font-size:12px;">`
-      + g.items.map(it=>`<div style="display:flex;align-items:center;gap:6px;margin:2px 0;"><span style="width:9px;height:9px;border-radius:3px;background:${it.col};flex-shrink:0;"></span>${it.name}: ${it.std?'<i>Standard</i>':'Eigener Hof'}${it.std?'':` <button onclick="dispoResetDepot('${it.id}')" style="margin-left:auto;border:none;background:#fee2e2;color:#b91c1c;border-radius:5px;padding:2px 7px;cursor:pointer;font-size:11px;">✕ Standard</button>`}</div>`).join('')
+      + g.items.map(it=>`<div style="display:flex;align-items:center;gap:6px;margin:2px 0;"><span style="width:9px;height:9px;border-radius:3px;background:${it.col};flex-shrink:0;"></span>${dlEsc(it.name)}: ${it.std?'<i>Standard</i>':'Eigener Hof'}${it.std?'':` <button onclick="dispoResetDepot('${it.id}')" style="margin-left:auto;border:none;background:#fee2e2;color:#b91c1c;border-radius:5px;padding:2px 7px;cursor:pointer;font-size:11px;">✕ Standard</button>`}</div>`).join('')
       + `</div>`;
     // Darstellung wie in der manuellen Planung: 🏭-Symbol, Name nur als Tooltip (nicht dauerhaft)
     const icon=L.divIcon({className:'',html:`<div class="depot-marker-wrap"><div class="depot-pulse"></div><div style="width:36px;height:36px;border-radius:10px;background:#f59e0b;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;font-size:18px;">🏭</div></div>`,iconSize:[36,36],iconAnchor:[18,18]});
