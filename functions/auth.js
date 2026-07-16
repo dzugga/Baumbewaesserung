@@ -44,7 +44,7 @@ async function capForRole(roleKey, orgId) {
 }
 
 // ── Fahrer-Login: Name + PIN -> Custom Token ────────────────────────────────
-exports.driverLogin = onCall({ region: REGION }, async (req) => {
+exports.driverLogin = onCall({ region: REGION, enforceAppCheck: true }, async (req) => {
   const { orgId, orgCode, name, pin } = req.data || {};
   if (!name || !pin) throw new HttpsError('invalid-argument', 'Name und PIN erforderlich');
 
@@ -112,7 +112,7 @@ exports.driverLogin = onCall({ region: REGION }, async (req) => {
 });
 
 // ── Heartbeat: hält die eigene Sitzung am Leben; meldet, wenn sie übernommen wurde ──
-exports.driverHeartbeat = onCall({ region: REGION }, async (req) => {
+exports.driverHeartbeat = onCall({ region: REGION, enforceAppCheck: true }, async (req) => {
   const uid = req.auth && req.auth.uid;
   if (!uid || uid.indexOf('drv_') !== 0) throw new HttpsError('unauthenticated', 'Nicht angemeldet');
   const driverId = uid.slice(4);
@@ -127,7 +127,7 @@ exports.driverHeartbeat = onCall({ region: REGION }, async (req) => {
 });
 
 // ── Logout: gibt die eigene Sitzung frei (sofortige Neuanmeldung möglich) ──
-exports.driverLogout = onCall({ region: REGION }, async (req) => {
+exports.driverLogout = onCall({ region: REGION, enforceAppCheck: true }, async (req) => {
   const uid = req.auth && req.auth.uid;
   if (!uid || uid.indexOf('drv_') !== 0) return { ok: true };
   const driverId = uid.slice(4);
@@ -139,7 +139,7 @@ exports.driverLogout = onCall({ region: REGION }, async (req) => {
 });
 
 // ── Admin legt Person an / aendert PIN, Name oder Rolle ─────────────────────
-exports.setDriverPin = onCall({ region: REGION }, async (req) => {
+exports.setDriverPin = onCall({ region: REGION, enforceAppCheck: true }, async (req) => {
   const { role, callerOrg } = requireAdmin(req.auth);
   const { driverId, name, orgId, pin, personRole } = req.data || {};
   const targetOrg = orgId || callerOrg;
@@ -179,7 +179,7 @@ exports.setDriverPin = onCall({ region: REGION }, async (req) => {
 });
 
 // ── Admin setzt/aendert den Stadt-Code seines Mandanten (eindeutig) ─────────
-exports.setOrgCode = onCall({ region: REGION }, async (req) => {
+exports.setOrgCode = onCall({ region: REGION, enforceAppCheck: true }, async (req) => {
   const { role, callerOrg } = requireAdmin(req.auth);
   const { orgId, code } = req.data || {};
   const targetOrg = orgId || callerOrg;
@@ -199,7 +199,7 @@ exports.setOrgCode = onCall({ region: REGION }, async (req) => {
 });
 
 // ── Admin setzt den ORS-Routing-Key seines Mandanten (stadtscharf) ──────────
-exports.setOrgOrsKey = onCall({ region: REGION }, async (req) => {
+exports.setOrgOrsKey = onCall({ region: REGION, enforceAppCheck: true }, async (req) => {
   const { role, callerOrg } = requireAdmin(req.auth);
   const { orgId, orsKey } = req.data || {};
   const targetOrg = orgId || callerOrg;
@@ -212,7 +212,7 @@ exports.setOrgOrsKey = onCall({ region: REGION }, async (req) => {
 });
 
 // ── Superadmin schaltet die Navi-Funktion eines Mandanten frei (Feature-Flag) ──
-exports.setOrgNavi = onCall({ region: REGION }, async (req) => {
+exports.setOrgNavi = onCall({ region: REGION, enforceAppCheck: true }, async (req) => {
   const { role } = requireAdmin(req.auth);
   if (role !== 'superadmin') throw new HttpsError('permission-denied', 'Nur Superadmin');
   const { orgId, naviEnabled } = req.data || {};
@@ -226,7 +226,7 @@ exports.setOrgNavi = onCall({ region: REGION }, async (req) => {
 // (trees/tours/routes/reasons/arten/tourHistory — denormalisiert für die Rules).
 // Hinweis: Bereits hochgeladene Fotos/Dokumente bleiben unter dem alten Storage-Pfad;
 // ihre Download-URLs funktionieren weiter (Token-basiert), Löschen erfordert Superadmin.
-exports.moveProjectToOrg = onCall({ region: REGION, timeoutSeconds: 300 }, async (req) => {
+exports.moveProjectToOrg = onCall({ region: REGION, timeoutSeconds: 300, enforceAppCheck: true }, async (req) => {
   const { role } = requireAdmin(req.auth);
   if (role !== 'superadmin') throw new HttpsError('permission-denied', 'Nur der Superadmin kann Projekte verschieben');
   const { projectId, targetOrgId } = req.data || {};
@@ -252,7 +252,7 @@ exports.moveProjectToOrg = onCall({ region: REGION, timeoutSeconds: 300 }, async
 });
 
 // ── Admin setzt die WMS-Kartenebenen seines Mandanten (stadtscharf) ─────────
-exports.setOrgWmsLayers = onCall({ region: REGION }, async (req) => {
+exports.setOrgWmsLayers = onCall({ region: REGION, enforceAppCheck: true }, async (req) => {
   const { role, callerOrg } = requireAdmin(req.auth);
   const { orgId, layers } = req.data || {};
   const targetOrg = orgId || callerOrg;
@@ -265,7 +265,7 @@ exports.setOrgWmsLayers = onCall({ region: REGION }, async (req) => {
 });
 
 // ── Admin setzt die Dispo-Konfiguration seines Mandanten (stadtscharf) ──────
-exports.setOrgDispo = onCall({ region: REGION }, async (req) => {
+exports.setOrgDispo = onCall({ region: REGION, enforceAppCheck: true }, async (req) => {
   const { role, callerOrg } = requireAdmin(req.auth);
   const { orgId, config, resources } = req.data || {};
   const targetOrg = orgId || callerOrg;
@@ -280,7 +280,7 @@ exports.setOrgDispo = onCall({ region: REGION }, async (req) => {
 });
 
 // ── Admin pflegt die Funktions-Liste (Einsatzgruppen) seines Mandanten ──────
-exports.setOrgFunktionen = onCall({ region: REGION }, async (req) => {
+exports.setOrgFunktionen = onCall({ region: REGION, enforceAppCheck: true }, async (req) => {
   const { role, callerOrg } = requireAdmin(req.auth);
   const { orgId, funktionen } = req.data || {};
   const targetOrg = orgId || callerOrg;
@@ -293,7 +293,7 @@ exports.setOrgFunktionen = onCall({ region: REGION }, async (req) => {
 });
 
 // ── Admin setzt den KI-Analyse-Modus seines Mandanten (stadtscharf) ─────────
-exports.setOrgKiMode = onCall({ region: REGION }, async (req) => {
+exports.setOrgKiMode = onCall({ region: REGION, enforceAppCheck: true }, async (req) => {
   const { role, callerOrg } = requireAdmin(req.auth);
   const { orgId, mode } = req.data || {};
   const targetOrg = orgId || callerOrg;
@@ -305,7 +305,7 @@ exports.setOrgKiMode = onCall({ region: REGION }, async (req) => {
 });
 
 // ── Admin setzt Rolle/Org (Custom Claims) fuer Planer/Erfasser/Admins ───────
-exports.setUserRole = onCall({ region: REGION }, async (req) => {
+exports.setUserRole = onCall({ region: REGION, enforceAppCheck: true }, async (req) => {
   const { role, callerOrg } = requireAdmin(req.auth);
   const { targetUid, orgId, role: newRole } = req.data || {};
   if (!targetUid || !orgId || !newRole)
@@ -340,7 +340,7 @@ async function assertSameOrg(role, callerOrg, uid) {
 }
 
 // ── Admin legt ein E-Mail-Konto an (Planer/Erfasser/Orgadmin) ───────────────
-exports.createOrgUser = onCall({ region: REGION }, async (req) => {
+exports.createOrgUser = onCall({ region: REGION, enforceAppCheck: true }, async (req) => {
   const { role, callerOrg } = requireAdmin(req.auth);
   const { email, password, newRole, orgId, displayName } = req.data || {};
   const targetOrg = orgId || callerOrg;
@@ -372,7 +372,7 @@ exports.createOrgUser = onCall({ region: REGION }, async (req) => {
 });
 
 // ── Admin setzt ein neues Passwort ──────────────────────────────────────────
-exports.setUserPassword = onCall({ region: REGION }, async (req) => {
+exports.setUserPassword = onCall({ region: REGION, enforceAppCheck: true }, async (req) => {
   const { role, callerOrg } = requireAdmin(req.auth);
   const { uid, password } = req.data || {};
   if (!uid || !password || String(password).length < 10) throw new HttpsError('invalid-argument', 'uid + Passwort (min. 10) erforderlich');
@@ -382,7 +382,7 @@ exports.setUserPassword = onCall({ region: REGION }, async (req) => {
 });
 
 // ── Admin löscht ein Konto endgültig (Login weg; Daten/Historie bleiben) ────
-exports.deleteOrgUser = onCall({ region: REGION }, async (req) => {
+exports.deleteOrgUser = onCall({ region: REGION, enforceAppCheck: true }, async (req) => {
   const { role, callerOrg } = requireAdmin(req.auth);
   const { uid } = req.data || {};
   if (!uid) throw new HttpsError('invalid-argument', 'uid erforderlich');
@@ -395,7 +395,7 @@ exports.deleteOrgUser = onCall({ region: REGION }, async (req) => {
 });
 
 // ── Admin aktiviert/deaktiviert ein Konto ───────────────────────────────────
-exports.setUserActive = onCall({ region: REGION }, async (req) => {
+exports.setUserActive = onCall({ region: REGION, enforceAppCheck: true }, async (req) => {
   const { role, callerOrg } = requireAdmin(req.auth);
   const { uid, active } = req.data || {};
   if (!uid) throw new HttpsError('invalid-argument', 'uid erforderlich');

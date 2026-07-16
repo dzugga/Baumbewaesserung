@@ -16402,7 +16402,8 @@ function openKiPrompt(id){
     res.style.display='block'; res.innerHTML='<div style="color:var(--text3);font-size:12px;">Antwort wird generiert…</div>';
     try{
       const idToken=await firebase.auth().currentUser?.getIdToken();
-      const r=await fetch('/api/gemini',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+(idToken||'')},body:JSON.stringify({prompt:promptText})});
+      let acTok=''; try{ const t=await firebase.appCheck().getToken(); acTok=(t&&t.token)||''; }catch(_){}
+      const r=await fetch('/api/gemini',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+(idToken||''),'X-Firebase-AppCheck':acTok},body:JSON.stringify({prompt:promptText})});
       let data={}; try{ data=await r.json(); }catch(_){}
       if(!r.ok){
         const det=data.detail?(' – '+esc(typeof data.detail==='string'?data.detail:JSON.stringify(data.detail))):'';

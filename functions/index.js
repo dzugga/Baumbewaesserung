@@ -41,6 +41,12 @@ exports.geminiAnalyse = onRequest(
     if (!claims.orgId) { res.status(403).json({ error: 'Keine Berechtigung' }); return; }
     // Fahrer (cap 'driver') dürfen den kostenpflichtigen KI-Endpunkt nicht auslösen (Kostenschutz).
     if (claims.cap === 'driver') { res.status(403).json({ error: 'Keine Berechtigung' }); return; }
+    // App Check erzwingen: onRequest hat KEINE automatische Erzwingung → Token-Header manuell prüfen.
+    // (Der Client sendet ihn als X-Firebase-AppCheck; nur echte App-Instanzen erhalten ein gültiges Token.)
+    const acToken = req.header('X-Firebase-AppCheck');
+    if (!acToken) { res.status(401).json({ error: 'App-Check-Token fehlt' }); return; }
+    try { await admin.appCheck().verifyToken(acToken); }
+    catch (e) { res.status(401).json({ error: 'App-Check-Token ungültig' }); return; }
     const prompt = (req.body && req.body.prompt) || '';
     const model = ALLOWED_MODELS.includes(req.body && req.body.model) ? req.body.model : DEFAULT_MODEL;
     if (!prompt) { res.status(400).json({ error: 'prompt fehlt' }); return; }
