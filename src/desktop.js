@@ -9359,7 +9359,7 @@ async function renderUsage(){
       <td style="padding:7px 12px;text-align:right;font-variant-numeric:tabular-nums;">${fmt(r.reads)}</td>
       <td style="padding:7px 12px;text-align:right;font-variant-numeric:tabular-nums;">${fmt(r.writes)}</td>
       <td style="padding:7px 12px;text-align:right;font-variant-numeric:tabular-nums;">${fmt(r.deletes)}</td>
-      <td style="padding:7px 12px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text2);">${_eur(r.kosten)}</td>
+      <td style="padding:7px 12px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text2);">${_eur(r.kosten)}${currentRole==='superadmin'?` <button title="Zähler dieser Stadt für ${ym} auf 0 setzen" onclick="usageResetOrg('${_jsArg(r.orgId)}','${_jsArg(r.stadt)}')" style="margin-left:6px;padding:1px 6px;font-size:11px;border:1px solid var(--border);border-radius:5px;background:var(--surface);cursor:pointer;color:var(--text3);">↺ 0</button>`:''}</td>
     </tr>`).join('')}
     <tr style="border-top:2px solid var(--border);font-weight:700;background:var(--surface2);">
       <td style="padding:8px 12px;">Summe</td>
@@ -9368,6 +9368,7 @@ async function renderUsage(){
       <td style="padding:8px 12px;text-align:right;">${fmt(sum.deletes)}</td>
       <td style="padding:8px 12px;text-align:right;">${_eur(sum.kosten)}</td>
     </tr></tbody></table>
+    ${currentRole==='superadmin'?`<div style="margin-top:8px;"><button class="btn btn-secondary" style="padding:4px 10px;font-size:12px;color:#c0392b;" onclick="usageResetAll()" title="Alle Zähler des Monats ${ym} auf 0 setzen (z. B. vor Teststart der Städte)">↺ Alle Zähler für ${ym} auf 0 setzen</button></div>`:''}
     <div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.5;">„≈ Kosten" ist eine <b>Schätzung</b> der Firestore-Operationskosten (Reads/Writes/Deletes × Stückpreis) — <b>brutto</b>, also <u>ohne</u> das projektweite kostenlose Kontingent und <u>ohne</u> Speicher, Cloud Functions, KI und Datenverkehr. Die tatsächliche Google-Rechnung ist meist niedriger. Nützlich vor allem für den Vergleich zwischen den Städten.</div>`;
 }
 function exportUsageCSV(){
@@ -9376,6 +9377,27 @@ function exportUsageCSV(){
   const csv=rows.map(r=>r.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(';')).join('\n');
   const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8;'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='nutzung_'+ym+'.csv'; a.click();
+}
+// Zähler zurücksetzen (Superadmin): Monats-Doc(s) löschen — nächste Vorgänge zählen ab 0 neu.
+// Zweck: Entwicklungs-Nutzung vor dem Teststart der Städte aussortieren. Erst flushen, damit
+// keine noch ungespeicherten Zähler den frischen Stand direkt wieder auffüllen.
+async function usageResetOrg(orgId, stadt){
+  if(currentRole!=='superadmin') return;
+  const ym=document.getElementById('usage-month')?.value||_usageMonth();
+  if(!await _confirmBox('Zähler zurücksetzen', `Nutzungszähler von „${stadt}" für ${ym} auf 0 setzen?\n\nDie bisherigen Zahlen dieses Monats gehen verloren (z. B. Entwicklungs-Nutzung vor dem Teststart).`, 'Auf 0 setzen', 'Abbrechen')) return;
+  try{ await flushUsage().catch(()=>{}); await db.collection('usage').doc(orgId+'_'+ym).delete(); notify('✓ '+stadt+' — Zähler für '+ym+' auf 0 gesetzt'); renderUsage(); }
+  catch(e){ notify(dlErr(e)); }
+}
+async function usageResetAll(){
+  if(currentRole!=='superadmin') return;
+  const ym=document.getElementById('usage-month')?.value||_usageMonth();
+  if(!await _confirmBox('Alle Zähler zurücksetzen', `Nutzungszähler ALLER Städte für ${ym} auf 0 setzen?\n\nDie bisherigen Zahlen dieses Monats gehen für alle Mandanten verloren.`, 'Alle auf 0 setzen', 'Abbrechen')) return;
+  try{
+    await flushUsage().catch(()=>{});
+    const qs=await db.collection('usage').where('monat','==',ym).get();
+    const batch=db.batch(); qs.forEach(d=>batch.delete(d.ref)); await batch.commit();
+    notify(`✓ ${qs.size} Zähler für ${ym} auf 0 gesetzt`); renderUsage();
+  }catch(e){ notify(dlErr(e)); }
 }
 
 // ─── FAHRER-LOGINS & PINs (Mehrmandanten — nutzbar nach Auth-Aktivierung) ─────
@@ -16984,7 +17006,7 @@ Object.assign(window,{
   renderDriverLogins,addDriverLogin,saveDriverPin,toggleDriverLoginActive,dlEditPin,dlCancelPin,changeDriverRole,saveOrgCode,dlToggleNoLogin,setDriverFunktion,renameDriver,setDriverEinsatz,dlDismissLoginRequest,dlFunktionAdd,dlFunktionRemove,
   renderUserMgmt,addOrgUser,saveUserPass,toggleUserActive,urEditPass,urCancelPass,
   changeUserRole,deleteOrgUserUi,deleteDriverUi,
-  renderRollenView,saveRole,addRole,deleteRole,toggleBenutzerRollen,toggleBenutzerTouren,changeBenutzerOrg,changeDtaProject,renderUsage,exportUsageCSV,
+  renderRollenView,saveRole,addRole,deleteRole,toggleBenutzerRollen,toggleBenutzerTouren,changeBenutzerOrg,changeDtaProject,renderUsage,exportUsageCSV,usageResetOrg,usageResetAll,
   startGpsPlacement,startMoveObject,saveMoveObject,cancelMoveObject,toggleFilterNoGps,updateBtnFilterNoGps,toggleShowAll,clearBaeumeFilters,
   openBaeumeColMenu,toggleBaeumeCol,resetBaeumeCols,
   saveFieldLabels, setFieldLabel, toggleMobilFeld, migrateTourIds, deriveHaeufigkeitFromZustaendigkeit,
