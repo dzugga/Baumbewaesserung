@@ -443,6 +443,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <button data-module="__superadmin__" onclick="switchView('mandanten')">Mandanten</button>
         <button data-module="__superadmin__" onclick="switchView('lizenzen')">Lizenzen</button>
         <button data-module="__superadmin__" onclick="switchView('praesenz')">Präsenz</button>
+        <button data-module="__superadmin__" onclick="switchView('errors')">Fehlerprotokoll</button>
         <button data-module="__superadmin__" onclick="switchView('usage')">Nutzung je Stadt</button>
         <button data-module="__superadmin__" onclick="openAllgemein()">Allgemein (ORS-Key)</button>
         <button data-module="__superadmin__" onclick="switchView('kiconfig')">KI-Config</button>
@@ -998,6 +999,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 </div>
 
 <!-- LIZENZEN fullscreen overlay (nur Superadmin) -->
+<div id="view-errors" style="display:none;position:fixed;top:54px;left:0;right:0;bottom:0;z-index:1500;background:var(--bg);overflow-y:auto;">
+  <div style="max-width:1100px;margin:0 auto;padding:16px 20px;" id="errors-root"></div>
+</div>
 <div id="view-praesenz" style="display:none;position:fixed;top:54px;left:0;right:0;bottom:0;z-index:1500;background:var(--bg);overflow-y:auto;">
   <div style="max-width:1100px;margin:0 auto;padding:16px 20px;">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">

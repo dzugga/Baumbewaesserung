@@ -6320,6 +6320,7 @@ function switchView(v){
   const lizenzen=document.getElementById('view-lizenzen'); if(lizenzen) lizenzen.style.display=v==='lizenzen'?'block':'none';
   const praesenz=document.getElementById('view-praesenz'); if(praesenz) praesenz.style.display=v==='praesenz'?'block':'none';
   if(v!=='praesenz') _praesenzStopTimer();
+  const errview=document.getElementById('view-errors'); if(errview) errview.style.display=v==='errors'?'block':'none';
   const feldbez=document.getElementById('view-feldbezeichnungen');
   const benutzer=document.getElementById('view-benutzer');
   if(feldbez) feldbez.style.display=v==='feldbezeichnungen'?'block':'none';
@@ -6380,6 +6381,7 @@ function switchView(v){
   if(v==='usage') initUsage();
   if(v==='lizenzen') initLizenzen();
   if(v==='praesenz') initPraesenz();
+  if(v==='errors') initErrors();
   if(v==='benutzer') initBenutzer();
 }
 async function initBenutzer(){
@@ -9218,6 +9220,70 @@ async function _praesenzLoad(full){
   renderPraesenz();
 }
 function praesenzRefresh(){ _praesenzLoad(true); }
+
+// ─── FEHLERPROTOKOLL (Superadmin) ───────────────────────────────
+// Liest die zentrale errors-Collection (errlog.js schreibt dort app/kind/message/stack/url/uid/at).
+// Nur-Anzeige + „leeren"; read/delete sind serverseitig Superadmin/Admin-gegated.
+let _errorsData=null;
+const _ERR_APP={desktop:'Planer',mobil:'Fahrer',erfassung:'Erfassung',einsatzleiter:'Einsatzleiter'};
+async function initErrors(){
+  const root=document.getElementById('errors-root');
+  if(currentRole!=='superadmin'){ if(root) root.innerHTML='<div style="padding:30px;color:var(--text3);">Nur Superadmin.</div>'; return; }
+  await _errorsLoad();
+}
+async function _errorsLoad(){
+  const root=document.getElementById('errors-root');
+  try{
+    const snap=await db.collection('errors').orderBy('at','desc').limit(200).get();
+    _errorsData=snap.docs.map(d=>({id:d.id,...d.data()}));
+  }catch(e){ console.warn('errors laden',e); if(root) root.innerHTML='<div style="padding:30px;color:var(--red);">Laden fehlgeschlagen: '+dlEsc(e.message||String(e))+'</div>'; return; }
+  renderErrors();
+}
+function errorsRefresh(){ _errorsLoad(); }
+async function errorsClear(){
+  if(currentRole!=='superadmin') return;
+  if(!await _confirmBox('Fehlerprotokoll leeren','Alle protokollierten Fehler löschen?\n\nBetrifft nur das technische Protokoll — keine Fach-/Objektdaten.','Leeren','Abbrechen')) return;
+  try{
+    const qs=await db.collection('errors').get();
+    for(let i=0;i<qs.docs.length;i+=400){ const b=db.batch(); qs.docs.slice(i,i+400).forEach(d=>b.delete(d.ref)); await b.commit(); }
+    notify('✓ Fehlerprotokoll geleert ('+qs.size+')');
+    _errorsData=null; await _errorsLoad();
+  }catch(e){ notify(dlErr(e)); }
+}
+function _errFmtDT(at){
+  try{ const d=at&&at.toDate?at.toDate():(at&&at.seconds?new Date(at.seconds*1000):null); if(!d) return '—';
+    return d.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'2-digit'})+' '+d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'}); }catch(_){ return '—'; }
+}
+function renderErrors(){
+  const root=document.getElementById('errors-root'); if(!root) return;
+  const rows=_errorsData||[];
+  const head=`<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
+      <div>
+        <div style="font-size:16px;font-weight:700;">Fehlerprotokoll</div>
+        <div style="font-size:12px;color:var(--text3);">Zentral protokollierte Laufzeitfehler aller Apps (neueste zuerst, max. 200) — nur Superadmin.</div>
+      </div>
+      <span style="margin-left:auto;display:flex;gap:6px;">
+        <button onclick="errorsRefresh()" style="padding:4px 11px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;color:var(--text);">↻ Aktualisieren</button>
+        <button onclick="errorsClear()" title="Alle Einträge löschen (nur das Protokoll)" style="padding:4px 11px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;color:#c0392b;">🗑 Leeren</button>
+      </span>
+    </div>`;
+  if(!rows.length){ root.innerHTML=head+'<div style="padding:24px;color:var(--text3);">Keine Fehler protokolliert 🎉</div>'; return; }
+  const body=rows.map(r=>{
+    const app=_ERR_APP[r.app]||r.app||'?';
+    const kind=r.kind==='promise'?'Promise-Ablehnung':'Laufzeitfehler';
+    return `<div style="border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin-bottom:6px;background:var(--surface);">
+      <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;font-size:12px;">
+        <span style="font-family:'DM Mono',monospace;color:var(--text3);white-space:nowrap;">${_errFmtDT(r.at)}</span>
+        <span style="font-weight:700;background:var(--surface2);border-radius:5px;padding:1px 7px;white-space:nowrap;">${dlEsc(app)}</span>
+        <span style="color:var(--text3);white-space:nowrap;">${dlEsc(kind)}</span>
+        <span style="font-weight:600;color:var(--red);flex:1;min-width:120px;">${dlEsc(r.message||'—')}</span>
+      </div>
+      <div style="font-size:10.5px;color:var(--text3);margin-top:3px;word-break:break-word;">${dlEsc(r.url||'')}${r.uid?' · uid '+dlEsc(String(r.uid).slice(0,14)):''}</div>
+      ${r.stack?`<details style="margin-top:5px;"><summary style="font-size:11px;color:var(--text2);cursor:pointer;">Stacktrace</summary><pre style="white-space:pre-wrap;word-break:break-word;font-size:10.5px;color:var(--text2);background:var(--surface2);border-radius:6px;padding:8px;margin:5px 0 0;max-height:240px;overflow:auto;">${dlEsc(r.stack)}</pre></details>`:''}
+    </div>`;
+  }).join('');
+  root.innerHTML=head+body;
+}
 function _praesKindLbl(k){ return (_PRAES_KIND[k]||[k||'?'])[0]; }
 function _praesKindCol(k){ return (_PRAES_KIND[k]||['','#64748b'])[1]; }
 function _praesFmtDT(ms){ if(!ms) return '—'; const d=new Date(ms); return d.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'})+' '+d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}); }
@@ -17323,7 +17389,7 @@ Object.assign(window,{
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleBhNames,toggleRequiredFeld,toggleRawSeg,_siInfo,
   createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,dashSetBh,tourSetBh,epChangeBh,epTogglePersnr,epToggleBhCol,psSetOrgFilter,setSiTab,
-  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizArtRolle,lizArtMove,lizZrFlip,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,lizPrintOrg,lizPrintAll,lizPrintPreisliste,praesenzRefresh,praesenzToggleLive,praesenzToggleLogging,praesenzResetHistory,
+  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizArtRolle,lizArtMove,lizZrFlip,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,lizPrintOrg,lizPrintAll,lizPrintPreisliste,praesenzRefresh,praesenzToggleLive,praesenzToggleLogging,praesenzResetHistory,errorsRefresh,errorsClear,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,openMeldungFotos,stepMeldungFoto,closeMeldungFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
