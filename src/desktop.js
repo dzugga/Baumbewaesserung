@@ -306,6 +306,14 @@ function _moduleAllowed(modStr){
   if(mods.includes('__admin__')) return currentRole==='superadmin'||currentCap==='admin';
   return mods.some(m=>canUseModule(m));
 }
+// Darf die Ansicht v geöffnet werden? Maßstab sind ALLE Nav-Einstiege, die auf v zeigen — eine Ansicht kann
+// über mehrere Menüpunkte mit unterschiedlichen Modulen erreichbar sein (z. B. „baeume" via Objekte ODER
+// Felder&Listen). Erlaubt, wenn irgendein Einstieg frei oder erlaubt ist. Kein Einstieg → frei (interne Prüfung).
+function _viewAllowed(v){
+  const navs=[...document.querySelectorAll(`[onclick*="switchView('${v}')"]`)];
+  if(!navs.length) return true;
+  return navs.some(n=>!n.dataset.module) || navs.some(n=>n.dataset.module && _moduleAllowed(n.dataset.module));
+}
 let _dataViewProject = null;      // Projekt, für das Controlling/Dashboard zuletzt aufgebaut wurde
 let _dataViewSyncQueued = false;  // Debounce für Neuaufbau beim Projektwechsel
 let _histListProject = null;      // Projekt, für das die untere Historie-Liste geladen wurde
@@ -716,9 +724,13 @@ async function openProject(projectId){
   loadListValues();
   try{ const _c=_projectCenter(); if(_c && map) map.setView(_c, 13); }catch(_){} // A1: sofort auf die Stadt zentrieren (kein Osnabrück-Flash)
   applyModulePermissions(); // Reiter-Sichtbarkeit projektscharf neu setzen (projects.modules)
-  // Ist die offene Ansicht im neuen Projekt abgeschaltet → zurück zur Karte
-  { const vm={disposition:'disposition',controlling:'controlling',ki:'ki',dashboard:'dashboard',baeume:'objekte',touren:'touren',wmskarten:'wms',verwaltung:'verwaltung',einsatzplaner:'einsatzplaner'}[currentView];
-    if(vm && !canUseModule(vm)) switchView('karte'); }
+  // Ist die offene Ansicht im neuen Projekt/für die Rolle nicht erlaubt → auf die erste erlaubte Ansicht wechseln
+  // (Nav-Buttons als Wahrheitsquelle, deckt ALLE Ansichten ab; Karte bevorzugt, aber nicht erzwungen — eine
+  // Rolle ohne „Planung" käme sonst nicht weg von der gesperrten Ansicht).
+  if(currentView && !_viewAllowed(currentView)){
+    const target=['karte','dashboard','touren','baeume','controlling','einsatzplaner','disposition'].find(_viewAllowed);
+    if(target) switchView(target);
+  }
   // Startansicht der Rolle: EINMAL je Sitzung beim ersten Projekt-Öffnen anwenden (Rollen & Module).
   // WICHTIG: die Rolle des PROJEKT-Mandanten lesen — der beim Login geladene rolesCache kann (v. a. beim
   // Superadmin) zu einem anderen Mandanten gehören; nur so greift die je Stadt gepflegte Startansicht.
@@ -4122,7 +4134,7 @@ function openDetail(id){
       const _saison=ps.saison, _t=_todayStr();
       const _nicht=realTourIds(tree).map(id=>tours.find(x=>x.id===id)).filter(t=>t&&_tourWeeklyOcc(t,_saison,_t)<=0);
       const hint=(ps.status!=='ok'&&_nicht.length)
-        ? `<div class="detail-field" style="padding:2px 0 5px;"><span class="detail-key"></span><span class="detail-val" style="font-size:11px;color:var(--text3);line-height:1.5;"><b style="color:${col};">${+ps.plan.toFixed(2)} von ${+ps.soll.toFixed(2)}</b> Leerungen/Woche durch gültige Touren gedeckt · ${_nicht.length} zugeordnete Tour${_nicht.length===1?' zählt':'en zählen'} nicht (kein Rhythmus/Betriebstage): ${_nicht.map(t=>dlEsc(t.name||'Tour')).join(', ')}</span></div>`
+        ? `<div class="detail-field" style="padding:2px 0 5px;"><span class="detail-key"></span><span class="detail-val" style="font-size:11px;color:var(--text3);line-height:1.5;"><b style="color:${col};">${+ps.plan.toFixed(2)} von ${+ps.soll.toFixed(2)}</b> Einsätze/Woche durch gültige Touren gedeckt · ${_nicht.length} zugeordnete Tour${_nicht.length===1?' zählt':'en zählen'} nicht (kein Rhythmus/Betriebstage): ${_nicht.map(t=>dlEsc(t.name||'Tour')).join(', ')}</span></div>`
         : '';
       return `<div class="form-section">Planung</div>
       <div class="detail-field" style="padding:5px 0;align-items:center;"><span class="detail-key">Soll / Plan</span><span class="detail-val"><b>${+ps.soll.toFixed(2)}</b>×/Wo · Plan <b>${+ps.plan.toFixed(2)}</b> <span style="color:var(--text3);font-size:11px;">(${ps.tours} Tour${ps.tours===1?'':'en'})</span> <span style="display:inline-block;margin-left:4px;padding:1px 8px;border-radius:6px;font-size:11px;font-weight:600;background:${col}22;color:${col};">${planStatusLabel(ps)}</span></span></div>${hint}`;
@@ -5040,6 +5052,7 @@ function deleteTreeFromModal(){ if(editingTreeId) deleteTree(editingTreeId); }
 
 // ─── PLACEMENT & ASSIGN ───────────────────────────────────────
 function startPlacement(){
+  if(isReadonly()){ notify('Nur Lesezugriff'); return; }
   if(currentView!=='karte'){switchView('karte');setTimeout(startPlacement,80);return;}
   placingTree=true;placingDepot=false;
   map.getContainer().style.cursor='crosshair';
@@ -6267,8 +6280,7 @@ function switchView(v){
   // Einstieg (Suche, Deep-Link, programmatisch). Maßstab ist das data-module des zugehörigen Nav-Buttons,
   // also exakt dieselbe Regel wie die Menü-Sichtbarkeit. Bereiche ohne Nav-Button/ohne data-module (frei
   // oder mit eigener interner Prüfung wie Lizenzen/Präsenz) bleiben unberührt.
-  const _nav=document.querySelector(`[onclick="switchView('${v}')"]`);
-  if(_nav && _nav.dataset.module && !_moduleAllowed(_nav.dataset.module)){ notify('Kein Zugriff auf diesen Bereich'); return; }
+  if(!_viewAllowed(v)){ notify('Kein Zugriff auf diesen Bereich'); return; }
   currentView=v;
   // Nav buttons
   document.querySelectorAll('.nav-btn, .nav-dropdown button').forEach(b=>b.classList.remove('active'));
@@ -13897,6 +13909,9 @@ map.on('contextmenu',e=>{
       calcSel.style.display='none';
     }
   }
+  // Bearbeiten-Einträge (Objekt anlegen, zeichnen) nur für Schreibberechtigte — bei Nur-Lesen ausblenden
+  // (der Server lehnt sie ohnehin ab; das erspart die irreführende Sackgasse).
+  { const ro=isReadonly(); ['ctx-edit-sep','ctx-place','ctx-draw-fl','ctx-draw-li'].forEach(id=>{ const el=document.getElementById(id); if(el) el.style.display=ro?'none':''; }); }
   // Position menu
   const mx=e.originalEvent.clientX,my=e.originalEvent.clientY;
   menu.style.left=(mx+menu.offsetWidth>window.innerWidth?mx-menu.offsetWidth:mx)+'px';
