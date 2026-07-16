@@ -8486,14 +8486,19 @@ async function _batchCaptureTourMap(tourId, mapCfg){
   const midLat=(Math.max(...lats)+Math.min(...lats))/2;
   const orient=mapCfg.format==='quer'?'landscape':mapCfg.format==='hoch'?'portrait':((lngSpan*Math.cos(midLat*Math.PI/180))>=latSpan?'landscape':'portrait');
   const PW=orient==='landscape'?1077:748, PH=orient==='landscape'?748:1077;
-  // Offscreen-Seite (Leaflet lädt Kacheln auch außerhalb des Viewports)
+  // Offscreen-HALTER (fixed, links außerhalb); gerastert wird die innen NORMAL positionierte Seite —
+  // htmlToImage klont Inline-Styles: ein fixed/left:-2400px am Capture-Element selbst würde den
+  // Inhalt außerhalb der Bildfläche zeichnen (weiße Seiten). Leaflet lädt Kacheln auch offscreen.
+  const holder=document.createElement('div');
+  holder.style.cssText=`position:fixed;left:-2600px;top:0;width:${PW}px;height:${PH}px;overflow:hidden;`;
   const page=document.createElement('div');
-  page.style.cssText=`position:fixed;left:-2400px;top:0;width:${PW}px;height:${PH}px;background:#fff;overflow:hidden;z-index:-1;`;
+  page.style.cssText=`position:relative;width:${PW}px;height:${PH}px;background:#fff;overflow:hidden;`;
+  holder.appendChild(page);
   const inner=document.createElement('div'); inner.style.cssText='position:absolute;inset:0;'; page.appendChild(inner);
   const ttl=document.createElement('div'); ttl.style.cssText='position:absolute;z-index:600;top:8px;left:8px;background:rgba(255,255,255,.9);border:1px solid #999;border-radius:5px;padding:4px 9px;font-size:13px;color:#222;';
   ttl.innerHTML=`<b style="font-style:italic;">${dlEsc(tour.name||'Tour')}</b><span style="font-size:10px;color:#555;margin-left:6px;">Kartenausdruck · ${dlEsc(currentProjectData?.name||'')} · ${dlEsc(dashFmtDE(new Date()))}</span>`;
   page.appendChild(ttl);
-  document.body.appendChild(page);
+  document.body.appendChild(holder);
   const color=tour.color||'#d11149';
   let baseAttr=BASEMAP_ATTR, base;
   if(mapCfg.bg==='luftbild'){ const w=getWmsLayers().find(l=>l.type==='base'&&l.layers); base=w?{kind:'wms',url:w.url,layers:w.layers,version:w.version||'1.3.0'}:{kind:'xyz',url:BASEMAP_FARBE}; if(w&&w.attribution)baseAttr=w.attribution; }
@@ -8523,7 +8528,7 @@ async function _batchCaptureTourMap(tourId, mapCfg){
     for(const sec of sections){ pmap.fitBounds(sec.bounds,{padding:[34,34]}); await tilesSettled(); imgs.push(await cap()); }
   }catch(e){ console.warn('Batch-Kartenausdruck '+(tour.name||tourId), e); }
   try{ pmap.remove(); }catch(_){}
-  page.remove();
+  holder.remove();
   return imgs;
 }
 function openTourBatchPrint(){
