@@ -306,7 +306,7 @@ async function doLogin() {
     await firebase.auth().signInWithCustomToken(data.token);
     startSession(data.sessionId, _onSessionKicked);
     _driverAuth={orgId:data.orgId, name:data.name||name, driverId:data.driverId};
-    try{ _presence=startPresence({db, orgId:data.orgId, kind:'fahrer', userKey:data.driverId||('drv:'+(data.name||name)), name:data.name||name, role:'fahrer', app:'mobil'}); }catch(_){}
+    try{ _presence=startPresence({db, orgId:data.orgId, kind:'fahrer', userKey:data.driverId||('drv:'+(data.name||name)), uid:(firebase.auth().currentUser&&firebase.auth().currentUser.uid)||('drv_'+(data.driverId||'')), name:data.name||name, role:'fahrer', app:'mobil'}); }catch(_){}
     _checkFotoAllowed(data.orgId); // Rollen-Modul „Foto-Meldung" (async, Default an)
     _naviEnabled=!!data.naviEnabled; // Mandanten-Flag (Superadmin) steuert die Navi-Funktion
     _orsKey=data.orsKey||''; // Routing-Key (ORS) des Mandanten

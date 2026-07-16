@@ -86,7 +86,10 @@ exports.driverLogin = onCall({ region: REGION }, async (req) => {
       upd.session = { id: sessionId, lastSeen: now, app: String((req.data && req.data.app) || '') };
     }
     await ref.update(upd);
-    const personRole = d.role || 'fahrer';
+    // Sicherheit: Eine per Roh-Firestore-Write in den drivers-Datensatz geschleuste Superadmin-Rolle darf
+    // NIE zu einem Superadmin-Token führen (Superadmin wird ausschließlich über Claims/setUserRole vergeben).
+    let personRole = d.role || 'fahrer';
+    if (personRole === 'superadmin') personRole = 'fahrer';
     const personCap = await capForRole(personRole, oid2);
     // Mandanten-Feature-Flags (Navi) + Routing-Key — Default aus; Fahrer dürfen das orgs-Doc nicht direkt lesen.
     let naviEnabled = false, orsKey = '';

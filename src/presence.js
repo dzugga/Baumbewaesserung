@@ -33,6 +33,7 @@ export function startPresence(opts) {
     const doc = {
       orgId: o.orgId, kind: o.kind || '', userKey: o.userKey, name: o.name || '',
       role: o.role || '', app: o.app || '', buildId: o.buildId || '',
+      uid: o.uid || '',   // Auth-UID (Owner-Bindung in den Rules); ohne Match wird der Write abgelehnt
       loginAt: now(), lastSeen: now(), logoutAt: null,
     };
     try { ref = db.collection('presence').doc(); ref.set(doc); }

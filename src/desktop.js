@@ -17384,7 +17384,7 @@ firebase.auth().onAuthStateChanged(async (user)=>{
     if(currentCap==='driver'){ showLogin('Dieses Konto ist ein Fahrer-Zugang und hat keinen Zugriff auf den Planungsmanager. Bitte die Fahrer-App nutzen oder mit einem Planer-/Admin-Konto anmelden.'); return; }
     await loadRoles();
     hideLogin(); updateUserChip(); applyModulePermissions(); initProjectScreen();
-    try{ _presence=startPresence({db, orgId:currentOrg||('super:'+currentUser.uid), kind:'desktop', userKey:currentUser.uid, name:currentName||currentUser.email||'', role:currentRole, app:'desktop', buildId:(typeof __BUILD_ID__!=='undefined'?__BUILD_ID__:'')}); }catch(_){}
+    try{ _presence=startPresence({db, orgId:currentOrg||('super:'+currentUser.uid), kind:'desktop', userKey:currentUser.uid, uid:currentUser.uid, name:currentName||currentUser.email||'', role:currentRole, app:'desktop', buildId:(typeof __BUILD_ID__!=='undefined'?__BUILD_ID__:'')}); }catch(_){}
   } else {
     currentUser=null; currentRole=''; currentCap=''; currentOrg='';
     showLogin('');

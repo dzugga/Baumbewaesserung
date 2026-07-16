@@ -572,7 +572,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         if(rs.exists) elRoles[currentRole]=rs.data();
       }catch(e){}
       if(!canUseEinsatzleiter()){ showLoginStep1('Diese Rolle hat keinen Zugriff auf die Einsatzleiter-App.'); return; }
-      try{ _presence=startPresence({db, orgId:currentOrg||('super:'+currentUser.uid), kind:'einsatzleiter', userKey:currentUser.uid, name:currentUser.email||'', role:currentRole, app:'einsatzleiter'}); }catch(_){}
+      try{ _presence=startPresence({db, orgId:currentOrg||('super:'+currentUser.uid), kind:'einsatzleiter', userKey:currentUser.uid, uid:currentUser.uid, name:currentUser.email||'', role:currentRole, app:'einsatzleiter'}); }catch(_){}
       showProjectStep();
     } else {
       currentUser=null; currentRole=''; currentCap=''; currentOrg='';

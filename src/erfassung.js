@@ -601,7 +601,7 @@ async function doLogin() {
     try{ localStorage.setItem('bwt_mobile_orgcode',orgcode.toUpperCase()); localStorage.setItem('bwt_mobile_name',name); }catch(_){}
     await firebase.auth().signInWithCustomToken(res.data.token);
     startSession(res.data.sessionId, _onSessionKicked);
-    try{ _presence=startPresence({db, orgId:res.data.orgId, kind:'erfassung', userKey:res.data.driverId||('drv:'+name), name:res.data.name||name, role:'erfasser', app:'erfassung'}); }catch(_){}
+    try{ _presence=startPresence({db, orgId:res.data.orgId, kind:'erfassung', userKey:res.data.driverId||('drv:'+name), uid:(firebase.auth().currentUser&&firebase.auth().currentUser.uid)||('drv_'+(res.data.driverId||'')), name:res.data.name||name, role:'erfasser', app:'erfassung'}); }catch(_){}
   }catch(e){ const c=e&&e.code||'',m=e&&e.message||''; if(/already-exists/.test(c)){ _erfErr(m||'Diese Kennung ist bereits an einem anderen Gerät angemeldet.'); _erfBtn('Anmelden',false); return; } _erfErr(/permission-denied|not-found|unauthenticated|resource-exhausted/.test(c)?(m||'Name oder PIN falsch'):('Fehler: '+(m||c))); _erfBtn('Anmelden',false); }
 }
 

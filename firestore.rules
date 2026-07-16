@@ -66,7 +66,14 @@ service cloud.firestore {
     // lesen/aufräumen nur Superadmin. Enthält nur Präsenzdaten (kein fachlicher Inhalt).
     match /presence/{sid} {
       allow read, delete: if isSuper();
-      allow create, update: if signedIn();
+      // Owner-Bindung: nur die eigene Sitzung (uid == Auth-UID) anlegen/aktualisieren; Update nur Heartbeat/Logout.
+      // Lesen bleibt Superadmin-only → eine fremde Sitzungs-ID ist ohnehin nicht auffindbar (kein gezieltes Manipulieren).
+      allow create: if signedIn()
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.keys().hasOnly(['orgId','kind','userKey','name','role','app','buildId','loginAt','lastSeen','logoutAt','uid']);
+      allow update: if signedIn()
+                    && resource.data.uid == request.auth.uid
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastSeen','logoutAt']);
     }
 
     // ----- Mandanten -----
@@ -88,8 +95,8 @@ service cloud.firestore {
     // ----- Nutzungs-Zähler je Mandant (Reads/Writes/Deletes, App-seitig hochgezählt) -----
     match /usage/{uid} {
       allow read:          if isSuper() || (inOrg(resource.data.orgId) && cap() == 'admin');
-      allow create, update: if signedIn() && inOrg(request.resource.data.orgId)
-                            && request.resource.data.keys().hasOnly(['orgId','monat','reads','writes','deletes','updatedAt']); // nur die erwarteten Zählfelder
+      allow create, update: if signedIn() && cap() != 'driver' && inOrg(request.resource.data.orgId)
+                            && request.resource.data.keys().hasOnly(['orgId','monat','reads','writes','deletes','updatedAt']); // nur erwartete Zählfelder; Fahrer-App schreibt nie usage
       allow delete:        if isSuper();
     }
 
@@ -120,12 +127,19 @@ service cloud.firestore {
             && (!('role' in d) || d.role == '');
       }
       allow read:   if canPlan(resource.data.orgId);   // Planer dürfen Namen lesen (Einsatzplaner/Tour-Besetzung); Hash ist scrypt
-      // Admin: alles. Planer/Einsatzleiter: NUR Login-lose Personen anlegen (nie PIN/Rolle → keine Rechteausweitung).
-      allow create: if canManage(request.resource.data.orgId)
+      // Admin: alles AUSSER role='superadmin' setzen (Eskalation — Superadmin wird NUR über Claims/setUserRole vergeben,
+      // driverLogin liest role aus diesem Doc). Planer/Einsatzleiter: NUR Login-lose Personen anlegen (nie PIN/Rolle).
+      allow create: if isSuper()
+                    || (inOrg(request.resource.data.orgId) && cap() == 'admin'
+                        && (!('role' in request.resource.data) || request.resource.data.role != 'superadmin'))
                     || (canPlan(request.resource.data.orgId) && isLoginless(request.resource.data));
-      // Admin: alles. Planer: (a) Abwesenheiten an JEDER Person (auch Login-Fahrer „krank"),
-      // ODER (b) Pflegefelder NUR an Login-losen Personen — Anmeldedaten/Rolle/noLogin bleiben unberührt (nicht in der Liste).
-      allow update: if canManage(resource.data.orgId)
+      // Admin: alles, ABER orgId bleibt fest (kein Mandanten-Umzug per Roh-Write, sonst Cross-Tenant-Takeover)
+      // und role wird nicht auf superadmin gehoben. Planer: (a) Abwesenheiten an JEDER Person,
+      // ODER (b) Pflegefelder NUR an Login-losen Personen (Anmeldedaten/Rolle/noLogin unberührt).
+      allow update: if isSuper()
+                    || (inOrg(resource.data.orgId) && cap() == 'admin' && orgUnchanged()
+                        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role'])
+                            || request.resource.data.role != 'superadmin'))
                     || (canPlan(resource.data.orgId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['absences']))
                     || (canPlan(resource.data.orgId) && resource.data.noLogin == true
                         && request.resource.data.diff(resource.data).affectedKeys()
@@ -175,9 +189,13 @@ service cloud.firestore {
 
     // ----- Projekte + Unterkollektionen -----
     match /projects/{pid} {
-      // Org des Parent-Projekts (fuer Lesen unbeschr. Unterkollektions-Queries)
+      // Org des Parent-Projekts (fuer Lesen unbeschr. Unterkollektions-Queries UND Schreibschutz)
       function projOrg() { return get(/databases/$(database)/documents/projects/$(pid)).data.orgId; }
       function canReadProj() { return inOrg(projOrg()); }
+      // Neue Unterkollektions-Dokumente muessen zum Mandanten des Parent-Projekts gehoeren — verhindert,
+      // dass ein Planer org-eigene Docs in ein FREMDES Projekt schreibt. get() ist pro Request/Batch gecacht
+      // (Bulk-Import in EIN Projekt = ~1 Read je Batch), daher vertretbar.
+      function orgIsParent() { return request.resource.data.orgId == projOrg(); }
 
       allow read:   if inOrg(resource.data.orgId);
       allow create: if canPlan(request.resource.data.orgId);
@@ -186,45 +204,45 @@ service cloud.firestore {
 
       match /trees/{tid} {
         allow read:   if canReadProj();
-        allow create: if canPlan(request.resource.data.orgId);
+        allow create: if canPlan(request.resource.data.orgId) && orgIsParent();
         allow delete: if canPlan(resource.data.orgId);
         allow update: if (canPlan(resource.data.orgId) && orgUnchanged())
                       || (cap() == 'driver' && inOrg(resource.data.orgId) && orgUnchanged() && onlyStatusFields());
       }
       match /tours/{tid} {
         allow read:           if canReadProj();
-        allow create:         if canPlan(request.resource.data.orgId);
+        allow create:         if canPlan(request.resource.data.orgId) && orgIsParent();
         allow update:         if (canPlan(resource.data.orgId) && orgUnchanged())
                               || (cap() == 'driver' && inOrg(resource.data.orgId) && orgUnchanged() && onlyTourStatusFields());
         allow delete:         if canPlan(resource.data.orgId);
       }
       match /routes/{tid} {
         allow read:           if canReadProj();
-        allow create:         if canPlan(request.resource.data.orgId);
+        allow create:         if canPlan(request.resource.data.orgId) && orgIsParent();
         allow update:         if canPlan(resource.data.orgId) && orgUnchanged();
         allow delete:         if canPlan(resource.data.orgId);
       }
       match /reasons/{rid} {
         allow read:           if canReadProj();
-        allow create:         if canPlan(request.resource.data.orgId);
+        allow create:         if canPlan(request.resource.data.orgId) && orgIsParent();
         allow update:         if canPlan(resource.data.orgId) && orgUnchanged();
         allow delete:         if canPlan(resource.data.orgId);
       }
       match /arten/{aid} {
         allow read:           if canReadProj();
-        allow create:         if canPlan(request.resource.data.orgId);
+        allow create:         if canPlan(request.resource.data.orgId) && orgIsParent();
         allow update:         if canPlan(resource.data.orgId) && orgUnchanged();
         allow delete:         if canPlan(resource.data.orgId);
       }
       match /tourHistory/{hid} {
         allow read:   if canReadProj();
-        allow create: if inOrg(request.resource.data.orgId) && (cap() == 'driver' || canPlan(request.resource.data.orgId));
+        allow create: if inOrg(request.resource.data.orgId) && orgIsParent() && (cap() == 'driver' || canPlan(request.resource.data.orgId));
         allow update, delete: if canPlan(resource.data.orgId);
       }
       // Auto-Planung: gespeicherte Touren-Varianten (beruehren echte Touren/Objekte nicht)
       match /planVarianten/{vid} {
         allow read:           if canReadProj();
-        allow create:         if canPlan(request.resource.data.orgId);
+        allow create:         if canPlan(request.resource.data.orgId) && orgIsParent();
         allow update:         if canPlan(resource.data.orgId) && orgUnchanged();
         allow delete:         if canPlan(resource.data.orgId);
       }
