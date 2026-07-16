@@ -4165,7 +4165,7 @@ function openDetail(id){
     <div style="display:flex;flex-direction:column;gap:5px;padding:4px 0 8px;">
       ${(tree.dokumente||[]).map((d,i)=>`<div style="display:flex;align-items:center;gap:8px;background:var(--surface2);border-radius:8px;padding:7px 10px;">
         <span style="flex-shrink:0;">${d.typ==='link'?'🔗':docIcon(d.name)}</span>
-        <a href="${dlEsc(d.u)}" target="_blank" rel="noopener" title="${dlEsc(d.name||'')}" style="flex:1;min-width:0;font-size:12px;font-weight:600;color:var(--text);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(d.name||'Dokument')}</a>
+        <a href="${/^https:\/\//i.test(String(d.u||''))?dlEsc(d.u):'#'}" target="_blank" rel="noopener" title="${dlEsc(d.name||'')}" style="flex:1;min-width:0;font-size:12px;font-weight:600;color:var(--text);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(d.name||'Dokument')}</a>
         ${d.size?`<span style="font-size:10px;color:var(--text3);flex-shrink:0;">${fmtBytes(d.size)}</span>`:''}
         ${isReadonly()?'':`<button onclick="docDelete('${id}',${i})" title="Entfernen" style="border:none;background:none;cursor:pointer;color:var(--red);font-size:15px;line-height:1;padding:0 2px;flex-shrink:0;">×</button>`}
       </div>`).join('')}
@@ -4562,7 +4562,7 @@ function renderModalMedia(treeId){
     <div style="display:flex;flex-direction:column;gap:5px;padding:2px 0 4px;">
       ${docs.map((d,i)=>`<div style="display:flex;align-items:center;gap:8px;background:var(--surface2);border-radius:8px;padding:7px 10px;">
         <span style="flex-shrink:0;">${d.typ==='link'?'🔗':docIcon(d.name)}</span>
-        <a href="${dlEsc(d.u)}" target="_blank" rel="noopener" title="${dlEsc(d.name||'')}" style="flex:1;min-width:0;font-size:12px;font-weight:600;color:var(--text);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(d.name||'Dokument')}</a>
+        <a href="${/^https:\/\//i.test(String(d.u||''))?dlEsc(d.u):'#'}" target="_blank" rel="noopener" title="${dlEsc(d.name||'')}" style="flex:1;min-width:0;font-size:12px;font-weight:600;color:var(--text);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(d.name||'Dokument')}</a>
         ${d.size?`<span style="font-size:10px;color:var(--text3);flex-shrink:0;">${fmtBytes(d.size)}</span>`:''}
         ${isReadonly()?'':`<button type="button" onclick="docDelete('${_jsArg(treeId)}',${i})" title="Entfernen" style="border:none;background:none;cursor:pointer;color:var(--red);font-size:15px;line-height:1;padding:0 2px;flex-shrink:0;">×</button>`}
       </div>`).join('')}
