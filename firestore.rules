@@ -28,7 +28,7 @@ service cloud.firestore {
     // Fahrer (cap 'driver') duerfen an Baeumen NUR diese Felder aendern:
     function onlyStatusFields() {
       return request.resource.data.diff(resource.data).affectedKeys()
-        .hasOnly(['lastStatus','lastReason','lastNote','lastDriver','lastReportAt','history','datum','zustand','lastFuellgrad']);
+        .hasOnly(['lastStatus','lastReason','lastNote','lastDriver','lastReportAt','history','datum','zustand','lastFuellgrad','runStatus']);
     }
     // Fahrer duerfen an Touren NUR den Abschluss-/Wiederaufnahme-Status setzen:
     function onlyTourStatusFields() {

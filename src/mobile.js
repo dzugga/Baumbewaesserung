@@ -412,7 +412,7 @@ async function startBewässerungLogin(name, pid, tid) {
       currentTourId = tid;
       currentDriver = name;
       currentTour = tourSnap.exists ? {id:tid,...tourSnap.data()} : null;
-      trees = treesSnap.docs.map(d=>({id:d.id,...d.data()})).filter(t=>(t.tourIds||[t.tourId]).includes(tid) && t.aktiv!==false);
+      trees = _applyRunStatus(treesSnap.docs.map(d=>({id:d.id,...d.data()})).filter(t=>(t.tourIds||[t.tourId]).includes(tid) && t.aktiv!==false));
       routeOrder = trees.map(t=>t.id);
       reasons = reasonsSnap.docs.map(d=>({id:d.id,...d.data()}));
       _cachedRouteSnap = routeSnap; // Cache route snap so drawRoute doesn't re-fetch
@@ -426,7 +426,7 @@ async function startBewässerungLogin(name, pid, tid) {
       currentTourId = tid;
       currentDriver = name;
       currentTour = cached.tour || null;
-      trees = cached.trees || [];
+      trees = _applyRunStatus(cached.trees || []);
       routeOrder = trees.map(t=>t.id);
       reasons = cached.reasons || [];
       _cachedRouteSnap = cached.route ? {exists:true, data:()=>cached.route} : {exists:false};
@@ -493,7 +493,7 @@ async function startBewässerungLogin(name, pid, tid) {
       // Client-seitiger Filter: tourIds-Array oder altes tourId-Feld
       const all=snap.docs.map(d=>({id:d.id,...d.data()}));
       _setObjIndex(all);
-      trees=all.filter(t=>(t.tourIds||[t.tourId]).includes(tid) && t.aktiv!==false);
+      trees=_applyRunStatus(all.filter(t=>(t.tourIds||[t.tourId]).includes(tid) && t.aktiv!==false));
       routeOrder=routeOrder.filter(id=>trees.find(t=>t.id===id));
       trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
       cacheTreesLocally(pid,tid,trees);
@@ -519,10 +519,33 @@ async function startBewässerungLogin(name, pid, tid) {
 }
 
 
+// Pro-Tour-Melde-Status: projiziert runStatus[currentTourId] auf die flachen tree.last*-Felder.
+// Die Fahrer-App ist immer auf GENAU EINE Tour beschränkt → so bleiben alle ~25 tree.lastStatus-Leser
+// (Fortschritt, Marker, Liste, Detail, Navi, Abschluss) unverändert und gelten automatisch pro Tour.
+// Das globale tree.lastStatus am Doc bleibt „zuletzt gemeldet" (Desktop/Auswertungen) — hier NUR im
+// Speicher überschrieben, nie so zurückgeschrieben.
+function _projectRunStatus(t){
+  const rs = (t && t.runStatus && currentTourId) ? t.runStatus[currentTourId] : null;
+  t.lastStatus    = rs ? (rs.status||null)    : null;
+  t.lastReason    = rs ? (rs.reason||null)    : null;
+  t.lastNote      = rs ? (rs.note||null)      : null;
+  t.lastDriver    = rs ? (rs.driver||null)    : null;
+  t.lastReportAt  = rs ? (rs.at||null)        : null;
+  t.lastFuellgrad = rs ? (rs.fuellgrad==null?null:rs.fuellgrad) : null;
+  return t;
+}
+function _applyRunStatus(list){ (list||[]).forEach(_projectRunStatus); return list; }
+// Baut den Pro-Tour-Eintrag aus den flachen Melde-Feldern (dieselben Werte wie last*).
+function _runEntry(u){
+  const e = { status:u.lastStatus||null, reason:u.lastReason||null, note:u.lastNote||null, driver:u.lastDriver||null, at:u.lastReportAt||null };
+  if(u.lastFuellgrad!=null) e.fuellgrad=u.lastFuellgrad;
+  return e;
+}
+
 async function loadTrees() {
   const snap = await getDocs(collection(db,'projects',currentProjectId,'trees'));
-  trees = snap.docs.map(d=>({id:d.id,...d.data()}))
-    .filter(t=>(t.tourIds||[t.tourId]).includes(currentTourId) && t.aktiv!==false);
+  trees = _applyRunStatus(snap.docs.map(d=>({id:d.id,...d.data()}))
+    .filter(t=>(t.tourIds||[t.tourId]).includes(currentTourId) && t.aktiv!==false));
 }
 
 async function loadReasons() {
@@ -615,24 +638,23 @@ async function dialogNeuStarten(){
   closeResumeDialog();
   toast('Status wird zurückgesetzt…');
 
-  const resetFields = {
-    lastStatus: null, lastReason: null, lastNote: null,
-    lastReportAt: null, lastDriver: null,
-  };
+  // Pro-Tour: NUR den Lauf DIESER Tour zurücksetzen (runStatus.<tid> löschen). Das globale lastStatus
+  // (zuletzt gemeldet, Desktop-Anzeige) bleibt unberührt → keine Störung anderer Touren desselben Objekts.
+  const _rsDel = currentTourId ? { ['runStatus.'+currentTourId]: firebase.firestore.FieldValue.delete() } : null;
 
   // Step 1: Unsubscribe listener
   if(unsubTrees){ unsubTrees(); unsubTrees=null; }
 
   // Step 2: Reset local state immediately
-  trees.forEach(tree => Object.assign(tree, resetFields));
+  trees.forEach(tree => { if(tree.runStatus) delete tree.runStatus[currentTourId]; _projectRunStatus(tree); });
   renderMarkers();
   renderList('');
   updateProgress();
 
   // Step 3: Write to Firestore
-  await Promise.all(
+  if(_rsDel) await Promise.all(
     trees.map(tree =>
-      updateDoc(doc(db,'projects',currentProjectId,'trees',tree.id), resetFields)
+      updateDoc(doc(db,'projects',currentProjectId,'trees',tree.id), _rsDel)
     )
   );
 
@@ -650,7 +672,7 @@ async function dialogNeuStarten(){
     if(pauseSnapshot) return;
     const _all = snap.docs.map(d=>({id:d.id,...d.data()}));
     _setObjIndex(_all);
-    trees = _all.filter(t=>(t.tourIds||[t.tourId]).includes(currentTourId) && t.aktiv!==false);
+    trees = _applyRunStatus(_all.filter(t=>(t.tourIds||[t.tourId]).includes(currentTourId) && t.aktiv!==false));
     routeOrder = routeOrder.filter(id=>trees.find(t=>t.id===id));
     trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
     renderMarkers();
@@ -697,17 +719,19 @@ async function confirmMarkAllDone(){
     lastNote: null,
     datum: now.slice(0,10),
   });   // nur erlaubte Fahrer-Felder (Rules onlyStatusFields)
+  const rsEntry=_runEntry(updates);
+  const _rsWrite = currentTourId?{['runStatus.'+currentTourId]:rsEntry}:{};
 
   // Update local state + UI immediately
   pauseSnapshot = true;
-  open.forEach(tree => Object.assign(tree, updates));
+  open.forEach(tree => { if(currentTourId) tree.runStatus={...(tree.runStatus||{}), [currentTourId]:rsEntry}; Object.assign(tree, updates); });
   renderMarkers();
   renderList('');
   updateProgress();
 
   if(!isOnline){
     // Offline: über die Offline-Queue (Zähler steigt, Replay bei Reconnect) — NICHT direkt schreiben
-    await addManyToOfflineQueue(open.map(t=>t.id), updates);
+    await addManyToOfflineQueue(open.map(t=>t.id), updates, currentTourId, rsEntry);
     toast(`📦 ${open.length} offline gespeichert — wird synchronisiert wenn Netz verfügbar`);
     setTimeout(()=>{ pauseSnapshot = false; }, 500);
     return;
@@ -717,11 +741,11 @@ async function confirmMarkAllDone(){
   // Firestore writes in background
   Promise.all(
     open.map(tree =>
-      updateDoc(doc(db,'projects',currentProjectId,'trees',tree.id), updates)
+      updateDoc(doc(db,'projects',currentProjectId,'trees',tree.id), {...updates, ..._rsWrite})
     )
   ).catch(e => {
     // Netz mittendrin weg → alles in die Queue, damit nichts verloren geht
-    addManyToOfflineQueue(open.map(t=>t.id), updates);
+    addManyToOfflineQueue(open.map(t=>t.id), updates, currentTourId, rsEntry);
     toast('📦 Offline gespeichert — wird später synchronisiert');
     console.error('confirmMarkAllDone error:', e);
   }).finally(()=>{
@@ -988,27 +1012,22 @@ async function reopenTour() {
   try {
     const now = new Date();
 
-    const resetFields = {
-      lastStatus: null,
-      lastReason: null,
-      lastNote: null,
-      lastReportAt: null,
-      lastDriver: null,
-    };
+    // Pro-Tour: NUR den Lauf DIESER Tour zurücksetzen (runStatus.<tid> löschen); globales lastStatus bleibt.
+    const _rsDel = currentTourId ? { ['runStatus.'+currentTourId]: firebase.firestore.FieldValue.delete() } : null;
 
     // Step 1: Unsubscribe listener so it doesn't overwrite our reset
     if(unsubTrees){ unsubTrees(); unsubTrees=null; }
 
     // Step 2: Reset local state immediately and re-render
-    trees.forEach(tree => Object.assign(tree, resetFields));
+    trees.forEach(tree => { if(tree.runStatus) delete tree.runStatus[currentTourId]; _projectRunStatus(tree); });
     renderMarkers();
     renderList('');
     updateProgress();
 
     // Step 3: Write all resets to Firestore in parallel
-    await Promise.all(
+    if(_rsDel) await Promise.all(
       trees.map(tree =>
-        updateDoc(doc(db,'projects',currentProjectId,'trees',tree.id), resetFields)
+        updateDoc(doc(db,'projects',currentProjectId,'trees',tree.id), _rsDel)
       )
     );
 
@@ -1026,7 +1045,7 @@ async function reopenTour() {
       if(pauseSnapshot) return;
       const _all = snap.docs.map(d=>({id:d.id,...d.data()}));
       _setObjIndex(_all);
-      trees = _all.filter(t=>(t.tourIds||[t.tourId]).includes(currentTourId) && t.aktiv!==false);
+      trees = _applyRunStatus(_all.filter(t=>(t.tourIds||[t.tourId]).includes(currentTourId) && t.aktiv!==false));
       routeOrder = routeOrder.filter(id=>trees.find(t=>t.id===id));
       trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
       renderMarkers();
@@ -2024,6 +2043,7 @@ async function saveReport(id){
   };
   if(status==='bewaessert') updates.datum=new Date().toISOString().slice(0,10);
   if(fuellgrad!=null) updates.lastFuellgrad=fuellgrad;
+  const rsEntry=_runEntry(updates);   // Pro-Tour-Eintrag (dieselben Werte wie die denormalisierten last*)
   // Eigenschaften (zustand/wasser/notiz) NUR schreiben, wenn der Fahrer sie wirklich geändert hat.
   // Sonst wird z.B. bei einem Abschnitt ohne Notiz das Feld notiz:'' NEU angelegt → die
   // Sicherheitsregeln (Fahrer darf nur Status-Felder ändern) lehnen den ganzen Schreibvorgang ab.
@@ -2041,7 +2061,8 @@ async function saveReport(id){
     status,                         // 'bewaessert' | 'nicht' — Auswertungen zählen ausschließlich hierüber
     reason:reason||null,
     note:`${status==='bewaessert'?'Bewässert':'Nicht bewässert'}${reason?' — '+reason:''}${note?' ('+note+')':''}${fuellgrad!=null?' · Füllgrad: '+fgLabel(fuellgrad):''}`,
-    driver:currentDriver
+    driver:currentDriver,
+    tourId:currentTourId            // Meldung tour-genau (history bleibt reines Append-Log)
   };
   if(fuellgrad!=null) histEntry.fuellgrad=fuellgrad;
   // Fotos hochladen (optional; nur online — Offline-Meldung wird ohne Foto gespeichert)
@@ -2072,9 +2093,10 @@ async function saveReport(id){
   // Use arrayUnion — no need to read existing history first.
   // Schreib-Payload hart auf erlaubte Fahrer-Felder filtern (Rules onlyStatusFields) — Defense-in-Depth.
   const _u=onlyTreeStatusFields(updates);
-  const firestoreUpdates={..._u, history: firebase.firestore.FieldValue.arrayUnion(histEntry)};
+  const firestoreUpdates={..._u, ...(currentTourId?{['runStatus.'+currentTourId]:rsEntry}:{}), history: firebase.firestore.FieldValue.arrayUnion(histEntry)};
 
   // Update local state + close sheet immediately (optimistic UI)
+  if(currentTourId) tree.runStatus={...(tree.runStatus||{}), [currentTourId]:rsEntry};
   Object.assign(tree, updates);
   renderMarkers(); renderList(''); updateProgress();
   closeSheet();
@@ -2087,7 +2109,7 @@ async function saveReport(id){
   toast(status==='bewaessert'?'✓ Erledigt gemeldet':'✕ Nicht erledigt gemeldet');
 
   if(!isOnline){
-    addToOfflineQueue(id, _u, histEntry);
+    addToOfflineQueue(id, _u, histEntry, currentTourId, rsEntry);
     toast('📦 Offline gespeichert — wird synchronisiert wenn Netz verfügbar');
   } else {
     // Firestore write in background — UI already updated
@@ -2209,22 +2231,25 @@ async function markTreeDone(tree){
   if(!tree || tree.lastStatus==='bewaessert') return;
   const id=tree.id, _now=new Date(), now=_now.toISOString();
   const updates={ lastStatus:'bewaessert', lastReason:null, lastNote:null, lastDriver:currentDriver, lastReportAt:now, datum:_localDateStr(_now) };
-  const histEntry={ at:now, date:_localDateStr(_now), status:'bewaessert', reason:null, note:'Bewässert', driver:currentDriver };
+  const rsEntry=_runEntry(updates);
+  const histEntry={ at:now, date:_localDateStr(_now), status:'bewaessert', reason:null, note:'Bewässert', driver:currentDriver, tourId:currentTourId };
   const _u=onlyTreeStatusFields(updates);   // nur erlaubte Fahrer-Felder (Rules onlyStatusFields)
-  const firestoreUpdates={..._u, history:firebase.firestore.FieldValue.arrayUnion(histEntry)};
-  const _prev={}; Object.keys(updates).forEach(k=>_prev[k]=tree[k]);
+  const firestoreUpdates={..._u, ...(currentTourId?{['runStatus.'+currentTourId]:rsEntry}:{}), history:firebase.firestore.FieldValue.arrayUnion(histEntry)};
+  const _prev={}; Object.keys(updates).forEach(k=>_prev[k]=tree[k]); const _prevRun=tree.runStatus?{...tree.runStatus}:undefined;
+  if(currentTourId) tree.runStatus={...(tree.runStatus||{}), [currentTourId]:rsEntry};
   Object.assign(tree, updates);
   renderMarkers(); renderList(''); updateProgress();
-  if(!isOnline){ await addToOfflineQueue(id, _u, histEntry); return; }
+  if(!isOnline){ await addToOfflineQueue(id, _u, histEntry, currentTourId, rsEntry); return; }
   updateDoc(doc(db,'projects',currentProjectId,'trees',id), firestoreUpdates).catch(e=>{
     const code=e&&e.code;
     if(code==='permission-denied' || code==='invalid-argument' || code==='not-found'){
       console.error('markTreeDone abgelehnt:', code, e);
       Object.keys(_prev).forEach(k=>{ if(_prev[k]===undefined) delete tree[k]; else tree[k]=_prev[k]; });
+      tree.runStatus=_prevRun; _projectRunStatus(tree);
       renderMarkers(); renderList(''); updateProgress();
       toast('⚠ Nicht gespeichert ('+(code||'?')+')');
     } else {
-      addToOfflineQueue(id, _u, histEntry);
+      addToOfflineQueue(id, _u, histEntry, currentTourId, rsEntry);
     }
   });
 }
@@ -2428,14 +2453,14 @@ async function getOfflineQueue(){
   catch(e){ return []; }
 }
 
-async function addToOfflineQueue(treeId, updates, histEntry){
+async function addToOfflineQueue(treeId, updates, histEntry, tourId, runEntry){
   const q = await getOfflineQueue();
   // Replace existing entry for same tree (latest wins bei Status-Feldern) — Verlaufseinträge aber
   // AKKUMULIEREN: beim Sync werden sie per arrayUnion angehängt (überschreiben NICHT das ganze
   // history-Array, sonst gingen serverseitig hinzugekommene Meldungen anderer Geräte verloren).
   const idx = q.findIndex(e=>e.treeId===treeId);
   const prev = idx>=0 ? (q[idx].histEntries||[]) : [];
-  const entry = { treeId, updates, histEntries: histEntry ? [...prev, histEntry] : prev, projectId: currentProjectId, queuedAt: new Date().toISOString() };
+  const entry = { treeId, updates, histEntries: histEntry ? [...prev, histEntry] : prev, tourId: tourId||null, runEntry: runEntry||null, projectId: currentProjectId, queuedAt: new Date().toISOString() };
   if(idx>=0) q[idx] = entry;
   else q.push(entry);
   await idbSet(QUEUE_KEY, q);
@@ -2445,11 +2470,11 @@ async function addToOfflineQueue(treeId, updates, histEntry){
 
 // Mehrere Meldungen mit denselben Updates in EINEM Schreibvorgang einreihen (latest-wins je Objekt).
 // Wichtig: nicht addToOfflineQueue in einer Schleife rufen — das wäre ein Race auf die Queue.
-async function addManyToOfflineQueue(treeIds, updates){
+async function addManyToOfflineQueue(treeIds, updates, tourId, runEntry){
   const q = await getOfflineQueue();
   const now = new Date().toISOString();
   treeIds.forEach(treeId=>{
-    const entry = { treeId, updates, projectId: currentProjectId, queuedAt: now };
+    const entry = { treeId, updates, tourId: tourId||null, runEntry: runEntry||null, projectId: currentProjectId, queuedAt: now };
     const idx = q.findIndex(e=>e.treeId===treeId);
     if(idx>=0) q[idx] = entry; else q.push(entry);
   });
@@ -2474,6 +2499,8 @@ async function syncOfflineQueue(){
   for(const entry of q){
     try {
       const up = {...(entry.updates||{})};
+      // Pro-Tour-Status nachziehen (nested), falls beim Einreihen erfasst
+      if(entry.tourId && entry.runEntry) up['runStatus.'+entry.tourId] = entry.runEntry;
       // Verlaufseinträge per arrayUnion anhängen (nicht das ganze Array überschreiben)
       if(entry.histEntries && entry.histEntries.length){
         up.history = firebase.firestore.FieldValue.arrayUnion(...entry.histEntries);
