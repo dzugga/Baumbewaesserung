@@ -9156,6 +9156,20 @@ function _praesenzApplyTimer(){
   _praesenzTimer=setInterval(()=>{ if(document.getElementById('view-praesenz')?.style.display==='block') _praesenzLoad(false); else _praesenzStopTimer(); },120000);
 }
 function praesenzToggleLive(){ try{ localStorage.setItem('praesenzLive', _praesLive()?'0':'1'); }catch(_){} _praesenzApplyTimer(); if(_praesLive()) _praesenzLoad(false); else renderPraesenz(); }
+// Verlauf zurücksetzen (Superadmin): beendete Sitzungen löschen — laufende (gerade online)
+// bleiben erhalten, sonst würde deren Heartbeat ins Leere schreiben und die Anzeige kippen.
+async function praesenzResetHistory(){
+  if(currentRole!=='superadmin') return;
+  if(!await _confirmBox('Verlauf zurücksetzen','Alle BEENDETEN Sitzungen aus der Präsenz-Historie löschen?\n\nGerade aktive Sitzungen bleiben erhalten. Auch die Parallelnutzungs-Statistik beginnt danach neu (z. B. vor dem Teststart der Städte).','Verlauf löschen','Abbrechen')) return;
+  try{
+    const qs=await db.collection('presence').get();
+    const now=Date.now();
+    const del=qs.docs.filter(d=>!presenceIsOnline(d.data(),now));
+    for(let i=0;i<del.length;i+=400){ const b=db.batch(); del.slice(i,i+400).forEach(d=>b.delete(d.ref)); await b.commit(); }
+    notify(`✓ ${del.length} beendete Sitzung(en) gelöscht${qs.size-del.length?` · ${qs.size-del.length} aktive behalten`:''}`);
+    _praesenzData=null; await _praesenzLoad(true);
+  }catch(e){ notify(dlErr(e)); }
+}
 async function initPraesenz(){
   const root=document.getElementById('praesenz-root');
   if(currentRole!=='superadmin'){ if(root) root.innerHTML='<div style="padding:30px;color:var(--text3);">Nur Superadmin.</div>'; return; }
@@ -9231,7 +9245,10 @@ function renderPraesenz(){
       <td style="padding:4px 10px;white-space:nowrap;">${_praesFmtDT(s.loginAt)}</td>
       <td style="padding:4px 10px;white-space:nowrap;">${on?'<span style="color:#16a34a;font-weight:600;">● läuft</span>':_praesFmtDT(presenceSessionEnd(s))}</td>
       <td style="padding:4px 10px;text-align:right;">${dur} min</td></tr>`; }).join('');
-  const verlauf=`<div style="font-weight:700;font-size:13px;margin:16px 0 6px;">Verlauf (letzte ${hist.length} Sitzungen)</div>
+  const verlauf=`<div style="display:flex;align-items:center;gap:10px;margin:16px 0 6px;">
+      <span style="font-weight:700;font-size:13px;">Verlauf (letzte ${hist.length} Sitzungen)</span>
+      <button onclick="praesenzResetHistory()" title="Beendete Sitzungen löschen — Verlauf und Parallelnutzungs-Statistik beginnen neu; aktive Sitzungen bleiben" style="margin-left:auto;padding:2px 9px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;color:#c0392b;">🗑 Verlauf zurücksetzen</button>
+    </div>
     <div style="overflow-x:auto;"><table style="border-collapse:collapse;font-size:12px;width:100%;min-width:640px;">
       <thead><tr style="color:var(--text3);text-align:left;"><th style="padding:4px 10px;">Name</th><th style="padding:4px 10px;">App</th><th style="padding:4px 10px;">Mandant</th><th style="padding:4px 10px;">Rolle</th><th style="padding:4px 10px;">Login</th><th style="padding:4px 10px;">Logout/aktiv</th><th style="padding:4px 10px;text-align:right;">Dauer</th></tr></thead>
       <tbody>${histRows}</tbody></table></div>`;
@@ -17247,7 +17264,7 @@ Object.assign(window,{
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleBhNames,toggleRequiredFeld,toggleRawSeg,_siInfo,
   createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,dashSetBh,tourSetBh,epChangeBh,epTogglePersnr,epToggleBhCol,psSetOrgFilter,setSiTab,
-  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizArtRolle,lizArtMove,lizZrFlip,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,lizPrintOrg,lizPrintAll,lizPrintPreisliste,praesenzRefresh,praesenzToggleLive,praesenzToggleLogging,
+  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizArtRolle,lizArtMove,lizZrFlip,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,lizPrintOrg,lizPrintAll,lizPrintPreisliste,praesenzRefresh,praesenzToggleLive,praesenzToggleLogging,praesenzResetHistory,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,openMeldungFotos,stepMeldungFoto,closeMeldungFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
