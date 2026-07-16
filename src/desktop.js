@@ -5643,6 +5643,91 @@ async function toggleTourUebersicht(id,checked){
   catch(e){ console.warn('toggleTourUebersicht',e); notify('Fehler: '+(e.message||e)); }
 }
 
+// ── Touren kopieren (einzeln/mehrere) ─────────────────────────
+// Saubere Datentrennung: Kopiert werden NUR Planungseigenschaften + die Objekt-Zuordnungen
+// (tourIds arrayUnion — Objekte werden NICHT dupliziert, nur zusätzlich zugeordnet, wie bei
+// Handplanung). Bewusst NICHT kopiert: Fahrer-Besetzung (drivers/assignedDriver/crewDate →
+// sonst Doppelbesetzung im Einsatzplaner), Route + Kennzahlen (routes/{id}, routeKm/…,
+// ID-gebunden — neue Tour rechnet ihre eigene Route), Verlauf (tourHistory referenziert nur
+// die Quelle), createdAt. Damit verhält sich die Kopie exakt wie eine von Hand angelegte Tour.
+const TOUR_COPY_FIELDS=['desc','color','betriebstage','interval','startDate','gueltig','zusatzzeiten','regeln','arbeitszeitMin','betriebshof','reinigungssystem','zeitBasis','manualOrder'];
+function _tourCopyName(base){
+  const names=new Set(tours.map(t=>(t.name||'').trim()));
+  let n=(base||'Tour')+' (Kopie)'; let i=2;
+  while(names.has(n)){ n=(base||'Tour')+' (Kopie '+(i++)+')'; }
+  return n;
+}
+function openTourCopyDialog(){
+  if(isReadonly()){ notify('Nur Lesezugriff'); return; }
+  const real=tours.filter(t=>!t.uebersicht);
+  if(!real.length){ notify('Keine Touren vorhanden'); return; }
+  const all=((_allTrees&&_allTrees.length)?_allTrees:trees).filter(isActive);
+  const cntOf=id=>all.filter(t=>treeInTour(t,id)).length;
+  const m=document.createElement('div');
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;';
+  m.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:480px;max-width:94vw;max-height:86vh;display:flex;flex-direction:column;overflow:hidden;">
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;display:flex;justify-content:space-between;align-items:center;">Touren kopieren<button id="tc-x" style="border:none;background:none;cursor:pointer;font-size:20px;line-height:1;color:var(--text3);">×</button></div>
+    <div style="padding:12px 20px 4px;font-size:12px;color:var(--text2);line-height:1.55;">Kopiert werden <b>Planung</b> (Rhythmus, Betriebstage, Zeiten, Regeln, Betriebshof …) und die <b>Objekt-Zuordnung</b>. <u>Nicht</u> kopiert: Fahrer-Besetzung, berechnete Route und Verlauf — die Kopie verhält sich wie eine neu angelegte Tour.<br><span style="color:#b45309;">Hinweis: Die Objekte sind danach beiden Touren zugeordnet — das erhöht ihren Plan im Soll/Plan-Abgleich (z. B. gewollt bei Sommer-/Winter-Varianten mit unterschiedlichen Gültigkeitszeiträumen).</span></div>
+    <div id="tc-list" style="flex:1;overflow:auto;padding:8px 20px;display:flex;flex-direction:column;gap:2px;">
+      ${real.map(t=>`<label style="display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:13px;">
+        <input type="checkbox" class="tc-cb" value="${dlEsc(t.id)}" style="margin:0;cursor:pointer;">
+        <span style="width:10px;height:10px;border-radius:50%;background:${t.color||'#888'};flex:none;"></span>
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;">${dlEsc(t.name||t.id)}</span>
+        <span style="font-size:11px;color:var(--text3);flex:none;">${cntOf(t.id)} Objekte</span>
+      </label>`).join('')}
+    </div>
+    <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:center;">
+      <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" id="tc-all" style="margin:0;cursor:pointer;"> alle</label>
+      <span style="flex:1;"></span>
+      <button id="tc-cancel" class="btn btn-secondary" style="padding:7px 14px;font-size:13px;">Abbrechen</button>
+      <button id="tc-go" class="btn btn-primary" style="padding:7px 14px;font-size:13px;" disabled>Kopieren</button>
+    </div>
+  </div>`;
+  document.body.appendChild(m);
+  const close=()=>m.remove();
+  m.querySelector('#tc-x').onclick=close; m.querySelector('#tc-cancel').onclick=close;
+  m.addEventListener('click',e=>{ if(e.target===m) close(); });
+  const go=m.querySelector('#tc-go');
+  const upd=()=>{ const n=m.querySelectorAll('.tc-cb:checked').length; go.disabled=!n; go.textContent=n?`${n} Tour${n===1?'':'en'} kopieren`:'Kopieren'; };
+  m.querySelectorAll('.tc-cb').forEach(cb=>cb.onchange=upd);
+  m.querySelector('#tc-all').onchange=e=>{ m.querySelectorAll('.tc-cb').forEach(cb=>cb.checked=e.target.checked); upd(); };
+  go.onclick=async()=>{
+    const ids=[...m.querySelectorAll('.tc-cb:checked')].map(cb=>cb.value);
+    if(!ids.length) return;
+    go.disabled=true;
+    try{ await copyToursExec(ids, go); close(); }
+    catch(e){ console.warn('Touren kopieren',e); notify('⚠ Kopieren fehlgeschlagen: '+(e.message||e)); go.disabled=false; }
+  };
+}
+async function copyToursExec(ids, btn){
+  const all=((_allTrees&&_allTrees.length)?_allTrees:trees).filter(isActive); // voller Bestand, nicht nur Pilot-Ausschnitt
+  let done=0, zuord=0;
+  for(const srcId of ids){
+    const src=tours.find(t=>t.id===srcId); if(!src) continue;
+    if(btn) btn.textContent=`Kopiere ${done+1}/${ids.length}…`;
+    // 1) Tour-Doc: nur die Planungs-Allowlist, tief kopiert (keine Referenzen auf die Quelle)
+    const data={ name:_tourCopyName(src.name) };
+    TOUR_COPY_FIELDS.forEach(f=>{ if(src[f]!==undefined && src[f]!==null) data[f]=JSON.parse(JSON.stringify(src[f])); });
+    const ref=await addDoc(collection(db,'projects',currentProjectId,'tours'),{...data,createdAt:serverTimestamp()});
+    // 2) Objekt-Zuordnung: dieselben Objekte zusätzlich der Kopie zuordnen (arrayUnion — idempotent)
+    const members=all.filter(t=>treeInTour(t,srcId));
+    for(let i=0;i<members.length;i+=400){
+      const batch=db.batch();
+      members.slice(i,i+400).forEach(t=>{
+        const tref=doc(db,'projects',currentProjectId,'trees',t.id);
+        // Altdaten-Falle: hat das Objekt nur das Legacy-Feld tourId (kein tourIds-Array), würde
+        // arrayUnion ein Array NUR mit der Kopie anlegen und die bisherige Mitgliedschaft verdrängen
+        // (getTreeTourIds bevorzugt das Array) → dann volles Array aus Bestand + Kopie schreiben.
+        if(Array.isArray(t.tourIds)) batch.update(tref,{tourIds:arrayUnion(ref.id)});
+        else batch.update(tref,{tourIds:[...new Set([...getTreeTourIds(t), ref.id])]});
+      });
+      await batch.commit(); _bumpUsage('writes',Math.min(400,members.length-i));
+    }
+    zuord+=members.length; done++;
+  }
+  try{ await updateDoc(doc(db,'projects',currentProjectId),{tourCount:tours.length+done}); }catch(_){}
+  notify(`✓ ${done} Tour${done===1?'':'en'} kopiert · ${zuord.toLocaleString('de-DE')} Objekt-Zuordnungen — Fahrer/Route bewusst nicht übernommen`);
+}
 async function deleteTour(id){
   const tour=tours.find(t=>t.id===id);
   const name=tour?.name||'';
@@ -16986,7 +17071,7 @@ Object.assign(window,{
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
   openAddTree,openEditTree,closeTreeModal,saveTree,deleteTree,
   archiveTree,reactivateTree,archiveTreeFromModal,reactivateTreeFromModal,deleteTreeFromModal,toggleShowInactive,showTreeOnMapFromModal,bulkSetInactive,bulkDelete,
-  openTourModal,closeTourModal,saveTour,deleteTour,toggleTourUebersicht,toggleOverviewInGrid,filterTourenGrid,showTourViolations,toggleTourKontrolle,ctxCalcSelected,setTourZeitBasis,
+  openTourModal,closeTourModal,saveTour,deleteTour,openTourCopyDialog,toggleTourUebersicht,toggleOverviewInGrid,filterTourenGrid,showTourViolations,toggleTourKontrolle,ctxCalcSelected,setTourZeitBasis,
   tourZusatzAdd,tourZusatzDel,tourRegelToggle,tourUpdWeekday,tourRhythmusUI,tourToggleBetriebstag,tourGueltigAdd,tourGueltigDel,tourGueltigSet,_sx,_sxClear,
   openTourReport,closeReportModal,repAddCol,repRemoveCol,repMoveCol,repApplyFromControls,
   printReport,exportReportExcel,saveReportTemplate,loadReportTemplate,printTourMap,
