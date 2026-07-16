@@ -5725,7 +5725,8 @@ async function copyToursExec(ids, btn){
     }
     zuord+=members.length; done++;
   }
-  try{ await updateDoc(doc(db,'projects',currentProjectId),{tourCount:tours.length+done}); }catch(_){}
+  // increment statt tours.length+done: der Live-Snapshot kann die Kopien schon in `tours` haben → Off-by-one
+  try{ await updateDoc(doc(db,'projects',currentProjectId),{tourCount:firebase.firestore.FieldValue.increment(done)}); }catch(_){}
   notify(`✓ ${done} Tour${done===1?'':'en'} kopiert · ${zuord.toLocaleString('de-DE')} Objekt-Zuordnungen — Fahrer/Route bewusst nicht übernommen`);
 }
 async function deleteTour(id){
