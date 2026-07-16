@@ -22,11 +22,14 @@ export function startPresence(opts) {
   if (!db || !o.orgId || !o.userKey) return { stop() {}, id: null };
   const now = () => Date.now();
   let ref = null, timer = null, stopped = false;
-  const beat = () => { if (stopped || !ref) return; try { ref.update({ lastSeen: now() }); } catch (_) {} };
+  // Präsenz-Schreibvorgänge sind best-effort: JEDE Ablehnung (z. B. alte Doc-Version ohne uid nach dem
+  // Owner-Bindungs-Umbau, oder Netz-/Rules-Fehler) MUSS still bleiben. `.catch()` fängt die Promise-Ablehnung
+  // — das try/catch allein fängt nur synchrone Fehler und ließe die Ablehnung als „unhandledrejection" durch.
+  const beat = () => { if (stopped || !ref) return; try { ref.update({ lastSeen: now() }).catch(() => {}); } catch (_) {} };
   const logout = () => {
     if (stopped) return; stopped = true;
     try { clearInterval(timer); } catch (_) {}
-    try { if (ref) ref.update({ lastSeen: now(), logoutAt: now() }); } catch (_) {}
+    try { if (ref) ref.update({ lastSeen: now(), logoutAt: now() }).catch(() => {}); } catch (_) {}
   };
   const begin = () => {
     if (stopped || ref) return;
@@ -36,7 +39,7 @@ export function startPresence(opts) {
       uid: o.uid || '',   // Auth-UID (Owner-Bindung in den Rules); ohne Match wird der Write abgelehnt
       loginAt: now(), lastSeen: now(), logoutAt: null,
     };
-    try { ref = db.collection('presence').doc(); ref.set(doc); }
+    try { ref = db.collection('presence').doc(); ref.set(doc).catch(() => {}); }
     catch (e) { try { console.warn('presence start', e); } catch (_) {} return; }
     timer = setInterval(beat, o.intervalMs || PRESENCE_HEARTBEAT_MS);
   };
