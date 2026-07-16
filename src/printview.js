@@ -16,7 +16,8 @@ export function printA4(bodyHtml, title){
     </div>
     <div class="pv-scroll"><div class="pv-sheet">${bodyHtml}</div></div>`;
   document.body.appendChild(ov);
-  const close=()=>{ ov.remove(); document.removeEventListener('keydown',onKey); };
+  document.body.classList.add('pv-open');   // aktiviert die @media-print-Ausblendung (nur bei offener Vorschau)
+  const close=()=>{ ov.remove(); document.body.classList.remove('pv-open'); document.removeEventListener('keydown',onKey); };
   function onKey(e){ if(e.key==='Escape') close(); }
   ov.querySelector('.pv-close').onclick=close;
   ov.querySelector('.pv-print').onclick=()=>{ try{ window.print(); }catch(_){}} ;
@@ -39,8 +40,9 @@ function _makeDocOverlay(title){
     </div>
     <div class="pv-frame-wrap"><iframe class="pv-frame" title="${esc(title||'Bericht')}"></iframe></div>`;
   document.body.appendChild(ov);
+  document.body.classList.add('pv-open');   // aktiviert die @media-print-Ausblendung (nur bei offener Vorschau)
   const frame=ov.querySelector('.pv-frame');
-  const close=()=>{ ov.remove(); document.removeEventListener('keydown',onKey); };
+  const close=()=>{ ov.remove(); document.body.classList.remove('pv-open'); document.removeEventListener('keydown',onKey); };
   function onKey(e){ if(e.key==='Escape') close(); }
   ov.querySelector('.pv-close').onclick=close;
   ov.querySelector('.pv-print').onclick=()=>{ try{ frame.contentWindow.focus(); frame.contentWindow.print(); }catch(_){ try{ window.print(); }catch(__){} } };

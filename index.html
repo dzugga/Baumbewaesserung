@@ -1525,12 +1525,17 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 #print-overlay .pv-frame-wrap{flex:1;background:#e9e7e1;padding:0;min-height:0;}
 #print-overlay .pv-frame{width:100%;height:100%;border:0;background:#fff;display:block;}
 @media print{
-  body > *:not(#print-overlay){display:none !important;}
+  /* NUR ausblenden, wenn die Druckvorschau offen ist (printview.js setzt body.pv-open). Ohne Overlay
+     würde ein direktes Strg+P sonst ALLES ausblenden → leere Seiten. So druckt Strg+P wenigstens die App. */
+  body.pv-open > *:not(#print-overlay){display:none !important;}
   #print-overlay{position:static !important;background:#fff !important;display:block !important;}
   #print-overlay .pv-bar{display:none !important;}
   #print-overlay .pv-scroll{overflow:visible !important;padding:0 !important;display:block !important;}
   #print-overlay .pv-sheet{box-shadow:none !important;width:auto !important;max-width:none !important;padding:14mm !important;}
-  @page{size:A4;margin:0;} /* margin:0 → Browser druckt keine Kopf-/Fußzeile (Datum/URL); Rand liegt im Sheet-Padding */
+  /* margin:0 (bewusst, „randlos + URL-frei"): Browser druckt keine Kopf-/Fußzeile mit Datum/URL. Der Rand liegt
+     im Sheet-Padding. Tradeoff: bei Tabellen über MEHRERE Seiten hat nur die erste/letzte Seite diesen Rand
+     (Folgeseiten beginnen randlos) — für den randlosen Look akzeptiert. */
+  @page{size:A4;margin:0;}
 }
 /* Feststehender Tabellenkopf (Fuhrpark, Personal): der Tabellenbereich füllt den Rest der Höhe und
    scrollt INTERN, damit die Kopfzeile beim Scrollen immer sichtbar bleibt (statt dass ep-root scrollt). */
