@@ -26,7 +26,7 @@ projects/{projectId}
 ```
 
 ## Baum-Felder
-`name` (Anlage/Str.), `stadtteil`, `baumnr`, `art` (Baumart), `pflanzjahr`, `pflanzzeitpunkt`, `lat`, `lng`, `wasserbedarf`, `zustand`, `datum` (letzte Bew.), `tourId`, `notiz`, `lastStatus` ('bewaessert'|'nicht'|null), `lastReason`, `lastNote`, `lastDriver`, `lastReportAt`, `history[]`
+`name` (Anlage/Str.), `stadtteil`, `baumnr`, `art` (Baumart), `pflanzjahr`, `pflanzzeitpunkt`, `lat`, `lng`, `wasserbedarf`, `zustand`, `datum` (letzte Bew.), `tourId`/`tourIds[]`, `notiz`, `lastStatus` ('bewaessert'|'nicht'|null; = *zuletzt gemeldet, tourübergreifend* — Desktop/Auswertungen), `lastReason`, `lastNote`, `lastDriver`, `lastReportAt`, `lastFuellgrad`, `runStatus` (Map `{[tourId]:{status,reason,note,driver,at,fuellgrad}}` = *pro-Tour laufender Melde-Status*, treibt die Fahrer-App — siehe Gedächtnis melde-status-pro-tour), `history[]`
 
 ## Dateien
 | Datei | Beschreibung |
