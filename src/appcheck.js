@@ -16,13 +16,19 @@ export const APP_CHECK_SITE_KEY = "6Le_3RktAAAAALLHmpGKCKiqj8s0JPdQJYDUcfG6"; //
 export function initAppCheck() {
   try {
     if (APP_CHECK_SITE_KEY && typeof firebase !== 'undefined' && firebase.appCheck) {
-      // Nur auf localhost: Debug-Token erzeugen, damit Dev/CI nach dem "Erzwingen" nicht ausgesperrt
-      // werden. Der einmalig in der Browser-Konsole geloggte Token muss in der Firebase-Konsole unter
-      // App Check → Apps → „Debug-Tokens verwalten" registriert werden. In Produktion passiert das NICHT.
-      // Einen VORAB gesetzten Debug-Token (z. B. vom Screenshot-Skript per fixem Wert injiziert)
-      // NICHT überschreiben — sonst würde bei jedem Headless-Start ein neuer, nicht registrierter
-      // Zufalls-Token erzeugt. Nur wenn keiner gesetzt ist, auf localhost einen erzeugen lassen.
-      try { if ((location.hostname === 'localhost' || location.hostname === '127.0.0.1') && self.FIREBASE_APPCHECK_DEBUG_TOKEN === undefined) self.FIREBASE_APPCHECK_DEBUG_TOKEN = true; } catch (_) {}
+      // Nur im DEV-Modus auf localhost: den bereits in der Firebase-Konsole registrierten FESTEN Debug-Token
+      // setzen, damit jeder Entwickler-Browser nach dem "Erzwingen" sofort läuft — ohne je Browser einen
+      // neuen Zufalls-Token registrieren zu müssen. `import.meta.env.DEV` sorgt dafür, dass dieser Zweig
+      // (inkl. Token-String) im Production-Build KOMPLETT wegoptimiert wird — der Token landet NIE im
+      // ausgelieferten Bundle. Einen VORAB gesetzten Token (Screenshot-Skript injiziert denselben Wert)
+      // NICHT überschreiben.
+      try {
+        if (import.meta.env.DEV
+            && (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+            && self.FIREBASE_APPCHECK_DEBUG_TOKEN === undefined) {
+          self.FIREBASE_APPCHECK_DEBUG_TOKEN = '5b0c7e2a-4f1d-4e9a-9c3b-8a2f6d1e0c74';
+        }
+      } catch (_) {}
       firebase.appCheck().activate(APP_CHECK_SITE_KEY, /* autoRefresh */ true);
     }
   } catch (e) {
