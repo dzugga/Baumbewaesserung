@@ -1790,8 +1790,12 @@ async function calculateAndSaveRoute(tourId){
 async function calculateAllRoutes(){
   if(isReadonly()){ notify('Nur Lesezugriff'); return; }
   if(!getRoutePlanningEnabled()){ notify('Reihenfolgeplanung ist deaktiviert'); return; }
-  for(const tour of tours){
-    if(tour.uebersicht) continue; // Übersichten überspringen
+  const real=tours.filter(t=>!t.uebersicht);
+  if(!real.length){ notify('Keine Touren vorhanden'); return; }
+  // Rückfrage: betrifft ALLE Touren des Projekts, überschreibt bestehende Routen und kostet ORS-Kontingent.
+  const ok=await _confirmBox('Alle Routen berechnen', `Routen ALLER ${real.length} Touren dieses Projekts neu berechnen?\n\nBestehende Routen und Reihenfolgen werden überschrieben; die Berechnung kann je nach Anzahl dauern und verbraucht Routing-Kontingent.`, 'Alle berechnen', 'Abbrechen');
+  if(!ok) return;
+  for(const tour of real){
     await calculateAndSaveRoute(tour.id);
   }
 }
