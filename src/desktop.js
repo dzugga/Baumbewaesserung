@@ -14105,8 +14105,9 @@ function dashToggleHeute(){ _dashHeuteMin=!_dashHeuteMin; try{ localStorage.setI
 function dashRenderHeute(){
   const el=document.getElementById('dash-heute'); if(!el) return;
   const day=_dashSelDay(), rueck=_dashDayOffset>0;
-  // EIN Durchlauf über alle Objekte. Heute-Ansicht: ✓/✕/gemeldet = Stand des LAUFENDEN DURCHGANGS
-  // (lastStatus, wird erst beim Tour-Abschluss zurückgesetzt) — deckungsgleich mit der Fahrer-App.
+  // EIN Durchlauf über alle Objekte. Heute-Ansicht: ✓/✕/gemeldet = Stand des LAUFENDEN DURCHGANGS JE TOUR
+  // (runStatus[tourId] — pro Tour getrennt, deckungsgleich mit der Fahrer-App). NICHT das globale lastStatus:
+  // das ist „zuletzt gemeldet, tourübergreifend" und würde bei geteilten Objekten/Tour-Kopien doppelt zählen.
   // Rückblick: dieser Live-Zustand ist für Vortage nicht gespeichert → ✓/✕/gemeldet = letzte Meldung
   // des gewählten Tages je Objekt. cntTour/lastTour sind immer tagesbezogen („läuft"/„außerplanmäßig").
   const memTour={}, repTour={}, cntTour={}, lastTour={}, bewTour={}, nichtTour={};
@@ -14114,8 +14115,9 @@ function dashRenderHeute(){
     if(!isActive(x)) return;
     const tids=realTourIds(x); if(!tids.length) return;
     tids.forEach(tid=>{ memTour[tid]=(memTour[tid]||0)+1;
-      if(!rueck&&x.lastStatus){ repTour[tid]=(repTour[tid]||0)+1;
-        if(x.lastStatus==='bewaessert') bewTour[tid]=(bewTour[tid]||0)+1; else nichtTour[tid]=(nichtTour[tid]||0)+1; } });
+      const _rs=(!rueck&&x.runStatus)?x.runStatus[tid]:null;
+      if(_rs&&_rs.status){ repTour[tid]=(repTour[tid]||0)+1;
+        if(_rs.status==='bewaessert') bewTour[tid]=(bewTour[tid]||0)+1; else nichtTour[tid]=(nichtTour[tid]||0)+1; } });
     let n=0,last='',lastStatus='';
     (x.history||[]).forEach(h=>{ if(h&&h.status&&h.date===day){ n++; if(!h.at||h.at>=last){ last=h.at||last; lastStatus=h.status; } } });
     if(n) tids.forEach(tid=>{ cntTour[tid]=(cntTour[tid]||0)+n;

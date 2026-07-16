@@ -236,7 +236,8 @@ function toggleHeuteMin(){ heuteMin=!heuteMin; try{ localStorage.setItem('el_heu
 window.elSetDay=setDay; window.elToggleHeute=toggleHeuteMin;
 
 // Heute-Block: Soll aus dem Tourkalender + Ist je Tour (Port von dashRenderHeute im Desktop).
-// Heute: ✓/✕/gemeldet = laufender Durchgang (lastStatus, Reset erst beim Tour-Abschluss) wie Fahrer-App;
+// Heute: ✓/✕/gemeldet = laufender Durchgang JE TOUR (runStatus[tourId], deckungsgleich mit der Fahrer-App;
+// NICHT das globale lastStatus — das zählt bei geteilten Objekten/Tour-Kopien doppelt);
 // Rückblick: letzte Meldung des gewählten Tages je Objekt (Live-Zustand ist nicht rückwirkend gespeichert).
 function renderHeute(){
   const el=document.getElementById('el-heute'); if(!el) return;
@@ -246,8 +247,9 @@ function renderHeute(){
     if(!isActive(x)) return;
     const tids=getTreeTourIds(x); if(!tids.length) return;
     tids.forEach(tid=>{ memTour[tid]=(memTour[tid]||0)+1;
-      if(!rueck&&x.lastStatus){ repTour[tid]=(repTour[tid]||0)+1;
-        if(x.lastStatus==='bewaessert') bewTour[tid]=(bewTour[tid]||0)+1; else nichtTour[tid]=(nichtTour[tid]||0)+1; } });
+      const _rs=(!rueck&&x.runStatus)?x.runStatus[tid]:null;
+      if(_rs&&_rs.status){ repTour[tid]=(repTour[tid]||0)+1;
+        if(_rs.status==='bewaessert') bewTour[tid]=(bewTour[tid]||0)+1; else nichtTour[tid]=(nichtTour[tid]||0)+1; } });
     let n=0,last='',lastStatus='';
     (x.history||[]).forEach(h=>{ if(h&&h.status&&h.date===day){ n++; if(!h.at||h.at>=last){ last=h.at||last; lastStatus=h.status; } } });
     if(n) tids.forEach(tid=>{ cntTour[tid]=(cntTour[tid]||0)+n;
