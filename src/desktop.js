@@ -3159,12 +3159,29 @@ async function _paSaveCfg(patch){ const cfg={..._paCfg(),...patch}; if(currentPr
   try{ await updateDoc(doc(db,'projects',currentProjectId),{analyseCfg:cfg}); }catch(e){ console.warn('analyseCfg speichern',e); } }
 function paSetDist(v){ const n=parseInt(v,10); if(!isNaN(n)&&n>0) _paSaveCfg({maxDist:n}); }
 function paSetDiff(v){ const n=parseFloat(String(v).replace(',','.')); if(!isNaN(n)&&n>=0) _paSaveCfg({minDiff:n}); }
+// Einmalig Styles für Highlight-Ringe (Klick-Cursor) + Häufigkeits-Etiketten injizieren.
+function _paInjectHiStyle(){ if(document.getElementById('pa-hi-style')) return;
+  const s=document.createElement('style'); s.id='pa-hi-style';
+  s.textContent='.pa-hi-ring{cursor:pointer;}'
+    +'.pa-hi-lbl{background:#c0392b;color:#fff;border:none;border-radius:8px;padding:1px 7px;font:800 11px/1.5 system-ui,sans-serif;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.4);pointer-events:none;}'
+    +'.pa-hi-lbl::before{display:none;}';
+  document.head.appendChild(s);
+}
 function paZoom(i){ const c=_paClusters[i]; if(!c) return; _paActive=i; _paRender(); _paClearHi();
   // Markierung auf eigener Karten-Ebene ÜBER den Markern (zIndex 650 > markerPane 600) — sonst liegt der
   // Ring hinter dem Objekt-Icon und ist unsichtbar (besonders bei eingeblendeten Touren mit dichten Markern).
-  if(!map.getPane('paHi')){ map.createPane('paHi'); const pn=map.getPane('paHi'); pn.style.zIndex=650; pn.style.pointerEvents='none'; }
+  // pointerEvents NICHT auf 'none' — die Ringe sollen anklickbar sein (→ Objekt bearbeiten/korrigieren).
+  if(!map.getPane('paHi')){ map.createPane('paHi'); const pn=map.getPane('paHi'); pn.style.zIndex=650; }
+  _paInjectHiStyle();
   const pts=c.ids.map(id=>trees.find(t=>t.id===id)).filter(t=>t&&t.lat!=null&&t.lng!=null); if(!pts.length) return;
-  _paHiLayer=L.layerGroup(pts.map(t=>L.circleMarker([t.lat,t.lng],{pane:'paHi',radius:16,color:'#c0392b',weight:3,fillColor:'#c0392b',fillOpacity:0.15}))).addTo(map);
+  const layers=[];
+  pts.forEach(t=>{ const v=_sollFreqEff(t);
+    const ring=L.circleMarker([t.lat,t.lng],{pane:'paHi',radius:16,color:'#c0392b',weight:3,fillColor:'#c0392b',fillOpacity:0.15,className:'pa-hi-ring'});
+    ring.on('click',()=>{ try{ openEditTree(t.id); }catch(e){ console.warn('paZoom openEditTree',e); } });
+    ring.bindTooltip(v!=null?_paFreqLbl(v):'—',{permanent:true,direction:'top',offset:[0,-6],className:'pa-hi-lbl',pane:'paHi'});
+    layers.push(ring);
+  });
+  _paHiLayer=L.layerGroup(layers).addTo(map);
   try{ map.fitBounds(L.latLngBounds(pts.map(t=>[t.lat,t.lng])),{padding:[90,90],maxZoom:18}); }catch(_){}
 }
 function _paFreqLbl(v){ return (v%1===0?v:(+v.toFixed(1)))+'×/Wo'; }
