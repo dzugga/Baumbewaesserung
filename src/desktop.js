@@ -17620,6 +17620,9 @@ async function doLogin(){
 }
 async function doLogout(){ try{ _presence&&_presence.stop(); }catch(_){} try{ await flushUsage(); }catch(_){} try{ await firebase.auth().signOut(); }catch(e){} location.reload(); }
 
+// Desktop-Planer: Sitzung endet beim Schließen des Fensters/Tabs (SESSION-Persistenz) → erneutes Öffnen
+// verlangt eine neue Anmeldung. Bewusst NUR hier — Fahrer-/Einsatzleiter-/Erfassungs-App behalten LOCAL.
+try{ firebase.auth().setPersistence(firebase.auth.Auth.Persistence.SESSION); }catch(e){ console.warn('setPersistence', e); }
 let _acctGuard=null, _authMsg='';
 firebase.auth().onAuthStateChanged(async (user)=>{
   if(user){
