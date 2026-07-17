@@ -126,7 +126,9 @@ service cloud.firestore {
             && !('pinHash' in d) && !('pinSalt' in d)
             && (!('role' in d) || d.role == '');
       }
-      allow read:   if canPlan(resource.data.orgId);   // Planer dürfen Namen lesen (Einsatzplaner/Tour-Besetzung); Hash ist scrypt
+      // Planer dürfen Namen lesen (Einsatzplaner/Tour-Besetzung); Hash ist scrypt. Zusätzlich darf ein
+      // Fahrer NUR sein EIGENES Doc lesen (uid-gebunden) — nötig für den Konto-Liveness-Wächter (session-guard.js).
+      allow read:   if canPlan(resource.data.orgId) || request.auth.uid == 'drv_' + did;
       // Admin: alles AUSSER role='superadmin' setzen (Eskalation — Superadmin wird NUR über Claims/setUserRole vergeben,
       // driverLogin liest role aus diesem Doc). Planer/Einsatzleiter: NUR Login-lose Personen anlegen (nie PIN/Rolle).
       allow create: if isSuper()

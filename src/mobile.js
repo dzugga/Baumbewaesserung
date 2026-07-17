@@ -6,6 +6,7 @@ import { esc } from './esc.js';
 import { titelOf, typOf, buildContainerIndex, klasseFelderOf } from './objektrollen.js';
 import { startSession, endSession } from './session.js';
 import { startPresence } from './presence.js';
+import { startAccountGuard } from './session-guard.js';
 import { initVersionCheck } from './version-check.js';
 import { onlyTreeStatusFields } from './driver-fields.js';
 initVersionCheck();   // erkennt neue Deploys während die App offen ist → „Neu laden"-Banner
@@ -16,6 +17,8 @@ function _localDateStr(d){ d=d||new Date(); return d.getFullYear()+'-'+String(d.
 function _setObjIndex(objs){ _objIndex = buildContainerIndex(objs); }
 function _getContainer(extId){ return _objIndex ? _objIndex.getContainer(extId) : null; }
 function _onSessionKicked(){ try{ alert('Abgemeldet: Diese Kennung wurde an einem anderen Gerät angemeldet.'); }catch(_){}; try{ firebase.auth().signOut(); }catch(_){}; location.reload(); }
+let _acctGuard=null; // Konto-Liveness-Wächter (deaktivierter/gelöschter Zugang → abmelden)
+function _onAccountInvalid(st){ try{ _acctGuard&&_acctGuard.stop(); }catch(_){}; _acctGuard=null; try{ alert(st==='inactive'?'Ihr Zugang wurde deaktiviert. Sie werden abgemeldet.':'Ihr Zugang wurde entfernt. Sie werden abgemeldet.'); }catch(_){}; try{ firebase.auth().signOut(); }catch(_){}; location.reload(); }
 // Firebase compat API shims — maps modular API calls to compat SDK
 function initializeApp(cfg){ return firebase.initializeApp(cfg); }
 function getFirestore(app){ return firebase.firestore(app); }
@@ -305,6 +308,8 @@ async function doLogin() {
     const data=res.data||{};
     await firebase.auth().signInWithCustomToken(data.token);
     startSession(data.sessionId, _onSessionKicked);
+    try{ _acctGuard&&_acctGuard.stop(); }catch(_){}
+    _acctGuard=startAccountGuard({auth:firebase.auth(), db, onInvalid:_onAccountInvalid});
     _driverAuth={orgId:data.orgId, name:data.name||name, driverId:data.driverId};
     try{ _presence=startPresence({db, orgId:data.orgId, kind:'fahrer', userKey:data.driverId||('drv:'+(data.name||name)), uid:(firebase.auth().currentUser&&firebase.auth().currentUser.uid)||('drv_'+(data.driverId||'')), name:data.name||name, role:'fahrer', app:'mobil'}); }catch(_){}
     _checkFotoAllowed(data.orgId); // Rollen-Modul „Foto-Meldung" (async, Default an)
@@ -383,6 +388,7 @@ async function doLogout() {
     if (!confirm('Abmelden?')) return;
   }
   try{ await endSession(); }catch(_){}
+  try{ _acctGuard&&_acctGuard.stop(); }catch(_){}; _acctGuard=null;
   try{ _presence&&_presence.stop(); }catch(_){}
   try{ localStorage.removeItem('bwt_mobile_session'); }catch(_){}
   try{ await firebase.auth().signOut(); }catch(_){}

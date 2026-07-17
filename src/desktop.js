@@ -25,6 +25,7 @@ import { initVersionCheck } from './version-check.js';
 import { tourDueOn as _tkTourDueOn, tourInValidity as _tourInValidity, tourBetriebstage as _tourBetriebstage, isoWeekIndex as _isoWeekIndex, saisonForDate as _tkSaisonForDate, SAISON_DEFAULT } from './tour-kalender.js';
 import { printA4, printDoc, printDocFrame } from './printview.js';
 import { startPresence, presenceIsOnline, presenceMaxParallel, presenceDurationMs, presenceSessionEnd, PRESENCE_STALE_MS } from './presence.js';
+import { startAccountGuard, checkAccountLive } from './session-guard.js';
 import { buildBatchDocHtml, REPORT_PRINT_CSS } from './report-batch.js';
 import { findFreqClusters } from './papierkorb-analyse.js'; // pure Erkennungs-Logik (Modul-First)
 import { buildShapefileZip, PRJ_ETRS89_UTM32N } from './geo-export.js';
@@ -17596,6 +17597,7 @@ async function doLogin(){
 }
 async function doLogout(){ try{ _presence&&_presence.stop(); }catch(_){} try{ await flushUsage(); }catch(_){} try{ await firebase.auth().signOut(); }catch(e){} location.reload(); }
 
+let _acctGuard=null, _authMsg='';
 firebase.auth().onAuthStateChanged(async (user)=>{
   if(user){
     try{ const tok=await user.getIdTokenResult(); currentUser=user; currentRole=tok.claims.role||''; currentCap=tok.claims.cap||''; currentOrg=tok.claims.orgId||''; currentName=tok.claims.name||user.email||''; }
@@ -17604,12 +17606,27 @@ firebase.auth().onAuthStateChanged(async (user)=>{
     // Fahrer-Zugänge (cap 'driver') haben im Planungsmanager nichts zu suchen → gar nicht erst aufbauen.
     // (Die Rules blockieren Schreibvorgänge ohnehin; hier zusätzlich UI-seitig sperren.)
     if(currentCap==='driver'){ showLogin('Dieses Konto ist ein Fahrer-Zugang und hat keinen Zugriff auf den Planungsmanager. Bitte die Fahrer-App nutzen oder mit einem Planer-/Admin-Konto anmelden.'); return; }
+    // Konto-Liveness: eine im Browser wiederhergestellte Session eines deaktivierten/gelöschten Kontos
+    // darf keinen Zugriff mehr geben (session-guard.js, fail-open bei Netz-/Rechtefehler).
+    const _acc=await checkAccountLive({auth:firebase.auth(), db});
+    if(_acc==='gone'||_acc==='inactive'){
+      _authMsg=_acc==='inactive'?'Dieses Konto wurde deaktiviert. Bitte an den Administrator wenden.':'Dieses Konto ist nicht mehr gültig. Bitte neu anmelden.';
+      try{ await firebase.auth().signOut(); }catch(_){ showLogin(_authMsg); _authMsg=''; }
+      return;
+    }
     await loadRoles();
     hideLogin(); updateUserChip(); applyModulePermissions(); initProjectScreen();
     try{ _presence=startPresence({db, orgId:currentOrg||('super:'+currentUser.uid), kind:'desktop', userKey:currentUser.uid, uid:currentUser.uid, name:currentName||currentUser.email||'', role:currentRole, app:'desktop', buildId:(typeof __BUILD_ID__!=='undefined'?__BUILD_ID__:'')}); }catch(_){}
+    try{ _acctGuard&&_acctGuard.stop(); }catch(_){}
+    _acctGuard=startAccountGuard({auth:firebase.auth(), db, onInvalid:(st)=>{
+      _acctGuard=null; _authMsg=st==='inactive'?'Ihr Konto wurde deaktiviert — Sie wurden abgemeldet.':'Ihr Konto wurde entfernt — Sie wurden abgemeldet.';
+      try{ _presence&&_presence.stop(); }catch(_){}
+      firebase.auth().signOut().catch(()=>{ showLogin(_authMsg); _authMsg=''; });
+    }});
   } else {
     currentUser=null; currentRole=''; currentCap=''; currentOrg='';
-    showLogin('');
+    try{ _acctGuard&&_acctGuard.stop(); }catch(_){}; _acctGuard=null;
+    showLogin(_authMsg); _authMsg='';
   }
 });
 

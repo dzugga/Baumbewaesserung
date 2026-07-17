@@ -6,6 +6,7 @@ import { esc } from './esc.js';
 import { titelOf as orTitel, buildContainerIndex, klasseFelderOf } from './objektrollen.js';
 import { startSession, endSession } from './session.js';
 import { startPresence } from './presence.js';
+import { startAccountGuard, checkAccountLive } from './session-guard.js';
 let _presence = null;   // Präsenz-Sitzung (src/presence.js)
 import { initVersionCheck } from './version-check.js';
 initVersionCheck();   // erkennt neue Deploys während die App offen ist → „Neu laden"-Banner
@@ -1216,6 +1217,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Auth-Gate: entscheidet Login vs. Projektauswahl
   const tgl=document.getElementById('login-toggle'); if(tgl) tgl.addEventListener('click', toggleLoginMode);
   document.getElementById('login-pin')?.addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+  let _acctGuard=null, _authMsg='';
   firebase.auth().onAuthStateChanged(async (user) => {
     hideLoading();
     if (user) {
@@ -1229,10 +1231,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (rs.exists) erfRoles[currentRole] = rs.data();
       } catch(e){}
       if (!canUseErfassung()) { showLoginStep1('Diese Rolle hat keinen Zugriff auf die Erfassungs-App.'); return; }
+      // Konto-Liveness: wiederhergestellte Session eines deaktivierten/gelöschten Kontos abweisen (fail-open).
+      const _acc=await checkAccountLive({auth:firebase.auth(), db});
+      if(_acc==='gone'||_acc==='inactive'){ _authMsg=_acc==='inactive'?'Dieses Konto wurde deaktiviert. Bitte an den Administrator wenden.':'Dieses Konto ist nicht mehr gültig. Bitte neu anmelden.'; try{ await firebase.auth().signOut(); }catch(_){ showLoginStep1(_authMsg); _authMsg=''; } return; }
+      try{ _acctGuard&&_acctGuard.stop(); }catch(_){}
+      _acctGuard=startAccountGuard({auth:firebase.auth(), db, onInvalid:(st)=>{ _acctGuard=null; _authMsg=st==='inactive'?'Ihr Konto wurde deaktiviert — Sie wurden abgemeldet.':'Ihr Konto wurde entfernt — Sie wurden abgemeldet.'; firebase.auth().signOut().catch(()=>{ showLoginStep1(_authMsg); _authMsg=''; }); }});
       showProjectStep();
     } else {
       currentUser = null; currentRole = ''; currentCap=''; currentOrg = '';
-      showLoginStep1('');
+      try{ _acctGuard&&_acctGuard.stop(); }catch(_){}; _acctGuard=null;
+      showLoginStep1(_authMsg); _authMsg='';
     }
   });
 });
