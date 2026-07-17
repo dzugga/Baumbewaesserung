@@ -3125,7 +3125,7 @@ async function _assignBaumIdSafe(treeId, attempt=0){
 // ─── PAPIERKORB-ANALYSE (Homogenität der Leerungshäufigkeit) ───────────────
 // Dünner Wrapper um src/papierkorb-analyse.js (pure Kern): Objekte je Umfang einsammeln, Modul aufrufen,
 // Panel rendern, Cluster auf der Karte hervorheben, „vereinheitlichen" (manuell über den Feld-setzen-Dialog).
-let _paScope='all', _paClusters=[], _paHiLayer=null, _paScanned=0, _paMin=false, _paPos={x:0,y:0}, _paDragInit=false;
+let _paScope='all', _paClusters=[], _paHiLayer=null, _paScanned=0, _paMin=false, _paPos={x:0,y:0}, _paDragInit=false, _paActive=-1;
 function _paCfg(){ const c=(currentProjectData&&currentProjectData.analyseCfg)||{};
   return { maxDist:(typeof c.maxDist==='number'&&c.maxDist>0)?c.maxDist:20, minDiff:(typeof c.minDiff==='number'&&c.minDiff>=0)?c.minDiff:0 }; }
 function openPapierkorbAnalyse(){ if(currentView!=='karte'){ switchView('karte'); setTimeout(openPapierkorbAnalyse,120); return; }
@@ -3150,21 +3150,19 @@ function _paCollect(){
   return base.map(t=>({id:t.id,lat:+t.lat,lng:+t.lng,freq:_sollFreqEff(t),name:(t.name||'').trim()})).filter(o=>o.freq!=null);
 }
 function _paRun(){ const cfg=_paCfg(); const objs=_paCollect();
-  _paClusters=findFreqClusters(objs,{maxDistM:cfg.maxDist,minDiff:cfg.minDiff}); _paScanned=objs.length; _paRender(); }
+  _paClusters=findFreqClusters(objs,{maxDistM:cfg.maxDist,minDiff:cfg.minDiff}); _paScanned=objs.length; _paActive=-1; _paClearHi(); _paRender(); }
 function paSetScope(s){ _paScope=s; _paRun(); }
 async function _paSaveCfg(patch){ const cfg={..._paCfg(),...patch}; if(currentProjectData) currentProjectData.analyseCfg=cfg; _paRun();
   try{ await updateDoc(doc(db,'projects',currentProjectId),{analyseCfg:cfg}); }catch(e){ console.warn('analyseCfg speichern',e); } }
 function paSetDist(v){ const n=parseInt(v,10); if(!isNaN(n)&&n>0) _paSaveCfg({maxDist:n}); }
 function paSetDiff(v){ const n=parseFloat(String(v).replace(',','.')); if(!isNaN(n)&&n>=0) _paSaveCfg({minDiff:n}); }
-function paZoom(i){ const c=_paClusters[i]; if(!c) return; _paClearHi();
+function paZoom(i){ const c=_paClusters[i]; if(!c) return; _paActive=i; _paRender(); _paClearHi();
+  // Markierung auf eigener Karten-Ebene ÜBER den Markern (zIndex 650 > markerPane 600) — sonst liegt der
+  // Ring hinter dem Objekt-Icon und ist unsichtbar (besonders bei eingeblendeten Touren mit dichten Markern).
+  if(!map.getPane('paHi')){ map.createPane('paHi'); const pn=map.getPane('paHi'); pn.style.zIndex=650; pn.style.pointerEvents='none'; }
   const pts=c.ids.map(id=>trees.find(t=>t.id===id)).filter(t=>t&&t.lat!=null&&t.lng!=null); if(!pts.length) return;
-  _paHiLayer=L.layerGroup(pts.map(t=>L.circleMarker([t.lat,t.lng],{radius:12,color:'#c0392b',weight:3,fill:false}))).addTo(map);
-  try{ map.fitBounds(L.latLngBounds(pts.map(t=>[t.lat,t.lng])),{padding:[80,80],maxZoom:18}); }catch(_){}
-}
-function paUnify(i){ if(isReadonly()){ notify('Nur Lesezugriff'); return; } const c=_paClusters[i]; if(!c) return;
-  c.ids.forEach(id=>lassoSelection.add(id)); try{ remakeMarkers(c.ids); }catch(_){} paZoom(i);
-  notify(`${c.ids.length} Papierkörbe ausgewählt — Feld & Wert zum Vereinheitlichen wählen`);
-  lassoSetFieldDialog(); // manueller Feld-setzen-Dialog (Anwender bestätigt selbst; nie automatisch)
+  _paHiLayer=L.layerGroup(pts.map(t=>L.circleMarker([t.lat,t.lng],{pane:'paHi',radius:16,color:'#c0392b',weight:3,fillColor:'#c0392b',fillOpacity:0.15}))).addTo(map);
+  try{ map.fitBounds(L.latLngBounds(pts.map(t=>[t.lat,t.lng])),{padding:[90,90],maxZoom:18}); }catch(_){}
 }
 function _paFreqLbl(v){ return (v%1===0?v:(+v.toFixed(1)))+'×/Wo'; }
 function _paRender(){
@@ -3175,11 +3173,11 @@ function _paRender(){
   let rows;
   if(!hasFreq) rows=`<div style="padding:20px;color:var(--text3);font-size:12px;line-height:1.5;">Keine Leerungshäufigkeit konfiguriert.<br>Verwaltung → Felder &amp; Listen → Soll-/Häufigkeits-Feld festlegen — ohne Häufigkeit kann nicht geprüft werden.</div>`;
   else if(!_paClusters.length) rows=`<div style="padding:20px;color:var(--text3);font-size:12px;">Keine Auffälligkeiten im gewählten Umfang 🎉<br><span style="font-size:11px;">${scanned} Objekte geprüft · Abstand ≤ ${cfg.maxDist} m${cfg.minDiff>0?` · ab Δ ${cfg.minDiff}×/Wo`:''}</span></div>`;
-  else rows=_paClusters.map((c,i)=>`<div style="border:1px solid var(--border);border-left:3px solid ${c.spread>=3?'var(--red)':'#b45309'};border-radius:9px;padding:8px 10px;margin-bottom:6px;">
-      <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline;"><span style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(c.street)}</span><span style="font-size:10.5px;color:var(--text3);white-space:nowrap;">${c.count} PK · ${c.minDist!=null?'≥ '+c.minDist+' m':''}</span></div>
-      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">${c.freqs.map(f=>`<span style="font-size:11px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:1px 7px;">${_paFreqLbl(f)}</span>`).join('')}</div>
-      <div style="display:flex;gap:6px;margin-top:7px;"><button onclick="paZoom(${i})" style="font:inherit;font-size:11px;border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:3px 9px;cursor:pointer;color:var(--text2);">auf Karte</button>${!isReadonly()?`<button onclick="paUnify(${i})" title="Objekte auswählen und Feld/Wert setzen" style="font:inherit;font-size:11px;border:none;background:var(--green-light);color:var(--green);font-weight:600;border-radius:6px;padding:3px 9px;cursor:pointer;">vereinheitlichen…</button>`:''}</div>
-    </div>`).join('');
+  else rows=_paClusters.map((c,i)=>{ const act=i===_paActive; return `<div style="border:1px solid ${act?'var(--green)':'var(--border)'};border-left:3px solid ${c.spread>=3?'var(--red)':'#b45309'};border-radius:9px;padding:8px 10px;margin-bottom:6px;${act?'background:var(--surface2);box-shadow:0 0 0 2px var(--green-light);':''}">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline;"><span style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${act?'📍 ':''}${dlEsc(c.street)}</span><span style="font-size:10.5px;color:var(--text3);white-space:nowrap;">${c.count} PK · ${c.minDist!=null?'≥ '+c.minDist+' m':''}</span></div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">${c.freqs.map(f=>`<span style="font-size:11px;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:1px 7px;">${_paFreqLbl(f)}</span>`).join('')}</div>
+      <div style="display:flex;gap:6px;margin-top:7px;"><button onclick="paZoom(${i})" style="font:inherit;font-size:11px;border:1px solid ${act?'var(--green)':'var(--border)'};background:${act?'var(--green-light)':'var(--surface)'};border-radius:6px;padding:3px 9px;cursor:pointer;color:${act?'var(--green)':'var(--text2)'};font-weight:${act?'700':'400'};">${act?'● wird angezeigt':'auf Karte'}</button></div>
+    </div>`; }).join('');
   const _hdrBtns=`<span style="display:flex;gap:2px;align-items:center;flex:none;"><button onclick="paToggleMin()" title="${_paMin?'Aufklappen':'Minimieren'}" style="border:none;background:none;font-size:16px;font-weight:700;cursor:pointer;color:var(--text3);line-height:1;padding:0 6px;">${_paMin?'▣':'–'}</button><button onclick="closePapierkorbAnalyse()" title="Schließen" style="border:none;background:none;font-size:19px;cursor:pointer;color:var(--text3);line-height:1;">×</button></span>`;
   const _titleRow=`<div data-padrag style="display:flex;justify-content:space-between;align-items:center;gap:8px;cursor:move;user-select:none;"><span style="font-size:14px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">🗑 Papierkorb-Analyse${(_paMin&&hasFreq)?` · ${_paClusters.length} Cluster`:''}</span>${_hdrBtns}</div>`;
   if(_paMin){ el.innerHTML=`<div style="padding:9px 13px;">${_titleRow}</div>`; return; }
@@ -17477,7 +17475,7 @@ Object.assign(window,{
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleBhNames,toggleRequiredFeld,toggleRawSeg,_siInfo,
-  openPapierkorbAnalyse,closePapierkorbAnalyse,paSetScope,paSetDist,paSetDiff,paZoom,paUnify,paToggleMin,checkMenuAnalyse,
+  openPapierkorbAnalyse,closePapierkorbAnalyse,paSetScope,paSetDist,paSetDiff,paZoom,paToggleMin,checkMenuAnalyse,
   createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,dashSetBh,tourSetBh,epChangeBh,epTogglePersnr,epToggleBhCol,psSetOrgFilter,setSiTab,
   lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizArtRolle,lizArtMove,lizZrFlip,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,lizPrintOrg,lizPrintAll,lizPrintPreisliste,praesenzRefresh,praesenzToggleLive,praesenzToggleLogging,praesenzResetHistory,errorsRefresh,errorsClear,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
