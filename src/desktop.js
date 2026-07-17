@@ -2659,7 +2659,7 @@ function renderDisplayPanel(){
       +(hasCont?rad('rk','Reinigungsklasse')+rad('haeuf','Reinigungshäufigkeit'):'')
       +(currentProjectData?.sollFeld?rad('sollfreq',dlEsc(_sollFeldLabel()||'Häufigkeit')+' (Sommer/Winter)'):'')
       +((customFields.some(c=>c.key==='segmentart')||(trees||[]).some(t=>t.segmentart))?rad('segart','Segmentart (Parallelen)'):'')
-      +((hasCont||currentProjectData?.sollFeld)?rad('plan','Planungs-Check (Soll/Plan)')+rad('overdue','Fälligkeit (überfällig)'):'')
+      // Planungs-/Fälligkeits-Check bewusst NICHT hier — sie leben im „Kontrolle"-Menü (btn-check), sonst doppelt.
       +(hasBh?rad('betriebshof','Betriebshof'):'');
   }
   if(!ro){
