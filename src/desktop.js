@@ -3128,7 +3128,7 @@ async function _assignBaumIdSafe(treeId, attempt=0){
 // Panel rendern, Cluster auf der Karte hervorheben, „vereinheitlichen" (manuell über den Feld-setzen-Dialog).
 let _paScope='all', _paClusters=[], _paHiLayer=null, _paScanned=0, _paMin=false, _paPos={x:0,y:0}, _paDragInit=false, _paActive=-1;
 function _paCfg(){ const c=(currentProjectData&&currentProjectData.analyseCfg)||{};
-  return { maxDist:(typeof c.maxDist==='number'&&c.maxDist>0)?c.maxDist:20, minDiff:(typeof c.minDiff==='number'&&c.minDiff>=0)?c.minDiff:0 }; }
+  return { maxDist:(typeof c.maxDist==='number'&&c.maxDist>0)?c.maxDist:20, minDiff:(typeof c.minDiff==='number'&&c.minDiff>=0)?c.minDiff:0, sameStreet:!!c.sameStreet }; }
 function openPapierkorbAnalyse(){ if(currentView!=='karte'){ switchView('karte'); setTimeout(openPapierkorbAnalyse,120); return; }
   const p=document.getElementById('analyse-panel'); if(p) p.style.display='block'; _paInitDrag(); _paRun(); }
 function checkMenuAnalyse(){ const m=document.getElementById('check-menu'); if(m) m.style.display='none'; openPapierkorbAnalyse(); }
@@ -3153,12 +3153,13 @@ function _paCollect(){
   return base.map(t=>({id:t.id,lat:+t.lat,lng:+t.lng,freq:_sollFreqEff(t),name:(t.name||'').trim()})).filter(o=>o.freq!=null);
 }
 function _paRun(){ const cfg=_paCfg(); const objs=_paCollect();
-  _paClusters=findFreqClusters(objs,{maxDistM:cfg.maxDist,minDiff:cfg.minDiff}); _paScanned=objs.length; _paActive=-1; _paClearHi(); _paRender(); }
+  _paClusters=findFreqClusters(objs,{maxDistM:cfg.maxDist,minDiff:cfg.minDiff,sameStreetOnly:cfg.sameStreet}); _paScanned=objs.length; _paActive=-1; _paClearHi(); _paRender(); }
 function paSetScope(s){ _paScope=s; _paRun(); }
 async function _paSaveCfg(patch){ const cfg={..._paCfg(),...patch}; if(currentProjectData) currentProjectData.analyseCfg=cfg; _paRun();
   try{ await updateDoc(doc(db,'projects',currentProjectId),{analyseCfg:cfg}); }catch(e){ console.warn('analyseCfg speichern',e); } }
 function paSetDist(v){ const n=parseInt(v,10); if(!isNaN(n)&&n>0) _paSaveCfg({maxDist:n}); }
 function paSetDiff(v){ const n=parseFloat(String(v).replace(',','.')); if(!isNaN(n)&&n>=0) _paSaveCfg({minDiff:n}); }
+function paSetSameStreet(v){ _paSaveCfg({sameStreet:!!v}); }
 // Einmalig Styles für Highlight-Ringe (Klick-Cursor) + Häufigkeits-Etiketten injizieren.
 function _paInjectHiStyle(){ if(document.getElementById('pa-hi-style')) return;
   const s=document.createElement('style'); s.id='pa-hi-style';
@@ -3209,6 +3210,11 @@ function _paRender(){
         <label style="display:flex;align-items:center;gap:5px;">Abstand ≤ <input type="number" min="1" step="5" value="${cfg.maxDist}" onchange="paSetDist(this.value)" style="width:54px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;font-family:inherit;font-size:11px;"> m</label>
         <label style="display:flex;align-items:center;gap:5px;" title="Mindest-Unterschied der Häufigkeit; 0 = jede Abweichung zählt">ab Δ <input type="number" min="0" step="1" value="${cfg.minDiff}" onchange="paSetDiff(this.value)" style="width:46px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;font-family:inherit;font-size:11px;"> ×/Wo</label>
       </div>
+      <div style="display:flex;border:1px solid var(--border);border-radius:7px;overflow:hidden;margin-top:8px;">
+        <button onclick="paSetSameStreet(false)" style="flex:1;font:inherit;font-size:11px;border:none;padding:5px 4px;cursor:pointer;background:${cfg.sameStreet?'var(--surface2)':'var(--green)'};color:${cfg.sameStreet?'var(--text2)':'#fff'};font-weight:${cfg.sameStreet?'400':'700'};">straßenübergreifend</button>
+        <button onclick="paSetSameStreet(true)" style="flex:1;font:inherit;font-size:11px;border:none;border-left:1px solid var(--border);padding:5px 4px;cursor:pointer;background:${cfg.sameStreet?'var(--green)':'var(--surface2)'};color:${cfg.sameStreet?'#fff':'var(--text2)'};font-weight:${cfg.sameStreet?'700':'400'};">nur gleiche Straße</button>
+      </div>
+      <div style="font-size:10.5px;color:var(--text3);margin-top:6px;line-height:1.45;">Nahe Körbe werden über den Abstand verkettet (A nah an B, B nah an C … ⇒ ein Cluster). Bei großem Abstand kann „straßenübergreifend" ganze Gebiete zu <b>einem</b> Cluster verschmelzen. „Nur gleiche Straße" begrenzt jeden Cluster auf denselben Straßennamen.</div>
       ${hasFreq?`<div style="font-size:11px;color:var(--text2);margin-top:7px;"><b>${_paClusters.length}</b> auffällige${_paClusters.length===1?'r Cluster':' Cluster'} · ${scanned} geprüft</div>`:''}
     </div>
     <div style="padding:11px 13px;">${rows}</div>`;
@@ -17502,7 +17508,7 @@ Object.assign(window,{
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleBhNames,toggleRequiredFeld,toggleRawSeg,_siInfo,
-  openPapierkorbAnalyse,closePapierkorbAnalyse,paSetScope,paSetDist,paSetDiff,paZoom,paToggleMin,checkMenuAnalyse,
+  openPapierkorbAnalyse,closePapierkorbAnalyse,paSetScope,paSetDist,paSetDiff,paSetSameStreet,paZoom,paToggleMin,checkMenuAnalyse,
   createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,dashSetBh,tourSetBh,epChangeBh,epTogglePersnr,epToggleBhCol,psSetOrgFilter,setSiTab,
   lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizArtRolle,lizArtMove,lizZrFlip,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,lizPrintOrg,lizPrintAll,lizPrintPreisliste,praesenzRefresh,praesenzToggleLive,praesenzToggleLogging,praesenzResetHistory,errorsRefresh,errorsClear,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,

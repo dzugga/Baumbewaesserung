@@ -15,12 +15,17 @@ export function haversineM(aLat, aLng, bLat, bLng) {
 }
 
 // objs: [{ id, lat:number, lng:number, freq:number|null, name?:string }]
-// opts: { maxDistM=20, minDiff=0 }  (minDiff = geforderte |Δ Häufigkeit|; 0 = jede Abweichung)
+// opts: { maxDistM=20, minDiff=0, sameStreetOnly=false }
+//   minDiff        = geforderte |Δ Häufigkeit|; 0 = jede Abweichung
+//   sameStreetOnly = true → Kante nur zwischen Objekten mit GLEICHEM name (=Straße); verhindert, dass sich
+//                    bei großem Radius das ganze dichte Netz transitiv zu einem Stadt-Klumpen verkettet.
 // → cluster[]: { ids[], count, freqs[](sortiert), spread, minDist(m, zwischen zwei versch. Häufigkeiten),
 //               street(häufigster name), streets[] }  — sortiert nach Schwere (großer Sprung + nah zuerst)
 export function findFreqClusters(objs, opts) {
   const maxDist = (opts && opts.maxDistM) || 20;
   const minDiff = (opts && opts.minDiff) || 0;
+  const sameStreetOnly = !!(opts && opts.sameStreetOnly);
+  const nrm = o => ((o.name || '').trim().toLowerCase());
   const pts = (objs || []).filter(o => o && o.freq != null && typeof o.lat === 'number' && typeof o.lng === 'number');
   const n = pts.length;
   if (n < 2) return [];
@@ -48,6 +53,7 @@ export function findFreqClusters(objs, opts) {
         if (j <= i) continue; const q = pts[j];
         if (p.freq === q.freq) continue;                 // keine Abweichung
         if (Math.abs(p.freq - q.freq) < minDiff) continue; // A: unter Toleranz
+        if (sameStreetOnly && nrm(p) !== nrm(q)) continue; // nur gleiche Straße (verhindert Stadt-Klumpen)
         if (haversineM(p.lat, p.lng, q.lat, q.lng) > maxDist) continue; // B: zu weit
         union(i, j);
       }

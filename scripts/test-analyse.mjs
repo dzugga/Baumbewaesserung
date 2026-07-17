@@ -2,6 +2,23 @@
 // Aufruf: node scripts/test-analyse.mjs   (Teil von `npm test`)
 import { findFreqClusters, haversineM } from '../src/papierkorb-analyse.js';
 
+// sameStreetOnly: zwei nahe, aber verschiedene Straßen dürfen NICHT verketten
+{
+  const near = 0.0001; // ~11 m
+  const objs = [
+    { id: 'a', lat: 50.0, lng: 8.0, freq: 1, name: 'Berger Straße' },
+    { id: 'b', lat: 50.0, lng: 8.0 + near, freq: 5, name: 'Berger Straße' },
+    { id: 'c', lat: 50.0, lng: 8.0 + 2 * near, freq: 10, name: 'Wiesenweg' },
+  ];
+  const off = findFreqClusters(objs, { maxDistM: 50, minDiff: 0, sameStreetOnly: false });
+  const on = findFreqClusters(objs, { maxDistM: 50, minDiff: 0, sameStreetOnly: true });
+  const okOff = off.length === 1 && off[0].count === 3;                 // übergreifend: alle 3 verkettet
+  const okOn = on.length === 1 && on[0].count === 2 && on[0].street === 'Berger Straße'; // nur gleiche Straße
+  console.log((okOff ? '✓' : '✗') + ' übergreifend verkettet 3');
+  console.log((okOn ? '✓' : '✗') + ' sameStreetOnly trennt Fremdstraße ab');
+  if (!okOff || !okOn) process.exit(1);
+}
+
 let ok = true;
 const check = (name, cond) => { console.log((cond ? '✓ ' : '✗ ') + name); if (!cond) ok = false; };
 
