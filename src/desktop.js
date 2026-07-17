@@ -3144,7 +3144,9 @@ function closePapierkorbAnalyse(){ const p=document.getElementById('analyse-pane
 function _paClearHi(){ if(_paHiLayer){ try{ map.removeLayer(_paHiLayer); }catch(_){} _paHiLayer=null; } }
 // Punkt-Objekte im gewählten Umfang mit auflösbarer Häufigkeit (_sollFreqEff = App-Häufigkeit, saisonbewusst)
 function _paCollect(){
-  let base=(trees||[]).filter(t=>isActive(t)&&!_isContainer(t)&&(!t.geomType||t.geomType==='punkt')&&t.lat!=null&&t.lng!=null);
+  // NUR auf der Karte sichtbare Objekte (exakt die Marker-Regel _lassoSelectable) — sonst entstehen „Geister":
+  // Analyse-Ringe an Objekten, die durch Tour-Auswahl/Typ-/Eigenschaftsfilter gar nicht gezeichnet werden.
+  let base=(trees||[]).filter(t=>_lassoSelectable(t)&&(!t.geomType||t.geomType==='punkt')&&t.lat!=null&&t.lng!=null);
   if(_paScope==='shown'&&activeTours.size) base=base.filter(t=>getTreeTourIds(t).some(id=>activeTours.has(id)));
   else if(_paScope==='sel') base=base.filter(t=>lassoSelection.has(t.id));
   return base.map(t=>({id:t.id,lat:+t.lat,lng:+t.lng,freq:_sollFreqEff(t),name:(t.name||'').trim()})).filter(o=>o.freq!=null);
@@ -3183,7 +3185,7 @@ function _paRender(){
   if(_paMin){ el.innerHTML=`<div style="padding:9px 13px;">${_titleRow}</div>`; return; }
   el.innerHTML=`<div style="position:sticky;top:0;background:var(--surface);border-bottom:1px solid var(--border);padding:11px 13px;">
       ${_titleRow}
-      <div style="font-size:11px;color:var(--text3);margin-top:2px;">Nahe Papierkörbe mit unterschiedlicher Leerungshäufigkeit</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px;">Nahe Papierkörbe mit unterschiedlicher Leerungshäufigkeit · nur sichtbare Objekte</div>
       <div style="display:flex;border:1px solid var(--border);border-radius:7px;overflow:hidden;margin-top:9px;">${seg('all','Alle',false)}${seg('shown','Eingeblendet',!activeTours.size)}${seg('sel','Auswahl',!lassoSelection.size)}</div>
       <div style="display:flex;gap:10px;margin-top:8px;font-size:11px;color:var(--text2);align-items:center;flex-wrap:wrap;">
         <label style="display:flex;align-items:center;gap:5px;">Abstand ≤ <input type="number" min="1" step="5" value="${cfg.maxDist}" onchange="paSetDist(this.value)" style="width:54px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;font-family:inherit;font-size:11px;"> m</label>
