@@ -11941,8 +11941,9 @@ function dqExportCsv(){
   const line=a=>a.map(cell).join(';');
   // Externe Nr. = Standard-Feld extId; da manche Importe (z. B. FES) die Fremd-ID stattdessen in
   // pflanzzeitpunkt ablegen, dieses Feld unter seinem Projekt-Label mitgeben. Plus Koordinaten.
+  const koord=v=>typeof v==='number'?String(v).replace('.',','):''; // dt. Excel: Dezimalkomma (Spaltentrenner ist ';')
   const head=['Kategorie','Objekt','Objekt-ID','Externe Nr.',FL.pflanzzeitpunkt||'Zeitpunkt',FL.stadtteil,FL.art,'Lat','Lng'];
-  const body=cat.items.map(t=>line([cat.label,_dqName(t),t.baumId||'',t.extId||'',t.pflanzzeitpunkt||'',t.stadtteil||'',t.art||'',t.lat??'',t.lng??'']));
+  const body=cat.items.map(t=>line([cat.label,_dqName(t),t.baumId||'',t.extId||'',t.pflanzzeitpunkt||'',t.stadtteil||'',t.art||'',koord(t.lat),koord(t.lng)]));
   const csv='﻿'+[line(head),...body].join('\r\n');
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
   a.download='Datenqualitaet_'+cat.key+'_'+new Date().toISOString().slice(0,10)+'.csv'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
