@@ -3125,11 +3125,21 @@ async function _assignBaumIdSafe(treeId, attempt=0){
 // ─── PAPIERKORB-ANALYSE (Homogenität der Leerungshäufigkeit) ───────────────
 // Dünner Wrapper um src/papierkorb-analyse.js (pure Kern): Objekte je Umfang einsammeln, Modul aufrufen,
 // Panel rendern, Cluster auf der Karte hervorheben, „vereinheitlichen" (manuell über den Feld-setzen-Dialog).
-let _paScope='all', _paClusters=[], _paHiLayer=null;
+let _paScope='all', _paClusters=[], _paHiLayer=null, _paScanned=0, _paMin=false, _paPos={x:0,y:0}, _paDragInit=false;
 function _paCfg(){ const c=(currentProjectData&&currentProjectData.analyseCfg)||{};
   return { maxDist:(typeof c.maxDist==='number'&&c.maxDist>0)?c.maxDist:20, minDiff:(typeof c.minDiff==='number'&&c.minDiff>=0)?c.minDiff:0 }; }
 function openPapierkorbAnalyse(){ if(currentView!=='karte'){ switchView('karte'); setTimeout(openPapierkorbAnalyse,120); return; }
-  const p=document.getElementById('analyse-panel'); if(p) p.style.display='block'; _paRun(); }
+  const p=document.getElementById('analyse-panel'); if(p) p.style.display='block'; _paInitDrag(); _paRun(); }
+function checkMenuAnalyse(){ const m=document.getElementById('check-menu'); if(m) m.style.display='none'; openPapierkorbAnalyse(); }
+function paToggleMin(){ _paMin=!_paMin; _paRender(); }
+// Verschiebbar: die Kopfzeile (data-padrag) zieht das Panel per transform; Position bleibt über Re-Renders.
+function _paInitDrag(){
+  if(_paDragInit) return; const p=document.getElementById('analyse-panel'); if(!p) return; _paDragInit=true;
+  let sx,sy,ox,oy,drag=false;
+  p.addEventListener('mousedown',e=>{ if(!e.target.closest('[data-padrag]')||e.target.closest('button')) return; drag=true; sx=e.clientX; sy=e.clientY; ox=_paPos.x; oy=_paPos.y; e.preventDefault(); });
+  window.addEventListener('mousemove',e=>{ if(!drag) return; _paPos.x=ox+(e.clientX-sx); _paPos.y=oy+(e.clientY-sy); p.style.transform=`translate(${_paPos.x}px,${_paPos.y}px)`; });
+  window.addEventListener('mouseup',()=>{ drag=false; });
+}
 function closePapierkorbAnalyse(){ const p=document.getElementById('analyse-panel'); if(p) p.style.display='none'; _paClearHi(); }
 function _paClearHi(){ if(_paHiLayer){ try{ map.removeLayer(_paHiLayer); }catch(_){} _paHiLayer=null; } }
 // Punkt-Objekte im gewählten Umfang mit auflösbarer Häufigkeit (_sollFreqEff = App-Häufigkeit, saisonbewusst)
@@ -3140,7 +3150,7 @@ function _paCollect(){
   return base.map(t=>({id:t.id,lat:+t.lat,lng:+t.lng,freq:_sollFreqEff(t),name:(t.name||'').trim()})).filter(o=>o.freq!=null);
 }
 function _paRun(){ const cfg=_paCfg(); const objs=_paCollect();
-  _paClusters=findFreqClusters(objs,{maxDistM:cfg.maxDist,minDiff:cfg.minDiff}); _paRender(objs.length); }
+  _paClusters=findFreqClusters(objs,{maxDistM:cfg.maxDist,minDiff:cfg.minDiff}); _paScanned=objs.length; _paRender(); }
 function paSetScope(s){ _paScope=s; _paRun(); }
 async function _paSaveCfg(patch){ const cfg={..._paCfg(),...patch}; if(currentProjectData) currentProjectData.analyseCfg=cfg; _paRun();
   try{ await updateDoc(doc(db,'projects',currentProjectId),{analyseCfg:cfg}); }catch(e){ console.warn('analyseCfg speichern',e); } }
@@ -3157,8 +3167,9 @@ function paUnify(i){ if(isReadonly()){ notify('Nur Lesezugriff'); return; } cons
   lassoSetFieldDialog(); // manueller Feld-setzen-Dialog (Anwender bestätigt selbst; nie automatisch)
 }
 function _paFreqLbl(v){ return (v%1===0?v:(+v.toFixed(1)))+'×/Wo'; }
-function _paRender(scanned){
-  const el=document.getElementById('analyse-panel'); if(!el) return; const cfg=_paCfg();
+function _paRender(){
+  const el=document.getElementById('analyse-panel'); if(!el) return; const cfg=_paCfg(), scanned=_paScanned;
+  el.style.transform=`translate(${_paPos.x}px,${_paPos.y}px)`;
   const hasFreq=!!(currentProjectData&&currentProjectData.sollFeld)||(trees||[]).some(t=>t.haeufigkeit!=null&&t.haeufigkeit!=='');
   const seg=(k,l,dis)=>`<button onclick="paSetScope('${k}')" ${dis?'disabled':''} style="flex:1;font:inherit;font-size:11.5px;border:none;padding:5px 4px;cursor:${dis?'default':'pointer'};background:${_paScope===k?'var(--green)':'var(--surface2)'};color:${_paScope===k?'#fff':(dis?'var(--text3)':'var(--text2)')};font-weight:${_paScope===k?'700':'400'};">${l}</button>`;
   let rows;
@@ -3169,8 +3180,11 @@ function _paRender(scanned){
       <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">${c.freqs.map(f=>`<span style="font-size:11px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:1px 7px;">${_paFreqLbl(f)}</span>`).join('')}</div>
       <div style="display:flex;gap:6px;margin-top:7px;"><button onclick="paZoom(${i})" style="font:inherit;font-size:11px;border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:3px 9px;cursor:pointer;color:var(--text2);">auf Karte</button>${!isReadonly()?`<button onclick="paUnify(${i})" title="Objekte auswählen und Feld/Wert setzen" style="font:inherit;font-size:11px;border:none;background:var(--green-light);color:var(--green);font-weight:600;border-radius:6px;padding:3px 9px;cursor:pointer;">vereinheitlichen…</button>`:''}</div>
     </div>`).join('');
+  const _hdrBtns=`<span style="display:flex;gap:2px;align-items:center;flex:none;"><button onclick="paToggleMin()" title="${_paMin?'Aufklappen':'Minimieren'}" style="border:none;background:none;font-size:16px;font-weight:700;cursor:pointer;color:var(--text3);line-height:1;padding:0 6px;">${_paMin?'▣':'–'}</button><button onclick="closePapierkorbAnalyse()" title="Schließen" style="border:none;background:none;font-size:19px;cursor:pointer;color:var(--text3);line-height:1;">×</button></span>`;
+  const _titleRow=`<div data-padrag style="display:flex;justify-content:space-between;align-items:center;gap:8px;cursor:move;user-select:none;"><span style="font-size:14px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">🗑 Papierkorb-Analyse${(_paMin&&hasFreq)?` · ${_paClusters.length} Cluster`:''}</span>${_hdrBtns}</div>`;
+  if(_paMin){ el.innerHTML=`<div style="padding:9px 13px;">${_titleRow}</div>`; return; }
   el.innerHTML=`<div style="position:sticky;top:0;background:var(--surface);border-bottom:1px solid var(--border);padding:11px 13px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-size:14px;font-weight:800;">🗑 Papierkorb-Analyse</span><button onclick="closePapierkorbAnalyse()" title="Schließen" style="border:none;background:none;font-size:19px;cursor:pointer;color:var(--text3);line-height:1;">×</button></div>
+      ${_titleRow}
       <div style="font-size:11px;color:var(--text3);margin-top:2px;">Nahe Papierkörbe mit unterschiedlicher Leerungshäufigkeit</div>
       <div style="display:flex;border:1px solid var(--border);border-radius:7px;overflow:hidden;margin-top:9px;">${seg('all','Alle',false)}${seg('shown','Eingeblendet',!activeTours.size)}${seg('sel','Auswahl',!lassoSelection.size)}</div>
       <div style="display:flex;gap:10px;margin-top:8px;font-size:11px;color:var(--text2);align-items:center;flex-wrap:wrap;">
@@ -17463,7 +17477,7 @@ Object.assign(window,{
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleBhNames,toggleRequiredFeld,toggleRawSeg,_siInfo,
-  openPapierkorbAnalyse,closePapierkorbAnalyse,paSetScope,paSetDist,paSetDiff,paZoom,paUnify,
+  openPapierkorbAnalyse,closePapierkorbAnalyse,paSetScope,paSetDist,paSetDiff,paZoom,paUnify,paToggleMin,checkMenuAnalyse,
   createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,dashSetBh,tourSetBh,epChangeBh,epTogglePersnr,epToggleBhCol,psSetOrgFilter,setSiTab,
   lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizArtRolle,lizArtMove,lizZrFlip,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,lizPrintOrg,lizPrintAll,lizPrintPreisliste,praesenzRefresh,praesenzToggleLive,praesenzToggleLogging,praesenzResetHistory,errorsRefresh,errorsClear,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
