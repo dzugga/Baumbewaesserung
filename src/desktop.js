@@ -26,6 +26,7 @@ import { tourDueOn as _tkTourDueOn, tourInValidity as _tourInValidity, tourBetri
 import { printA4, printDoc, printDocFrame } from './printview.js';
 import { startPresence, presenceIsOnline, presenceMaxParallel, presenceDurationMs, presenceSessionEnd, PRESENCE_STALE_MS } from './presence.js';
 import { buildBatchDocHtml, REPORT_PRINT_CSS } from './report-batch.js';
+import { findFreqClusters } from './papierkorb-analyse.js'; // pure Erkennungs-Logik (Modul-First)
 import { buildShapefileZip, PRJ_ETRS89_UTM32N } from './geo-export.js';
 import { readShapefileZip } from './geo-import.js';
 initVersionCheck();   // erkennt neue Deploys während die App offen ist → „Neu laden"-Banner
@@ -3121,6 +3122,65 @@ async function _assignBaumIdSafe(treeId, attempt=0){
   catch(e){ if(attempt<6){ setTimeout(()=>_assignBaumIdSafe(treeId,attempt+1), 500*(attempt+1)); return; } console.warn('Objekt-ID-Vergabe noch ausstehend für', treeId, e); }
 }
 
+// ─── PAPIERKORB-ANALYSE (Homogenität der Leerungshäufigkeit) ───────────────
+// Dünner Wrapper um src/papierkorb-analyse.js (pure Kern): Objekte je Umfang einsammeln, Modul aufrufen,
+// Panel rendern, Cluster auf der Karte hervorheben, „vereinheitlichen" (manuell über den Feld-setzen-Dialog).
+let _paScope='all', _paClusters=[], _paHiLayer=null;
+function _paCfg(){ const c=(currentProjectData&&currentProjectData.analyseCfg)||{};
+  return { maxDist:(typeof c.maxDist==='number'&&c.maxDist>0)?c.maxDist:20, minDiff:(typeof c.minDiff==='number'&&c.minDiff>=0)?c.minDiff:0 }; }
+function openPapierkorbAnalyse(){ if(currentView!=='karte'){ switchView('karte'); setTimeout(openPapierkorbAnalyse,120); return; }
+  const p=document.getElementById('analyse-panel'); if(p) p.style.display='block'; _paRun(); }
+function closePapierkorbAnalyse(){ const p=document.getElementById('analyse-panel'); if(p) p.style.display='none'; _paClearHi(); }
+function _paClearHi(){ if(_paHiLayer){ try{ map.removeLayer(_paHiLayer); }catch(_){} _paHiLayer=null; } }
+// Punkt-Objekte im gewählten Umfang mit auflösbarer Häufigkeit (_sollFreqEff = App-Häufigkeit, saisonbewusst)
+function _paCollect(){
+  let base=(trees||[]).filter(t=>isActive(t)&&!_isContainer(t)&&(!t.geomType||t.geomType==='punkt')&&t.lat!=null&&t.lng!=null);
+  if(_paScope==='shown'&&activeTours.size) base=base.filter(t=>getTreeTourIds(t).some(id=>activeTours.has(id)));
+  else if(_paScope==='sel') base=base.filter(t=>lassoSelection.has(t.id));
+  return base.map(t=>({id:t.id,lat:+t.lat,lng:+t.lng,freq:_sollFreqEff(t),name:(t.name||'').trim()})).filter(o=>o.freq!=null);
+}
+function _paRun(){ const cfg=_paCfg(); const objs=_paCollect();
+  _paClusters=findFreqClusters(objs,{maxDistM:cfg.maxDist,minDiff:cfg.minDiff}); _paRender(objs.length); }
+function paSetScope(s){ _paScope=s; _paRun(); }
+async function _paSaveCfg(patch){ const cfg={..._paCfg(),...patch}; if(currentProjectData) currentProjectData.analyseCfg=cfg; _paRun();
+  try{ await updateDoc(doc(db,'projects',currentProjectId),{analyseCfg:cfg}); }catch(e){ console.warn('analyseCfg speichern',e); } }
+function paSetDist(v){ const n=parseInt(v,10); if(!isNaN(n)&&n>0) _paSaveCfg({maxDist:n}); }
+function paSetDiff(v){ const n=parseFloat(String(v).replace(',','.')); if(!isNaN(n)&&n>=0) _paSaveCfg({minDiff:n}); }
+function paZoom(i){ const c=_paClusters[i]; if(!c) return; _paClearHi();
+  const pts=c.ids.map(id=>trees.find(t=>t.id===id)).filter(t=>t&&t.lat!=null&&t.lng!=null); if(!pts.length) return;
+  _paHiLayer=L.layerGroup(pts.map(t=>L.circleMarker([t.lat,t.lng],{radius:12,color:'#c0392b',weight:3,fill:false}))).addTo(map);
+  try{ map.fitBounds(L.latLngBounds(pts.map(t=>[t.lat,t.lng])),{padding:[80,80],maxZoom:18}); }catch(_){}
+}
+function paUnify(i){ if(isReadonly()){ notify('Nur Lesezugriff'); return; } const c=_paClusters[i]; if(!c) return;
+  c.ids.forEach(id=>lassoSelection.add(id)); try{ remakeMarkers(c.ids); }catch(_){} paZoom(i);
+  notify(`${c.ids.length} Papierkörbe ausgewählt — Feld & Wert zum Vereinheitlichen wählen`);
+  lassoSetFieldDialog(); // manueller Feld-setzen-Dialog (Anwender bestätigt selbst; nie automatisch)
+}
+function _paFreqLbl(v){ return (v%1===0?v:(+v.toFixed(1)))+'×/Wo'; }
+function _paRender(scanned){
+  const el=document.getElementById('analyse-panel'); if(!el) return; const cfg=_paCfg();
+  const hasFreq=!!(currentProjectData&&currentProjectData.sollFeld)||(trees||[]).some(t=>t.haeufigkeit!=null&&t.haeufigkeit!=='');
+  const seg=(k,l,dis)=>`<button onclick="paSetScope('${k}')" ${dis?'disabled':''} style="flex:1;font:inherit;font-size:11.5px;border:none;padding:5px 4px;cursor:${dis?'default':'pointer'};background:${_paScope===k?'var(--green)':'var(--surface2)'};color:${_paScope===k?'#fff':(dis?'var(--text3)':'var(--text2)')};font-weight:${_paScope===k?'700':'400'};">${l}</button>`;
+  let rows;
+  if(!hasFreq) rows=`<div style="padding:20px;color:var(--text3);font-size:12px;line-height:1.5;">Keine Leerungshäufigkeit konfiguriert.<br>Verwaltung → Felder &amp; Listen → Soll-/Häufigkeits-Feld festlegen — ohne Häufigkeit kann nicht geprüft werden.</div>`;
+  else if(!_paClusters.length) rows=`<div style="padding:20px;color:var(--text3);font-size:12px;">Keine Auffälligkeiten im gewählten Umfang 🎉<br><span style="font-size:11px;">${scanned} Objekte geprüft · Abstand ≤ ${cfg.maxDist} m${cfg.minDiff>0?` · ab Δ ${cfg.minDiff}×/Wo`:''}</span></div>`;
+  else rows=_paClusters.map((c,i)=>`<div style="border:1px solid var(--border);border-left:3px solid ${c.spread>=3?'var(--red)':'#b45309'};border-radius:9px;padding:8px 10px;margin-bottom:6px;">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline;"><span style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(c.street)}</span><span style="font-size:10.5px;color:var(--text3);white-space:nowrap;">${c.count} PK · ${c.minDist!=null?'≥ '+c.minDist+' m':''}</span></div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">${c.freqs.map(f=>`<span style="font-size:11px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:1px 7px;">${_paFreqLbl(f)}</span>`).join('')}</div>
+      <div style="display:flex;gap:6px;margin-top:7px;"><button onclick="paZoom(${i})" style="font:inherit;font-size:11px;border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:3px 9px;cursor:pointer;color:var(--text2);">auf Karte</button>${!isReadonly()?`<button onclick="paUnify(${i})" title="Objekte auswählen und Feld/Wert setzen" style="font:inherit;font-size:11px;border:none;background:var(--green-light);color:var(--green);font-weight:600;border-radius:6px;padding:3px 9px;cursor:pointer;">vereinheitlichen…</button>`:''}</div>
+    </div>`).join('');
+  el.innerHTML=`<div style="position:sticky;top:0;background:var(--surface);border-bottom:1px solid var(--border);padding:11px 13px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-size:14px;font-weight:800;">🗑 Papierkorb-Analyse</span><button onclick="closePapierkorbAnalyse()" title="Schließen" style="border:none;background:none;font-size:19px;cursor:pointer;color:var(--text3);line-height:1;">×</button></div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px;">Nahe Papierkörbe mit unterschiedlicher Leerungshäufigkeit</div>
+      <div style="display:flex;border:1px solid var(--border);border-radius:7px;overflow:hidden;margin-top:9px;">${seg('all','Alle',false)}${seg('shown','Eingeblendet',!activeTours.size)}${seg('sel','Auswahl',!lassoSelection.size)}</div>
+      <div style="display:flex;gap:10px;margin-top:8px;font-size:11px;color:var(--text2);align-items:center;flex-wrap:wrap;">
+        <label style="display:flex;align-items:center;gap:5px;">Abstand ≤ <input type="number" min="1" step="5" value="${cfg.maxDist}" onchange="paSetDist(this.value)" style="width:54px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;font-family:inherit;font-size:11px;"> m</label>
+        <label style="display:flex;align-items:center;gap:5px;" title="Mindest-Unterschied der Häufigkeit; 0 = jede Abweichung zählt">ab Δ <input type="number" min="0" step="1" value="${cfg.minDiff}" onchange="paSetDiff(this.value)" style="width:46px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;font-family:inherit;font-size:11px;"> ×/Wo</label>
+      </div>
+      ${hasFreq?`<div style="font-size:11px;color:var(--text2);margin-top:7px;"><b>${_paClusters.length}</b> auffällige${_paClusters.length===1?'r Cluster':' Cluster'} · ${scanned} geprüft</div>`:''}
+    </div>
+    <div style="padding:11px 13px;">${rows}</div>`;
+}
 async function renderFlaechen(){
   renderDrawnGeoms(); // gezeichnete Geometrie immer rendern (unabhängig vom Import-Bundle)
   // Objekttyp-Filter: importierte Flächen (Bundle) ausblenden, wenn „Flächen" abgewählt sind
@@ -17403,6 +17463,7 @@ Object.assign(window,{
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleBhNames,toggleRequiredFeld,toggleRawSeg,_siInfo,
+  openPapierkorbAnalyse,closePapierkorbAnalyse,paSetScope,paSetDist,paSetDiff,paZoom,paUnify,
   createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,dashSetBh,tourSetBh,epChangeBh,epTogglePersnr,epToggleBhCol,psSetOrgFilter,setSiTab,
   lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizArtRolle,lizArtMove,lizZrFlip,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,lizPrintOrg,lizPrintAll,lizPrintPreisliste,praesenzRefresh,praesenzToggleLive,praesenzToggleLogging,praesenzResetHistory,errorsRefresh,errorsClear,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,

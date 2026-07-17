@@ -561,7 +561,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
           <div id="basemap-panel" style="display:none;"></div>
           <button id="basemap-btn" type="button" aria-label="Karte wählen" title="Karte wählen"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg></button>
         </div>
+        <div class="map-picker">
+          <button id="analyse-btn" type="button" aria-label="Papierkorb-Analyse" title="Papierkorb-Analyse — uneinheitliche Leerungshäufigkeiten" onclick="openPapierkorbAnalyse()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></button>
+        </div>
       </div>
+      <!-- Papierkorb-Analyse (Homogenität Leerungshäufigkeit) — rechtes Panel, gefüllt von _paRender -->
+      <div id="analyse-panel" style="display:none;position:absolute;top:64px;right:10px;bottom:22px;width:360px;max-width:calc(100vw - 24px);z-index:1200;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow-md);overflow-y:auto;"></div>
+
       <!-- Lasso canvas overlay -->
       <canvas id="lasso-canvas" class="lasso-canvas"></canvas>
 
