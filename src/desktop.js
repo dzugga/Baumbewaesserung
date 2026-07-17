@@ -11939,8 +11939,10 @@ function dqExportCsv(){
   const cat=_dqChecks().find(c=>c.key===_dqCat); if(!cat||!cat.items.length){ notify('Keine Objekte zum Export'); return; }
   const cell=v=>{ const s=''+(v==null?'':v); return /[";\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
   const line=a=>a.map(cell).join(';');
-  const head=['Kategorie','Objekt','Objekt-ID',FL.stadtteil,FL.art];
-  const body=cat.items.map(t=>line([cat.label,_dqName(t),t.baumId||'',t.stadtteil||'',t.art||'']));
+  // Externe Nr. = Standard-Feld extId; da manche Importe (z. B. FES) die Fremd-ID stattdessen in
+  // pflanzzeitpunkt ablegen, dieses Feld unter seinem Projekt-Label mitgeben. Plus Koordinaten.
+  const head=['Kategorie','Objekt','Objekt-ID','Externe Nr.',FL.pflanzzeitpunkt||'Zeitpunkt',FL.stadtteil,FL.art,'Lat','Lng'];
+  const body=cat.items.map(t=>line([cat.label,_dqName(t),t.baumId||'',t.extId||'',t.pflanzzeitpunkt||'',t.stadtteil||'',t.art||'',t.lat??'',t.lng??'']));
   const csv='﻿'+[line(head),...body].join('\r\n');
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
   a.download='Datenqualitaet_'+cat.key+'_'+new Date().toISOString().slice(0,10)+'.csv'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
