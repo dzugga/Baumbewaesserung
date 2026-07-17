@@ -10,7 +10,7 @@ export const REPORT_PRINT_CSS =
   '@page{size:landscape;margin:0;} body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;}'
   + '.sec{padding:12mm;} .sec+.sec{page-break-before:always;}'
   + 'h1{font-size:15px;font-style:italic;margin:0 0 2px;} .sub{font-size:11px;color:#444;margin:0 0 10px;}'
-  + 'table{border-collapse:collapse;width:100%;} th,td{border:1px solid #888;padding:4px 6px;font-size:10px;text-align:left;vertical-align:top;}'
+  + 'table{border-collapse:collapse;width:100%;} th,td{border:1px solid #888;padding:4px 6px;font-size:10px;text-align:left;vertical-align:top;overflow-wrap:break-word;word-break:break-word;}'
   + 'th{background:#eee;} td.num,th.num{text-align:right;} .nr{text-align:right;width:26px;}'
   + '.rem{font-style:italic;color:#555;font-size:9px;} tr.sum td{font-weight:bold;background:#f3f3f3;}'
   + '.mappg{display:flex;align-items:center;justify-content:center;height:186mm;overflow:hidden;}'

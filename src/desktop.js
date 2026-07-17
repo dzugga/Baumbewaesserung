@@ -8436,6 +8436,21 @@ function renderReportPreview(){
 }
 // Innen-HTML des Tabellen-Berichts einer Tour (h1 + Untertitel + Tabelle) — genutzt vom
 // Einzeldruck UND vom Massendruck (report-batch.js liefert die gemeinsamen Styles).
+// Relatives Breiten-Gewicht je Spalte: inhaltsreiche Spalten (Straße/Name, Notiz, Grund) breit,
+// kurze/oft leere (Nr., Jahr, Datum, Objektnummer, Status) schmal. Default 1.2 für unbekannte/Kundenfelder.
+function _repColWeight(key){
+  return ({name:3,stadtteil:2,notiz:2.6,grund:2,art:1.6,objektart:1.6,tour:1.6,fahrer:1.6,
+    baumnr:1.3,objektnummer:1.3,baumId:1.3,reinigungsklasse:1.5,
+    zustand:1,wasser:1,menge:1,datum:1,haeufigkeit:1,status:0.9,pflanzjahr:0.9,pflanzzeitpunkt:0.9})[key]||1.2;
+}
+// Baut ein <colgroup> mit Prozentbreiten passend zu den AKTIVEN Spalten (inkl. Nr. + Abhak-Spalten),
+// damit die Tabelle (table-layout:fixed) den Platz sinnvoll verteilt statt leere Spalten aufzublähen.
+function _repColgroup(R){
+  const abW={'bearbeitet von':1.6,'nicht erf.':0.9,'Datum':1};
+  const w=[0.6, ...(R.cols||[]).map(_repColWeight), ...(R.abhakCols||[]).map(l=>abW[l]||1)];
+  const tot=w.reduce((a,b)=>a+b,0)||1;
+  return '<colgroup>'+w.map(x=>`<col style="width:${(x/tot*100).toFixed(2)}%">`).join('')+'</colgroup>';
+}
 function _repTableHtml(tourId,cfg){
   const tour=tours.find(t=>t.id===tourId); const R=reportRows(tourId,cfg);
   const esc=dlEsc;
@@ -8447,7 +8462,7 @@ function _repTableHtml(tourId,cfg){
   });
   body+=`<tr class="sum"><td>Σ ${R.count}</td>`+R.cols.map((k,ci)=>`<td class="num">${R.sums[ci]!=null?_repNum(R.sums[ci]):''}</td>`).join('')+R.abhakCols.map(()=>'<td></td>').join('')+'</tr>';
   return `<h1>${esc(tour&&tour.name||'Bericht')}</h1>${cfg.title||cfg.sub?`<div class="sub"><b>${esc(cfg.title||'')}</b> ${esc(cfg.sub||'')}</div>`:''}
-   <table><thead><tr>${th}</tr></thead><tbody>${body}</tbody></table>`;
+   <table style="table-layout:fixed;">${_repColgroup(R)}<thead><tr>${th}</tr></thead><tbody>${body}</tbody></table>`;
 }
 function printReport(){
   if(!_rep) return; const {tourId,cfg}=_rep; const tour=tours.find(t=>t.id===tourId);
