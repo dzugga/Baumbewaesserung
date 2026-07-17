@@ -11880,10 +11880,13 @@ let _dqCat=null;
 function _dqChecks(){
   const act=trees.filter(t=>isActive(t)&&!_isContainer(t));
   const all=trees.filter(t=>!_isContainer(t));
-  // Reine Koordinaten-Gleichheit ist KEIN Dubletten-Signal: in Projekten wie „Verpflichtungen" liegen
-  // mehrere echte Datensätze bewusst am selben Punkt. Verlässlich sind nur doppelte Objekt-IDs (Kachel unten).
+  // Hinweis: Reine Koordinaten-Gleichheit kann legitim sein (mehrere echte Datensätze bewusst am selben
+  // Punkt, z. B. „Verpflichtungen"). Die Kachel „Doppelte Koordinaten" ist daher eine Sicht-/Prüfhilfe,
+  // KEIN harter Fehler — verlässliche Eindeutigkeit prüft „Doppelte Objekt-ID".
   const idCount={};
   act.forEach(t=>{ const k=(t.baumId||'').trim(); if(k) idCount[k]=(idCount[k]||0)+1; });
+  const _coordKey=t=>(typeof t.lat==='number'&&typeof t.lng==='number')?t.lat.toFixed(6)+','+t.lng.toFixed(6):null;
+  const coordCount={}; act.forEach(t=>{ const k=_coordKey(t); if(k) coordCount[k]=(coordCount[k]||0)+1; });
   const hasSoll=t=>sollFreqProWoche(t,'sommer')!=null||sollFreqProWoche(t,'winter')!=null;
   // Unplausible Koordinaten: weit vom Schwerpunkt aller Objekte (Import-/Tippfehler, anderer Ort, 0/0)
   const geo=act.filter(t=>t.lat&&t.lng); let cy=0,cx=0,outSet=new Set();
@@ -11896,6 +11899,7 @@ function _dqChecks(){
   return [
     {key:'gps',      label:'Ohne Koordinaten',      items:act.filter(t=>!t.lat&&!t.lng ? !_routePoint(t) : (!t.lat||!t.lng))}, // Flächen/Strecken mit Geometrie haben einen Ort — kein Mangel
     {key:'coordbad', label:'Unplausible Koordinaten',items:act.filter(t=>outSet.has(t.id)), detail:t=>Math.round(haversine(t.lat,t.lng,cy,cx))+' km vom Zentrum'},
+    {key:'coorddup', label:'Doppelte Koordinaten',   items:act.filter(t=>{const k=_coordKey(t);return k&&coordCount[k]>1;}), detail:t=>{const k=_coordKey(t);return (coordCount[k]||1)+' am selben Punkt';}},
     {key:'id',       label:'Ohne Objekt-ID',        items:act.filter(t=>!(t.baumId||'').trim())},
     {key:'iddup',    label:'Doppelte Objekt-ID',    items:act.filter(t=>{const k=(t.baumId||'').trim();return k&&idCount[k]>1;}), detail:t=>'ID '+(t.baumId||'')},
     {key:'soll',     label:'Ohne Soll-Häufigkeit',  items:act.filter(t=>!hasSoll(t))},

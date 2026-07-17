@@ -15,3 +15,6 @@ docker/tourenplaner-datasets.json
 *serviceAccount*.json
 *service-account*.json
 functions/scripts/*key*.json
+
+# lokale Diagnose-Ausgabe (nicht einchecken)
+functions/scripts/dup-coords.csv
