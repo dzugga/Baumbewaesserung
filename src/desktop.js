@@ -7489,6 +7489,21 @@ async function addCustomField(){
   customFields.push({key,label,aktiv:true,type});
   await saveListValues(); renderFieldCatalog(); notify('✓ Kundenfeld angelegt ('+type+')');
 }
+// EWKFondsG: feste Objektfelder Volumen (Liter) + Ortslage (innerorts/außerorts) im aktuellen Projekt anlegen.
+// Bewusst als reservierte Kundenfelder (fester Schlüssel/Typ) — die EWK-Auswertung liest tree.volumen / tree.ortslage.
+// Idempotent; nutzt dieselbe Persistenz wie addCustomField. Nur in EWK-relevanten Projekten anzulegen.
+async function ewkFelderAnlegen(){
+  if(isReadonly()) return;
+  const added=[];
+  if(!customFields.some(c=>c.key==='volumen')){ customFields.push({key:'volumen',label:'Volumen (Liter)',aktiv:true,type:'zahl'}); added.push('Volumen (Liter)'); }
+  if(!customFields.some(c=>c.key==='ortslage')){
+    customFields.push({key:'ortslage',label:'Ortslage',aktiv:true,type:'liste'});
+    if(!(listValues['ortslage']&&listValues['ortslage'].length)) listValues['ortslage']=[{id:_genId(),label:'innerorts'},{id:_genId(),label:'ausserorts'}];
+    added.push('Ortslage (innerorts/außerorts)');
+  }
+  if(!added.length){ notify('EWK-Felder sind bereits angelegt'); return; }
+  await saveListValues(); renderFieldCatalog(); notify('✓ EWK-Felder angelegt: '+added.join(' · '));
+}
 // Typ eines Kundenfeldes (Alt-Felder ohne type = 'liste')
 function _cfType(key){ const c=customFields.find(x=>x.key===key); return (c&&c.type)||'liste'; }
 // Geometrietyp-Scope eines Kundenfeldes umschalten (leere Liste = gilt für alle)
@@ -8026,6 +8041,7 @@ function renderFieldOverview(el){
     <div style="font-size:12px;color:var(--text3);margin-bottom:16px;">Wähle ein Feld, um seine Auswahlliste zu pflegen; die Bezeichnungen änderst du unten. Freitext-Felder (${dlEsc(FL.name)}, ${dlEsc(FL.baumnr)}, ${dlEsc(FL.notiz)}) haben keine Liste.</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;">${tiles}</div>
     ${!ro && customFields.length<5?`<button class="btn btn-secondary" style="padding:7px 14px;font-size:12px;margin-top:16px;" onclick="addCustomField()">+ Kundenfeld hinzufügen (${customFields.length}/5)</button>`:''}
+    ${!ro?`<button class="btn btn-secondary" style="padding:7px 14px;font-size:12px;margin-top:16px;margin-left:6px;" title="Legt die festen EWKFondsG-Felder Volumen (Liter) und Ortslage (innerorts/außerorts) für dieses Projekt an" onclick="ewkFelderAnlegen()">+ EWK-Felder (Volumen · Ortslage)</button>`:''}
     ${sollSection}
     ${klassenSection}
     ${rkSection}
@@ -17503,7 +17519,7 @@ Object.assign(window,{
   filterAbschnitteTable,filterAbschnitteTableDebounced,toggleAbschnShowAll,downloadAbschnitteExport,
   nmSetType,nmSetAudience,nmToggleSel,nmToggle,_nmSetTour,nmSend,nmArchive,
   nmUnarchive,nmToggleArchived,nmDelArm,nmDelCancel,nmDeleteDo,setPushEnabled,
-  renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,renameCustomField,removeCustomField,_fillMerge,cfGeomToggle,
+  renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,ewkFelderAnlegen,renameCustomField,removeCustomField,_fillMerge,cfGeomToggle,
   rankAdd,rankRename,rankSetColor,rankSetZahl,rankSetZahlWinter,rankMove,rankMerge,rankDelete,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
