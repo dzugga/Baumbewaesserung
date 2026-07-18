@@ -259,7 +259,7 @@ function startGPS() {
       naviLastHeading=pos.coords.heading; naviLastSpeed=pos.coords.speed;
       naviUpdate(gpsLatLng);
     }
-    if(followMode) _followUpdate(gpsLatLng);
+    if(followMode) _followUpdate(gpsLatLng, pos.coords.accuracy);
   }, err => {}, {enableHighAccuracy: true, maximumAge: 5000});
 }
 
@@ -433,6 +433,7 @@ function _subscribeTourTrees(pid, tid){
     routeOrder=routeOrder.filter(id=>trees.find(t=>t.id===id));
     trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
     cacheTreesLocally(pid,tid,trees);
+    _followEnsure(); // Folgen-Erkennung mit dem neuen Stand abgleichen (Fortschritt bleibt)
     renderMarkers();
     renderList(document.getElementById('list-search-input')?.value||'');
     updateProgress();
@@ -537,6 +538,9 @@ async function startBewässerungLogin(name, pid, tid) {
     // Bundle parallel laden, dann Geometrie zeichnen + Karte neu einpassen + Offline-Cache auffrischen.
     loadFlaechenGeom().then(()=>{
       if(Object.keys(_flBundle).length){ renderMarkers(); _fitTourBounds(); cacheTreesLocally(pid, tid, trees); }
+      // Folgen-Modus automatisch fortsetzen, wenn er in DIESER Tour aktiv war (App-Neustart/
+      // Display-Sperre) — erst NACH der Geometrie, die Erkennung braucht die Linien.
+      return _followRestore().then(s=>{ if(s&&s.on&&currentTour?.status!=='abgeschlossen') _setFollow(true, true); });
     }).catch(e=>console.warn('Geometrie-Bundle', e));
 
     startGPS();
@@ -2358,8 +2362,39 @@ let followMode=false;
 let _followDense={};            // treeId -> verdichtete Stützpunkte [[lat,lng],…]
 let _followCov={};              // treeId -> {visited:Set, total:N}
 let _followReady=new Set();     // treeIds: befahren, noch nicht bestätigt
-const _FOLLOW_BUF=20;           // m Korridor um die Linie
+const _FOLLOW_BUF=20;           // m Basis-Korridor um die Linie (wächst mit GPS-Unsicherheit)
 const _FOLLOW_COV=0.6;          // Anteil abgedeckter Stützpunkte zum Auslösen
+const _FOLLOW_MAXACC=35;        // m: schlechtere GPS-Genauigkeit wird NICHT gewertet (Parallelstraßen-Schutz)
+
+// ── Fortschritt persistent (IndexedDB je Tour): Display-Sperre/App-Neustart verliert nichts ──
+const FOLLOW_KEY='bwt_follow_state';
+let _followSaveT=null;
+function _followSave(now){
+  if(!currentProjectId||!currentTourId) return;
+  const doSave=()=>{ _followSaveT=null; idbSet(FOLLOW_KEY,{
+    projectId:currentProjectId, tourId:currentTourId, on:followMode,
+    ready:[..._followReady],
+    visited:Object.fromEntries(Object.entries(_followCov).map(([id,c])=>[id,[...c.visited]])),
+    savedAt:new Date().toISOString()
+  }).catch(e=>console.warn('Folgen-Stand speichern', e)); };
+  if(now){ clearTimeout(_followSaveT); doSave(); return; }
+  if(_followSaveT) return; _followSaveT=setTimeout(doSave, 3000); // gedrosselt (GPS tickt sekündlich)
+}
+async function _followRestore(){
+  try{
+    const s=await idbGet(FOLLOW_KEY);
+    if(!s || s.projectId!==currentProjectId || s.tourId!==currentTourId) return null;
+    return s;
+  }catch(_){ return null; }
+}
+// Display anlassen, solange Folgen läuft — Web-GPS pausiert sonst bei Bildschirm aus
+let _wakeLock=null;
+async function _wakeAcquire(){ try{ if(navigator.wakeLock && !_wakeLock){ _wakeLock=await navigator.wakeLock.request('screen'); _wakeLock.addEventListener('release',()=>{ _wakeLock=null; }); } }catch(_){ _wakeLock=null; } }
+function _wakeRelease(){ try{ _wakeLock&&_wakeLock.release(); }catch(_){} _wakeLock=null; }
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='visible' && followMode) _wakeAcquire();
+  if(document.visibilityState!=='visible') _followSave(true); // vor dem Wegblenden sichern
+});
 
 function _densifyLL(pts, stepM){
   const out=[];
@@ -2375,31 +2410,54 @@ function _followLineOf(t){
   const g=_mGeom(t); if(!g||g.type!=='LineString') return null;
   return (g.coordinates||[]).map(c=>[c[1],c[0]]);
 }
-function _followInit(){
+function _followInit(saved){
   _followDense={}; _followCov={}; _followReady.clear();
   trees.forEach(t=>{
     if(t.lastStatus) return;                       // schon gemeldet → ignorieren
     const ll=_followLineOf(t); if(!ll||ll.length<2) return;
     const dense=_densifyLL(ll, 10);
     _followDense[t.id]=dense; _followCov[t.id]={visited:new Set(), total:dense.length};
+    // gespeicherten Fahr-Fortschritt übernehmen (nur wenn die Geometrie unverändert ist → total passt)
+    const v=saved&&saved.visited&&saved.visited[t.id];
+    if(Array.isArray(v)){ const keep=v.filter(i=>i>=0&&i<dense.length); if(keep.length<=dense.length) _followCov[t.id].visited=new Set(keep); }
+  });
+  (saved&&saved.ready||[]).forEach(id=>{ if(_followCov[id]) _followReady.add(id); });
+}
+// Nach Live-Updates (Snapshot): neue offene Abschnitte aufnehmen, gemeldete entfernen — Fortschritt behalten
+function _followEnsure(){
+  if(!followMode) return;
+  trees.forEach(t=>{
+    if(t.lastStatus){ delete _followDense[t.id]; delete _followCov[t.id]; _followReady.delete(t.id); return; }
+    if(_followCov[t.id]) return;
+    const ll=_followLineOf(t); if(!ll||ll.length<2) return;
+    const dense=_densifyLL(ll, 10);
+    _followDense[t.id]=dense; _followCov[t.id]={visited:new Set(), total:dense.length};
   });
 }
-function toggleFollow(){
-  followMode=!followMode;
+function toggleFollow(){ _setFollow(!followMode); }
+async function _setFollow(on, resumed){
+  followMode=on;
   const btn=document.getElementById('btn-follow');
   if(btn){ btn.style.background=followMode?'var(--green)':'var(--surface)'; btn.style.color=followMode?'#fff':'var(--green)'; }
   if(followMode){
-    _followInit();
-    toast('🧭 Folgen-Modus an — Abschnitte werden beim Befahren erkannt');
+    const saved=resumed?await _followRestore():null;
+    _followInit(saved);
+    _wakeAcquire(); // Display anlassen — sonst pausiert das GPS
+    _updateFollowBar(); renderTourGeoms();
+    toast(resumed?'🧭 Folgen-Modus fortgesetzt — Fahr-Fortschritt wiederhergestellt':'🧭 Folgen-Modus an — Abschnitte werden beim Befahren erkannt');
     if(gpsLatLng){ map.panTo(gpsLatLng,{animate:true}); _followUpdate(gpsLatLng); }
+    _followSave(true);
   } else {
     _followReady.clear(); _updateFollowBar(); renderTourGeoms();
+    _wakeRelease(); _followSave(true);
     toast('Folgen-Modus aus');
   }
 }
-function _followUpdate(latlng){
+function _followUpdate(latlng, acc){
   if(!followMode || !latlng) return;
   if(currentTab==='map') map.panTo(latlng,{animate:true,duration:0.5});  // Karte mitziehen
+  if(acc!=null && acc>_FOLLOW_MAXACC) return; // unsicherer Fix → nicht werten (sonst Parallelstraßen-Treffer)
+  const buf=_FOLLOW_BUF + Math.min(acc||0, 15); // Korridor wächst moderat mit der GPS-Unsicherheit
   let changed=false;
   for(const id in _followCov){
     const t=trees.find(x=>x.id===id); if(!t||t.lastStatus||_followReady.has(id)) continue;
@@ -2408,12 +2466,16 @@ function _followUpdate(latlng){
     if(haversine(latlng[0],latlng[1],mid[0],mid[1])*1000 > 1200) continue;  // grobe Vorprüfung
     for(let i=0;i<dense.length;i++){
       if(cov.visited.has(i)) continue;
-      if(haversine(latlng[0],latlng[1],dense[i][0],dense[i][1])*1000 <= _FOLLOW_BUF) cov.visited.add(i);
+      if(haversine(latlng[0],latlng[1],dense[i][0],dense[i][1])*1000 <= buf) cov.visited.add(i);
     }
     if(cov.visited.size/cov.total >= _FOLLOW_COV){ _followReady.add(id); changed=true; }
   }
   if(changed){ renderTourGeoms(); _updateFollowBar(); try{ navigator.vibrate&&navigator.vibrate(80); }catch(_){} }
+  _followSave(); // gedrosselt — Fortschritt übersteht App-Neustart/Display-Sperre
 }
+// Feldtest-/Simulations-Hooks (Browser-Konsole): Fahrt ohne Fahrzeug durchspielen
+window.followSimulate=(lat,lng,acc)=>{ gpsLatLng=[lat,lng]; if(gpsMarker)gpsMarker.setLatLng(gpsLatLng); _followUpdate(gpsLatLng, acc==null?5:acc); };
+window.followDebug=()=>({on:followMode, ready:[..._followReady], cov:Object.fromEntries(Object.entries(_followCov).map(([id,c])=>[id, +(c.visited.size/c.total).toFixed(2)])), wakeLock:!!_wakeLock});
 function _readyOpenIds(){ return [..._followReady].filter(id=>{ const t=trees.find(x=>x.id===id); return t&&!t.lastStatus; }); }
 function _updateFollowBar(){
   const bar=document.getElementById('follow-confirm-bar'), pill=document.getElementById('map-progress-pill');
@@ -2432,6 +2494,7 @@ async function confirmFollowDone(){
   const ids=_readyOpenIds();
   for(const id of ids){ const t=trees.find(x=>x.id===id); if(t) await markTreeDone(t); }
   _followReady.clear(); _updateFollowBar(); renderTourGeoms();
+  _followSave(true);
   if(ids.length) toast('✓ '+ids.length+' Abschnitt'+(ids.length>1?'e':'')+' erledigt');
 }
 
