@@ -19,7 +19,7 @@ function _jsArg(s){
     .replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\r?\n/g,'\\n')
     .replace(/"/g,'&quot;');
 }
-import { titelOf as orTitel, elementOf as orElement, gruppiereNachStrasse, ELEM_GRUPPE_ORDER, ELEM_GRUPPE_LABEL, haeufigkeitOf as orHaeuf, objektartOf as orObjektart, lageOf as orLage } from './objektrollen.js'; // zentrale Rollen (Objekt + Lage, Reinigungs-Häufigkeit)
+import { titelOf as orTitel, elementOf as orElement, gruppiereNachStrasse, gruppeKeyOf, ELEM_GRUPPE_ORDER, ELEM_GRUPPE_LABEL, haeufigkeitOf as orHaeuf, objektartOf as orObjektart, lageOf as orLage } from './objektrollen.js'; // zentrale Rollen (Objekt + Lage, Reinigungs-Häufigkeit)
 import { initVersionCheck } from './version-check.js';
 // Tourkalender (Soll-Logik) zentral — auch die Einsatzleiter-App nutzt exakt diese Regeln
 import { tourDueOn as _tkTourDueOn, tourInValidity as _tourInValidity, tourBetriebstage as _tourBetriebstage, isoWeekIndex as _isoWeekIndex, saisonForDate as _tkSaisonForDate, SAISON_DEFAULT } from './tour-kalender.js';
