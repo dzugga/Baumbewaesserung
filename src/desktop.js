@@ -9460,6 +9460,9 @@ function lizToggleKompakt(){ _lizKompakt=!_lizKompakt; try{ localStorage.setItem
 // Kunden-Übersicht komplett ein-/ausklappbar (minimiert = eine Kopfzeile) — Detail darunter rückt in den Blick
 let _lizListMin=(()=>{ try{ return localStorage.getItem('liz_list_min')==='1'; }catch(_){ return false; } })();
 function lizToggleListe(){ _lizListMin=!_lizListMin; try{ localStorage.setItem('liz_list_min',_lizListMin?'1':'0'); }catch(_){} renderLizenzen(); }
+// Preisliste ebenfalls minimierbar (eine Kopfzeile) — Kunden-Übersicht/Detail rücken in den Blick
+let _lizPreisMin=(()=>{ try{ return localStorage.getItem('liz_preis_min')==='1'; }catch(_){ return false; } })();
+function lizTogglePreis(){ _lizPreisMin=!_lizPreisMin; try{ localStorage.setItem('liz_preis_min',_lizPreisMin?'1':'0'); }catch(_){} renderLizenzen(); }
 function _lizNum(s){ const n=parseFloat(String(s??'').trim().replace(/,/g,'.')); return isNaN(n)?0:n; }
 function _lizEur(n){ return (Math.round(n*100)/100).toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2})+' €'; }
 function _lizPreisStr(n){ return n==null?'':String(n).replace('.',','); }
@@ -9994,7 +9997,16 @@ function renderLizenzen(){
         <button class="btn btn-danger" style="padding:3px 8px;font-size:12px;" onclick="lizArtDel('${_jsArg(a.id)}')">✕</button>
       </td>
     </tr>`).join('')||`<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--text3);">Noch keine Artikel — „+ Artikel" anlegen (z. B. Planer-Arbeitsplatz, Fahrer-App-Login).</td></tr>`;
-  const preisliste=`<div class="dsh-card" style="margin-bottom:16px;">
+  const _preisMinBtn=`<button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="lizTogglePreis()" title="${_lizPreisMin?'Preisliste aufklappen':'Preisliste minimieren — Kunden-Übersicht und Detail rücken in den Blick'}">${_lizPreisMin?'▸ aufklappen':'▾ minimieren'}</button>`;
+  const preisliste=_lizPreisMin
+    ? `<div class="dsh-card" style="margin-bottom:16px;padding:10px 14px;">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <span style="font-size:13.5px;font-weight:700;">Preisliste</span>
+      <span style="font-size:11.5px;color:var(--text2);">${_lizArtikel.length} Artikel · AGK-Satz ${dlEsc(_lizPreisStr(_lizAgkSatz))} %</span>
+      <span style="margin-left:auto;">${_preisMinBtn}</span>
+    </div>
+  </div>`
+    : `<div class="dsh-card" style="margin-bottom:16px;">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
       <span style="font-size:13.5px;font-weight:700;">Preisliste</span>
       <span style="font-size:11px;color:var(--text3);">Katalogpreis gilt für alle Kunden — je Kunde überschreibbar</span>
@@ -10003,6 +10015,7 @@ function renderLizenzen(){
         <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="lizPrintPreisliste()" title="Preisliste als A4-Bericht drucken / als PDF speichern">🖨 Drucken</button>
         <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="lizArtAdd()">+ Artikel</button>
         <button class="btn btn-primary" style="font-size:11px;padding:5px 14px;" onclick="lizSaveArtikel()">Preisliste speichern</button>
+        ${_preisMinBtn}
       </span>
     </div>
     <table class="ep-table"><thead><tr><th style="width:27%;">Artikel</th><th style="width:14%;">Einheit</th><th style="width:22%;">Ist-Zähler</th><th style="width:96px;text-align:right;">€ / Monat</th><th style="width:56px;text-align:center;" title="Allgemeine Geschäftskosten aufschlagen">+ AGK</th><th style="width:112px;"></th></tr></thead><tbody id="liz-art-rows">${artRows}</tbody></table>
@@ -18074,7 +18087,7 @@ Object.assign(window,{
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleBhNames,toggleRequiredFeld,toggleRawSeg,_siInfo,
   openPapierkorbAnalyse,closePapierkorbAnalyse,paSetScope,paSetDist,paSetDiff,paSetSameStreet,paZoom,paToggleMin,checkMenuAnalyse,
   createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,dashSetBh,tourSetBh,epChangeBh,epTogglePersnr,epToggleBhCol,psSetOrgFilter,setSiTab,
-  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizArtAgk,lizAgkSatz,lizOrgAgkSatz,lizOrgRabatt,lizArtRolle,lizArtMove,lizZrFlip,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,lizPrintOrg,lizPrintAll,lizPrintPreisliste,praesenzRefresh,praesenzToggleLive,praesenzToggleLogging,praesenzResetHistory,errorsRefresh,errorsClear,
+  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizArtAgk,lizAgkSatz,lizOrgAgkSatz,lizOrgRabatt,lizTogglePreis,lizArtRolle,lizArtMove,lizZrFlip,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,lizPrintOrg,lizPrintAll,lizPrintPreisliste,praesenzRefresh,praesenzToggleLive,praesenzToggleLogging,praesenzResetHistory,errorsRefresh,errorsClear,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,openMeldungFotos,stepMeldungFoto,closeMeldungFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
