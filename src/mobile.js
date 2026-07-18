@@ -3,7 +3,7 @@ import { installErrorHandler } from './errlog.js'; installErrorHandler('mobil');
 import { BASEMAP_FARBE, BASEMAP_GRAU, BASEMAP_ATTR } from './basemaps.js';
 import { firebaseConfig } from './firebase-config.js';
 import { esc } from './esc.js';
-import { titelOf, typOf, buildContainerIndex, klasseFelderOf, gruppiereNachStrasse, elementOf } from './objektrollen.js';
+import { titelOf, typOf, buildContainerIndex, klasseFelderOf, gruppiereNachStrasse, elementOf, gruppeKeyOf, standortOf } from './objektrollen.js';
 import { startSession, endSession } from './session.js';
 import { startPresence } from './presence.js';
 import { startAccountGuard } from './session-guard.js';
@@ -1106,12 +1106,52 @@ function renderMarkers() {
   renderTourGeoms(); // Flächen/Strecken (geomStr) zuerst zeichnen, Marker liegen darüber
   routeOrder.forEach((id,idx)=>{
     const tree=trees.find(t=>t.id===id);
+    if(!tree) return;
+    if(tree.containerExtId) return; // Abschnitts-Seiten: EINE Straßen-Nummer statt Marker je Seite (Status = Linienfarbe)
     const np=navPoint(tree); if(!np)return; // Punkt=Koordinate, Fläche=Zentroid, Linie=Mittelpunkt
     const m=L.marker(np,{icon:makeTreeIcon(tree,idx)})
       .addTo(map).on('click',()=>openSheet(id));
     mapMarkers[id]=m;
   });
+  if(trees.some(t=>t.containerExtId)) _renderStreetPills();
+  else { _streetPills.forEach(m=>{ try{ map.removeLayer(m); }catch(_){} }); _streetPills=[]; }
   // Route drawn separately via drawRoute() to load from Firestore
+}
+// Kompakte Straßen-Nummern für Abschnitts-Touren: EINE Pille je Straße (gleiche Nummer wie in der
+// Liste), am Anfang des ersten Abschnitts. Nächste Straße = gefüllt, fertige Straßen dezent.
+let _streetPills=[];
+function _streetAnchor(t){
+  const g=_mGeom(t);
+  if(g&&g.type==='LineString'&&(g.coordinates||[]).length) return [g.coordinates[0][1],g.coordinates[0][0]];
+  return navPoint(t);
+}
+function _renderStreetPills(){
+  _streetPills.forEach(m=>{ try{ map.removeLayer(m); }catch(_){} }); _streetPills=[];
+  const groups=_streetGroups(trees);
+  const color=currentTour?.color||'#2d6a4f';
+  const nextId=routeOrder[getNextIdx()];
+  groups.forEach((g,gi)=>{
+    if(!g.items.some(t=>t.containerExtId)) return; // Straßen-Nummern nur für Abschnitte (Punkte behalten Marker)
+    const first=g.items.find(t=>_mGeom(t))||g.items[0];
+    const anchor=_streetAnchor(first); if(!anchor) return;
+    const fertig=(g.done+g.ausfall)>=g.total;
+    const isNext=g.items.some(t=>t.id===nextId);
+    const bg=isNext?color:(fertig?'#f8fafc':'#fff');
+    const fg=isNext?'#fff':(fertig?'#94a3b8':color);
+    const bd=isNext?'#fff':(fertig?'#cbd5e1':color);
+    const m=L.marker(anchor,{interactive:true, zIndexOffset:isNext?1000:500, icon:L.divIcon({className:'',
+      html:`<div style="min-width:26px;height:22px;padding:0 7px;border-radius:11px;background:${bg};color:${fg};border:2px solid ${bd};box-shadow:0 1px 4px rgba(0,0,0,.3);display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;white-space:nowrap;">${gi+1}</div>`,
+      iconSize:null, iconAnchor:[14,11]})})
+      .addTo(map).on('click',()=>_openStreetFromMap(g.key));
+    _streetPills.push(m);
+  });
+}
+// Tipp auf die Straßen-Nummer: Melde-Sheet des ersten OFFENEN Abschnitts (sonst erster);
+// von dort führt der „Straße“-Knopf im Sheet zur aufgeklappten Straße in der Liste.
+function _openStreetFromMap(key){
+  const g=_streetGroups(trees).find(x=>x.key===key); if(!g) return;
+  const first=g.items.find(t=>!t.lastStatus)||g.items[0];
+  if(first) openSheet(first.id);
 }
 
 // Gezeichnete Geometrie (Flächen/Strecken am Doc, geomStr) der Tour auf der Karte zeigen
@@ -1163,15 +1203,19 @@ function _mGeomBounds(){ let b=null; for(const id in geomLayers){ const lb=geomL
 function renderTourGeoms(){
   Object.values(geomLayers).forEach(l=>{ try{ map.removeLayer(l); }catch(_){} }); geomLayers={};
   let _hasLine=false;
+  // Nächste Straße (erster offener Abschnitt) → deren Linien dicker zeichnen
+  const _nextTree=trees.find(t=>t.id===routeOrder[getNextIdx()]);
+  const _nextKey=(_nextTree&&_nextTree.containerExtId)?gruppeKeyOf(_nextTree,_getContainer):null;
   trees.forEach(t=>{
     const g=_mGeom(t); if(!g) return;
     const st=t.lastStatus;
     const ready = followMode && _followReady.has(t.id) && !st;   // befahren, noch nicht bestätigt
+    const isNextStreet = _nextKey && t.containerExtId && !st && gruppeKeyOf(t,_getContainer)===_nextKey;
     const col = st==='bewaessert'?'#16a34a':st==='nicht'?'#991b1b':(ready?'#f59e0b':(currentTour?.color||'#2d6a4f'));
     let layer;
     if(g.type==='Polygon'){ const ll=(g.coordinates[0]||[]).map(c=>[c[1],c[0]]); if(ll.length<3) return; layer=L.polygon(ll,{color:col,weight:2,fillColor:col,fillOpacity:st?0.45:0.25}); }
     else if(g.type==='MultiPolygon'){ layer=L.geoJSON(g,{style:{color:col,weight:2,fillColor:col,fillOpacity:st?0.45:0.25}}); } // importierte Flächen (mehrteilig, ggf. mit Löchern)
-    else if(g.type==='LineString'){ const ll=(g.coordinates||[]).map(c=>[c[1],c[0]]); if(ll.length<2) return; _hasLine=true; layer=L.polyline(ll,{color:col,weight:ready?8:5,opacity:.9}); }
+    else if(g.type==='LineString'){ const ll=(g.coordinates||[]).map(c=>[c[1],c[0]]); if(ll.length<2) return; _hasLine=true; layer=L.polyline(ll,{color:col,weight:ready?8:(isNextStreet?7:5),opacity:.9}); }
     if(!layer) return;
     layer.on('click',()=>openSheet(t.id));
     layer.addTo(map); geomLayers[t.id]=layer;
@@ -1886,14 +1930,19 @@ function renderList(q=''){
 }
 // Straßen-Akkordeon: eine Zeile je Straße (Fahrreihenfolge + aggregierter Status), aufklappbar
 // zu den Abschnitten. Status je Abschnitt = pro-Tour-Meldestatus (lastStatus ist bereits projiziert).
-function _renderStreetList(el,list,q){
+// Straßen-Gruppen der Tour in Fahrreihenfolge — GEMEINSAME Quelle für Liste UND Karten-Nummern,
+// damit „Straße 3" überall dieselbe ist (auch Bericht im Desktop nutzt dieselbe Logik).
+function _streetGroups(list){
   const pos=new Map(routeOrder.map((id,i)=>[id,i]));
-  const groups=gruppiereNachStrasse(list,_getContainer).map(g=>{
+  return gruppiereNachStrasse(list,_getContainer).map(g=>{
     const items=[...g.items].sort((a,b)=>((pos.get(a.id)??1e9)-(pos.get(b.id)??1e9)));
     let done=0,ausfall=0;
     items.forEach(t=>{ if(t.lastStatus==='bewaessert')done++; else if(t.lastStatus==='nicht')ausfall++; });
     return {key:g.key,label:g.label||'–',items,done,ausfall,total:items.length,minPos:items.reduce((m,t)=>Math.min(m,pos.get(t.id)??1e9),1e9)};
   }).sort((a,b)=>a.minPos-b.minPos);
+}
+function _renderStreetList(el,list,q){
+  const groups=_streetGroups(list);
   const color=currentTour?.color||'#2d6a4f';
   const searching=!!q;
   el.innerHTML=groups.map((g,gi)=>{
@@ -1971,6 +2020,7 @@ function openSheet(id){
   document.getElementById('sheet-title').textContent=titelOf(tree,_getContainer)||'–';
   document.getElementById('sheet-meta').textContent=
     `${typOf(tree)||'–'} · ${tree.stadtteil||''} · ${tree.baumnr||''}`;
+  _sheetStreetBtn(tree); // bei Abschnitts-Seiten: Sprung zur ganzen Straße (Liste, aufgeklappt)
 
   const idx=routeOrder.indexOf(id);
   const statusVal=tree.lastStatus||'';
@@ -2087,6 +2137,28 @@ function selectStatus(s){
   document.getElementById('reason-section').style.display=s==='nicht'?'block':'none';
 }
 
+// „Straße“-Knopf im Sheet-Kopf (nur Abschnitts-Seiten): schließt das Sheet und öffnet die
+// Straße aufgeklappt im Liste-Tab — dort sind alle Seiten + „Rest der Straße erledigt" erreichbar.
+function _sheetStreetBtn(tree){
+  let btn=document.getElementById('sheet-street-btn');
+  const isSeite=!!(tree&&tree.containerExtId);
+  if(!isSeite){ if(btn) btn.style.display='none'; return; }
+  const key=gruppeKeyOf(tree,_getContainer), label=standortOf(tree,_getContainer)||'Straße';
+  if(!btn){
+    btn=document.createElement('button'); btn.id='sheet-street-btn';
+    btn.style.cssText='margin-top:8px;padding:5px 12px;font-size:12px;font-weight:600;border:1px solid var(--border);border-radius:14px;background:var(--surface2,#f1f5f9);color:var(--green,#2d6a4f);cursor:pointer;display:inline-flex;align-items:center;gap:5px;';
+    const meta=document.getElementById('sheet-meta'); if(meta&&meta.parentElement) meta.parentElement.appendChild(btn);
+  }
+  btn.style.display='inline-flex';
+  btn.textContent='🛣 Ganze Straße: '+label;
+  btn.onclick=()=>{
+    closeSheet();
+    _openStreets.add(key);
+    switchTab('list');
+    renderList(document.getElementById('list-search-input')?.value||'');
+    setTimeout(()=>{ document.querySelector(`[data-street="${(window.CSS&&CSS.escape)?CSS.escape(key):key}"]`)?.scrollIntoView({block:'start',behavior:'smooth'}); },50);
+  };
+}
 function closeSheet(){
   _sheetStatus=null;
   selectedTreeId=null;
