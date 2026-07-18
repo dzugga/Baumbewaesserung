@@ -9453,6 +9453,7 @@ let _lizLoading=false;
 let _lizAgkSatz=16;            // globaler AGK-Satz (%) — an config/lizenzArtikel gespeichert
 let _lizOrgAgk={};             // orgId -> Satz-Override (Zahl) | undefined = globaler Satz (orgs.lizenzAgkSatz)
 let _lizOrgRabatt={};          // orgId -> Rabatt in % auf die Endsumme (orgs.lizenzRabatt); €-Eingabe wird in % umgerechnet
+let _lizOrgRoleMods={};        // orgId -> {roleKey: modules-Map} aus orgs/{oid}/roles — für die Modul-Bindung des Ist-Zählers
 // Kunden-Tabelle kompakt (eine Zeile je Kunde, Positionen nur als Anzahl) oder mit voller Artikelliste
 let _lizKompakt=(()=>{ try{ return localStorage.getItem('liz_kompakt')!=='0'; }catch(_){ return true; } })();
 function lizToggleKompakt(){ _lizKompakt=!_lizKompakt; try{ localStorage.setItem('liz_kompakt',_lizKompakt?'1':'0'); }catch(_){} renderLizenzen(); }
@@ -9483,21 +9484,37 @@ function _lizOrgSummeDetail(oid){
 }
 // Kunden-Summe für Übersicht/KPIs = Endsumme NACH Rabatt (der reale Monatsumsatz)
 function _lizOrgSumme(oid){ return _lizOrgSummeDetail(oid).end; }
-// Ist eines Artikels = Summe der aktiven Konten über dessen angehakte Rollen; keine Rollen = kein Zähler (null)
+// Modul-Bindung: Ist am Artikel ein Modul hinterlegt (zaehlModul), zählt eine Rolle nur, wenn
+// dieses Modul in der Rollen-Definition des Mandanten aktiv ist (Benutzer & Rollen → Module).
+// Auflösung wie roleModules(): Org-Rollen-Doc → Builtin-Vorlage als Fallback für fehlende Keys;
+// Custom-Rolle ohne Eintrag = Modul aus.
+function _lizModulAktiv(oid,roleKey,modKey){
+  if(!modKey) return true;
+  const om=(_lizOrgRoleMods[oid]||{})[roleKey];
+  const bi=BUILTIN_ROLES[roleKey];
+  if(om && (modKey in om)) return !!om[modKey];
+  if(bi) return !!bi.modules[modKey];
+  return om?!!om[modKey]:false;
+}
+// Ist eines Artikels = Summe der aktiven Konten über dessen angehakte Rollen (ggf. modul-gefiltert);
+// keine Rollen = kein Zähler (null)
 function _lizIst(oid,art){
   const zr=(art&&Array.isArray(art.zaehlRollen))?art.zaehlRollen:[];
   if(!zr.length) return null;
   const c=_lizCounts[oid]||{};
-  return zr.reduce((s,r)=>s+(c[r]||0),0);
+  return zr.reduce((s,r)=>s+(_lizModulAktiv(oid,r,art.zaehlModul)?(c[r]||0):0),0);
 }
 // Überschreitung nur, wenn das Modul beim Kunden auch gebucht ist (Vertragsmenge > 0).
 // Die „Vergeben"-Zahl zählt Logins rollenbasiert; eine Rolle kann mehreren Artikeln zugeordnet
 // sein. Bei nicht gebuchtem Modul (menge 0) ist ein Login mit passender Rolle KEINE Überschreitung
 // — die Person nutzt ihre Lizenz über ein gebuchtes Modul.
 function _lizPosOver(ist,menge){ return ist!=null && (menge||0)>0 && ist>(menge||0); }
-function _lizIstTip(oid,art){ // Aufschlüsselung je Rolle für den Tooltip
+function _lizIstTip(oid,art){ // Aufschlüsselung je Rolle für den Tooltip (inkl. Modul-Filter)
   const c=_lizCounts[oid]||{};
-  return ((art&&art.zaehlRollen)||[]).map(r=>`${(_lizRollen.find(x=>x.key===r)||{}).name||r}: ${c[r]||0}`).join(' · ');
+  return ((art&&art.zaehlRollen)||[]).map(r=>{
+    const nm=(_lizRollen.find(x=>x.key===r)||{}).name||r;
+    return _lizModulAktiv(oid,r,art.zaehlModul)?`${nm}: ${c[r]||0}`:`${nm}: 0 (Modul aus)`;
+  }).join(' · ');
 }
 function _lizOrgHatLizenzen(oid){ return Object.values(_lizOrgLizenzen[oid]||{}).some(p=>p&&p.menge>0); }
 // Überschreitung nur bewerten, wenn der Kunde überhaupt Lizenzen gepflegt hat —
@@ -9722,7 +9739,7 @@ async function initLizenzen(){
     });
     // Ist-Zähler je Mandant: aktive Konten (PIN-Logins UND E-Mail-Benutzer) je ROLLE zählen.
     // Rollen-Katalog für die Artikel-Auswahl parallel einsammeln (Builtin + Custom aller Mandanten).
-    _lizCounts={}; _lizKonten={}; _lizCountErr={};
+    _lizCounts={}; _lizKonten={}; _lizCountErr={}; _lizOrgRoleMods={};
     const rollen={}; Object.entries(BUILTIN_ROLES).forEach(([k,r])=>{ if(k!=='superadmin') rollen[k]={key:k,name:r.name,hint:'eingebaut'}; });
     for(const o of _lizOrgs){
       const c={}; const konten=[];
@@ -9732,10 +9749,12 @@ async function initLizenzen(){
           db.collection('users').where('orgId','==',o.id).get(),
           db.collection('orgs').doc(o.id).collection('roles').get(),
         ]);
+        _lizOrgRoleMods[o.id]={};
         rl.forEach(r=>{ if(r.id==='superadmin') return;
           const nm=(r.data().name||r.id);
           if(!rollen[r.id]) rollen[r.id]={key:r.id,name:nm,hint:o.name};
           else if(rollen[r.id].name!==nm && rollen[r.id].hint!=='eingebaut') rollen[r.id].hint+=' u. a.';
+          _lizOrgRoleMods[o.id][r.id]=r.data().modules||{};
         });
         // NUR echte, aktive Logins: PIN vergeben (bzw. E-Mail-Konto), nicht deaktiviert, kein Superadmin.
         // Personen ohne Login (noLogin/ohne pinHash) dienen nur der Einsatzplanung — nicht lizenzrelevant.
@@ -9895,7 +9914,9 @@ function _lizPrintWindow(bodyHtml,docTitle){
   printA4(bodyHtml, docTitle); // In-App-Overlay statt window.open — bleibt in der App (auch als PWA)
 }
 function lizPrintPreisliste(){
-  const rows=_lizArtikel.map((a,i)=>{ const zr=(a.zaehlRollen||[]).map(_lizRoleName).join(', ')||'— kein Zähler —';
+  const rows=_lizArtikel.map((a,i)=>{
+    let zr=(a.zaehlRollen||[]).map(_lizRoleName).join(', ')||'— kein Zähler —';
+    if(a.zaehlModul){ const ml=(MODULES.find(m=>m.key===a.zaehlModul)||{}).label||a.zaehlModul; zr+=` · nur wenn Modul „${ml}" aktiv`; }
     return `<tr style="border-bottom:0.5px solid #ddd9d0;${i%2?'background:#faf9f5;':''}">
       <td style="padding:4px 6px;">${dlEsc(a.name||'')}</td>
       <td style="padding:4px 6px;color:#6b6760;">${dlEsc(a.einheit||'')}</td>
@@ -9961,6 +9982,10 @@ function renderLizenzen(){
             ${_lizRollen.map(r=>`<label style="display:flex;gap:7px;align-items:center;font-size:12px;cursor:pointer;padding:2px 0;white-space:nowrap;" title="${dlEsc(r.hint||'')}"><input type="checkbox" ${(a.zaehlRollen||[]).includes(r.key)?'checked':''} onchange="lizArtRolle('${_jsArg(a.id)}','${_jsArg(r.key)}',this.checked)" style="cursor:pointer;"> ${dlEsc(r.name)}</label>`).join('')||'<span style="font-size:11px;color:var(--text3);">Keine Rollen gefunden</span>'}
           </div>
         </details>
+        <select style="${inp}width:100%;margin-top:4px;font-size:11px;${a.zaehlModul?'border-color:#93c5fd;':''}" onchange="lizArtField('${_jsArg(a.id)}','zaehlModul',this.value)" title="Optional: eine Rolle zählt nur, wenn dieses Modul in der Rollen-Definition des Mandanten aktiv ist (Benutzer & Rollen → Module). Nimmt eine Stadt das Modul aus ihren Rollen, fällt ihr Zähler entsprechend.">
+          <option value="">ohne Modul-Bindung</option>
+          ${MODULES.map(m=>`<option value="${dlEsc(m.key)}"${a.zaehlModul===m.key?' selected':''}>nur wenn Modul: ${dlEsc(m.label)}</option>`).join('')}
+        </select>
       </td>
       <td style="padding:5px 10px;text-align:right;"><input style="${inp}width:84px;text-align:right;" value="${dlEsc(_lizPreisStr(a.preis))}" placeholder="0,00" onchange="lizArtField('${_jsArg(a.id)}','preis',this.value)"></td>
       <td style="padding:5px 10px;text-align:center;"><input type="checkbox" ${a.agk?'checked':''} onchange="lizArtAgk('${_jsArg(a.id)}',this.checked)" title="Auf diesen Artikel werden Allgemeine Geschäftskosten aufgeschlagen (Satz oben; je Stadt übersteuerbar)" style="width:15px;height:15px;cursor:pointer;"></td>
