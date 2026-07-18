@@ -70,6 +70,7 @@ service cloud.firestore {
       // Lesen bleibt Superadmin-only → eine fremde Sitzungs-ID ist ohnehin nicht auffindbar (kein gezieltes Manipulieren).
       allow create: if signedIn()
                     && request.resource.data.uid == request.auth.uid
+                    && inOrg(request.resource.data.orgId)
                     && request.resource.data.keys().hasOnly(['orgId','kind','userKey','name','role','app','buildId','loginAt','lastSeen','logoutAt','uid']);
       allow update: if signedIn()
                     && resource.data.uid == request.auth.uid
@@ -105,14 +106,16 @@ service cloud.firestore {
       allow create: if signedIn()
                     && request.resource.data.uid == request.auth.uid   // nur die eigene uid (keine Fremd-Impersonation)
                     && request.resource.data.keys().hasOnly(['app','kind','message','stack','url','ua','uid','at']);
-      allow read:   if isSuper() || cap() == 'admin';
+      // Fehler-Docs tragen KEIN orgId (global) → Lesen NUR Superadmin, sonst läse jeder Stadt-Admin fremde Logs.
+      allow read:   if isSuper();
       allow update: if false;                            // unveränderlich
       allow delete: if isSuper();
     }
 
     // ----- Nutzerprofile (Admin-UI; massgeblich sind die Claims) -----
     match /users/{uid} {
-      allow read:   if signedIn() && (request.auth.uid == uid || inOrg(resource.data.orgId));
+      // Eigenes Profil immer; sonst nur Planer/Admin der Org (ein Fahrer soll die E-Mail-Liste NICHT lesen können).
+      allow read:   if signedIn() && (request.auth.uid == uid || (inOrg(resource.data.orgId) && cap() != 'driver'));
       allow create: if canManage(request.resource.data.orgId);
       allow update: if canManage(resource.data.orgId);
       allow delete: if canManage(resource.data.orgId);

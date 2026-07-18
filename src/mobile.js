@@ -2340,7 +2340,7 @@ async function onLoginTourChange(){
   const drivers = tour.drivers || (tour.assignedDriver ? [tour.assignedDriver] : []);
   if(drivers.length>0){
     nameSel.innerHTML='<option value="">– Fahrer wählen –</option>'+
-      drivers.map(d=>`<option value="${d}">${d}</option>`).join('');
+      drivers.map(d=>`<option value="${esc(d)}">${esc(d)}</option>`).join('');
     if(drivers.length===1) nameSel.value=drivers[0];
   }
 }

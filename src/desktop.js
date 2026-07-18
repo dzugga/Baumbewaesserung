@@ -3535,7 +3535,7 @@ function renderLegend(){
   if(activeTour){
     html+=`<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:${activeTour.color};">
       <span style="width:14px;height:3px;border-radius:2px;background:${activeTour.color};display:inline-block;"></span>
-      ${activeTour.name}
+      ${dlEsc(activeTour.name)}
     </span>${unpTag}`;
   } else if(selCount>1){
     html+=`<span style="font-size:11px;font-weight:600;color:var(--green);">${selCount} ausgewählt</span>${unpTag}`;
@@ -3864,7 +3864,7 @@ function renderSimBar(){
     <div style="display:flex;flex-direction:column;gap:5px;min-width:230px;flex:1;">
       <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--text2);">
         <span id="sim-time" style="font-variant-numeric:tabular-nums;">${fmtClock(simState.elapsed)} / ${fmtClock(simState.total)}</span>
-        <span style="font-size:11px;font-weight:700;color:${simState.tour.color};">${simState.tour.name}</span>
+        <span style="font-size:11px;font-weight:700;color:${simState.tour.color};">${dlEsc(simState.tour.name)}</span>
         <span id="sim-phase" style="font-weight:600;"></span>
       </div>
       <div id="sim-track" style="position:relative;height:14px;border-radius:7px;overflow:hidden;background:var(--surface2);cursor:pointer;touch-action:none;">
@@ -6322,7 +6322,7 @@ function openProjekte(){
       <div class="form-section" style="margin-top:0;">Projekt</div>
       <div class="form-group">
         <label class="form-label">Projektname</label>
-        <input class="form-control" id="prj-name" value="${currentProjectData?.name||''}">
+        <input class="form-control" id="prj-name" value="${dlEsc(currentProjectData?.name||'')}">
       </div>
       ${currentRole==='superadmin'?`
       <div class="form-section">Module je Projekt</div>
@@ -10430,7 +10430,7 @@ function renderReasonsMgmt(){
   }
   el.innerHTML=reasons.map(r=>`
     <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px;">
-      <span>${r.text}</span>
+      <span>${dlEsc(r.text)}</span>
       <button onclick="deleteReasonMgmt('${r.id}')" style="border:none;background:none;color:var(--text3);cursor:pointer;font-size:15px;line-height:1;padding:0 4px;">×</button>
     </div>`).join('');
 }
@@ -10475,7 +10475,7 @@ function renderReasonsList(){
   }
   el.innerHTML=reasons.map(r=>`
     <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);">
-      <span style="flex:1;font-size:13px;">${r.text}</span>
+      <span style="flex:1;font-size:13px;">${dlEsc(r.text)}</span>
       <button class="btn btn-danger" style="padding:2px 8px;font-size:11px;" data-rid="${r.id}" onclick="deleteReason('${r.id}')">✕</button>
     </div>`).join('');
 }
@@ -13147,7 +13147,7 @@ function renderReasonsBar(nichtTrees){
   el.innerHTML=sorted.map(([reason,cnt])=>`
     <div style="margin-bottom:10px;">
       <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;">
-        <span style="color:var(--text2);">${reason}</span>
+        <span style="color:var(--text2);">${dlEsc(reason)}</span>
         <span style="font-weight:600;color:var(--red);">${cnt}</span>
       </div>
       <div style="height:6px;background:var(--surface2);border-radius:3px;overflow:hidden;">
@@ -14091,7 +14091,7 @@ map.on('contextmenu',e=>{
   if(activeTourOnMap && rpOn && !isOverviewTour(activeTourOnMap)){
     const t=tours.find(x=>x.id===activeTourOnMap);
     calcItem.style.display='flex';
-    calcItem.innerHTML=`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>Route berechnen: ${t?.name||''}`;
+    calcItem.innerHTML=`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 12h18M3 6h18M3 18h18"/></svg>Route berechnen: ${dlEsc(t?.name||'')}`;
   } else {
     calcItem.style.display='none';
   }
@@ -14123,8 +14123,8 @@ async function loadErfasser(){
   el.innerHTML=erfasser.length===0
     ?'<div style="padding:10px 16px;font-size:13px;color:var(--text3);">Noch keine Erfasser hinterlegt.</div>'
     :erfasser.map(n=>`<div style="padding:8px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);">
-        <span style="font-size:13px;">${n}</span>
-        <button onclick="removeErfasser('${n}')" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:13px;">×</button>
+        <span style="font-size:13px;">${dlEsc(n)}</span>
+        <button onclick="removeErfasser('${_jsArg(n)}')" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:13px;">×</button>
       </div>`).join('');
 }
 
@@ -14414,7 +14414,7 @@ function dashRenderReasons(nichtTrees){
   const max=sorted[0][1];
   el.innerHTML=sorted.map(([reason,cnt])=>`
     <div class="dsh-reason-row">
-      <div class="dsh-reason-head"><span>${reason}</span><b>${cnt}</b></div>
+      <div class="dsh-reason-head"><span>${dlEsc(reason)}</span><b>${cnt}</b></div>
       <div class="dsh-reason-bar"><div class="fill" style="width:${Math.round(cnt/max*100)}%;"></div></div>
     </div>`).join('');
 }
