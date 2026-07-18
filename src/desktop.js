@@ -1989,6 +1989,9 @@ function getRouteNum(treeId){
 }
 
 function makeMarker(tree){
+  // Nur Punkt-Objekte bekommen einen Punkt-Marker. Flächen/Linien werden über ihre Geometrie gezeichnet;
+  // ein (fälschlich gesetztes) lat/lng darf hier KEINEN Marker erzeugen.
+  if(geomTypeOf(tree)!=='punkt') return null;
   const treeTourIds=getTreeTourIds(tree);
   const realIds=realTourIds(tree);                            // Übersichten zählen nicht mit
   const isMulti=realIds.length>1;                             // mehrere ECHTE Tourzuordnungen → Zähler
@@ -4287,13 +4290,16 @@ function openDetail(id){
 `;
   document.getElementById('panel-body').innerHTML=body;
   renderInlineTourChips();
-  const noCoords = !tree.lat || !tree.lng;
+  // Punkt-Verortung (Position setzen / Verschieben) NUR für Punkt-Objekte. Flächen/Linien werden über ihre
+  // Geometrie definiert — ein lat/lng-Punkt wäre falsch (erzeugte sonst einen fehlerhaften Punkt-Marker).
+  const isPunktObj = geomTypeOf(tree)==='punkt';
+  const noCoords = isPunktObj && (!tree.lat || !tree.lng);
   document.getElementById('panel-actions').innerHTML=`
     ${noCoords ? `<button class="btn btn-secondary" style="flex:1;border-color:var(--amber);color:var(--amber);" onclick="startGpsPlacement('${id}')">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 6.9 8 11.7z"/></svg>
       Position setzen
     </button>` : ''}
-    ${(!noCoords && canEditObjects()) ? `<button class="btn btn-secondary" style="flex:1;" onclick="startMoveObject('${id}')" title="Standort auf der Karte korrigieren">
+    ${(isPunktObj && tree.lat && tree.lng && canEditObjects()) ? `<button class="btn btn-secondary" style="flex:1;" onclick="startMoveObject('${id}')" title="Standort auf der Karte korrigieren">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20"/></svg>
       Verschieben
     </button>` : ''}
