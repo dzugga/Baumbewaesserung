@@ -1,6 +1,6 @@
 // Test: EWKFondsG Punktesätze (§ 3 EWKFondsV) + Ereignis-Builder. Normative Werte hart geprüft.
 import { punkteFuer, tarifFuer, ortslageRelevant, EINHEITEN, LEISTUNGSARTEN } from '../src/ewk-tarif.js';
-import { buildLeistungsereignis, meldejahrVon, buildLeistungszuordnung, ewkLeistungsartOf, LEISTUNGSART_LABELS } from '../src/ewk.js';
+import { buildLeistungsereignis, meldejahrVon, buildLeistungszuordnung, ewkLeistungsartOf, LEISTUNGSART_LABELS, ewkMengeAusObjekt, AUTO_LEISTUNGSARTEN } from '../src/ewk.js';
 
 let pass = 0, fail = 0;
 const approx = (a, b) => Math.abs(a - b) < 1e-9;
@@ -47,6 +47,15 @@ ok('Linie ohne Mapping → Strecke', ewkLeistungsartOf({ geomType: 'linie' }, {}
 ok('Punkt ohne Mapping → null', ewkLeistungsartOf({ artId: 'x', geomType: 'punkt' }, {}) === null);
 ok('Mapping schlägt Linie-Default', ewkLeistungsartOf({ artId: 'a2', geomType: 'linie' }, { a2: 'reinigung_flaeche' }) === 'reinigung_flaeche');
 ok('Label vorhanden', LEISTUNGSART_LABELS.reinigung_strecke === 'Reinigung Strecke');
+
+// --- Mengen-Ableitung aus dem Objekt (Schritt 2) ---
+ok('Strecke eigene Länge 2400 m → 2,4 km', (() => { const r = ewkMengeAusObjekt({ menge: 2400 }, 'reinigung_strecke'); return r && approx(r.menge, 2.4) && r.einheit === 'km'; })());
+ok('Strecke geerbt vom Container', (() => { const r = ewkMengeAusObjekt({ menge: '' }, 'reinigung_strecke', { menge: 500 }); return r && approx(r.menge, 0.5); })());
+ok('Fläche 5000 m² → qm', (() => { const r = ewkMengeAusObjekt({ menge: 5000 }, 'reinigung_flaeche'); return r && approx(r.menge, 5000) && r.einheit === 'qm'; })());
+ok('Sinkkasten → 1 Stück', (() => { const r = ewkMengeAusObjekt({}, 'reinigung_sinkkasten'); return r && r.menge === 1 && r.einheit === 'stueck'; })());
+ok('Strecke ohne Menge → null', ewkMengeAusObjekt({ menge: '' }, 'reinigung_strecke', {}) === null);
+ok('Papierkorb nicht auto-ableitbar → null', ewkMengeAusObjekt({ volumen: 120 }, 'sammlung_papierkorb') === null);
+ok('AUTO-Set hat 3 Arten', AUTO_LEISTUNGSARTEN.length === 3 && AUTO_LEISTUNGSARTEN.indexOf('sammlung_papierkorb') < 0);
 
 console.log(`ewk: ${pass} ok, ${fail} fehlgeschlagen`);
 if (fail) process.exit(1);

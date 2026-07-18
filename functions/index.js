@@ -8,6 +8,8 @@ const admin = require('firebase-admin');
 Object.assign(exports, require('./auth'));
 // Geräte-Push (FCM) beim Anlegen einer Postfach-Empfangsquittung
 Object.assign(exports, require('./push'));
+// EWKFondsG: Leistungsnachweise aus Tour-Abschluss ableiten (append-only)
+Object.assign(exports, require('./ewk-events'));
 
 const PROJECT = 'baumbewaesserung';
 const FUNC_REGION = 'europe-west3';    // Function läuft in Frankfurt (wie Firestore/Storage)

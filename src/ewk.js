@@ -32,6 +32,32 @@ export function ewkLeistungsartOf(tree, artMap) {
   return null;
 }
 
+// Automatisch (aus „erledigt") ableitbare Leistungsarten mit EINDEUTIGER Menge.
+// Papierkorb (installiert/geleert offen), Abfall + Sensibilisierung bleiben MANUELL.
+export const AUTO_LEISTUNGSARTEN = ['reinigung_strecke', 'reinigung_flaeche', 'reinigung_sinkkasten'];
+
+function _num(v) {
+  if (typeof v === 'number') return isFinite(v) ? v : NaN;
+  if (typeof v === 'string' && v.trim() !== '') { const n = parseFloat(v.replace(',', '.')); return isFinite(n) ? n : NaN; }
+  return NaN;
+}
+// Effektive Roh-Menge (Meter bei Strecke, m² bei Fläche): eigener Wert, sonst geerbt vom Container.
+// Geometrie-Fallback bewusst NICHT (v1) — ohne gespeicherte Menge entsteht kein Auto-Nachweis (Datenqualität flaggt).
+function _effMengeRaw(tree, container) {
+  let m = _num(tree && tree.menge); if (m > 0) return m;
+  m = _num(container && container.menge); if (m > 0) return m;
+  return 0;
+}
+// Menge eines erledigten Objekts in der EWK-Basiseinheit. null, wenn nicht eindeutig ableitbar.
+export function ewkMengeAusObjekt(tree, leistungsart, container) {
+  if (leistungsart === 'reinigung_sinkkasten') return { menge: 1, einheit: 'stueck' };
+  const raw = _effMengeRaw(tree, container);
+  if (!(raw > 0)) return null;
+  if (leistungsart === 'reinigung_strecke') return { menge: raw / 1000, einheit: 'km' }; // menge in Metern → km
+  if (leistungsart === 'reinigung_flaeche') return { menge: raw, einheit: 'qm' };        // menge in m²
+  return null; // Papierkorb/Abfall/Sensibilisierung nicht auto-ableitbar
+}
+
 export function meldejahrVon(datumStr) {
   const y = parseInt(String(datumStr || '').slice(0, 4), 10);
   return Number.isInteger(y) ? y : null;
