@@ -12159,7 +12159,7 @@ function renderEwk(){
       <div style="font-size:18px;font-weight:800;">EWKFondsG-Leistungsmeldung</div>
       <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;">Meldejahr ${yearSel}</label>
     </div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:14px;">Punkte nach § 3 EWKFondsV, mandantenübergreifend über alle Projekte. <b>Keine Euro</b> — der Punktewert wird vom UBA erst nach Prüfung über DIVID veröffentlicht.</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:14px;">Punkte nach § 3 EWKFondsV — <b>mandantenscharf</b>, über alle Projekte dieses Mandanten. <b>Keine Euro</b> — der Punktewert wird vom UBA erst nach Prüfung über DIVID veröffentlicht.</div>
     <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px;">
       <div style="background:var(--surface2);border-radius:10px;padding:12px 18px;min-width:150px;"><div style="font-size:11px;color:var(--text3);">Gesamtpunkte ${year}</div><div style="font-size:26px;font-weight:800;">${nf(agg.gesamtPunkte)}</div></div>
       <div style="background:var(--surface2);border-radius:10px;padding:12px 18px;min-width:150px;"><div style="font-size:11px;color:var(--text3);">Nachweise</div><div style="font-size:26px;font-weight:800;">${agg.count}</div><div style="font-size:11px;color:var(--text3);">${agg.manuell} manuell${agg.ohneNachweis?` · <span style="color:var(--red);">${agg.ohneNachweis} ohne Beleg</span>`:''}</div></div>
