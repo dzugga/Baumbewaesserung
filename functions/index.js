@@ -36,7 +36,9 @@ exports.geminiAnalyse = onRequest(
     const m = authz.match(/^Bearer\s+(.+)$/i);
     if (!m) { res.status(401).json({ error: 'Nicht angemeldet' }); return; }
     let claims;
-    try { claims = await admin.auth().verifyIdToken(m[1]); }
+    // checkRevoked=true: lehnt Token deaktivierter/gelöschter/widerrufener Konten sofort ab (statt bis ~1 h
+    // Restgültigkeit den kostenpflichtigen KI-Endpunkt zuzulassen). Kostet einen zusätzlichen Server-Lookup.
+    try { claims = await admin.auth().verifyIdToken(m[1], true); }
     catch (e) { res.status(401).json({ error: 'Token ungültig' }); return; }
     if (!claims.orgId) { res.status(403).json({ error: 'Keine Berechtigung' }); return; }
     // Fahrer (cap 'driver') dürfen den kostenpflichtigen KI-Endpunkt nicht auslösen (Kostenschutz).
