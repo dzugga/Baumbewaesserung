@@ -17404,22 +17404,53 @@ function _vbGrid(cands){
   });
   return { get:p=>g.get(Math.floor(p[0]/K)+'_'+Math.floor(p[1]/K))||[] };
 }
-function _abschnittVonBis(c, grid){
-  const g=_treeGeom(c); if(!g||g.type!=='LineString') return '';
-  const ll=(g.coordinates||[]).map(x=>[x[1],x[0]]); if(ll.length<2) return '';
-  const myKey=gruppeKeyOf(c,_containerByExt);
-  const nameAt=p=>{
-    let best='', bd=30;
-    for(const k of grid.get(p)){
-      if(k.key===myKey) continue;
-      const d=_distPtLineM(p,k.ll);
-      if(d<bd){ bd=d; best=k.name; }
-    }
-    return best;
-  };
-  const v=nameAt(ll[0]), b=nameAt(ll[ll.length-1]);
-  if(!v&&!b) return '';
-  return 'von '+(v||'?')+' bis '+(b||'?');
+// Bezeichnungen für ALLE Abschnitte: je Straße ein Knoten-Graph. Endet ein Abschnitt nicht an
+// einer Querstraße (Segmentteilung mitten im Block, Parallel-Segmente), wird entlang der EIGENEN
+// Straße weitergelaufen bis zur nächsten Querstraße — Straßenkataster-Semantik „von letzter
+// Querstraße davor bis nächster danach". Aufeinanderfolgende Teilstücke teilen sich dann die
+// Bezeichnung (gewollt; die Abschnitts-ID unterscheidet sie).
+function _vonBisAll(conts, grid){
+  const out=new Map();
+  const nkey=p=>p[0].toFixed(5)+','+p[1].toFixed(5);
+  const byStreet=new Map();
+  conts.forEach(c=>{ const k=gruppeKeyOf(c,_containerByExt); let a=byStreet.get(k); if(!a){a=[];byStreet.set(k,a);} a.push(c); });
+  byStreet.forEach((list,sk)=>{
+    const segs=list.map(c=>{
+      const g=_treeGeom(c); const ll=(g&&g.type==='LineString')?(g.coordinates||[]).map(x=>[x[1],x[0]]):null;
+      return (ll&&ll.length>1)?{c,ll,a:nkey(ll[0]),b:nkey(ll[ll.length-1]),pa:ll[0],pb:ll[ll.length-1]}:null;
+    }).filter(Boolean);
+    const nodeSegs=new Map(), nodeP=new Map();
+    segs.forEach(s=>{ [[s.a,s.pa],[s.b,s.pb]].forEach(([nk,p])=>{ let arr=nodeSegs.get(nk); if(!arr){arr=[];nodeSegs.set(nk,arr);} arr.push(s); nodeP.set(nk,p); }); });
+    const crossCache=new Map();
+    const crossAt=nk=>{
+      if(crossCache.has(nk)) return crossCache.get(nk);
+      const p=nodeP.get(nk); let best='', bd=30;
+      for(const k of grid.get(p)){ if(k.key===sk) continue; const d=_distPtLineM(p,k.ll); if(d<bd){ bd=d; best=k.name; } }
+      crossCache.set(nk,best); return best;
+    };
+    // Vom Ende nk des Segments s entlang der eigenen Straße bis zur nächsten Querstraße laufen
+    const walk=(s,nk)=>{
+      // Gegenende des Start-Segments sperren — sonst läuft die Suche über ein Parallel-
+      // Zwillingssegment rückwärts und liefert die Querstraße der falschen Seite.
+      const visSeg=new Set([s]), visNode=new Set([s.a===nk?s.b:s.a]);
+      let node=nk;
+      for(let i=0;i<500;i++){
+        const nm=crossAt(node); if(nm) return nm;
+        visNode.add(node);
+        const nexts=(nodeSegs.get(node)||[]).filter(x=>!visSeg.has(x));
+        const nx=nexts.find(x=>!visNode.has(x.a===node?x.b:x.a));
+        if(!nx) return '';
+        visSeg.add(nx);
+        node=(nx.a===node)?nx.b:nx.a;
+      }
+      return '';
+    };
+    segs.forEach(s=>{
+      const v=walk(s,s.a), b=walk(s,s.b);
+      out.set(s.c.id, (!v&&!b)?'':('von '+(v||'?')+' bis '+(b||'?')));
+    });
+  });
+  return out;
 }
 async function abschnittVonBisOpen(){
   if(isReadonly()||!canEditObjects()) return notify('Nur Planer/Admins');
@@ -17428,9 +17459,10 @@ async function abschnittVonBisOpen(){
   const conts=(trees||[]).filter(t=>t.containerTyp==='strecke');
   if(!conts.length) return notify('Keine Abschnitte vorhanden');
   const grid=_vbGrid(_vonBisCandidates());
+  const vbMap=_vonBisAll(conts, grid);
   const res=[]; let beide=0,teil=0,leer=0,unver=0;
   conts.forEach(c=>{
-    const vb=_abschnittVonBis(c,grid);
+    const vb=vbMap.get(c.id)||'';
     if(!vb) leer++; else if(vb.includes('?')) teil++; else beide++;
     if((c.vonBis||'')!==vb) res.push({id:c.id, vb}); else unver++;
   });
