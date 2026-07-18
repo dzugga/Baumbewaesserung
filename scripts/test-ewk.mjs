@@ -1,6 +1,6 @@
 // Test: EWKFondsG Punktesätze (§ 3 EWKFondsV) + Ereignis-Builder. Normative Werte hart geprüft.
 import { punkteFuer, tarifFuer, ortslageRelevant, EINHEITEN, LEISTUNGSARTEN } from '../src/ewk-tarif.js';
-import { buildLeistungsereignis, meldejahrVon, buildLeistungszuordnung } from '../src/ewk.js';
+import { buildLeistungsereignis, meldejahrVon, buildLeistungszuordnung, ewkLeistungsartOf, LEISTUNGSART_LABELS } from '../src/ewk.js';
 
 let pass = 0, fail = 0;
 const approx = (a, b) => Math.abs(a - b) < 1e-9;
@@ -40,6 +40,13 @@ ok('ohne ortslage bei Strecke wirft', throws(() => buildLeistungsereignis({ ...b
 ok('Sensibilisierung ohne ortslage ok → ortslage null', (() => { const e = buildLeistungsereignis({ orgId: 'o1', leistungsart: 'sensibilisierung', menge: 5, datumStr: '2024-03-01', quelleId: 'zeiterf:42' }); return e.ortslage === null && e.einheit === 'stunde'; })());
 ok('manuell ohne objektRef ok', (() => { const e = buildLeistungsereignis({ ...base, erfasstDurch: 'manuell' }); return e.objektRef === null && e.projektId === null; })());
 ok('Zuordnung getrennt gebaut', (() => { const z = buildLeistungszuordnung({ orgId: 'o1', ereignisId: 'e1', mitarbeiterRef: 'm1' }); return z.ereignisId === 'e1' && z.mitarbeiterRef === 'm1'; })());
+
+// --- Leistungsart-Resolver ---
+ok('explizites Mapping nach artId', ewkLeistungsartOf({ artId: 'a1', geomType: 'punkt' }, { a1: 'sammlung_papierkorb' }) === 'sammlung_papierkorb');
+ok('Linie ohne Mapping → Strecke', ewkLeistungsartOf({ geomType: 'linie' }, {}) === 'reinigung_strecke');
+ok('Punkt ohne Mapping → null', ewkLeistungsartOf({ artId: 'x', geomType: 'punkt' }, {}) === null);
+ok('Mapping schlägt Linie-Default', ewkLeistungsartOf({ artId: 'a2', geomType: 'linie' }, { a2: 'reinigung_flaeche' }) === 'reinigung_flaeche');
+ok('Label vorhanden', LEISTUNGSART_LABELS.reinigung_strecke === 'Reinigung Strecke');
 
 console.log(`ewk: ${pass} ok, ${fail} fehlgeschlagen`);
 if (fail) process.exit(1);

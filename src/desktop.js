@@ -26,6 +26,8 @@ import { tourDueOn as _tkTourDueOn, tourInValidity as _tourInValidity, tourBetri
 import { printA4, printDoc, printDocFrame } from './printview.js';
 import { startPresence, presenceIsOnline, presenceMaxParallel, presenceDurationMs, presenceSessionEnd, PRESENCE_STALE_MS } from './presence.js';
 import { startAccountGuard, checkAccountLive } from './session-guard.js';
+import { LEISTUNGSARTEN } from './ewk-tarif.js';
+import { LEISTUNGSART_LABELS, ewkLeistungsartOf } from './ewk.js';
 import { buildBatchDocHtml, REPORT_PRINT_CSS } from './report-batch.js';
 import { findFreqClusters } from './papierkorb-analyse.js'; // pure Erkennungs-Logik (Modul-First)
 import { buildShapefileZip, PRJ_ETRS89_UTM32N } from './geo-export.js';
@@ -7504,6 +7506,14 @@ async function ewkFelderAnlegen(){
   if(!added.length){ notify('EWK-Felder sind bereits angelegt'); return; }
   await saveListValues(); renderFieldCatalog(); notify('✓ EWK-Felder angelegt: '+added.join(' · '));
 }
+// EWKFondsG: Objektart → Leistungsart (§ 3 EWKFondsV) je Projekt. Mapping nach artId am Projekt-Doc.
+async function ewkSetArtMap(artId, la){
+  if(isReadonly()||!currentProjectId) return;
+  const m={...(currentProjectData?.ewkArtMap||{})};
+  if(la) m[artId]=la; else delete m[artId];
+  if(currentProjectData) currentProjectData.ewkArtMap=m;
+  try{ await updateDoc(doc(db,'projects',currentProjectId),{ewkArtMap:m}); }catch(e){ console.warn('ewkArtMap',e); notify(dlErr(e)); }
+}
 // Typ eines Kundenfeldes (Alt-Felder ohne type = 'liste')
 function _cfType(key){ const c=customFields.find(x=>x.key===key); return (c&&c.type)||'liste'; }
 // Geometrietyp-Scope eines Kundenfeldes umschalten (leere Liste = gilt für alle)
@@ -8019,6 +8029,16 @@ function renderFieldOverview(el){
       <option value="">— kein Soll-Feld —</option>
       ${_sollCands.map(f=>`<option value="${dlEsc(f.key)}"${(currentProjectData?.sollFeld||'')===f.key?' selected':''}>${dlEsc(f.label)}</option>`).join('')}
     </select>`:`<div style="font-size:12px;color:#92400e;background:#fef3c7;border-radius:8px;padding:8px 12px;">Noch kein Feld mit „Zahl"-Werten vorhanden. Zuerst in einer geordneten Liste (z. B. RH) je Wert eine „Zahl" eintragen — dann kann es hier als Soll-Feld gewählt werden.</div>`}`;
+  // EWKFondsG: Objektart → Leistungsart (§ 3 EWKFondsV). Nur zeigen, wenn das Projekt EWK-relevant ist.
+  const _ewkAktiv = customFields.some(c=>c.key==='ortslage'||c.key==='volumen') || Object.keys(currentProjectData?.ewkArtMap||{}).length>0;
+  const ewkSection = (ro || !_ewkAktiv) ? '' : (()=>{
+    const m = currentProjectData?.ewkArtMap||{};
+    const opts = sel => ['',...LEISTUNGSARTEN].map(k=>`<option value="${k}"${sel===k?' selected':''}>${k?dlEsc(LEISTUNGSART_LABELS[k]):'— keine —'}</option>`).join('');
+    const rows = (artenList||[]).map(a=>`<tr><td style="padding:4px 12px 4px 0;font-size:13px;">${dlEsc(a.name||'–')}</td><td style="padding:4px 0;"><select class="form-control" style="width:auto;padding:5px 8px;font-size:12px;" onchange="ewkSetArtMap('${_jsArg(a.id)}',this.value)">${opts(m[a.id]||'')}</select></td></tr>`).join('');
+    return `<div style="font-size:13px;font-weight:700;margin:26px 0 4px;">EWK-Leistungsart je Objektart</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:8px;">Ordnet jeden Objekttyp einer Leistungsart nach § 3 EWKFondsV zu — Grundlage der Leistungsmeldung. Straßenabschnitts-Objekte (Linien) gelten ohne Zuordnung automatisch als „Reinigung Strecke".</div>
+    ${rows?`<table style="border-collapse:collapse;">${rows}</table>`:`<div style="font-size:12px;color:var(--text3);">Noch keine Objektarten angelegt.</div>`}`;
+  })();
   // Reinigungsklassen-Katalog (Satzung): je Klasse Häufigkeit pro Element-Gruppe
   const rkSection = ro ? '' : `
     <div style="font-size:13px;font-weight:700;margin:26px 0 4px;">Reinigungsklassen (Satzung)</div>
@@ -8043,6 +8063,7 @@ function renderFieldOverview(el){
     ${!ro && customFields.length<5?`<button class="btn btn-secondary" style="padding:7px 14px;font-size:12px;margin-top:16px;" onclick="addCustomField()">+ Kundenfeld hinzufügen (${customFields.length}/5)</button>`:''}
     ${!ro?`<button class="btn btn-secondary" style="padding:7px 14px;font-size:12px;margin-top:16px;margin-left:6px;" title="Legt die festen EWKFondsG-Felder Volumen (Liter) und Ortslage (innerorts/außerorts) für dieses Projekt an" onclick="ewkFelderAnlegen()">+ EWK-Felder (Volumen · Ortslage)</button>`:''}
     ${sollSection}
+    ${ewkSection}
     ${klassenSection}
     ${rkSection}
     ${mobilSection}
@@ -17519,7 +17540,7 @@ Object.assign(window,{
   filterAbschnitteTable,filterAbschnitteTableDebounced,toggleAbschnShowAll,downloadAbschnitteExport,
   nmSetType,nmSetAudience,nmToggleSel,nmToggle,_nmSetTour,nmSend,nmArchive,
   nmUnarchive,nmToggleArchived,nmDelArm,nmDelCancel,nmDeleteDo,setPushEnabled,
-  renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,ewkFelderAnlegen,renameCustomField,removeCustomField,_fillMerge,cfGeomToggle,
+  renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,ewkFelderAnlegen,ewkSetArtMap,renameCustomField,removeCustomField,_fillMerge,cfGeomToggle,
   rankAdd,rankRename,rankSetColor,rankSetZahl,rankSetZahlWinter,rankMove,rankMerge,rankDelete,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,

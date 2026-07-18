@@ -11,6 +11,27 @@ export const AUFBEWAHRUNG_PLATZHALTER_MONATE = 60; // TODO Kunde/Recht bestätig
 // Erfassungsart → wie belastbar der Nachweis ist (für die Datenqualitätsanzeige, Schritt 7).
 export const ERFASST_DURCH = ['gps', 'nfc', 'qr', 'waage', 'erledigt-meldung', 'manuell'];
 
+// Anzeige-Labels der Leistungsarten (UI).
+export const LEISTUNGSART_LABELS = {
+  reinigung_strecke:    'Reinigung Strecke',
+  sammlung_papierkorb:  'Sammlung Papierkorb',
+  reinigung_flaeche:    'Reinigung Fläche',
+  reinigung_sinkkasten: 'Reinigung Sinkkasten',
+  entsorgung_abfall:    'Entsorgung Abfallmenge',
+  sensibilisierung:     'Sensibilisierung',
+};
+
+// Leistungsart eines Objekts auflösen: explizites Projekt-Mapping (Objektart → Leistungsart) vor geomType-Default.
+// artMap: { [artId]: leistungsart }. Straßenabschnitts-Objekte (geomType 'linie') gelten ohne Zuordnung als
+// Reinigung Strecke; Punkte/Flächen brauchen ein explizites Mapping (keine stille Klassifizierung).
+export function ewkLeistungsartOf(tree, artMap) {
+  if (!tree) return null;
+  const m = artMap || {};
+  if (tree.artId != null && m[tree.artId]) return m[tree.artId];
+  if ((tree.geomType || 'punkt') === 'linie') return 'reinigung_strecke';
+  return null;
+}
+
 export function meldejahrVon(datumStr) {
   const y = parseInt(String(datumStr || '').slice(0, 4), 10);
   return Number.isInteger(y) ? y : null;
