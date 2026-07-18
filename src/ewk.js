@@ -141,6 +141,24 @@ export function aggregateEreignisse(events) {
   return { perArt, gesamtPunkte, count, ohneNachweis, manuell };
 }
 
+// Datenqualität eines Projekts: welche EWK-relevanten Objekte erzeugen (noch) KEINEN belastbaren Nachweis?
+// objs: [{ id, name, art, artId, geomType, ortslage, effMenge }] (effMenge = eigene/geerbte Länge/Fläche).
+// → { unmappedArts[], ohneOrtslage[], ohneMenge[] }. Papierkorb/Abfall/Sensibilisierung sind nicht objekt-auto → hier kein Fehler.
+export function ewkDatenqualitaet(objs, artMap) {
+  const list = Array.isArray(objs) ? objs : [];
+  const m = artMap || {};
+  const auto = new Set(AUTO_LEISTUNGSARTEN);
+  const unmapped = new Set(), ohneOrtslage = [], ohneMenge = [];
+  for (const o of list) {
+    const la = ewkLeistungsartOf(o, m);
+    if (!la) { if (o.art && String(o.art).trim() !== '') unmapped.add(String(o.art).trim()); continue; }
+    if (!auto.has(la)) continue; // z. B. Papierkorb (manuell) → nicht als fehlend werten
+    if (o.ortslage !== 'innerorts' && o.ortslage !== 'ausserorts') ohneOrtslage.push({ id: o.id, name: o.name || o.id, leistungsart: la });
+    else if (la !== 'reinigung_sinkkasten' && !(Number(o.effMenge) > 0)) ohneMenge.push({ id: o.id, name: o.name || o.id, leistungsart: la });
+  }
+  return { unmappedArts: [...unmapped].sort(), ohneOrtslage, ohneMenge };
+}
+
 // Personenbezug GETRENNT vom Nachweis (DSGVO, Zweck: Leistungskontrolle ≠ Nachweis). Nur Verwaltung liest.
 export function buildLeistungszuordnung({ orgId, ereignisId, mitarbeiterRef = null, fahrzeugRef = null }) {
   if (!orgId) throw new Error('orgId erforderlich');

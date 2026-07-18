@@ -27,7 +27,7 @@ import { printA4, printDoc, printDocFrame } from './printview.js';
 import { startPresence, presenceIsOnline, presenceMaxParallel, presenceDurationMs, presenceSessionEnd, PRESENCE_STALE_MS } from './presence.js';
 import { startAccountGuard, checkAccountLive } from './session-guard.js';
 import { LEISTUNGSARTEN, ortslageRelevant as ewkOrtslageRelevant, tarifFuer as ewkTarifFuer, satzText as ewkSatzText } from './ewk-tarif.js';
-import { LEISTUNGSART_LABELS, LEISTUNGSART_INFO, LEISTUNGSART_BELEG, ewkLeistungsartOf, aggregateEreignisse, buildLeistungsereignis } from './ewk.js';
+import { LEISTUNGSART_LABELS, LEISTUNGSART_INFO, LEISTUNGSART_BELEG, ewkLeistungsartOf, aggregateEreignisse, buildLeistungsereignis, ewkDatenqualitaet } from './ewk.js';
 import { buildBatchDocHtml, REPORT_PRINT_CSS } from './report-batch.js';
 import { findFreqClusters } from './papierkorb-analyse.js'; // pure Erkennungs-Logik (Modul-First)
 import { buildShapefileZip, PRJ_ETRS89_UTM32N } from './geo-export.js';
@@ -12202,6 +12202,22 @@ function renderEwk(){
         <thead><tr style="background:var(--surface2);font-size:10px;color:var(--text3);text-transform:uppercase;"><th style="padding:6px 8px;text-align:left;">Datum</th><th style="padding:6px 8px;text-align:left;">Leistungsart</th><th style="padding:6px 8px;text-align:right;">Menge</th><th style="padding:6px 8px;text-align:left;">Ortslage</th><th style="padding:6px 8px;text-align:left;">Erfasst</th><th style="padding:6px 8px;text-align:left;">Beleg</th><th></th></tr></thead>
         <tbody>${eRows}</tbody></table></div>
       <div style="font-size:11px;color:var(--text3);margin-top:6px;">Nachweise sind unveränderlich (Prüfsicherheit). „Stornieren" erzeugt einen Gegen-Eintrag mit Grund — der Original-Eintrag bleibt sichtbar, zählt aber nicht mehr.</div></div>`:'';
+  // Datenqualität des AKTUELL geöffneten Projekts: EWK-relevante Objekte ohne belastbaren Nachweis. Nur wenn EWK-konfiguriert.
+  const _artMap=currentProjectData?.ewkArtMap||{};
+  let dqSection='';
+  if(Object.keys(_artMap).length){
+    const _dqObjs=(trees||[]).filter(t=>isActive(t)).map(t=>({id:t.id,name:t.name,art:t.art,artId:t.artId,geomType:t.geomType,ortslage:t.ortslage,effMenge:_effMenge(t)}));
+    const dq=ewkDatenqualitaet(_dqObjs,_artMap);
+    const objBtns=arr=>arr.slice(0,60).map(o=>`<button onclick="openEditTree('${_jsArg(o.id)}')" style="border:1px solid var(--border);background:var(--bg);border-radius:6px;padding:2px 8px;font-size:11px;margin:2px 3px 0 0;cursor:pointer;">${dlEsc(o.name||o.id)}</button>`).join('')+(arr.length>60?` <span style="font-size:11px;color:var(--text3);">…+${arr.length-60}</span>`:'');
+    const clean=!dq.unmappedArts.length&&!dq.ohneOrtslage.length&&!dq.ohneMenge.length;
+    dqSection=`<div style="margin-top:20px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
+      <div style="font-weight:700;font-size:13px;">Datenqualität — aktuelles Projekt${currentProjectData?.name?': '+dlEsc(currentProjectData.name):''}</div>
+      <div style="font-size:11px;color:var(--text3);margin:2px 0 10px;">EWK-relevante Objekte, die (noch) keinen Nachweis erzeugen — hier bleiben Punkte liegen. Klick öffnet das Objekt.</div>
+      ${clean?`<div style="font-size:12px;color:var(--green);">✓ Alle EWK-relevanten Objekte vollständig (Zuordnung + Ortslage + Menge).</div>`:''}
+      ${dq.unmappedArts.length?`<div style="margin-bottom:8px;"><b style="font-size:12px;">Objektarten ohne EWK-Zuordnung (${dq.unmappedArts.length}):</b> <span style="font-size:12px;color:var(--text2);">${dq.unmappedArts.map(a=>dlEsc(a)).join(' · ')}</span><div style="font-size:11px;color:var(--text3);">→ unter „EWK-Leistungsart je Objektart" (Felder &amp; Listen) zuordnen — sonst zählen diese Objekte nicht.</div></div>`:''}
+      ${dq.ohneOrtslage.length?`<div style="margin-bottom:8px;"><b style="font-size:12px;color:#b45309;">Ohne Ortslage (${dq.ohneOrtslage.length}):</b><div style="margin-top:2px;">${objBtns(dq.ohneOrtslage)}</div></div>`:''}
+      ${dq.ohneMenge.length?`<div><b style="font-size:12px;color:#b45309;">Ohne Menge/Länge (${dq.ohneMenge.length}):</b><div style="margin-top:2px;">${objBtns(dq.ohneMenge)}</div></div>`:''}</div>`;
+  }
   body.innerHTML=`<div style="max-width:900px;margin:0 auto;">
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:4px;">
       <div style="font-size:18px;font-weight:800;">EWKFondsG-Leistungsmeldung</div>
@@ -12216,6 +12232,7 @@ function renderEwk(){
       <thead><tr style="background:var(--surface2);font-size:11px;color:var(--text3);text-transform:uppercase;"><th style="padding:7px 10px;text-align:left;">Leistungsart</th><th style="padding:7px 10px;text-align:right;">innerorts</th><th style="padding:7px 10px;text-align:right;">außerorts</th><th style="padding:7px 10px;text-align:right;">Punkte</th></tr></thead>
       <tbody>${rows}<tr style="border-top:2px solid var(--border);font-weight:800;background:var(--surface2);"><td style="padding:8px 10px;">Gesamt</td><td></td><td></td><td style="padding:8px 10px;text-align:right;">${nf(agg.gesamtPunkte)}</td></tr></tbody>
     </table>
+    ${dqSection}
     ${eventsList}
     ${form}
   </div>`;

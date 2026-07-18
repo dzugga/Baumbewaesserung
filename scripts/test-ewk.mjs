@@ -1,6 +1,6 @@
 // Test: EWKFondsG Punktesätze (§ 3 EWKFondsV) + Ereignis-Builder. Normative Werte hart geprüft.
 import { punkteFuer, tarifFuer, ortslageRelevant, EINHEITEN, LEISTUNGSARTEN } from '../src/ewk-tarif.js';
-import { buildLeistungsereignis, meldejahrVon, buildLeistungszuordnung, ewkLeistungsartOf, LEISTUNGSART_LABELS, ewkMengeAusObjekt, AUTO_LEISTUNGSARTEN, aggregateEreignisse } from '../src/ewk.js';
+import { buildLeistungsereignis, meldejahrVon, buildLeistungszuordnung, ewkLeistungsartOf, LEISTUNGSART_LABELS, ewkMengeAusObjekt, AUTO_LEISTUNGSARTEN, aggregateEreignisse, ewkDatenqualitaet } from '../src/ewk.js';
 
 let pass = 0, fail = 0;
 const approx = (a, b) => Math.abs(a - b) < 1e-9;
@@ -76,6 +76,25 @@ ok('AUTO-Set hat 3 Arten', AUTO_LEISTUNGSARTEN.length === 3 && AUTO_LEISTUNGSART
   ];
   const agg = aggregateEreignisse(events);
   ok('Korrektur schließt ersetztes Ereignis aus', agg.count === 1 && approx(agg.gesamtPunkte, 2.4));
+}
+
+// --- Datenqualität (Schritt 7b) ---
+{
+  const artMap = { a_park: 'reinigung_flaeche', a_sk: 'reinigung_sinkkasten', a_pk: 'sammlung_papierkorb' };
+  const objs = [
+    { id: '1', name: 'Fläche gut', artId: 'a_park', geomType: 'flaeche', ortslage: 'innerorts', effMenge: 500 }, // ok
+    { id: '2', name: 'Fläche ohne Lage', artId: 'a_park', geomType: 'flaeche', ortslage: '', effMenge: 500 },   // ohneOrtslage
+    { id: '3', name: 'Fläche ohne Menge', artId: 'a_park', geomType: 'flaeche', ortslage: 'innerorts', effMenge: 0 }, // ohneMenge
+    { id: '4', name: 'Sinkkasten', artId: 'a_sk', geomType: 'punkt', ortslage: 'innerorts', effMenge: 0 },       // ok (Stück, keine Menge nötig)
+    { id: '5', name: 'Papierkorb', artId: 'a_pk', geomType: 'punkt', ortslage: '', effMenge: 0 },                 // manuell → kein Fehler
+    { id: '6', name: 'Baum', art: 'Baum', geomType: 'punkt', ortslage: '', effMenge: 0 },                        // unmapped art
+  ];
+  const dq = ewkDatenqualitaet(objs, artMap);
+  ok('DQ ohneOrtslage = 1', dq.ohneOrtslage.length === 1 && dq.ohneOrtslage[0].id === '2');
+  ok('DQ ohneMenge = 1', dq.ohneMenge.length === 1 && dq.ohneMenge[0].id === '3');
+  ok('DQ Papierkorb NICHT als Fehler', !dq.ohneOrtslage.some(o => o.id === '5') && !dq.ohneMenge.some(o => o.id === '5'));
+  ok('DQ unmapped art = Baum', dq.unmappedArts.length === 1 && dq.unmappedArts[0] === 'Baum');
+  ok('DQ Sinkkasten ohne Menge = ok', !dq.ohneMenge.some(o => o.id === '4'));
 }
 
 console.log(`ewk: ${pass} ok, ${fail} fehlgeschlagen`);
