@@ -1113,9 +1113,13 @@ function _geomOf(o){
 // Geometrie eines Objekts: eigene ODER (Abschnitts-Seite) vom Container geerbt — wie im Desktop (_treeGeom)
 function _mGeom(t){
   if(!t) return null;
-  const own=_geomOf(t); if(own) return own;
-  if(t.containerExtId){ const c=_getContainer(t.containerExtId); if(c) return _geomOf(c); }
-  if(t.extId && _flBundle[t.extId]) return _flBundle[t.extId]; // importierte Fläche (Storage-Bundle)
+  const own=_geomOf(t); if(own) return own;                            // eigene gezeichnete Geometrie (Doc)
+  if(t.extId && _flBundle[t.extId]) return _flBundle[t.extId];         // eigene importierte Geometrie (Storage-Bundle)
+  if(t.containerExtId){                                                // Abschnitt-Seite erbt vom Container:
+    const c=_getContainer(t.containerExtId);
+    const cg=(c&&_geomOf(c)) || _flBundle[t.containerExtId];           // Container-Geometrie: Doc ODER Bundle (Bundle-extId = containerExtId)
+    if(cg) return cg;
+  }
   return null;
 }
 // Navigations-/Stopp-Punkt eines Objekts: Punkt=Koordinate, Fläche=Zentroid, Linie=Mittelpunkt (stabil).
@@ -1166,7 +1170,11 @@ function renderTourGeoms(){
 // Nur die extIds der Tour cachen (nicht das ganze Bundle) → kleiner Offline-Cache.
 async function loadFlaechenGeom(){
   _flBundle={};
-  const extIds=new Set((trees||[]).filter(t=>t.extId && !_geomOf(t)).map(t=>t.extId));
+  const extIds=new Set();
+  (trees||[]).forEach(t=>{
+    if(t.extId && !_geomOf(t)) extIds.add(t.extId);   // eigene importierte Geometrie
+    if(t.containerExtId) extIds.add(t.containerExtId); // Abschnitt-Seite: Geometrie liegt beim Container (Bundle-extId = containerExtId)
+  });
   if(!extIds.size) return;
   // Online: Bundle aus Storage holen, auf die Tour-extIds filtern
   try{
