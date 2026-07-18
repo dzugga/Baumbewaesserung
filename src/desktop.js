@@ -9446,6 +9446,7 @@ let _lizRollen=[];             // Rollen-Katalog für die Auswahl: [{key,name,hi
 let _lizOrgs=[];               // [{id,name}]
 let _lizOrgLizenzen={};        // orgId -> {artikelId:{menge,preis}}
 let _lizCounts={};             // orgId -> {roleKey:count} (aktive PIN- + E-Mail-Konten je Rolle) + _total
+let _lizCountErr={};           // orgId -> Fehlertext, wenn der Ist-Zähler NICHT geladen werden konnte (sonst zeigt 0 in die Irre)
 let _lizKonten={};             // orgId -> [{name,persnr,funktion,betriebshof,roleKey,email}] für die Druck-Mitarbeiterliste
 let _lizOpenOrg=null;          // aufgeklappter Kunde
 let _lizLoading=false;
@@ -9698,7 +9699,7 @@ async function initLizenzen(){
     _lizOrgLizenzen={}; orgsSnap.docs.forEach(d=>{ _lizOrgLizenzen[d.id]=d.data().lizenzen?JSON.parse(JSON.stringify(d.data().lizenzen)):{}; });
     // Ist-Zähler je Mandant: aktive Konten (PIN-Logins UND E-Mail-Benutzer) je ROLLE zählen.
     // Rollen-Katalog für die Artikel-Auswahl parallel einsammeln (Builtin + Custom aller Mandanten).
-    _lizCounts={}; _lizKonten={};
+    _lizCounts={}; _lizKonten={}; _lizCountErr={};
     const rollen={}; Object.entries(BUILTIN_ROLES).forEach(([k,r])=>{ if(k!=='superadmin') rollen[k]={key:k,name:r.name,hint:'eingebaut'}; });
     for(const o of _lizOrgs){
       const c={}; const konten=[];
@@ -9728,7 +9729,7 @@ async function initLizenzen(){
           c[r]=(c[r]||0)+1;
           konten.push({name:u.name||u.email||d.id,persnr:'',funktion:'',betriebshof:'',roleKey:r,email:u.email||''});
         });
-      }catch(e){ console.warn('liz counts '+o.id,e); }
+      }catch(e){ console.warn('liz counts '+o.id,e); _lizCountErr[o.id]=(e&&(e.code||e.message))||'Fehler'; }
       c._total=Object.entries(c).reduce((s,[k,v])=>k==='_total'?s:s+v,0);
       _lizCounts[o.id]=c;
       _lizKonten[o.id]=konten.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
@@ -10010,6 +10011,8 @@ function renderLizenzen(){
           <button class="btn btn-primary" style="font-size:11px;padding:5px 14px;" onclick="lizSaveOrg('${_jsArg(dOrg.id)}')">Lizenzen speichern</button>
         </span>
       </div>
+      ${_lizCountErr[dOrg.id]?`<div style="font-size:12px;background:#fef2f2;color:#991b1b;border:1px solid #fecaca;border-radius:8px;padding:8px 12px;margin-bottom:10px;">⚠ Ist-Zähler konnte nicht geladen werden (${dlEsc(_lizCountErr[dOrg.id])}) — „Vergeben" ist deshalb 0. Über „Aktualisieren" erneut versuchen.</div>`
+        :(((_lizCounts[dOrg.id]||{})._total||0)===0?`<div style="font-size:12px;background:#fffbeb;color:#854f0b;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;margin-bottom:10px;">Für diesen Mandanten wurden <b>keine aktiven Logins</b> gefunden (gezählt werden Personen mit PIN bzw. E-Mail-Konten, aktiv, mit Rolle — Personen ohne Login zählen nicht). „Vergeben" ist deshalb überall 0. Prüfen unter Admin → Personal/Benutzer.</div>`:'')}
       <table class="ep-table"><thead><tr><th>Artikel</th><th style="width:80px;text-align:right;">Anzahl</th><th style="width:96px;text-align:right;">Vergeben</th><th style="width:104px;text-align:right;">€ / Lizenz</th><th style="width:120px;text-align:right;">Summe</th></tr></thead>
       <tbody>${posRows}</tbody>
       <tfoot><tr style="border-top:2px solid var(--border);"><td colspan="4" style="padding:8px 12px;font-weight:700;">Gesamt</td><td style="padding:8px 12px;text-align:right;white-space:nowrap;"><b style="font-size:14px;">${_lizEur(sum)}</b><span style="font-size:10.5px;color:var(--text3);"> / Monat</span><div style="font-size:10.5px;color:var(--text3);">${_lizEur(sum*12)} / Jahr</div></td></tr></tfoot></table>
