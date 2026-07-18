@@ -578,7 +578,9 @@ async function doLogin() {
   if(currentUser && projGroup && projGroup.style.display!=='none'){
     const pid=document.getElementById('login-project').value;
     if(!pid){ _erfErr('Bitte Projekt wählen.'); return; }
-    await startErfassung(pid);
+    _erfBtn('Projekt laden…', true); // sichtbares Lade-Feedback bis die App steht
+    try{ await startErfassung(pid); }
+    catch(e){ _erfErr('Fehler: '+(e.message||e.code||e)); _erfBtn('Starten', false); }
     return;
   }
   // Schritt 1: anmelden
@@ -631,14 +633,19 @@ function watchTrees(pid){
 }
 
 async function startErfassung(pid){
-  const snap = await db.collection('projects').doc(pid).get();
+  // Objekt-Listener SOFORT starten (größter Posten) und parallel Projekt + Typ/Art-Liste laden —
+  // statt drei Roundtrips nacheinander. Offline → arten leer, Dropdown zeigt nur den Bestandswert.
+  const treesReady = watchTrees(pid);
+  const [snap, as] = await Promise.all([
+    db.collection('projects').doc(pid).get(),
+    db.collection('projects').doc(pid).collection('arten').get().catch(()=>null)
+  ]);
   currentProjectData = { id: pid, ...snap.data() };
   currentProjectId = pid;
-  // Typ/Art-Liste laden (1 Read; für Dropdown). Offline → leer, Dropdown zeigt nur den Bestandswert.
-  try { const as = await db.collection('projects').doc(pid).collection('arten').get(); artenE = as.docs.map(d => ({ name: d.data().name, klasse: d.data().klasse||'' })).filter(a => a.name); }
-  catch(_) { artenE = []; }
+  artenE = as ? as.docs.map(d => ({ name: d.data().name, klasse: d.data().klasse||'' })).filter(a => a.name) : [];
 
-  await watchTrees(pid);
+  _erfBtn('Objekte laden…', true);
+  await treesReady;
   if (!allTrees.length) {
     // Erster Login offline ohne Firestore-Cache → localStorage-Fallback
     const cached = loadCachedTrees(pid, currentErfasser);

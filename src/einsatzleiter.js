@@ -40,7 +40,6 @@ let trees = [];
 let tours = [];
 let tourHistory = [];
 let tourHistoryLoaded = false;
-let unsubTrees = null;
 let unsubTours = null;
 let unsubHistory = null;
 let nichtMap = null;
@@ -424,13 +423,11 @@ async function loadTourHistory(){
 }
 
 function subscribe(){
-  unsubTrees=db.collection('projects').doc(currentProjectId).collection('trees')
-    .onSnapshot(snap=>{ trees=snap.docs.map(d=>({id:d.id,...d.data()})); render(); },
-                e=>console.warn('trees:',e));
   unsubTours=db.collection('projects').doc(currentProjectId).collection('tours')
     .onSnapshot(snap=>{
       // Übersichten sind keine echten Touren → nicht im Einsatzleiter anzeigen
       tours=snap.docs.filter(d=>!d.data().uebersicht).map((d,i)=>({id:d.id,color:TOUR_COLORS[i%TOUR_COLORS.length],...d.data()}));
+      _subscribeTrees(); // Objekte NUR der Touren laden — folgt der Tour-Menge automatisch
       render();
     }, e=>console.warn('tours:',e));
   // tourHistory live statt 60s-Polling: nur bei Änderung Reads (kostengünstig)
@@ -439,6 +436,53 @@ function subscribe(){
       tourHistory=snap.docs.map(d=>normalizeHistory({id:d.id,...d.data()}));
       tourHistoryLoaded=true; render();
     }, e=>console.warn('tourHistory:',e));
+}
+// Objekt-Listener auf die TOUR-Objekte begrenzt (statt aller Objekte des Projekts — das Lagebild
+// wertet ausschließlich Objekte MIT Tour-Zuordnung aus; bei großen Segmentnetzen spart das den
+// Löwenanteil). tourIds-Chunks à 10 (array-contains-any-Limit konservativ); Alt-Feld tourId einmalig.
+let _treeChunkUnsubs=[], _treeChunks=[], _legacyTrees=[], _treeSetKey=null;
+function _subscribeTrees(){
+  const ids=tours.map(t=>t.id);
+  const key=ids.slice().sort().join(',');
+  if(key===_treeSetKey) return; // Tour-Menge unverändert → Listener stehen lassen
+  _treeSetKey=key;
+  _treeChunkUnsubs.forEach(u=>{ try{u();}catch(_){} }); _treeChunkUnsubs=[]; _treeChunks=[]; _legacyTrees=[];
+  if(!ids.length){ trees=[]; _elLoadHint(false); render(); return; }
+  const col=db.collection('projects').doc(currentProjectId).collection('trees');
+  const chunks=[]; for(let i=0;i<ids.length;i+=10) chunks.push(ids.slice(i,i+10));
+  chunks.forEach((c,i)=>{
+    _treeChunkUnsubs.push(col.where('tourIds','array-contains-any',c).onSnapshot(s=>{
+      _treeChunks[i]=s.docs.map(d=>({id:d.id,...d.data()}));
+      _mergeTrees();
+    }, e=>console.warn('trees:',e)));
+  });
+  // Objekte, die NUR das Alt-Feld tourId tragen (einmalig, ohne Live-Updates — Alt-Datenbestände)
+  Promise.all(chunks.map(c=>col.where('tourId','in',c).get().catch(()=>null))).then(snaps=>{
+    const seen=new Set(); _legacyTrees=[];
+    snaps.forEach(s=>{ if(s) s.forEach(d=>{ if(!seen.has(d.id)){ seen.add(d.id); _legacyTrees.push({id:d.id,...d.data()}); } }); });
+    _mergeTrees();
+  });
+}
+function _mergeTrees(){
+  const m=new Map();
+  _legacyTrees.forEach(t=>m.set(t.id,t));
+  _treeChunks.forEach(a=>(a||[]).forEach(t=>m.set(t.id,t))); // Live-Stand gewinnt über Alt-Feld-Kopie
+  trees=[...m.values()];
+  _elLoadHint(false);
+  render();
+}
+// Dezenter Lade-Hinweis, bis die ersten Objekte da sind (das Lagebild zeigt sonst stumm Nullen)
+function _elLoadHint(on){
+  let el=document.getElementById('el-load-hint');
+  if(on){
+    if(!el){
+      el=document.createElement('div'); el.id='el-load-hint';
+      el.style.cssText='position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:5000;background:var(--surface,#fff);border:1px solid var(--border,#e2e8f0);border-radius:20px;padding:7px 16px;font-size:13px;font-weight:600;box-shadow:0 2px 10px rgba(0,0,0,.15);display:flex;align-items:center;gap:8px;';
+      el.innerHTML='<span style="width:12px;height:12px;border:2px solid var(--green,#2d6a4f);border-top-color:transparent;border-radius:50%;display:inline-block;animation:spin .8s linear infinite;"></span>Objekte werden geladen…';
+      document.body.appendChild(el);
+    }
+    el.style.display='flex';
+  } else if(el) el.style.display='none';
 }
 
 async function manualRefresh(){
@@ -500,7 +544,9 @@ async function doLogin(){
   if(currentUser && projGroup && projGroup.style.display!=='none'){
     const pid=document.getElementById('login-project').value;
     if(!pid){ _elErr('Bitte ein Projekt wählen.'); return; }
-    await startEinsatzleiter(pid);
+    _elBtn('Projekt laden…', true); // sichtbares Lade-Feedback bis das Lagebild steht
+    try{ await startEinsatzleiter(pid); }
+    catch(e){ _elErr('Fehler: '+(e.message||e.code||e)); _elBtn('Starten', false); }
     return;
   }
   if(elLoginMode==='email'){
@@ -539,13 +585,15 @@ async function startEinsatzleiter(pid){
   }).catch(()=>{});
   document.getElementById('screen-login').classList.remove('active');
   document.getElementById('screen-app').classList.add('active');
+  _elLoadHint(true); // „Objekte werden geladen…" bis die ersten Daten da sind
   await bhPreset(); // Betriebshof-Vorbelegung (gemerkte Auswahl bzw. eigener Hof)
-  subscribe(); // trees + tours + tourHistory live (kein Polling mehr)
+  subscribe(); // tours + tourHistory live; Objekte tour-gescoped über _subscribeTrees
 }
 
 async function doLogout(){
   if(!confirm('Abmelden?')) return;
-  if(unsubTrees) unsubTrees(); if(unsubTours) unsubTours(); if(unsubHistory) unsubHistory();
+  _treeChunkUnsubs.forEach(u=>{ try{u();}catch(_){} }); _treeChunkUnsubs=[]; _treeSetKey=null;
+  if(unsubTours) unsubTours(); if(unsubHistory) unsubHistory();
   try{ _presence&&_presence.stop(); }catch(_){}
   try{ await endSession(); }catch(_){}
   try{ await firebase.auth().signOut(); }catch(_){}
