@@ -1113,9 +1113,25 @@ function renderMarkers() {
       .addTo(map).on('click',()=>openSheet(id));
     mapMarkers[id]=m;
   });
-  if(trees.some(t=>t.containerExtId)) _renderStreetPills();
+  if(trees.some(t=>t.containerExtId) && _pillsOn) _renderStreetPills();
   else { _streetPills.forEach(m=>{ try{ map.removeLayer(m); }catch(_){} }); _streetPills=[]; }
+  _updatePillsBtn();
   // Route drawn separately via drawRoute() to load from Firestore
+}
+// Straßen-Nummern ein-/ausblenden (Geräte-Einstellung). Ausgeblendet meldet man direkt
+// per Tipp auf die Abschnitts-Linie — die Farben zeigen den Status weiterhin.
+let _pillsOn=(()=>{ try{ return localStorage.getItem('bwt_street_pills')!=='0'; }catch(_){ return true; } })();
+function toggleStreetPills(){
+  _pillsOn=!_pillsOn;
+  try{ localStorage.setItem('bwt_street_pills', _pillsOn?'1':'0'); }catch(_){}
+  renderMarkers();
+  toast(_pillsOn?'Straßen-Nummern eingeblendet':'Nummern aus — Melden per Tipp auf die Linie');
+}
+window.toggleStreetPills=toggleStreetPills;
+function _updatePillsBtn(){
+  const b=document.getElementById('btn-pills'); if(!b) return;
+  b.style.display=trees.some(t=>t.containerExtId)?'':'none'; // nur bei Abschnitts-Touren anbieten
+  b.style.opacity=_pillsOn?'1':'.55';
 }
 // Kompakte Straßen-Nummern für Abschnitts-Touren: EINE Pille je Straße (gleiche Nummer wie in der
 // Liste), am Anfang des ersten Abschnitts. Nächste Straße = gefüllt, fertige Straßen dezent.
