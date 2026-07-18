@@ -116,8 +116,12 @@ service cloud.firestore {
     match /users/{uid} {
       // Eigenes Profil immer; sonst nur Planer/Admin der Org (ein Fahrer soll die E-Mail-Liste NICHT lesen können).
       allow read:   if signedIn() && (request.auth.uid == uid || (inOrg(resource.data.orgId) && cap() != 'driver'));
-      allow create: if canManage(request.resource.data.orgId);
-      allow update: if canManage(resource.data.orgId);
+      // Defense-in-Depth (Claims sind maßgeblich): kein Client darf role='superadmin' ins users-Doc schreiben
+      // (Superadmin wird ausschließlich serverseitig über setUserRole vergeben) — analog zur drivers-Regel.
+      allow create: if isSuper() || (canManage(request.resource.data.orgId)
+                        && (!('role' in request.resource.data) || request.resource.data.role != 'superadmin'));
+      allow update: if isSuper() || (canManage(resource.data.orgId)
+                        && (!('role' in request.resource.data) || request.resource.data.role != 'superadmin'));
       allow delete: if canManage(resource.data.orgId);
     }
 

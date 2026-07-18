@@ -77,7 +77,10 @@ exports.driverLogin = onCall({ region: REGION, enforceAppCheck: true }, async (r
     // NIE zu einem Superadmin-Token führen (Superadmin wird ausschließlich über Claims/setUserRole vergeben).
     let personRole = d.role || 'fahrer';
     if (personRole === 'superadmin') personRole = 'fahrer';
-    const personCap = await capForRole(personRole, oid2);
+    // capForRole löst unbekannte/orphan Rollen auf 'readonly' auf; zusätzlich hart auf bekannte Caps klemmen,
+    // damit kein unerwarteter Wert ins Token gelangt (Defense-in-Depth zur Blocklist oben).
+    let personCap = await capForRole(personRole, oid2);
+    if (!['admin', 'editor', 'readonly', 'driver'].includes(personCap)) personCap = 'driver';
     // Single-Session: nur EIN Gerät je Kennung gleichzeitig. allowParallel (Desktop-Planer) wird NUR für
     // Nicht-Fahrer honoriert — sonst könnte ein Fahrer-Client die Einzel-Sitzungssperre einfach überspringen.
     const allowParallel = !!(req.data && req.data.allowParallel) && personCap !== 'driver';
@@ -334,9 +337,19 @@ function requireAdmin(caller) {
 }
 async function assertSameOrg(role, callerOrg, uid) {
   if (role === 'superadmin') return;
-  const s = await db.collection('users').doc(uid).get();
-  const tOrg = s.exists ? s.data().orgId : null;
-  if (tOrg !== callerOrg) throw new HttpsError('permission-denied', 'Fremder Mandant');
+  // Mandant/Rolle des Ziels aus den SIGNIERTEN Custom Claims (Server-Wahrheit) prüfen, NICHT aus dem
+  // client-beschreibbaren users-Doc — sonst könnte ein Org-Admin per vorab angelegtem users-Doc ein
+  // fremdes Konto in seinen Mandanten ziehen (Cross-Tenant-Übernahme).
+  let target;
+  try { target = await admin.auth().getUser(uid); }
+  catch (e) {
+    if (e.code === 'auth/user-not-found') throw new HttpsError('not-found', 'Konto nicht gefunden');
+    throw new HttpsError('internal', e.message || 'Ziel-Konto nicht prüfbar');
+  }
+  const tc = target.customClaims || {};
+  if (tc.orgId !== callerOrg) throw new HttpsError('permission-denied', 'Fremder Mandant');
+  // Rollen-Rang: ein Nicht-Superadmin darf kein Superadmin-Konto verändern (Passwort/Deaktivieren/Löschen/Rolle).
+  if (tc.role === 'superadmin') throw new HttpsError('permission-denied', 'Ziel-Konto nicht erlaubt');
 }
 
 // ── Admin legt ein E-Mail-Konto an (Planer/Erfasser/Orgadmin) ───────────────
