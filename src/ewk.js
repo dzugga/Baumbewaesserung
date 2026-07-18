@@ -9,7 +9,7 @@ import { LEISTUNGSARTEN, EINHEITEN, ortslageRelevant, punkteFuer } from './ewk-t
 export const AUFBEWAHRUNG_PLATZHALTER_MONATE = 60; // TODO Kunde/Recht bestätigen
 
 // Erfassungsart → wie belastbar der Nachweis ist (für die Datenqualitätsanzeige, Schritt 7).
-export const ERFASST_DURCH = ['gps', 'nfc', 'qr', 'waage', 'erledigt-meldung', 'manuell'];
+export const ERFASST_DURCH = ['gps', 'nfc', 'qr', 'waage', 'erledigt-meldung', 'manuell', 'storno'];
 
 // Anzeige-Labels der Leistungsarten (UI).
 export const LEISTUNGSART_LABELS = {

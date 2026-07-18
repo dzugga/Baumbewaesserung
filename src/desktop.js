@@ -12133,6 +12133,21 @@ async function ewkAddManual(){
     loadEwk();
   }catch(e){ notify(dlErr(e)); }
 }
+// Storno: erzeugt einen Gegen-Eintrag (Menge 0, korrigiertVon → Original zählt nicht mehr). Append-only, nichts wird gelöscht.
+async function ewkStorno(id){
+  if(isReadonly()) return;
+  const orig=_ewkAllEvents.find(e=>e.id===id); if(!orig){ notify('Eintrag nicht gefunden'); return; }
+  const grund=(prompt('Grund der Stornierung (wird als Beleg gespeichert):','')||'').trim(); if(!grund) return;
+  try{
+    const datumStr=(orig.meldejahr||new Date().getUTCFullYear())+'-06-01'; // gleiches Meldejahr wie Original (sonst greift der Ausschluss nicht)
+    const ev=buildLeistungsereignis({orgId:orig.orgId, leistungsart:orig.leistungsart, menge:0, ortslage:orig.ortslage, datumStr,
+      quelleId:'Storno: '+grund, erfasstDurch:'storno', projektId:orig.projektId||null, objektRef:orig.objektRef||null, korrigiertVon:id, tarifVersion:orig.tarifVersion||null});
+    await db.collection('leistungsereignisse').add({...ev,
+      zeitpunkt: orig.zeitpunkt||firebase.firestore.Timestamp.fromDate(new Date(datumStr+'T12:00:00Z')),
+      serverAt: firebase.firestore.FieldValue.serverTimestamp() });
+    notify('✓ Nachweis storniert'); loadEwk();
+  }catch(e){ notify(dlErr(e)); }
+}
 function renderEwk(){
   const body=document.getElementById('ewk-body'); if(!body) return;
   const ro=isReadonly();
@@ -12167,6 +12182,26 @@ function renderEwk(){
       </div>
       <div id="ewk-hint" style="font-size:11px;color:var(--text2);margin-top:9px;background:var(--surface2);border-radius:6px;padding:7px 10px;"></div>
     </div>`;
+  // Einzelne Nachweise des Jahres (mit Storno) — stornierte/ersetzte durchgestrichen.
+  const yEvents=_ewkAllEvents.filter(e=>e.meldejahr===year);
+  const supSet=new Set(yEvents.filter(e=>e.korrigiertVon).map(e=>e.korrigiertVon));
+  const eSec=e=>(e.zeitpunkt&&e.zeitpunkt.seconds)||0;
+  const eDat=e=>{ try{ if(e.zeitpunkt&&e.zeitpunkt.toDate) return e.zeitpunkt.toDate().toLocaleDateString('de-DE'); }catch(_){} return String(e.meldejahr||''); };
+  const eRows=[...yEvents].sort((a,b)=>eSec(b)-eSec(a)).map(e=>{ const sup=supSet.has(e.id), isStorno=!!e.korrigiertVon, el=EINH[e.leistungsart]||'';
+    return `<tr style="border-top:1px solid var(--border);${sup?'opacity:.5;text-decoration:line-through;':''}">
+      <td style="padding:5px 8px;white-space:nowrap;">${eDat(e)}</td>
+      <td style="padding:5px 8px;">${dlEsc(LEISTUNGSART_LABELS[e.leistungsart]||e.leistungsart||'')}${isStorno?' <span style="color:var(--red);font-size:10px;font-weight:700;">STORNO</span>':''}</td>
+      <td style="padding:5px 8px;text-align:right;white-space:nowrap;">${nf(Number(e.menge)||0, e.einheit==='stueck'?0:1)} ${el}</td>
+      <td style="padding:5px 8px;">${e.ortslage?dlEsc(e.ortslage):'—'}</td>
+      <td style="padding:5px 8px;font-size:11px;color:var(--text3);">${dlEsc(e.erfasstDurch||'')}</td>
+      <td style="padding:5px 8px;font-size:11px;color:var(--text3);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${dlEsc(e.quelleId||'')}">${dlEsc(e.quelleId||'')}</td>
+      <td style="padding:5px 8px;text-align:right;">${(!ro&&!sup&&!isStorno)?`<button onclick="ewkStorno('${_jsArg(e.id)}')" style="border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;color:var(--red);">Stornieren</button>`:''}</td></tr>`; }).join('');
+  const eventsList=yEvents.length?`<div style="margin-top:22px;">
+      <div style="font-weight:700;font-size:13px;margin-bottom:8px;">Einzelne Nachweise (${year})</div>
+      <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;">
+        <thead><tr style="background:var(--surface2);font-size:10px;color:var(--text3);text-transform:uppercase;"><th style="padding:6px 8px;text-align:left;">Datum</th><th style="padding:6px 8px;text-align:left;">Leistungsart</th><th style="padding:6px 8px;text-align:right;">Menge</th><th style="padding:6px 8px;text-align:left;">Ortslage</th><th style="padding:6px 8px;text-align:left;">Erfasst</th><th style="padding:6px 8px;text-align:left;">Beleg</th><th></th></tr></thead>
+        <tbody>${eRows}</tbody></table></div>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px;">Nachweise sind unveränderlich (Prüfsicherheit). „Stornieren" erzeugt einen Gegen-Eintrag mit Grund — der Original-Eintrag bleibt sichtbar, zählt aber nicht mehr.</div></div>`:'';
   body.innerHTML=`<div style="max-width:900px;margin:0 auto;">
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:4px;">
       <div style="font-size:18px;font-weight:800;">EWKFondsG-Leistungsmeldung</div>
@@ -12181,6 +12216,7 @@ function renderEwk(){
       <thead><tr style="background:var(--surface2);font-size:11px;color:var(--text3);text-transform:uppercase;"><th style="padding:7px 10px;text-align:left;">Leistungsart</th><th style="padding:7px 10px;text-align:right;">innerorts</th><th style="padding:7px 10px;text-align:right;">außerorts</th><th style="padding:7px 10px;text-align:right;">Punkte</th></tr></thead>
       <tbody>${rows}<tr style="border-top:2px solid var(--border);font-weight:800;background:var(--surface2);"><td style="padding:8px 10px;">Gesamt</td><td></td><td></td><td style="padding:8px 10px;text-align:right;">${nf(agg.gesamtPunkte)}</td></tr></tbody>
     </table>
+    ${eventsList}
     ${form}
   </div>`;
   if(!ro) ewkManualHint();
@@ -17648,7 +17684,7 @@ Object.assign(window,{
   filterAbschnitteTable,filterAbschnitteTableDebounced,toggleAbschnShowAll,downloadAbschnitteExport,
   nmSetType,nmSetAudience,nmToggleSel,nmToggle,_nmSetTour,nmSend,nmArchive,
   nmUnarchive,nmToggleArchived,nmDelArm,nmDelCancel,nmDeleteDo,setPushEnabled,
-  renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,ewkFelderAnlegen,ewkSetArtMap,ewkSetYear,ewkAddManual,ewkManualHint,renameCustomField,removeCustomField,_fillMerge,cfGeomToggle,
+  renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,ewkFelderAnlegen,ewkSetArtMap,ewkSetYear,ewkAddManual,ewkManualHint,ewkStorno,renameCustomField,removeCustomField,_fillMerge,cfGeomToggle,
   rankAdd,rankRename,rankSetColor,rankSetZahl,rankSetZahlWinter,rankMove,rankMerge,rankDelete,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
