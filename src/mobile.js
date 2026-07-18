@@ -10,8 +10,10 @@ import { startAccountGuard } from './session-guard.js';
 import { initVersionCheck } from './version-check.js';
 import { onlyTreeStatusFields } from './driver-fields.js';
 initVersionCheck();   // erkennt neue Deploys während die App offen ist → „Neu laden"-Banner
-// Container-Index (extId→Abschnitt) für die Anzeige-Rollen; aus dem vollen Projekt-Snapshot gebaut.
+// Container-Index (extId→Abschnitt) für die Anzeige-Rollen; aus Tour-Objekten + nachgeladenen Containern gebaut.
 let _objIndex = null;
+let _tourContainers = [];  // Abschnitt-Container der Tour (Titel/Geometrie-Vererbung; selbst nicht tour-planbar)
+let _legacyTourTrees = []; // Objekte, die NUR über das Alt-Feld tourId zur Tour gehören (statisch, kein Live-Update)
 // Lokaler Kalendertag YYYY-MM-DD (NICHT toISOString, das ist UTC → verschiebt Meldungen 00–02 Uhr auf den Vortag)
 function _localDateStr(d){ d=d||new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function _setObjIndex(objs){ _objIndex = buildContainerIndex(objs); }
@@ -395,20 +397,67 @@ async function doLogout() {
   location.reload();
 }
 
+// Nur die Objekte der TOUR laden statt des ganzen Projekts (Perf: große Projekte haben tausende
+// Objekte, die Tour braucht nur ihre Mitglieder). tourIds-Array + Alt-Feld tourId werden abgefragt,
+// dazu die referenzierten Abschnitt-Container (Titel-/Geometrie-Vererbung, selbst nicht in tourIds).
+async function _fetchTourTrees(pid, tid){
+  const col=db.collection('projects').doc(pid).collection('trees');
+  const [s1,s2]=await Promise.all([
+    col.where('tourIds','array-contains',tid).get(),
+    col.where('tourId','==',tid).get()
+  ]);
+  const byId=new Map();
+  s1.docs.concat(s2.docs).forEach(d=>byId.set(d.id,{id:d.id,...d.data()}));
+  const members=[...byId.values()];
+  return {members, containers: await _fetchContainers(col, members)};
+}
+async function _fetchContainers(col, members){
+  const extIds=[...new Set(members.map(t=>t.containerExtId).filter(Boolean))];
+  if(!extIds.length) return [];
+  const chunks=[]; for(let i=0;i<extIds.length;i+=10) chunks.push(extIds.slice(i,i+10)); // 'in' konservativ chunken
+  const snaps=await Promise.all(chunks.map(c=>col.where('extId','in',c).get().catch(e=>{ console.warn('Container laden', e); return null; })));
+  const out=[]; snaps.forEach(s=>{ if(s) s.forEach(d=>{ const o={id:d.id,...d.data()}; if(o.containerTyp) out.push(o); }); });
+  return out;
+}
+// Live-Listener NUR auf die Tour-Objekte (tourIds array-contains). Alt-Feld-Treffer aus dem
+// Initial-Load werden statisch dazugemischt (compat-SDK hat kein Filter.or; betrifft nur Alt-Daten).
+function _subscribeTourTrees(pid, tid){
+  if(unsubTrees){ try{ unsubTrees(); }catch(_){} }
+  const q=db.collection('projects').doc(pid).collection('trees').where('tourIds','array-contains',tid);
+  unsubTrees=q.onSnapshot(snap=>{
+    if(pauseSnapshot) return;
+    const ids=new Set(snap.docs.map(d=>d.id));
+    const all=snap.docs.map(d=>({id:d.id,...d.data()})).concat(_legacyTourTrees.filter(t=>!ids.has(t.id)));
+    _setObjIndex(all.concat(_tourContainers));
+    trees=_applyRunStatus(all.filter(t=>(t.tourIds||[t.tourId]).includes(tid) && t.aktiv!==false));
+    routeOrder=routeOrder.filter(id=>trees.find(t=>t.id===id));
+    trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
+    cacheTreesLocally(pid,tid,trees);
+    renderMarkers();
+    renderList(document.getElementById('list-search-input')?.value||'');
+    updateProgress();
+    if(selectedTreeId) openSheet(selectedTreeId);
+  });
+}
+// Karte auf die ganze Tour einpassen (Punkte + gezeichnete/importierte Geometrie)
+function _fitTourBounds(){
+  const withCoords=trees.filter(t=>t.lat&&t.lng);
+  let bounds=withCoords.length?L.latLngBounds(withCoords.map(t=>[t.lat,t.lng])):null;
+  const gb=_mGeomBounds(); if(gb) bounds=bounds?bounds.extend(gb):gb;
+  if(bounds&&bounds.isValid()) map.fitBounds(bounds,{padding:[40,40],maxZoom:17});
+}
 async function startBewässerungLogin(name, pid, tid) {
   initMap(); // ensure map is ready before rendering
-  // Original bewässerung login flow
-  const btn = document.querySelector('#login-submit-btn');
-  if(btn){ btn.disabled=true; btn.textContent='Lädt…'; }
+  _setLoginBtn('Objekte laden…', true); // sichtbares Lade-Feedback (Button #btn-login)
 
   try{
     let _offlineStart=false;
     try{
-      // Load all data in parallel (incl. route)
-      const [projSnap, tourSnap, treesSnap, reasonsSnap, routeSnap] = await Promise.all([
+      // Load all data in parallel (incl. route) — Objekte NUR der Tour statt des ganzen Projekts
+      const [projSnap, tourSnap, tourTrees, reasonsSnap, routeSnap] = await Promise.all([
         getDoc(doc(db,'projects',pid)),
         getDoc(doc(db,'projects',pid,'tours',tid)),
-        getDocs(collection(db,'projects',pid,'trees')),
+        _fetchTourTrees(pid, tid),
         getDocs(collection(db,'projects',pid,'reasons')),
         getDoc(doc(db,'projects',pid,'routes',tid))
       ]);
@@ -418,7 +467,10 @@ async function startBewässerungLogin(name, pid, tid) {
       currentTourId = tid;
       currentDriver = name;
       currentTour = tourSnap.exists ? {id:tid,...tourSnap.data()} : null;
-      trees = _applyRunStatus(treesSnap.docs.map(d=>({id:d.id,...d.data()})).filter(t=>(t.tourIds||[t.tourId]).includes(tid) && t.aktiv!==false));
+      _tourContainers = tourTrees.containers;
+      _legacyTourTrees = tourTrees.members.filter(t=>!(Array.isArray(t.tourIds)&&t.tourIds.includes(tid)));
+      _setObjIndex(tourTrees.members.concat(_tourContainers)); // Index sofort (nicht erst beim 1. Snapshot) → Straßen-/Titelauflösung ab dem ersten Render
+      trees = _applyRunStatus(tourTrees.members.filter(t=>(t.tourIds||[t.tourId]).includes(tid) && t.aktiv!==false));
       routeOrder = trees.map(t=>t.id);
       reasons = reasonsSnap.docs.map(d=>({id:d.id,...d.data()}));
       _cachedRouteSnap = routeSnap; // Cache route snap so drawRoute doesn't re-fetch
@@ -433,6 +485,9 @@ async function startBewässerungLogin(name, pid, tid) {
       currentDriver = name;
       currentTour = cached.tour || null;
       trees = _applyRunStatus(cached.trees || []);
+      _tourContainers = cached.containers || [];
+      _legacyTourTrees = [];
+      _setObjIndex(trees.concat(_tourContainers)); // auch offline Straßen-/Titelauflösung
       routeOrder = trees.map(t=>t.id);
       reasons = cached.reasons || [];
       _cachedRouteSnap = cached.route ? {exists:true, data:()=>cached.route} : {exists:false};
@@ -465,13 +520,10 @@ async function startBewässerungLogin(name, pid, tid) {
     });
     switchTab('map');
 
-    // Importierte Flächen-Geometrie (Storage-Bundle) laden → Polygone + Rückmeldung wie gezeichnete Flächen
-    await loadFlaechenGeom();
-
     // Cache trees
     cacheTreesLocally(pid, tid, trees);
 
-    // Render
+    // Render — SOFORT, ohne auf das Geometrie-Bundle zu warten (Liste/Marker stehen direkt)
     _openStreets.clear(); // Straßen-Akkordeon der vorherigen Tour zurücksetzen
     renderMarkers();
     renderList('');
@@ -480,35 +532,19 @@ async function startBewässerungLogin(name, pid, tid) {
     if(_offlineStart) toast('📦 Offline — gespeicherte Tour geladen');
     // Karte zuerst messen, DANN auf die ganze Tour einpassen — sonst hat der Container beim
     // Einpassen noch die falsche Größe (Tab gerade erst sichtbar) → falscher Zoom/Ausschnitt.
-    setTimeout(()=>{
-      map.invalidateSize();
-      const withCoords = trees.filter(t=>t.lat&&t.lng);
-      let bounds = withCoords.length ? L.latLngBounds(withCoords.map(t=>[t.lat,t.lng])) : null;
-      const gb=_mGeomBounds(); if(gb) bounds = bounds?bounds.extend(gb):gb; // Flächen/Strecken einbeziehen
-      if(bounds && bounds.isValid()) map.fitBounds(bounds,{padding:[40,40],maxZoom:17});
-    },150);
+    setTimeout(()=>{ map.invalidateSize(); _fitTourBounds(); },150);
+    // Importierte Flächen-/Abschnitts-Geometrie (Storage-Bundle) NACHZIEHEN: erst rendern,
+    // Bundle parallel laden, dann Geometrie zeichnen + Karte neu einpassen + Offline-Cache auffrischen.
+    loadFlaechenGeom().then(()=>{
+      if(Object.keys(_flBundle).length){ renderMarkers(); _fitTourBounds(); cacheTreesLocally(pid, tid, trees); }
+    }).catch(e=>console.warn('Geometrie-Bundle', e));
 
     startGPS();
     drawRoute();
     startPostfachListener();   // Push-/Postfach-Nachrichten (mandantenweit je Fahrer)
 
-    // Subscribe to live updates
-    // Lädt alle Bäume des Projekts, filtert client-seitig (kompatibel mit tourId und tourIds)
-    const treesQuery = db.collection('projects').doc(pid).collection('trees');
-    unsubTrees = treesQuery.onSnapshot(snap=>{
-      if(pauseSnapshot)return;
-      // Client-seitiger Filter: tourIds-Array oder altes tourId-Feld
-      const all=snap.docs.map(d=>({id:d.id,...d.data()}));
-      _setObjIndex(all);
-      trees=_applyRunStatus(all.filter(t=>(t.tourIds||[t.tourId]).includes(tid) && t.aktiv!==false));
-      routeOrder=routeOrder.filter(id=>trees.find(t=>t.id===id));
-      trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
-      cacheTreesLocally(pid,tid,trees);
-      renderMarkers();
-      renderList(document.getElementById('list-search-input')?.value||'');
-      updateProgress();
-      if(selectedTreeId) openSheet(selectedTreeId);
-    });
+    // Subscribe to live updates — nur die Tour-Objekte (statt aller Objekte des Projekts)
+    _subscribeTourTrees(pid, tid);
 
     if(isOnline) syncOfflineQueue();
 
@@ -521,7 +557,7 @@ async function startBewässerungLogin(name, pid, tid) {
     const errEl=document.getElementById('login-error');
     if(errEl){ errEl.textContent='Fehler: '+e.message; errEl.style.display='block'; }
   }finally{
-    if(btn){ btn.disabled=false; btn.textContent='Tour starten'; }
+    _setLoginBtn('Tour starten', false);
   }
 }
 
@@ -673,20 +709,8 @@ async function dialogNeuStarten(){
   });
   currentTour = {...currentTour, status: 'aktiv'};
 
-  // Step 5: Re-subscribe (filtered by tourId)
-  const _reoQ1 = db.collection('projects').doc(currentProjectId).collection('trees')/* alle laden, client-seitig filtern */;
-  unsubTrees = _reoQ1.onSnapshot(snap => {
-    if(pauseSnapshot) return;
-    const _all = snap.docs.map(d=>({id:d.id,...d.data()}));
-    _setObjIndex(_all);
-    trees = _applyRunStatus(_all.filter(t=>(t.tourIds||[t.tourId]).includes(currentTourId) && t.aktiv!==false));
-    routeOrder = routeOrder.filter(id=>trees.find(t=>t.id===id));
-    trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
-    renderMarkers();
-    renderList(document.getElementById('list-search-input')?.value||'');
-    updateProgress();
-    if(selectedTreeId) openSheet(selectedTreeId);
-  });
+  // Step 5: Re-subscribe (nur Tour-Objekte)
+  _subscribeTourTrees(currentProjectId, currentTourId);
 
   drawRoute();
   toast('🔄 Neu gestartet — viel Erfolg!');
@@ -1046,20 +1070,8 @@ async function reopenTour() {
     });
     currentTour = {...currentTour, status: 'aktiv'};
 
-    // Step 5: Re-subscribe filtered by tourId
-    const _reoQ2 = db.collection('projects').doc(currentProjectId).collection('trees')/* alle laden, client-seitig filtern */;
-    unsubTrees = _reoQ2.onSnapshot(snap => {
-      if(pauseSnapshot) return;
-      const _all = snap.docs.map(d=>({id:d.id,...d.data()}));
-      _setObjIndex(_all);
-      trees = _applyRunStatus(_all.filter(t=>(t.tourIds||[t.tourId]).includes(currentTourId) && t.aktiv!==false));
-      routeOrder = routeOrder.filter(id=>trees.find(t=>t.id===id));
-      trees.forEach(t=>{if(!routeOrder.includes(t.id))routeOrder.push(t.id);});
-      renderMarkers();
-      renderList(document.getElementById('list-search-input')?.value||'');
-      updateProgress();
-      if(selectedTreeId) openSheet(selectedTreeId);
-    });
+    // Step 5: Re-subscribe (nur Tour-Objekte)
+    _subscribeTourTrees(currentProjectId, currentTourId);
 
     drawRoute();
     closeFinishSheet();
@@ -2508,6 +2520,7 @@ async function cacheTreesLocally(projectId, tourId, treesData){
       projectId, tourId,
       driver: currentDriver || null,
       trees: treesData,
+      containers: _tourContainers || [],
       project: currentProjectData || null,
       tour: currentTour || null,
       reasons: reasons || [],
