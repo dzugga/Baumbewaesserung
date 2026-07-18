@@ -2,7 +2,7 @@
 // Baut die unveränderlichen Nachweis-Ereignisse. Der Schreib-Layer (Desktop) setzt serverAt/zeitpunkt als
 // Firestore-Timestamps und schreibt in die Collections `leistungsereignisse` (Nachweis, OHNE Personenbezug)
 // bzw. `leistungszuordnung` (Personenbezug GETRENNT — DSGVO, nur Verwaltung liest).
-import { LEISTUNGSARTEN, EINHEITEN, ortslageRelevant } from './ewk-tarif.js';
+import { LEISTUNGSARTEN, EINHEITEN, ortslageRelevant, punkteFuer } from './ewk-tarif.js';
 
 // Aufbewahrung: PLATZHALTER — vom Kunden zu bestätigen. Grundlage: Meldung 15.05. fürs Vorjahr + UBA-Prüfung
 // (§ 17/§ 18 EWKFondsG) + Puffer. NICHT rechtsverbindlich, bewusst endlich statt implizit unbegrenzt.
@@ -95,6 +95,30 @@ export function buildLeistungsereignis({
     tarifVersion,              // Version der Punktetabelle (Reproduzierbarkeit); serverseitig aus zeitpunkt setzbar
     korrigiertVon,             // ID des ersetzten Ereignisses (Korrektur = NEUER Satz, nie Update)
   };
+}
+
+// Aggregiert Leistungsereignisse zu Punkten je Leistungsart + Gesamtpunkte (§ 3 EWKFondsV). KEINE Euro.
+// events: [{ id?, leistungsart, menge, ortslage, einheit, meldejahr, quelleId, korrigiertVon }].
+// Korrektur-Kette: ein Ereignis, auf das ein anderes per korrigiertVon verweist, wird ausgeschlossen.
+export function aggregateEreignisse(events) {
+  const list = Array.isArray(events) ? events : [];
+  const superseded = new Set(list.filter(e => e && e.korrigiertVon).map(e => e.korrigiertVon));
+  const perArt = {};
+  let gesamtPunkte = 0, count = 0, ohneNachweis = 0, manuell = 0;
+  for (const e of list) {
+    if (!e || (e.id && superseded.has(e.id))) continue;
+    count++;
+    if (!e.quelleId) ohneNachweis++;
+    if (e.erfasstDurch === 'manuell') manuell++;
+    const menge = Number(e.menge) || 0;
+    const datumStr = (e.meldejahr ? e.meldejahr + '-06-01' : '2024-06-01');
+    const r = punkteFuer({ leistungsart: e.leistungsart, menge, ortslage: e.ortslage, datumStr });
+    const a = perArt[e.leistungsart] || (perArt[e.leistungsart] = { menge: 0, punkte: 0, einheit: e.einheit || EINHEITEN[e.leistungsart] || '', innerorts: 0, ausserorts: 0, n: 0 });
+    a.menge += menge; a.n++;
+    if (e.ortslage === 'ausserorts') a.ausserorts += menge; else a.innerorts += menge;
+    if (r) { a.punkte += r.punkte; gesamtPunkte += r.punkte; }
+  }
+  return { perArt, gesamtPunkte, count, ohneNachweis, manuell };
 }
 
 // Personenbezug GETRENNT vom Nachweis (DSGVO, Zweck: Leistungskontrolle ≠ Nachweis). Nur Verwaltung liest.

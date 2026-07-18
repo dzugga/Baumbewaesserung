@@ -1,6 +1,6 @@
 // Test: EWKFondsG Punktesätze (§ 3 EWKFondsV) + Ereignis-Builder. Normative Werte hart geprüft.
 import { punkteFuer, tarifFuer, ortslageRelevant, EINHEITEN, LEISTUNGSARTEN } from '../src/ewk-tarif.js';
-import { buildLeistungsereignis, meldejahrVon, buildLeistungszuordnung, ewkLeistungsartOf, LEISTUNGSART_LABELS, ewkMengeAusObjekt, AUTO_LEISTUNGSARTEN } from '../src/ewk.js';
+import { buildLeistungsereignis, meldejahrVon, buildLeistungszuordnung, ewkLeistungsartOf, LEISTUNGSART_LABELS, ewkMengeAusObjekt, AUTO_LEISTUNGSARTEN, aggregateEreignisse } from '../src/ewk.js';
 
 let pass = 0, fail = 0;
 const approx = (a, b) => Math.abs(a - b) < 1e-9;
@@ -56,6 +56,27 @@ ok('Sinkkasten → 1 Stück', (() => { const r = ewkMengeAusObjekt({}, 'reinigun
 ok('Strecke ohne Menge → null', ewkMengeAusObjekt({ menge: '' }, 'reinigung_strecke', {}) === null);
 ok('Papierkorb nicht auto-ableitbar → null', ewkMengeAusObjekt({ volumen: 120 }, 'sammlung_papierkorb') === null);
 ok('AUTO-Set hat 3 Arten', AUTO_LEISTUNGSARTEN.length === 3 && AUTO_LEISTUNGSARTEN.indexOf('sammlung_papierkorb') < 0);
+
+// --- Aggregation (Schritt 7) ---
+{
+  const events = [
+    { leistungsart: 'reinigung_strecke', menge: 2.4, ortslage: 'innerorts', meldejahr: 2024 },
+    { leistungsart: 'reinigung_strecke', menge: 10, ortslage: 'ausserorts', meldejahr: 2024 },
+    { leistungsart: 'reinigung_sinkkasten', menge: 1, ortslage: 'innerorts', meldejahr: 2024, erfasstDurch: 'manuell' },
+  ];
+  const agg = aggregateEreignisse(events);
+  ok('Aggregat gesamt = 99,4', approx(agg.gesamtPunkte, 24 + 73 + 2.4));
+  ok('Aggregat Strecke = 97 Punkte', approx(agg.perArt.reinigung_strecke.punkte, 97));
+  ok('Aggregat count 3 · manuell 1', agg.count === 3 && agg.manuell === 1);
+}
+{
+  const events = [
+    { id: 'a', leistungsart: 'reinigung_sinkkasten', menge: 1, ortslage: 'innerorts', meldejahr: 2024 },
+    { id: 'b', leistungsart: 'reinigung_sinkkasten', menge: 1, ortslage: 'innerorts', meldejahr: 2024, korrigiertVon: 'a' },
+  ];
+  const agg = aggregateEreignisse(events);
+  ok('Korrektur schließt ersetztes Ereignis aus', agg.count === 1 && approx(agg.gesamtPunkte, 2.4));
+}
 
 console.log(`ewk: ${pass} ok, ${fail} fehlgeschlagen`);
 if (fail) process.exit(1);

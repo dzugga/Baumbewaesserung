@@ -397,6 +397,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <button data-module="datenqualitaet" onclick="switchView('datenqualitaet')">Datenqualität</button>
         <button data-module="ausfaelle" onclick="switchView('ausfaelle')">Ausfälle</button>
         <button data-module="meldungen" onclick="switchView('meldungen')">Meldungen</button>
+        <button data-module="ewk" onclick="switchView('ewk')">EWKFondsG-Meldung</button>
         <button data-module="ki" onclick="switchView('ki')">KI-Analysen</button>
       </div>
     </div>
@@ -1333,6 +1334,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 <!-- AUSFÄLLE fullscreen overlay (Auswertung → Ausfälle / chronische Probleme) -->
 <div id="view-meldungen" style="display:none;position:fixed;top:54px;left:0;right:0;bottom:0;z-index:1500;background:var(--bg);flex-direction:column;overflow:hidden;">
   <div id="meldungen-body" style="flex:1;overflow:auto;padding:14px 20px;"></div>
+</div>
+<!-- EWKFondsG-Leistungsmeldung fullscreen overlay (Auswertung → EWKFondsG-Meldung) -->
+<div id="view-ewk" style="display:none;position:fixed;top:54px;left:0;right:0;bottom:0;z-index:1500;background:var(--bg);flex-direction:column;overflow:hidden;">
+  <div id="ewk-body" style="flex:1;overflow:auto;padding:14px 20px;"></div>
 </div>
 <div id="view-ausfaelle" style="display:none;position:fixed;top:54px;left:0;right:0;bottom:0;z-index:1500;background:var(--bg);flex-direction:column;overflow:hidden;">
   <div style="background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;flex-shrink:0;">

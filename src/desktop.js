@@ -26,8 +26,8 @@ import { tourDueOn as _tkTourDueOn, tourInValidity as _tourInValidity, tourBetri
 import { printA4, printDoc, printDocFrame } from './printview.js';
 import { startPresence, presenceIsOnline, presenceMaxParallel, presenceDurationMs, presenceSessionEnd, PRESENCE_STALE_MS } from './presence.js';
 import { startAccountGuard, checkAccountLive } from './session-guard.js';
-import { LEISTUNGSARTEN } from './ewk-tarif.js';
-import { LEISTUNGSART_LABELS, ewkLeistungsartOf } from './ewk.js';
+import { LEISTUNGSARTEN, ortslageRelevant as ewkOrtslageRelevant, tarifFuer as ewkTarifFuer } from './ewk-tarif.js';
+import { LEISTUNGSART_LABELS, ewkLeistungsartOf, aggregateEreignisse, buildLeistungsereignis } from './ewk.js';
 import { buildBatchDocHtml, REPORT_PRINT_CSS } from './report-batch.js';
 import { findFreqClusters } from './papierkorb-analyse.js'; // pure Erkennungs-Logik (Modul-First)
 import { buildShapefileZip, PRJ_ETRS89_UTM32N } from './geo-export.js';
@@ -255,6 +255,7 @@ const MODULES = [
   {key:'datenqualitaet', label:'Datenqualität'},
   {key:'ausfaelle',   label:'Ausfälle'},
   {key:'meldungen',   label:'Meldungen (Nachbearbeitung)'},
+  {key:'ewk',         label:'EWKFondsG-Meldung'},
   {key:'listen',      label:'Felder & Listen'},
   {key:'ki',          label:'KI-Analysen'},
   {key:'objekte',     label:'Objekte'},
@@ -6409,6 +6410,7 @@ function switchView(v){
   const autoplan=document.getElementById('view-autoplan'); if(autoplan) autoplan.style.display=v==='autoplan'?'flex':'none';
   const ausf=document.getElementById('view-ausfaelle'); if(ausf) ausf.style.display=v==='ausfaelle'?'flex':'none';
   const meld=document.getElementById('view-meldungen'); if(meld) meld.style.display=v==='meldungen'?'flex':'none';
+  const vewk=document.getElementById('view-ewk'); if(vewk) vewk.style.display=v==='ewk'?'flex':'none';
   const kiconfig=document.getElementById('view-kiconfig');
   const handbuch=document.getElementById('view-handbuch'); if(handbuch) handbuch.style.display=v==='handbuch'?'flex':'none';
   const wmskarten=document.getElementById('view-wmskarten'); if(wmskarten) wmskarten.style.display=v==='wmskarten'?'flex':'none';
@@ -6461,6 +6463,7 @@ function switchView(v){
   if(v==='datenqualitaet') initDatenqualitaet();
   if(v==='ausfaelle') initAusfaelle();
   if(v==='meldungen') initMeldungen();
+  if(v==='ewk') loadEwk();
   if(v==='autoplan') initAutoplan();
   if(v==='kiconfig') renderKiConfig();
   if(v==='handbuch') renderHandbuch();
@@ -12084,6 +12087,90 @@ function _mgRows(){
   out.sort((a,b)=>String(b.h.at||b.dte).localeCompare(String(a.h.at||a.dte)));
   return out;
 }
+// ─── EWKFondsG-Leistungsmeldung (Auswertung) ─────────────────────────────
+let _ewkAllEvents=[], _ewkYear=null;
+async function loadEwk(){
+  const body=document.getElementById('ewk-body'); if(!body) return;
+  const org=currentProjectData?.orgId;
+  if(!org){ body.innerHTML='<div style="padding:24px;color:var(--text3);">Bitte zuerst ein Projekt öffnen.</div>'; return; }
+  body.innerHTML='<div style="padding:24px;color:var(--text3);">Lade Leistungsnachweise…</div>';
+  try{
+    // Mandantenweit über ALLE Projekte (orgId denormalisiert). Meldejahr wird clientseitig gefiltert (kein Index nötig).
+    const qs=await db.collection('leistungsereignisse').where('orgId','==',org).get();
+    _ewkAllEvents=qs.docs.map(d=>({id:d.id,...d.data()}));
+    if(!_ewkYear){ const ys=_ewkAllEvents.map(e=>e.meldejahr).filter(Boolean); _ewkYear=ys.length?Math.max(...ys):(new Date().getUTCFullYear()-1); }
+    renderEwk();
+  }catch(e){ console.warn('loadEwk',e); body.innerHTML='<div style="padding:24px;color:var(--red);">Fehler beim Laden: '+dlEsc(e.message||e.code||'')+'</div>'; }
+}
+function ewkSetYear(y){ _ewkYear=parseInt(y,10)||_ewkYear; renderEwk(); }
+async function ewkAddManual(){
+  if(isReadonly()) return;
+  const org=currentProjectData?.orgId; if(!org){ notify('Kein Mandant/Projekt'); return; }
+  const la=document.getElementById('ewk-la')?.value||'';
+  const menge=parseFloat((document.getElementById('ewk-menge')?.value||'').replace(',','.'));
+  const ortslage=document.getElementById('ewk-ortslage')?.value||'';
+  const datumStr=(document.getElementById('ewk-datum')?.value||'').slice(0,10);
+  const quelle=(document.getElementById('ewk-quelle')?.value||'').trim();
+  try{
+    const ev=buildLeistungsereignis({orgId:org, leistungsart:la, menge, ortslage, datumStr, quelleId:quelle, erfasstDurch:'manuell', tarifVersion:(ewkTarifFuer(datumStr)?.version)||null});
+    await db.collection('leistungsereignisse').add({...ev,
+      zeitpunkt: firebase.firestore.Timestamp.fromDate(new Date(datumStr+'T12:00:00Z')),
+      serverAt: firebase.firestore.FieldValue.serverTimestamp() });
+    notify('✓ Leistung erfasst');
+    const mm=document.getElementById('ewk-menge'); if(mm) mm.value='';
+    const qq=document.getElementById('ewk-quelle'); if(qq) qq.value='';
+    loadEwk();
+  }catch(e){ notify(dlErr(e)); }
+}
+function renderEwk(){
+  const body=document.getElementById('ewk-body'); if(!body) return;
+  const ro=isReadonly();
+  const EINH={reinigung_strecke:'km',sammlung_papierkorb:'Liter',reinigung_flaeche:'m²',reinigung_sinkkasten:'Stück',entsorgung_abfall:'t',sensibilisierung:'h'};
+  const nf=(n,d=1)=>Number(n||0).toLocaleString('de-DE',{minimumFractionDigits:d,maximumFractionDigits:d});
+  const years=[...new Set(_ewkAllEvents.map(e=>e.meldejahr).filter(Boolean))].sort((a,b)=>b-a);
+  if(_ewkYear && !years.includes(_ewkYear)) years.unshift(_ewkYear);
+  if(!years.length) years.push(_ewkYear||(new Date().getUTCFullYear()-1));
+  const year=_ewkYear=_ewkYear||years[0];
+  const agg=aggregateEreignisse(_ewkAllEvents.filter(e=>e.meldejahr===year));
+  const ss='padding:5px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;';
+  const rows=LEISTUNGSARTEN.map(la=>{ const a=agg.perArt[la]; const el=EINH[la];
+    return `<tr style="border-top:1px solid var(--border);">
+      <td style="padding:7px 10px;">${dlEsc(LEISTUNGSART_LABELS[la])}</td>
+      <td style="padding:7px 10px;text-align:right;">${a?nf(a.innerorts,0):'0'} ${el}</td>
+      <td style="padding:7px 10px;text-align:right;">${a?nf(a.ausserorts,0):'0'} ${el}</td>
+      <td style="padding:7px 10px;text-align:right;font-weight:600;">${a?nf(a.punkte):'0,0'}</td></tr>`; }).join('');
+  const yearSel=`<select onchange="ewkSetYear(this.value)" style="${ss}">${years.map(y=>`<option value="${y}"${y===year?' selected':''}>${y}</option>`).join('')}</select>`;
+  const form=ro?'':`
+    <div style="margin-top:22px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+      <div style="font-weight:700;font-size:13px;margin-bottom:2px;">Manuelle Leistung erfassen</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">Für Leistungen aus Fremdsystemen (Wiegescheine/Abfall, Sensibilisierungsstunden) oder Papierkörbe, solange die UBA-Auslegung offen ist. Beleg-Referenz ist Pflicht.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+        <label style="font-size:11px;color:var(--text2);">Leistungsart<br><select id="ewk-la" style="${ss}">${LEISTUNGSARTEN.map(k=>`<option value="${k}">${dlEsc(LEISTUNGSART_LABELS[k])}</option>`).join('')}</select></label>
+        <label style="font-size:11px;color:var(--text2);">Menge<br><input id="ewk-menge" type="text" inputmode="decimal" style="${ss}width:90px;"></label>
+        <label style="font-size:11px;color:var(--text2);">Ortslage<br><select id="ewk-ortslage" style="${ss}"><option value="innerorts">innerorts</option><option value="ausserorts">außerorts</option></select></label>
+        <label style="font-size:11px;color:var(--text2);">Datum<br><input id="ewk-datum" type="date" value="${year}-12-31" style="${ss}"></label>
+        <label style="font-size:11px;color:var(--text2);flex:1;min-width:170px;">Beleg-Referenz (Pflicht)<br><input id="ewk-quelle" type="text" placeholder="z. B. Wiegeschein-Nr. / Fremdsystem-Export" style="${ss}width:100%;"></label>
+        <button class="btn btn-secondary" onclick="ewkAddManual()" style="padding:7px 14px;font-size:12px;">Hinzufügen</button>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px;">Einheiten: Strecke km · Papierkorb Liter · Fläche m² · Sinkkasten Stück · Abfall Tonnen · Sensibilisierung Stunden. Menge wird in der jeweiligen Einheit eingegeben.</div>
+    </div>`;
+  body.innerHTML=`<div style="max-width:900px;margin:0 auto;">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:4px;">
+      <div style="font-size:18px;font-weight:800;">EWKFondsG-Leistungsmeldung</div>
+      <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;">Meldejahr ${yearSel}</label>
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:14px;">Punkte nach § 3 EWKFondsV, mandantenübergreifend über alle Projekte. <b>Keine Euro</b> — der Punktewert wird vom UBA erst nach Prüfung über DIVID veröffentlicht.</div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px;">
+      <div style="background:var(--surface2);border-radius:10px;padding:12px 18px;min-width:150px;"><div style="font-size:11px;color:var(--text3);">Gesamtpunkte ${year}</div><div style="font-size:26px;font-weight:800;">${nf(agg.gesamtPunkte)}</div></div>
+      <div style="background:var(--surface2);border-radius:10px;padding:12px 18px;min-width:150px;"><div style="font-size:11px;color:var(--text3);">Nachweise</div><div style="font-size:26px;font-weight:800;">${agg.count}</div><div style="font-size:11px;color:var(--text3);">${agg.manuell} manuell${agg.ohneNachweis?` · <span style="color:var(--red);">${agg.ohneNachweis} ohne Beleg</span>`:''}</div></div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;">
+      <thead><tr style="background:var(--surface2);font-size:11px;color:var(--text3);text-transform:uppercase;"><th style="padding:7px 10px;text-align:left;">Leistungsart</th><th style="padding:7px 10px;text-align:right;">innerorts</th><th style="padding:7px 10px;text-align:right;">außerorts</th><th style="padding:7px 10px;text-align:right;">Punkte</th></tr></thead>
+      <tbody>${rows}<tr style="border-top:2px solid var(--border);font-weight:800;background:var(--surface2);"><td style="padding:8px 10px;">Gesamt</td><td></td><td></td><td style="padding:8px 10px;text-align:right;">${nf(agg.gesamtPunkte)}</td></tr></tbody>
+    </table>
+    ${form}
+  </div>`;
+}
 function renderMeldungen(){
   const el=document.getElementById('meldungen-body'); if(!el) return;
   const ro=isReadonly();
@@ -17540,7 +17627,7 @@ Object.assign(window,{
   filterAbschnitteTable,filterAbschnitteTableDebounced,toggleAbschnShowAll,downloadAbschnitteExport,
   nmSetType,nmSetAudience,nmToggleSel,nmToggle,_nmSetTour,nmSend,nmArchive,
   nmUnarchive,nmToggleArchived,nmDelArm,nmDelCancel,nmDeleteDo,setPushEnabled,
-  renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,ewkFelderAnlegen,ewkSetArtMap,renameCustomField,removeCustomField,_fillMerge,cfGeomToggle,
+  renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,ewkFelderAnlegen,ewkSetArtMap,ewkSetYear,ewkAddManual,renameCustomField,removeCustomField,_fillMerge,cfGeomToggle,
   rankAdd,rankRename,rankSetColor,rankSetZahl,rankSetZahlWinter,rankMove,rankMerge,rankDelete,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
