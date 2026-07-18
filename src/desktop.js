@@ -9450,6 +9450,8 @@ let _lizCountErr={};           // orgId -> Fehlertext, wenn der Ist-Zähler NICH
 let _lizKonten={};             // orgId -> [{name,persnr,funktion,betriebshof,roleKey,email}] für die Druck-Mitarbeiterliste
 let _lizOpenOrg=null;          // aufgeklappter Kunde
 let _lizLoading=false;
+let _lizAgkSatz=16;            // globaler AGK-Satz (%) — an config/lizenzArtikel gespeichert
+let _lizOrgAgk={};             // orgId -> Satz-Override (Zahl) | undefined = globaler Satz (orgs.lizenzAgkSatz)
 // Kunden-Tabelle kompakt (eine Zeile je Kunde, Positionen nur als Anzahl) oder mit voller Artikelliste
 let _lizKompakt=(()=>{ try{ return localStorage.getItem('liz_kompakt')!=='0'; }catch(_){ return true; } })();
 function lizToggleKompakt(){ _lizKompakt=!_lizKompakt; try{ localStorage.setItem('liz_kompakt',_lizKompakt?'1':'0'); }catch(_){} renderLizenzen(); }
@@ -9461,11 +9463,21 @@ function _lizEur(n){ return (Math.round(n*100)/100).toLocaleString('de-DE',{mini
 function _lizPreisStr(n){ return n==null?'':String(n).replace('.',','); }
 // Effektiver Preis einer Position (Sonderpreis vor Katalogpreis)
 function _lizEffPreis(art,pos){ return (pos&&pos.preis!=null)?pos.preis:(art.preis||0); }
-function _lizOrgSumme(oid){
-  const liz=_lizOrgLizenzen[oid]||{}; let sum=0;
-  _lizArtikel.forEach(a=>{ const p=liz[a.id]; if(p&&p.menge>0) sum+=p.menge*_lizEffPreis(a,p); });
-  return sum;
+// AGK-Satz (%) für einen Kunden: Stadt-Override vor globalem Satz
+function _lizAgkFor(oid){ const v=_lizOrgAgk[oid]; return (v==null||isNaN(v))?(_lizAgkSatz||0):v; }
+// Summen eines Kunden: sum = feste Positionen inkl. AGK-Zuschlag · agk = darin enthaltener
+// AGK-Anteil · opt = optionale Positionen (inkl. AGK), NICHT in sum enthalten.
+function _lizOrgSummeDetail(oid){
+  const liz=_lizOrgLizenzen[oid]||{}; let sum=0, agk=0, opt=0;
+  _lizArtikel.forEach(a=>{
+    const p=liz[a.id]; if(!p||!(p.menge>0)) return;
+    const base=p.menge*_lizEffPreis(a,p);
+    const zu=a.agk?base*(_lizAgkFor(oid)/100):0;
+    if(p.optional) opt+=base+zu; else { sum+=base+zu; agk+=zu; }
+  });
+  return {sum, agk, opt};
 }
+function _lizOrgSumme(oid){ return _lizOrgSummeDetail(oid).sum; }
 // Ist eines Artikels = Summe der aktiven Konten über dessen angehakte Rollen; keine Rollen = kein Zähler (null)
 function _lizIst(oid,art){
   const zr=(art&&Array.isArray(art.zaehlRollen))?art.zaehlRollen:[];
@@ -9488,7 +9500,7 @@ function _lizOrgHatLizenzen(oid){ return Object.values(_lizOrgLizenzen[oid]||{})
 function _lizOrgUeberschreitung(oid){
   if(!_lizOrgHatLizenzen(oid)) return false;
   const liz=_lizOrgLizenzen[oid]||{};
-  return _lizArtikel.some(a=>_lizPosOver(_lizIst(oid,a),(liz[a.id]||{}).menge||0));
+  return _lizArtikel.some(a=>{ const p=liz[a.id]||{}; return !p.optional && _lizPosOver(_lizIst(oid,a),p.menge||0); });
 }
 // ── Präsenz/Sitzungen (Superadmin): wer ist online, Verlauf, Parallelnutzung ──
 let _praesenzData=null, _praesenzTimer=null, _praesOrgNames=null, _presLoggingOn=true;
@@ -9692,11 +9704,16 @@ async function initLizenzen(){
     // Preisliste + Mandanten
     const cfg=await db.collection('config').doc('lizenzArtikel').get();
     _lizArtikel=(cfg.exists&&Array.isArray(cfg.data().artikel))?cfg.data().artikel.map(x=>({...x})):[];
+    _lizAgkSatz=(cfg.exists&&typeof cfg.data().agkSatz==='number')?cfg.data().agkSatz:16;
     // Migration vom alten Einfach-Zähler (zaehler-String) auf Rollen-Mehrfachauswahl
     _lizArtikel.forEach(a=>{ if(!Array.isArray(a.zaehlRollen)){ a.zaehlRollen=(a.zaehler==='fahrer')?['fahrer']:[]; } delete a.zaehler; });
     const orgsSnap=await db.collection('orgs').get();
     _lizOrgs=orgsSnap.docs.map(d=>({id:d.id,name:d.data().name||d.id})).sort((a,b)=>a.name.localeCompare(b.name));
-    _lizOrgLizenzen={}; orgsSnap.docs.forEach(d=>{ _lizOrgLizenzen[d.id]=d.data().lizenzen?JSON.parse(JSON.stringify(d.data().lizenzen)):{}; });
+    _lizOrgLizenzen={}; _lizOrgAgk={};
+    orgsSnap.docs.forEach(d=>{
+      _lizOrgLizenzen[d.id]=d.data().lizenzen?JSON.parse(JSON.stringify(d.data().lizenzen)):{};
+      if(typeof d.data().lizenzAgkSatz==='number') _lizOrgAgk[d.id]=d.data().lizenzAgkSatz;
+    });
     // Ist-Zähler je Mandant: aktive Konten (PIN-Logins UND E-Mail-Benutzer) je ROLLE zählen.
     // Rollen-Katalog für die Artikel-Auswahl parallel einsammeln (Builtin + Custom aller Mandanten).
     _lizCounts={}; _lizKonten={}; _lizCountErr={};
@@ -9748,6 +9765,7 @@ async function lizArtDel(id){
   _lizArtikel=_lizArtikel.filter(x=>x.id!==id); renderLizenzen();
 }
 function lizArtField(id,f,val){ const a=_lizArtikel.find(x=>x.id===id); if(!a) return; if(f==='preis') a.preis=_lizNum(val); else a[f]=(val||'').trim(); renderLizenzen(); }
+function lizArtAgk(id,on){ const a=_lizArtikel.find(x=>x.id===id); if(!a) return; a.agk=!!on; renderLizenzen(); }
 // Artikel in der Reihenfolge verschieben (gilt überall: Preisliste, Kunden-Detail, Druck); gespeichert mit „Preisliste speichern"
 function lizArtMove(id,delta){
   const i=_lizArtikel.findIndex(x=>x.id===id); if(i<0) return;
@@ -9776,7 +9794,7 @@ function lizArtRolle(id,roleKey,on){
 async function lizSaveArtikel(){
   const clean=_lizArtikel.filter(a=>(a.name||'').trim());
   if(_lizArtikel.length&&!clean.length){ notify('Bitte Artikel-Namen angeben'); return; }
-  try{ await db.collection('config').doc('lizenzArtikel').set({artikel:clean}); _lizArtikel=clean.map(x=>({...x})); notify('✓ Preisliste gespeichert'); renderLizenzen(); }
+  try{ await db.collection('config').doc('lizenzArtikel').set({artikel:clean, agkSatz:_lizAgkSatz}); _lizArtikel=clean.map(x=>({...x})); notify('✓ Preisliste gespeichert'); renderLizenzen(); }
   catch(e){ notify(dlErr(e)); }
 }
 function lizToggleOrg(oid){ _lizOpenOrg=(_lizOpenOrg===oid)?null:oid; renderLizenzen(); }
@@ -9786,7 +9804,14 @@ function lizPosField(oid,artId,f,val){
   const liz=_lizOrgLizenzen[oid]=_lizOrgLizenzen[oid]||{};
   const pos=liz[artId]=liz[artId]||{menge:0,preis:null};
   if(f==='menge') pos.menge=Math.max(0,Math.round(_lizNum(val)));
+  else if(f==='optional') pos.optional=!!val;
   else pos.preis=(String(val).trim()==='')?null:_lizNum(val);
+  renderLizenzen();
+}
+// AGK-Satz: global (Preisliste) bzw. Stadt-Override (Kunden-Detail; leer = globaler Satz)
+function lizAgkSatz(val){ _lizAgkSatz=Math.max(0,_lizNum(val)); renderLizenzen(); }
+function lizOrgAgkSatz(oid,val){
+  if(String(val).trim()==='') delete _lizOrgAgk[oid]; else _lizOrgAgk[oid]=Math.max(0,_lizNum(val));
   renderLizenzen();
 }
 // ── Druck: Stadt-Bericht (Lizenzen + Mitarbeiter) und Gesamtübersicht ──
@@ -9795,17 +9820,22 @@ function _lizFmtDatum(){ const d=new Date(); return String(d.getDate()).padStart
 // Abschnitt für EINEN Kunden: KPI-Kacheln + Lizenztabelle (nur Positionen mit Menge) + Mitarbeiterliste
 function _lizPrintSection(o){
   const liz=_lizOrgLizenzen[o.id]||{};
-  const sum=_lizOrgSumme(o.id);
+  const sd=_lizOrgSummeDetail(o.id);
+  const agkSatz=_lizAgkFor(o.id);
   const pos=_lizArtikel.filter(a=>(liz[a.id]||{}).menge>0);
-  const anzLiz=pos.reduce((s,a)=>s+liz[a.id].menge,0);
+  const anzLiz=pos.filter(a=>!liz[a.id].optional).reduce((s,a)=>s+liz[a.id].menge,0);
   const konten=_lizKonten[o.id]||[];
-  const posRows=pos.map((a,i)=>{ const p=liz[a.id]; const eff=_lizEffPreis(a,p); const sonder=p.preis!=null;
-    return `<tr style="border-bottom:0.5px solid #ddd9d0;${i%2?'background:#faf9f5;':''}">
-      <td style="padding:4px 6px;">${dlEsc(a.name)}${sonder?' <span style="font-size:9px;color:#185FA5;">Sonderpreis</span>':''}</td>
+  const row=(a,i)=>{ const p=liz[a.id]; const eff=_lizEffPreis(a,p); const sonder=p.preis!=null;
+    const base=p.menge*eff, zu=a.agk?base*(agkSatz/100):0;
+    return `<tr style="border-bottom:0.5px solid #ddd9d0;${i%2?'background:#faf9f5;':''}${p.optional?'color:#6b6760;font-style:italic;':''}">
+      <td style="padding:4px 6px;">${dlEsc(a.name)}${a.agk?` <span style="font-size:9px;color:#6b6760;">+ ${dlEsc(_lizPreisStr(agkSatz))} % AGK</span>`:''}${sonder?' <span style="font-size:9px;color:#185FA5;">Sonderpreis</span>':''}${p.optional?' <span style="font-size:9px;">optional</span>':''}</td>
       <td style="text-align:right;padding:4px 6px;">${p.menge}</td>
       <td style="text-align:right;padding:4px 6px;">${_lizEur(eff).replace(' €','')}</td>
-      <td style="text-align:right;padding:4px 6px;">${_lizEur(p.menge*eff)}</td>
-    </tr>`; }).join('')||'<tr><td colspan="4" style="padding:8px 6px;color:#9c9890;">Keine Lizenzen hinterlegt.</td></tr>';
+      <td style="text-align:right;padding:4px 6px;">${p.optional?`(${_lizEur(base+zu)})`:_lizEur(base+zu)}</td>
+    </tr>`; };
+  // Feste Positionen zuerst, optionale (kursiv, in Klammern) darunter — Gesamtsumme ohne optionale
+  const fest=pos.filter(a=>!liz[a.id].optional), opt=pos.filter(a=>liz[a.id].optional);
+  const posRows=(fest.map(row).join('')+opt.map(row).join(''))||'<tr><td colspan="4" style="padding:8px 6px;color:#9c9890;">Keine Lizenzen hinterlegt.</td></tr>';
   const kontoRows=konten.map((k,i)=>`<tr style="border-bottom:0.5px solid #ddd9d0;${i%2?'background:#faf9f5;':''}">
       <td style="padding:4px 6px;color:#6b6760;">${dlEsc(k.persnr||'—')}</td>
       <td style="padding:4px 6px;">${dlEsc(k.name)}${k.email?` <span style="color:#6b6760;">(${dlEsc(k.email)})</span>`:''}</td>
@@ -9815,15 +9845,18 @@ function _lizPrintSection(o){
     </tr>`).join('')||'<tr><td colspan="5" style="padding:8px 6px;color:#9c9890;">Keine aktiven Konten mit Zugang.</td></tr>';
   return `
     <div style="display:flex;gap:10px;margin:14px 0;">
-      <div style="flex:1;background:#f1efe8;border-radius:6px;padding:8px 12px;"><div style="font-size:10px;color:#6b6760;">Monat</div><div style="font-size:17px;font-weight:600;">${_lizEur(sum)}</div></div>
-      <div style="flex:1;background:#f1efe8;border-radius:6px;padding:8px 12px;"><div style="font-size:10px;color:#6b6760;">Jahr</div><div style="font-size:17px;font-weight:600;">${_lizEur(sum*12)}</div></div>
+      <div style="flex:1;background:#f1efe8;border-radius:6px;padding:8px 12px;"><div style="font-size:10px;color:#6b6760;">Monat</div><div style="font-size:17px;font-weight:600;">${_lizEur(sd.sum)}</div></div>
+      <div style="flex:1;background:#f1efe8;border-radius:6px;padding:8px 12px;"><div style="font-size:10px;color:#6b6760;">Jahr</div><div style="font-size:17px;font-weight:600;">${_lizEur(sd.sum*12)}</div></div>
       <div style="flex:1;background:#f1efe8;border-radius:6px;padding:8px 12px;"><div style="font-size:10px;color:#6b6760;">Lizenzen</div><div style="font-size:17px;font-weight:600;">${anzLiz}</div></div>
     </div>
     <div style="font-size:12px;font-weight:700;margin:12px 0 6px;color:#2d6a4f;">1 · Lizenzen</div>
     <table style="width:100%;border-collapse:collapse;font-size:11px;">
       <thead><tr style="border-bottom:1px solid #1a1917;"><th style="text-align:left;padding:4px 6px;">Artikel</th><th style="text-align:right;padding:4px 6px;">Anzahl</th><th style="text-align:right;padding:4px 6px;">€ / Lizenz</th><th style="text-align:right;padding:4px 6px;">Summe / Monat</th></tr></thead>
       <tbody>${posRows}</tbody>
-      <tfoot><tr style="border-top:1.5px solid #1a1917;"><td colspan="3" style="padding:5px 6px;font-weight:700;">Gesamt pro Monat</td><td style="text-align:right;padding:5px 6px;font-weight:700;">${_lizEur(sum)}</td></tr></tfoot>
+      <tfoot>
+        <tr style="border-top:1.5px solid #1a1917;"><td colspan="3" style="padding:5px 6px;font-weight:700;">Gesamt pro Monat${sd.opt?' <span style="font-weight:400;color:#6b6760;">(ohne optionale Positionen)</span>':''}${sd.agk?` <span style="font-weight:400;color:#6b6760;">· darin ${_lizEur(sd.agk)} AGK</span>`:''}</td><td style="text-align:right;padding:5px 6px;font-weight:700;">${_lizEur(sd.sum)}</td></tr>
+        ${sd.opt?`<tr><td colspan="3" style="padding:3px 6px;font-style:italic;color:#6b6760;">optional zusätzlich pro Monat</td><td style="text-align:right;padding:3px 6px;font-style:italic;color:#6b6760;">${_lizEur(sd.opt)}</td></tr>`:''}
+      </tfoot>
     </table>
     <div style="font-size:12px;font-weight:700;margin:16px 0 6px;color:#2d6a4f;">2 · Mitarbeiter mit Zugang <span style="font-weight:400;color:#6b6760;">(${konten.length} Konten — aktive, ohne Superadmin)</span></div>
     <table style="width:100%;border-collapse:collapse;font-size:11px;">
@@ -9847,10 +9880,10 @@ function lizPrintPreisliste(){
       <td style="padding:4px 6px;">${dlEsc(a.name||'')}</td>
       <td style="padding:4px 6px;color:#6b6760;">${dlEsc(a.einheit||'')}</td>
       <td style="padding:4px 6px;">${dlEsc(zr)}</td>
-      <td style="text-align:right;padding:4px 6px;">${_lizEur(a.preis||0)}</td>
+      <td style="text-align:right;padding:4px 6px;">${_lizEur(a.preis||0)}${a.agk?` <span style="font-size:9px;color:#6b6760;">+ AGK</span>`:''}</td>
     </tr>`; }).join('')||'<tr><td colspan="4" style="padding:8px 6px;color:#9c9890;">Keine Artikel in der Preisliste.</td></tr>';
   const html=_lizPrintKopf('Preisliste (Katalog)')+`
-    <div style="font-size:11px;color:#6b6760;margin:10px 0 8px;">Katalogpreise pro Monat je Lizenz — gelten für alle Kunden, sofern nicht kundenindividuell überschrieben.</div>
+    <div style="font-size:11px;color:#6b6760;margin:10px 0 8px;">Katalogpreise pro Monat je Lizenz — gelten für alle Kunden, sofern nicht kundenindividuell überschrieben. Auf Artikel mit „+ AGK" werden ${dlEsc(_lizPreisStr(_lizAgkSatz))} % Allgemeine Geschäftskosten aufgeschlagen (je Stadt übersteuerbar).</div>
     <table style="width:100%;border-collapse:collapse;font-size:11px;">
       <thead><tr style="border-bottom:1px solid #1a1917;"><th style="text-align:left;padding:4px 6px;">Artikel</th><th style="text-align:left;padding:4px 6px;width:90px;">Einheit</th><th style="text-align:left;padding:4px 6px;">Ist-Zähler (Rollen)</th><th style="text-align:right;padding:4px 6px;width:96px;">€ / Monat</th></tr></thead>
       <tbody>${rows}</tbody>
@@ -9886,8 +9919,9 @@ function lizPrintAll(){
   _lizPrintWindow(html,'Lizenzen — Gesamtübersicht');
 }
 async function lizSaveOrg(oid){
-  const liz={}; Object.entries(_lizOrgLizenzen[oid]||{}).forEach(([k,p])=>{ if(p&&(p.menge>0||p.preis!=null)) liz[k]={menge:p.menge||0,preis:p.preis==null?null:p.preis}; });
-  try{ await db.collection('orgs').doc(oid).set({lizenzen:liz},{merge:true}); notify('✓ Lizenzen gespeichert'); }
+  const liz={}; Object.entries(_lizOrgLizenzen[oid]||{}).forEach(([k,p])=>{ if(p&&(p.menge>0||p.preis!=null||p.optional)) liz[k]={menge:p.menge||0,preis:p.preis==null?null:p.preis,...(p.optional?{optional:true}:{})}; });
+  const agk=(oid in _lizOrgAgk)?_lizOrgAgk[oid]:firebase.firestore.FieldValue.delete();
+  try{ await db.collection('orgs').doc(oid).set({lizenzen:liz, lizenzAgkSatz:agk},{merge:true}); notify('✓ Lizenzen gespeichert'); }
   catch(e){ notify(dlErr(e)); }
 }
 function renderLizenzen(){
@@ -9908,23 +9942,25 @@ function renderLizenzen(){
         </details>
       </td>
       <td style="padding:5px 10px;text-align:right;"><input style="${inp}width:84px;text-align:right;" value="${dlEsc(_lizPreisStr(a.preis))}" placeholder="0,00" onchange="lizArtField('${_jsArg(a.id)}','preis',this.value)"></td>
+      <td style="padding:5px 10px;text-align:center;"><input type="checkbox" ${a.agk?'checked':''} onchange="lizArtAgk('${_jsArg(a.id)}',this.checked)" title="Auf diesen Artikel werden Allgemeine Geschäftskosten aufgeschlagen (Satz oben; je Stadt übersteuerbar)" style="width:15px;height:15px;cursor:pointer;"></td>
       <td style="padding:5px 8px;text-align:right;white-space:nowrap;">
         <button class="btn btn-secondary" style="padding:3px 7px;font-size:11px;" title="nach oben" onclick="lizArtMove('${_jsArg(a.id)}',-1)">↑</button>
         <button class="btn btn-secondary" style="padding:3px 7px;font-size:11px;" title="nach unten" onclick="lizArtMove('${_jsArg(a.id)}',1)">↓</button>
         <button class="btn btn-danger" style="padding:3px 8px;font-size:12px;" onclick="lizArtDel('${_jsArg(a.id)}')">✕</button>
       </td>
-    </tr>`).join('')||`<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--text3);">Noch keine Artikel — „+ Artikel" anlegen (z. B. Planer-Arbeitsplatz, Fahrer-App-Login).</td></tr>`;
+    </tr>`).join('')||`<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--text3);">Noch keine Artikel — „+ Artikel" anlegen (z. B. Planer-Arbeitsplatz, Fahrer-App-Login).</td></tr>`;
   const preisliste=`<div class="dsh-card" style="margin-bottom:16px;">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
       <span style="font-size:13.5px;font-weight:700;">Preisliste</span>
       <span style="font-size:11px;color:var(--text3);">Katalogpreis gilt für alle Kunden — je Kunde überschreibbar</span>
+      <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:5px;" title="Allgemeine Geschäftskosten — Zuschlag auf Artikel mit AGK-Häkchen; je Stadt im Kunden-Detail übersteuerbar. Gespeichert mit „Preisliste speichern".">AGK-Satz <input style="${inp}width:52px;text-align:right;" value="${dlEsc(_lizPreisStr(_lizAgkSatz))}" onchange="lizAgkSatz(this.value)"> %</label>
       <span style="margin-left:auto;display:flex;gap:8px;">
         <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="lizPrintPreisliste()" title="Preisliste als A4-Bericht drucken / als PDF speichern">🖨 Drucken</button>
         <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="lizArtAdd()">+ Artikel</button>
         <button class="btn btn-primary" style="font-size:11px;padding:5px 14px;" onclick="lizSaveArtikel()">Preisliste speichern</button>
       </span>
     </div>
-    <table class="ep-table"><thead><tr><th style="width:29%;">Artikel</th><th style="width:16%;">Einheit</th><th style="width:24%;">Ist-Zähler</th><th style="width:100px;text-align:right;">€ / Monat</th><th style="width:112px;"></th></tr></thead><tbody id="liz-art-rows">${artRows}</tbody></table>
+    <table class="ep-table"><thead><tr><th style="width:27%;">Artikel</th><th style="width:14%;">Einheit</th><th style="width:22%;">Ist-Zähler</th><th style="width:96px;text-align:right;">€ / Monat</th><th style="width:56px;text-align:center;" title="Allgemeine Geschäftskosten aufschlagen">+ AGK</th><th style="width:112px;"></th></tr></thead><tbody id="liz-art-rows">${artRows}</tbody></table>
   </div>`;
   // ── 2) Kunden-Übersicht ──
   const gesamt=_lizOrgs.reduce((s,o)=>s+_lizOrgSumme(o.id),0);
@@ -9986,26 +10022,33 @@ function renderLizenzen(){
   const dOrg=_lizOrgs.find(o=>o.id===_lizOpenOrg);
   if(dOrg){
     const liz=_lizOrgLizenzen[dOrg.id]||{};
-    const sum=_lizOrgSumme(dOrg.id);
+    const sd=_lizOrgSummeDetail(dOrg.id);
+    const agkSatz=_lizAgkFor(dOrg.id), agkOverride=(dOrg.id in _lizOrgAgk);
     const posRows=_lizArtikel.map(a=>{
       const p=liz[a.id]||{menge:0,preis:null};
       const ist=_lizIst(dOrg.id,a);
       const istTip=dlEsc(_lizIstTip(dOrg.id,a));
-      const over=_lizPosOver(ist,p.menge||0);
+      const over=!p.optional&&_lizPosOver(ist,p.menge||0); // optionale Positionen sind nicht gebucht → keine Überschreitungs-Warnung
       const eff=_lizEffPreis(a,p);
       const sonder=p.preis!=null;
-      return `<tr>
-        <td style="padding:6px 12px;font-weight:600;">${dlEsc(a.name)}${sonder?' <span style="font-size:10px;color:#1d4ed8;font-weight:700;">Sonderpreis</span>':''}<div style="font-size:10px;font-weight:400;color:var(--text3);">${dlEsc(a.einheit||'')}</div></td>
+      const base=(p.menge||0)*eff, zu=a.agk?base*(agkSatz/100):0, zeile=base+zu;
+      const sumHtml=p.optional
+        ? `<span style="font-style:italic;color:var(--text3);" title="Optionale Position — nicht in der Vertragssumme">(${_lizEur(zeile)})</span>`
+        : `${_lizEur(zeile)}${zu?`<div style="font-size:10px;font-weight:400;color:var(--text3);">${_lizEur(base)} + ${_lizEur(zu)} AGK</div>`:''}`;
+      return `<tr${p.optional?' style="color:var(--text3);"':''}>
+        <td style="padding:6px 12px;font-weight:600;">${dlEsc(a.name)}${a.agk?` <span style="font-size:10px;color:var(--text2);background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:1px 6px;font-weight:600;white-space:nowrap;">+ ${dlEsc(_lizPreisStr(agkSatz))} % AGK</span>`:''}${sonder?' <span style="font-size:10px;color:#1d4ed8;font-weight:700;">Sonderpreis</span>':''}${p.optional?' <span style="font-size:10px;color:var(--text3);border:1px dashed var(--border);border-radius:8px;padding:1px 6px;">optional</span>':''}<div style="font-size:10px;font-weight:400;color:var(--text3);">${dlEsc(a.einheit||'')}</div></td>
         <td style="padding:5px 8px;text-align:right;"><input style="${inp}width:60px;text-align:right;" value="${p.menge||0}" onchange="lizPosField('${_jsArg(dOrg.id)}','${_jsArg(a.id)}','menge',this.value)"></td>
-        <td style="padding:6px 8px;text-align:right;">${ist==null?'<span style="color:var(--text3);" title="Kein Ist-Zähler — keine Rollen am Artikel angehakt">—</span>':((p.menge||0)===0?`<span style="color:var(--text3);" title="Modul nicht gebucht (Vertragsmenge 0) — ${ist} Login(s) mit passender Rolle nutzen ihre Lizenz über ein gebuchtes Modul · ${istTip}">${ist}</span>`:(over?`<span style="background:#fef3c7;color:#854f0b;font-weight:700;padding:2px 8px;border-radius:99px;font-size:12px;" title="Mehr vergeben als lizenziert · ${istTip}">⚠ ${ist}</span>`:`<span style="color:var(--green);font-weight:600;" title="${istTip}">${ist} ✓</span>`))}</td>
+        <td style="padding:5px 8px;text-align:center;"><input type="checkbox" ${p.optional?'checked':''} onchange="lizPosField('${_jsArg(dOrg.id)}','${_jsArg(a.id)}','optional',this.checked)" title="Optional: wird ausgewiesen, zählt aber nicht in die Vertragssumme" style="width:14px;height:14px;cursor:pointer;"></td>
+        <td style="padding:6px 8px;text-align:right;">${ist==null?'<span style="color:var(--text3);" title="Kein Ist-Zähler — keine Rollen am Artikel angehakt">—</span>':((p.menge||0)===0||p.optional?`<span style="color:var(--text3);" title="${p.optional?'Optionale Position — Zähler nur informativ':'Modul nicht gebucht (Vertragsmenge 0) — '+ist+' Login(s) mit passender Rolle nutzen ihre Lizenz über ein gebuchtes Modul'} · ${istTip}">${ist}</span>`:(over?`<span style="background:#fef3c7;color:#854f0b;font-weight:700;padding:2px 8px;border-radius:99px;font-size:12px;" title="Mehr vergeben als lizenziert · ${istTip}">⚠ ${ist}</span>`:`<span style="color:var(--green);font-weight:600;" title="${istTip}">${ist} ✓</span>`))}</td>
         <td style="padding:5px 8px;text-align:right;"><input style="${inp}width:80px;text-align:right;${sonder?'border-color:#93c5fd;':''}" value="${dlEsc(sonder?_lizPreisStr(p.preis):'')}" placeholder="${dlEsc(_lizPreisStr(a.preis)||'0,00')}" onchange="lizPosField('${_jsArg(dOrg.id)}','${_jsArg(a.id)}','preis',this.value)" title="Leer = Katalogpreis · eigener Wert = Sonderpreis"></td>
-        <td style="padding:6px 12px;text-align:right;font-weight:600;white-space:nowrap;">${_lizEur((p.menge||0)*eff)}</td>
+        <td style="padding:6px 12px;text-align:right;font-weight:600;white-space:nowrap;">${sumHtml}</td>
       </tr>`;
-    }).join('')||'<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--text3);">Erst Artikel in der Preisliste anlegen.</td></tr>';
+    }).join('')||'<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--text3);">Erst Artikel in der Preisliste anlegen.</td></tr>';
     detail=`<div class="dsh-card" id="liz-detail" style="border:2px solid var(--green-mid);">
       <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
         <span style="font-size:13.5px;font-weight:700;">${dlEsc(dOrg.name)} — Lizenzen</span>
         <span style="font-size:11px;color:var(--text3);">Anzahl = Vertragsmenge · „Vergeben" = tatsächliche Logins · Preis leer = Katalogpreis</span>
+        <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:5px;" title="AGK-Satz nur für diese Stadt — leer = globaler Satz aus der Preisliste (${dlEsc(_lizPreisStr(_lizAgkSatz))} %). Gespeichert mit „Lizenzen speichern".">AGK <input style="${inp}width:52px;text-align:right;${agkOverride?'border-color:#93c5fd;':''}" value="${agkOverride?dlEsc(_lizPreisStr(_lizOrgAgk[dOrg.id])):''}" placeholder="${dlEsc(_lizPreisStr(_lizAgkSatz))}" onchange="lizOrgAgkSatz('${_jsArg(dOrg.id)}',this.value)"> %${agkOverride?' <span style="font-size:10px;color:#1d4ed8;font-weight:700;">Sonder-Satz</span>':''}</label>
         <span style="margin-left:auto;display:flex;gap:8px;">
           <button class="btn btn-secondary" style="font-size:11px;padding:4px 10px;" onclick="lizPrintOrg('${_jsArg(dOrg.id)}')" title="Stadt-Bericht drucken: Lizenzen + Mitarbeiter mit Zugang">🖨 Bericht</button>
           <button class="btn btn-primary" style="font-size:11px;padding:5px 14px;" onclick="lizSaveOrg('${_jsArg(dOrg.id)}')">Lizenzen speichern</button>
@@ -10013,9 +10056,9 @@ function renderLizenzen(){
       </div>
       ${_lizCountErr[dOrg.id]?`<div style="font-size:12px;background:#fef2f2;color:#991b1b;border:1px solid #fecaca;border-radius:8px;padding:8px 12px;margin-bottom:10px;">⚠ Ist-Zähler konnte nicht geladen werden (${dlEsc(_lizCountErr[dOrg.id])}) — „Vergeben" ist deshalb 0. Über „Aktualisieren" erneut versuchen.</div>`
         :(((_lizCounts[dOrg.id]||{})._total||0)===0?`<div style="font-size:12px;background:#fffbeb;color:#854f0b;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;margin-bottom:10px;">Für diesen Mandanten wurden <b>keine aktiven Logins</b> gefunden (gezählt werden Personen mit PIN bzw. E-Mail-Konten, aktiv, mit Rolle — Personen ohne Login zählen nicht). „Vergeben" ist deshalb überall 0. Prüfen unter Admin → Personal/Benutzer.</div>`:'')}
-      <table class="ep-table"><thead><tr><th>Artikel</th><th style="width:80px;text-align:right;">Anzahl</th><th style="width:96px;text-align:right;">Vergeben</th><th style="width:104px;text-align:right;">€ / Lizenz</th><th style="width:120px;text-align:right;">Summe</th></tr></thead>
+      <table class="ep-table"><thead><tr><th>Artikel</th><th style="width:80px;text-align:right;">Anzahl</th><th style="width:66px;text-align:center;" title="Optional: ausgewiesen, aber nicht in der Vertragssumme">Optional</th><th style="width:96px;text-align:right;">Vergeben</th><th style="width:104px;text-align:right;">€ / Lizenz</th><th style="width:132px;text-align:right;">Summe</th></tr></thead>
       <tbody>${posRows}</tbody>
-      <tfoot><tr style="border-top:2px solid var(--border);"><td colspan="4" style="padding:8px 12px;font-weight:700;">Gesamt</td><td style="padding:8px 12px;text-align:right;white-space:nowrap;"><b style="font-size:14px;">${_lizEur(sum)}</b><span style="font-size:10.5px;color:var(--text3);"> / Monat</span><div style="font-size:10.5px;color:var(--text3);">${_lizEur(sum*12)} / Jahr</div></td></tr></tfoot></table>
+      <tfoot><tr style="border-top:2px solid var(--border);"><td colspan="5" style="padding:8px 12px;font-weight:700;">Gesamt${sd.opt?' <span style="font-weight:400;font-size:11px;color:var(--text3);">(ohne optionale Positionen)</span>':''}</td><td style="padding:8px 12px;text-align:right;white-space:nowrap;"><b style="font-size:14px;">${_lizEur(sd.sum)}</b><span style="font-size:10.5px;color:var(--text3);"> / Monat</span><div style="font-size:10.5px;color:var(--text3);">${sd.agk?`darin ${_lizEur(sd.agk)} AGK · `:''}${_lizEur(sd.sum*12)} / Jahr</div>${sd.opt?`<div style="font-size:10.5px;color:var(--text3);font-style:italic;">optional zusätzlich: ${_lizEur(sd.opt)} / Monat</div>`:''}</td></tr></tfoot></table>
     </div>`;
   }
   root.innerHTML=preisliste+uebersicht+detail;
@@ -17976,7 +18019,7 @@ Object.assign(window,{
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleBhNames,toggleRequiredFeld,toggleRawSeg,_siInfo,
   openPapierkorbAnalyse,closePapierkorbAnalyse,paSetScope,paSetDist,paSetDiff,paSetSameStreet,paZoom,paToggleMin,checkMenuAnalyse,
   createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,dashSetBh,tourSetBh,epChangeBh,epTogglePersnr,epToggleBhCol,psSetOrgFilter,setSiTab,
-  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizArtRolle,lizArtMove,lizZrFlip,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,lizPrintOrg,lizPrintAll,lizPrintPreisliste,praesenzRefresh,praesenzToggleLive,praesenzToggleLogging,praesenzResetHistory,errorsRefresh,errorsClear,
+  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizArtAgk,lizAgkSatz,lizOrgAgkSatz,lizArtRolle,lizArtMove,lizZrFlip,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,lizPrintOrg,lizPrintAll,lizPrintPreisliste,praesenzRefresh,praesenzToggleLive,praesenzToggleLogging,praesenzResetHistory,errorsRefresh,errorsClear,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,openMeldungFotos,stepMeldungFoto,closeMeldungFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
