@@ -42,6 +42,7 @@ service firebase.storage {
       allow write: if okGeom()
                    && (request.resource == null
                        || (request.resource.size < 50 * 1024 * 1024
+                           && request.resource.contentType.matches('application/json')
                            && (request.auth.token.role == 'superadmin' || request.auth.token.cap == 'admin')));
     }
 

@@ -51,7 +51,8 @@ exports.driverLogin = onCall({ region: REGION, enforceAppCheck: true }, async (r
   let oid = orgId;
   if (!oid && orgCode) {
     const qs = await db.collection('orgs').where('code', '==', String(orgCode)).limit(1).get();
-    if (qs.empty) throw new HttpsError('not-found', 'Mandant nicht gefunden');
+    // Generische Meldung (wie beim Name/PIN-Pfad) → keine Enumeration gültiger Stadt-Codes.
+    if (qs.empty) throw new HttpsError('permission-denied', 'Name oder PIN falsch');
     oid = qs.docs[0].id;
   }
 
