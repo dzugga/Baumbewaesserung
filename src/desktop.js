@@ -381,8 +381,8 @@ const baseGrau  = basemapLayer('grau');
 //    EIN = Cluster-Gruppe (lagert Off-Screen-Marker aus → flüssig bei großen Projekten).
 //    Der restliche Marker-Code nutzt nur _mAdd/_mDel und bleibt dadurch unverändert.
 let _clusterOn=false, _clusterGroup=null;
-function _mAdd(m){ (_clusterOn&&_clusterGroup?_clusterGroup:map).addLayer(m); return m; }
-function _mDel(m){ if(_clusterGroup) _clusterGroup.removeLayer(m); if(map.hasLayer(m)) map.removeLayer(m); }
+function _mAdd(m){ if(!m) return m; (_clusterOn&&_clusterGroup?_clusterGroup:map).addLayer(m); return m; }
+function _mDel(m){ if(!m) return; if(_clusterGroup) _clusterGroup.removeLayer(m); if(map.hasLayer(m)) map.removeLayer(m); }
 function _makeClusterGroup(){
   if(!(window.L&&L.markerClusterGroup)) return null;
   return L.markerClusterGroup({ chunkedLoading:true, removeOutsideVisibleBounds:true, disableClusteringAtZoom:17, spiderfyOnMaxZoom:false, showCoverageOnHover:false, maxClusterRadius:55 });
