@@ -13999,7 +13999,7 @@ function renderLassoActions(){
     ${_lassoZeitPreview(tour)}
     ${btn('add','➕ Zu „'+tn+'“ hinzufügen','rgba(255,255,255,.18)')}
     ${btn('move','➡ Nach „'+tn+'“ verschieben','rgba(255,255,255,.18)')}
-    ${btn('unplan','⊘ Aus Tour(en) entfernen','rgba(255,255,255,.18)')}
+    ${btn('unplan', tour ? '⊘ Aus „'+tn+'“ entfernen' : '⊘ Aus allen Touren entfernen','rgba(255,255,255,.18)')}
     ${canUseModule('massenwerkzeuge')?`<button onclick="lassoSetFieldDialog()" style="padding:4px 11px;font-size:12px;font-weight:600;border:none;border-radius:var(--radius-sm);background:rgba(255,255,255,.18);color:#fff;cursor:pointer;white-space:nowrap;" title="Ein Feld (z. B. Betriebshof) für die Auswahl setzen">✎ Feld setzen…</button>
     <button onclick="lassoAddGehwege()" style="padding:4px 11px;font-size:12px;font-weight:600;border:none;border-radius:var(--radius-sm);background:rgba(255,255,255,.18);color:#fff;cursor:pointer;white-space:nowrap;" title="Gehweg links + rechts für die ausgewählten Straßenabschnitte anlegen">＋ Gehweg-Seiten</button>`:''}
     <button onclick="clearLassoSelection()" style="padding:4px 11px;font-size:12px;border:1px solid rgba(255,255,255,.4);background:transparent;color:#fff;border-radius:var(--radius-sm);cursor:pointer;white-space:nowrap;">Auswahl aufheben</button>`;
@@ -14088,12 +14088,14 @@ async function lassoAction(mode){
   // Entfernen: nur Objekte anfassen/zählen, die wirklich in einer Tour sind (z. B. bei einem Abschnitt
   // wurden evtl. nur die Fahrbahn-Seiten verplant — Gehweg/Radweg dürfen nicht als „entfernt" zählen)
   if(mode==='unplan'){
-    targets=targets.filter(t=>realTourIds(t).length>0);
-    if(!targets.length){ notify('⚠ Nichts entfernt — die Auswahl war in keiner Tour'); renderLassoActions(); return; }
+    // Bei AUSGEWÄHLTER Tour nur Objekte anfassen, die in DIESER Tour sind; ohne Auswahl: alle verplanten.
+    targets = tourId ? targets.filter(t=>treeInTour(t,tourId)) : targets.filter(t=>realTourIds(t).length>0);
+    if(!targets.length){ notify(tourId?`⚠ Nichts entfernt — die Auswahl war nicht in „${tour?.name||'Tour'}"`:'⚠ Nichts entfernt — die Auswahl war in keiner Tour'); renderLassoActions(); return; }
   }
   // Betroffene echte Touren merken → deren gespeicherte Route ist danach veraltet (Zusammenstellung geändert)
-  const _affectedTours=new Set(); if(mode==='add'||mode==='move') _affectedTours.add(tourId);
-  targets.forEach(t=>realTourIds(t).forEach(x=>_affectedTours.add(x)));
+  const _affectedTours=new Set();
+  if(mode==='unplan' && tourId){ _affectedTours.add(tourId); } // nur die ausgewählte Tour ist betroffen
+  else { if(mode==='add'||mode==='move') _affectedTours.add(tourId); targets.forEach(t=>realTourIds(t).forEach(x=>_affectedTours.add(x))); }
   // Undo-Snapshot: vorherige Zuordnungen VOR dem Schreiben festhalten (Rückgängig-Leiste nach Abschluss)
   const _undoSnap=targets.map(t=>({id:t.id, tourIds:[...getTreeTourIds(t)], tourId:t.tourId||''}));
   const _undoPid=currentProjectId;
@@ -14112,7 +14114,9 @@ async function lassoAction(mode){
         let newIds;
         if(mode==='add') newIds=[...new Set([...getTreeTourIds(tree),tourId])];
         else if(mode==='move') newIds=[...new Set([tourId,...uebersichten])];
-        else newIds=uebersichten; // unplan → aus echten Touren raus, Übersichts-Zugehörigkeit bleibt
+        else newIds = tourId
+          ? getTreeTourIds(tree).filter(x=>x!==tourId)   // unplan mit Tour-Auswahl: NUR diese Tour entfernen
+          : uebersichten;                                 // ohne Auswahl: aus allen echten Touren raus (Übersicht bleibt)
         newIds=newIds.filter(Boolean);
         batch.update(doc(db,'projects',currentProjectId,'trees',tree.id),{tourIds:newIds,tourId:newIds[0]||''});
       });
@@ -14138,7 +14142,7 @@ async function lassoAction(mode){
   renderLassoActions();
   _refreshTourPanelsDebounced(); // Zeit/Strecke im Kennzahlen-Panel + Legende sofort nachziehen (v. a. Zeitbasis „System")
   setSyncState('ok','Synchronisiert');
-  const verb=mode==='add'?`→ „${tour?.name||'Tour'}“ hinzugefügt`:mode==='move'?`→ „${tour?.name||'Tour'}“ verschoben`:'aus Tour(en) entfernt';
+  const verb=mode==='add'?`→ „${tour?.name||'Tour'}“ hinzugefügt`:mode==='move'?`→ „${tour?.name||'Tour'}“ verschoben`:(tourId?`aus „${tour?.name||'Tour'}“ entfernt`:'aus Tour(en) entfernt');
   notify(`✓ ${targets.length} Objekte ${verb}${schonDrin?` · ${schonDrin} übersprungen (bereits in der Tour)`:''}`);
   // Rückgängig-Angebot (30 s): stellt die VORHERIGEN Zuordnungen aller angefassten Objekte wieder her
   _showUndoBar(`${targets.length} Objekte ${mode==='add'?'zugewiesen':mode==='move'?'verschoben':'entfernt'}`, async()=>{
