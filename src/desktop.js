@@ -4360,6 +4360,7 @@ function openAbschnitt(id){
   }).join('')||'<div style="font-size:12px;color:var(--text3);padding:6px 0;">Noch keine Ausstattung.</div>';
   document.getElementById('panel-body').innerHTML=`
     <div class="detail-field" style="padding:5px 0;"><span class="detail-key">Abschnitts-ID</span><span class="detail-val" style="font-family:monospace;font-weight:700;color:var(--green);">${dlEsc(c.baumId||'–')}</span></div>
+    ${c.vonBis?`<div class="detail-field" style="padding:5px 0;"><span class="detail-key">Bezeichnung</span><span class="detail-val">${dlEsc(c.vonBis)}</span></div>`:''}
     <div class="form-section">Reinigung</div>
     <div class="detail-field" style="padding:4px 0;">
       <span class="detail-key">Reinigungsklasse</span>
@@ -17382,12 +17383,73 @@ function renderSegmentnetz(){
   const btn=(label,call,primary)=>`<button class="btn ${primary?'btn-primary':'btn-secondary'}" style="padding:7px 13px;font-size:12px;margin-top:8px;" ${ro?'disabled':''} onclick="${call}">${label}</button>`;
   el.innerHTML=`
     <div style="font-size:17px;font-weight:700;margin-bottom:4px;">Segmentnetz</div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:16px;">Straßensegmente (Linien) zu Reinigungs-Abschnitten mit Seiten verarbeiten — in vier Schritten. ${anyLines?`Aktuell: <b>${cand.length.toLocaleString('de-DE')}</b> unbearbeitete Segmente · <b>${nAbschn.toLocaleString('de-DE')}</b> Abschnitte.`:'Dieses Projekt hat noch keine Linien-Segmente — zuerst ein Segmentnetz importieren.'}</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:16px;">Straßensegmente (Linien) zu Reinigungs-Abschnitten mit Seiten verarbeiten — in fünf Schritten. ${anyLines?`Aktuell: <b>${cand.length.toLocaleString('de-DE')}</b> unbearbeitete Segmente · <b>${nAbschn.toLocaleString('de-DE')}</b> Abschnitte.`:'Dieses Projekt hat noch keine Linien-Segmente — zuerst ein Segmentnetz importieren.'}</div>
     ${step(0,'Segmentnetz importieren','Ein Shapefile-ZIP mit dem Straßennetz einlesen (Linien werden Strecken-Objekte). '+btn('Zum Import','openImport()'))}
     ${step(1,'Segmentart bestimmen','Erkennt je Segment, ob parallele Nachbarlinien verlaufen: <b>Einzeln</b> / <b>Parallel</b> / <b>Teiler</b> (Mittellinie, z. B. Fahrbahnteiler). Nur ein Vorschlag — per Lasso „Feld setzen" korrigierbar.<br><span style="color:var(--text3);">Verteilung: Einzeln '+c.Einzeln+' · Parallel '+c.Parallel+' · Teiler '+c.Teiler+(c['']?` · ohne ${c['']}`:'')+`</span>`+btn('Analyse öffnen','segartAnalyseOpen()',true)+' '+btn('Auf Karte prüfen (einfärben)',"setColorMode('segart');switchView('karte')"))}
     ${step(2,'Zu Abschnitten umwandeln','Erzeugt je Segment einen Straßenabschnitt mit Seiten — <b>regelbasiert je Segmentart</b> (Einzeln/Parallel → Fahrbahn links + rechts, Teiler → nicht umwandeln). Gehwege optional. Reinigungsklasse je Segmentart optional zuweisbar.<br><span style="color:var(--text3);">'+(reinigungsklassen.length?`${reinigungsklassen.length} Reinigungsklasse(n) vorhanden — im Umwandlungs-Dialog je Segmentart wählbar.`:'Keine Reinigungsklassen gepflegt (optional). Anlegen unter Felder &amp; Listen → „Reinigungsklassen (Satzung)".')+'</span>'+btn('Umwandlung öffnen','segmentUmwandelnOpen()',true)+' '+btn('Reinigungsklassen pflegen',"switchView('baeume');switchBaeumeTab('arten')"))}
     ${step(3,'Gehweg-Seiten ergänzen (optional)','Nur wo tatsächlich Gehwege gereinigt werden: auf der Karte per Lasso die Abschnitte auswählen und „＋ Gehweg-Seiten" wählen — so entstehen keine flächendeckenden Leer-Seiten.'+btn('Auf der Karte auswählen',"switchView('karte');setTimeout(startAssignMode,150)"))}
+    ${step(4,'Abschnittsbezeichnung „von – bis" berechnen','Leitet je Abschnitt aus den Geometrien ab, zwischen welchen Querstraßen er liegt (z. B. „von Bergstraße bis Salzburger Straße") und speichert das als Bezeichnung am Abschnitt — sichtbar im Abschnitts-Detail, im Straßenbericht und in der Fahrer-App. Nach Netzänderungen einfach erneut ausführen.<br><span style="color:var(--text3);">'+(nAbschn?`${(trees||[]).filter(t=>t.containerTyp==='strecke'&&t.vonBis).length.toLocaleString('de-DE')} von ${nAbschn.toLocaleString('de-DE')} Abschnitten haben eine Bezeichnung.`:'Noch keine Abschnitte vorhanden.')+'</span>'+btn('Bezeichnungen berechnen','abschnittVonBisOpen()',true))}
     ${ro?'<div style="font-size:12px;color:#92400e;background:#fef3c7;border-radius:8px;padding:8px 12px;">Nur Planer/Admins können das Segmentnetz verarbeiten.</div>':''}`;
+}
+// Schritt 4: Abschnittsbezeichnung „von – bis" je Abschnitt berechnen und AM ABSCHNITT speichern
+// (Feld vonBis). Querstraße = nächste Linie eines anderen Straßennamens (<30 m) am jeweiligen
+// Linienende; Reihenfolge = Digitalisierungsrichtung. Raster-Index hält es bei tausenden flott.
+function _vbGrid(cands){
+  const K=0.005, g=new Map(); // ~500-m-Zellen; Kandidat liegt in allen Zellen seiner Bounding-Box (+1 Rand)
+  cands.forEach(c=>{
+    let la1=1e9,la2=-1e9,lo1=1e9,lo2=-1e9;
+    c.ll.forEach(p=>{ if(p[0]<la1)la1=p[0]; if(p[0]>la2)la2=p[0]; if(p[1]<lo1)lo1=p[1]; if(p[1]>lo2)lo2=p[1]; });
+    for(let a=Math.floor((la1-K)/K);a<=Math.floor((la2+K)/K);a++)
+      for(let o=Math.floor((lo1-K)/K);o<=Math.floor((lo2+K)/K);o++){ const k=a+'_'+o; let arr=g.get(k); if(!arr){arr=[];g.set(k,arr);} arr.push(c); }
+  });
+  return { get:p=>g.get(Math.floor(p[0]/K)+'_'+Math.floor(p[1]/K))||[] };
+}
+function _abschnittVonBis(c, grid){
+  const g=_treeGeom(c); if(!g||g.type!=='LineString') return '';
+  const ll=(g.coordinates||[]).map(x=>[x[1],x[0]]); if(ll.length<2) return '';
+  const myKey=gruppeKeyOf(c,_containerByExt);
+  const nameAt=p=>{
+    let best='', bd=30;
+    for(const k of grid.get(p)){
+      if(k.key===myKey) continue;
+      const d=_distPtLineM(p,k.ll);
+      if(d<bd){ bd=d; best=k.name; }
+    }
+    return best;
+  };
+  const v=nameAt(ll[0]), b=nameAt(ll[ll.length-1]);
+  if(!v&&!b) return '';
+  return 'von '+(v||'?')+' bis '+(b||'?');
+}
+async function abschnittVonBisOpen(){
+  if(isReadonly()||!canEditObjects()) return notify('Nur Planer/Admins');
+  if(!currentProjectId) return notify('Kein Projekt geöffnet');
+  await _ensureFlaechenGeom(); // Bundle-Geometrie (importierte Segmente) sicherstellen
+  const conts=(trees||[]).filter(t=>t.containerTyp==='strecke');
+  if(!conts.length) return notify('Keine Abschnitte vorhanden');
+  const grid=_vbGrid(_vonBisCandidates());
+  const res=[]; let beide=0,teil=0,leer=0,unver=0;
+  conts.forEach(c=>{
+    const vb=_abschnittVonBis(c,grid);
+    if(!vb) leer++; else if(vb.includes('?')) teil++; else beide++;
+    if((c.vonBis||'')!==vb) res.push({id:c.id, vb}); else unver++;
+  });
+  const msg=`${conts.length.toLocaleString('de-DE')} Abschnitte geprüft:\n`+
+    `• beide Querstraßen gefunden: ${beide.toLocaleString('de-DE')}\n`+
+    `• nur eine Seite (andere = „?"): ${teil.toLocaleString('de-DE')}\n`+
+    `• ohne Querstraßen (bleiben leer): ${leer.toLocaleString('de-DE')}\n\n`+
+    `${res.length.toLocaleString('de-DE')} Bezeichnungen speichern (${unver.toLocaleString('de-DE')} unverändert)?`;
+  if(!confirm(msg)) return;
+  try{
+    for(let i=0;i<res.length;i+=400){
+      const batch=db.batch();
+      res.slice(i,i+400).forEach(r=>batch.update(doc(db,'projects',currentProjectId,'trees',r.id),{vonBis:r.vb}));
+      await batch.commit();
+    }
+    res.forEach(r=>{ const t=trees.find(x=>x.id===r.id); if(t) t.vonBis=r.vb; });
+    notify(`✓ ${res.length.toLocaleString('de-DE')} Abschnitts-Bezeichnungen gespeichert`);
+    renderSegmentnetz();
+  }catch(e){ notify(dlErr(e)); }
 }
 // Schritt 2: Umwandlung flacher Segmente → Abschnitt + Seiten (projektbezogen).
 // Zwei Achsen: (A) welche Segmentarten umgewandelt werden (Teiler i. d. R. nicht),
@@ -17896,7 +17958,7 @@ Object.assign(window,{
   openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,openBetriebshoefe,
   pickProjIcon,artSetIcon,artSetTime,artSetRate,setArtDefaultTime,artApplyTimeToAll,artSetKlasse,
   renderReinigungssysteme,rsAdd,rsUpdate,rsDelete,
-  renderMandanten,createOrgUi,moveProjectUi,setOrgNaviUi,checkBaumIdDuplicates,flaechenImportOpen,flaechenImportRun,geomDocsImportOpen,geomDocsImportRun,strMigOpen,segartAnalyseOpen,renderSegmentnetz,segmentUmwandelnOpen,segmentZuAbschnitt,lassoAddGehwege,rkFromListOpen,flaechenTourGenOpen,flaechenTourGenRun,
+  renderMandanten,createOrgUi,moveProjectUi,setOrgNaviUi,checkBaumIdDuplicates,flaechenImportOpen,flaechenImportRun,geomDocsImportOpen,geomDocsImportRun,strMigOpen,segartAnalyseOpen,renderSegmentnetz,segmentUmwandelnOpen,segmentZuAbschnitt,lassoAddGehwege,abschnittVonBisOpen,rkFromListOpen,flaechenTourGenOpen,flaechenTourGenRun,
   addWmsLayer,deleteWmsLayer,editWmsLayer,cancelWmsEdit,renderWmsList,
   setFilter,pickColor,renderList,renderListDebounced,filterBaeumeTableDebounced,filterDetailTableDebounced,setListMode,
   toggleLassoMode,switchDetailTab,toggleRoutePlanning,setLassoTour,toggleRouteLines,toggleMapFilter,openObjFilterConfig,setObjFilterField,toggleTourCounts,toggleRouteNums,toggleVersatz,toggleTypeFilter,setTypeVisible,simulateActiveTour,fitToCity,setSimSpeed,toggleSimSkipBew,

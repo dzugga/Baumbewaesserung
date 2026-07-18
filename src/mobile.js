@@ -525,7 +525,7 @@ async function startBewässerungLogin(name, pid, tid) {
     cacheTreesLocally(pid, tid, trees);
 
     // Render — SOFORT, ohne auf das Geometrie-Bundle zu warten (Liste/Marker stehen direkt)
-    _openStreets.clear(); // Straßen-Akkordeon der vorherigen Tour zurücksetzen
+    _openStreets.clear(); _openAbschn.clear(); // Straßen-/Abschnitts-Akkordeon der vorherigen Tour zurücksetzen
     renderMarkers();
     renderList('');
     updateProgress();
@@ -1999,17 +1999,54 @@ function _renderStreetList(el,list,q){
         : g.ausfall
           ? `<span style="font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px;background:#dcfce7;color:#166534;">fertig · ${g.ausfall}✕</span>`
           : `<span style="font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px;background:#dcfce7;color:#166534;">erledigt</span>`;
-    const rows=open?g.items.map(t=>{
+    // Ebene 2 = Abschnitte (Bezeichnung „von – bis" vom Container), Ebene 3 = Objekte/Seiten.
+    // Schnell-Erledigung: ✓ am Abschnitt meldet alle offenen Seiten; ✓/✕ je Objekt.
+    const canDo=currentTour?.status!=='abgeschlossen';
+    const mini=(attr,val,ok)=>`<span data-${attr}="${esc(val)}" style="width:30px;height:30px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;border:1px solid ${ok?'#86efac':'#fecaca'};background:${ok?'#f0fdf4':'#fef2f2'};color:${ok?'#166534':'#991b1b'};">${ok?'✓':'✕'}</span>`;
+    const sideRow=(t,indent)=>{
       const st=t.lastStatus;
       const dotClass=st==='bewaessert'?'bewaessert':st==='nicht'?'nicht':'offen';
       const grund=st==='nicht'&&(t.lastReason||t.lastNote)?` <span style="color:#dc2626;">— ${esc(t.lastReason||t.lastNote)}</span>`:'';
-      return `<div class="tree-row${st?' done':''}" data-id="${t.id}" style="padding-left:34px;">
+      const minis=(canDo&&!st)?`<div style="display:flex;gap:6px;margin-right:2px;">${mini('done',t.id,true)}${mini('no',t.id,false)}</div>`:'';
+      return `<div class="tree-row${st?' done':''}" data-id="${t.id}" style="padding-left:${indent?52:34}px;">
         <div class="tree-row-info">
           <div class="tree-row-name" style="font-size:14px;">${esc(elementOf(t)||titelOf(t,_getContainer)||'–')}${grund}</div>
         </div>
+        ${minis}
         <div class="status-dot ${dotClass}"></div>
       </div>`;
-    }).join(''):'';
+    };
+    let rows='';
+    if(open){
+      const byAb=new Map();
+      g.items.forEach(t=>{ if(t.containerExtId){ let a=byAb.get(t.containerExtId); if(!a){a=[];byAb.set(t.containerExtId,a);} a.push(t); } });
+      const seenAb=new Set();
+      g.items.forEach(t=>{
+        if(!t.containerExtId){ rows+=sideRow(t,false); return; }   // freie Objekte direkt unter der Straße
+        if(seenAb.has(t.containerExtId)) return; seenAb.add(t.containerExtId);
+        const sides=byAb.get(t.containerExtId);
+        const c=_getContainer(t.containerExtId);
+        const label=(c&&c.vonBis)||(c&&c.baumId)||'Abschnitt';
+        let d=0,x=0; sides.forEach(s=>{ if(s.lastStatus==='bewaessert')d++; else if(s.lastStatus==='nicht')x++; });
+        const offenAb=sides.length-d-x;
+        const abKey=g.key+'|'+t.containerExtId;
+        const abOpen=searching||_openAbschn.has(abKey);
+        const abPill= offenAb===0
+          ? `<span style="font-size:10px;font-weight:600;padding:1px 7px;border-radius:10px;background:#dcfce7;color:#166534;">${x?`fertig · ${x}✕`:'✓'}</span>`
+          : (d+x)>0
+            ? `<span style="font-size:10px;font-weight:600;padding:1px 7px;border-radius:10px;background:#fef3c7;color:#92400e;">${d+x}/${sides.length}</span>`
+            : `<span style="font-size:10px;color:var(--text3,#94a3b8);">${sides.length} Obj.</span>`;
+        const abDone=(canDo&&offenAb>0)?mini('ab-done',t.containerExtId,true):'';
+        rows+=`<div data-ab="${esc(abKey)}" style="display:flex;align-items:center;gap:8px;padding:9px 12px 9px 34px;cursor:pointer;border-top:1px dashed var(--border,#e2e8f0);">
+          <span style="color:var(--text3,#94a3b8);font-size:10px;transform:rotate(${abOpen?'90':'0'}deg);transition:transform .15s;flex-shrink:0;">▶</span>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(label)}</div>
+          </div>
+          ${abPill}${abDone}
+        </div>`;
+        if(abOpen) sides.forEach(s=>rows+=sideRow(s,true));
+      });
+    }
     const doneBtn=(open&&offen>0&&currentTour?.status!=='abgeschlossen')
       ? `<div style="padding:4px 12px 10px 34px;"><button data-street-done="${esc(g.key)}" style="width:100%;padding:8px;font-size:13px;font-weight:600;border:1px solid #86efac;border-radius:8px;background:#f0fdf4;color:#166534;">✓ Rest der Straße erledigt (${offen})</button></div>`:'';
     return `<div style="border-bottom:1px solid var(--border,#e2e8f0);">
@@ -2017,7 +2054,7 @@ function _renderStreetList(el,list,q){
         <div class="tree-row-num" style="background:${color}22;color:${color};flex-shrink:0;">${gi+1}</div>
         <div style="flex:1;min-width:0;">
           <div style="font-weight:600;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(g.label)}</div>
-          <div style="font-size:12px;color:var(--text3,#94a3b8);">${g.total} Abschnitt${g.total!==1?'e':''}</div>
+          <div style="font-size:12px;color:var(--text3,#94a3b8);">${(n=>n?`${n} Abschnitt${n!==1?'e':''} · `:'')(new Set(g.items.filter(t=>t.containerExtId).map(t=>t.containerExtId)).size)}${g.total} Objekt${g.total!==1?'e':''}</div>
         </div>
         ${stPill}
         <span style="color:var(--text3,#94a3b8);font-size:12px;transform:rotate(${open?'90':'0'}deg);transition:transform .15s;">▶</span>
@@ -2026,13 +2063,31 @@ function _renderStreetList(el,list,q){
     </div>`;
   }).join('');
   el.onclick=e=>{
+    const dn=e.target.closest('[data-done]');   // ✓ am Objekt: sofort erledigt (1 Tipp)
+    if(dn){ const t=trees.find(x=>x.id===dn.dataset.done); if(t) markTreeDone(t); return; }
+    const no=e.target.closest('[data-no]');     // ✕ am Objekt: Melde-Dialog (Grund wählen)
+    if(no){ openSheet(no.dataset.no); return; }
+    const abd=e.target.closest('[data-ab-done]'); // ✓ am Abschnitt: alle offenen Seiten erledigt
+    if(abd){ _abschnittMarkDone(abd.dataset.abDone); return; }
     const btn=e.target.closest('[data-street-done]');
     if(btn){ _streetMarkDone(btn.dataset.streetDone); return; }
+    const ab=e.target.closest('[data-ab]');
+    if(ab){ const k=ab.dataset.ab; _openAbschn.has(k)?_openAbschn.delete(k):_openAbschn.add(k); renderList(document.getElementById('list-search-input')?.value||''); return; }
     const row=e.target.closest('[data-id]');
     if(row){ openSheet(row.dataset.id); return; }
     const head=e.target.closest('[data-street]');
     if(head){ const k=head.dataset.street; _openStreets.has(k)?_openStreets.delete(k):_openStreets.add(k); renderList(document.getElementById('list-search-input')?.value||''); }
   };
+}
+// Aufgeklappte Abschnitte (Ebene 3) — analog _openStreets
+let _openAbschn=new Set();
+// Schnell-Erledigung Abschnitt: alle offenen Seiten dieses Abschnitts melden (ohne Rückfrage —
+// bewusst 1 Tipp; einzelne Seiten lassen sich danach weiterhin auf „nicht" korrigieren)
+async function _abschnittMarkDone(extId){
+  const open=trees.filter(t=>t.containerExtId===extId&&!t.lastStatus);
+  if(!open.length) return;
+  for(const t of open) await markTreeDone(t);
+  toast(`✓ Abschnitt — ${open.length} Objekt${open.length>1?'e':''} erledigt`);
 }
 // Sammelaktion: alle noch offenen Abschnitte einer Straße als erledigt melden (nutzt markTreeDone,
 // schreibt also nur erlaubte Status-Felder inkl. runStatus der aktuellen Tour).
