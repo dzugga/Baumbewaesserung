@@ -9860,7 +9860,6 @@ function _lizPrintSection(o){
   const sd=_lizOrgSummeDetail(o.id);
   const agkSatz=_lizAgkFor(o.id);
   const pos=_lizArtikel.filter(a=>(liz[a.id]||{}).menge>0);
-  const anzLiz=pos.filter(a=>!liz[a.id].optional).reduce((s,a)=>s+liz[a.id].menge,0);
   const konten=_lizKonten[o.id]||[];
   const row=(a,i)=>{ const p=liz[a.id]; const eff=_lizEffPreis(a,p); const sonder=p.preis!=null;
     const base=p.menge*eff, zu=a.agk?base*(agkSatz/100):0;
@@ -9884,7 +9883,7 @@ function _lizPrintSection(o){
     <div style="display:flex;gap:10px;margin:14px 0;">
       <div style="flex:1;background:#f1efe8;border-radius:6px;padding:8px 12px;"><div style="font-size:10px;color:#6b6760;">Monat</div><div style="font-size:17px;font-weight:600;">${_lizEur(sd.end)}</div></div>
       <div style="flex:1;background:#f1efe8;border-radius:6px;padding:8px 12px;"><div style="font-size:10px;color:#6b6760;">Jahr</div><div style="font-size:17px;font-weight:600;">${_lizEur(sd.end*12)}</div></div>
-      <div style="flex:1;background:#f1efe8;border-radius:6px;padding:8px 12px;"><div style="font-size:10px;color:#6b6760;">Lizenzen</div><div style="font-size:17px;font-weight:600;">${anzLiz}</div></div>
+      <div style="flex:1;background:#f1efe8;border-radius:6px;padding:8px 12px;"><div style="font-size:10px;color:#6b6760;">Personen mit Zugang</div><div style="font-size:17px;font-weight:600;">${konten.length}</div></div>
     </div>
     <div style="font-size:12px;font-weight:700;margin:12px 0 6px;color:#2d6a4f;">1 · Lizenzen</div>
     <table style="width:100%;border-collapse:collapse;font-size:11px;">
@@ -10023,7 +10022,7 @@ function renderLizenzen(){
     const konten=(_lizCounts[o.id]||{})._total||0;
     const anzLiz=_lizArtikel.reduce((s,a)=>s+((liz[a.id]||{}).menge||0),0);
     const lizTxt=hat
-      ? (_lizKompakt?`${anzLiz} Lizenz${anzLiz===1?'':'en'} · ${teile.length} Position${teile.length===1?'':'en'}`:teile.join(' · '))
+      ? (_lizKompakt?`${konten} Person${konten===1?'':'en'} · ${anzLiz} Modul-Lizenz${anzLiz===1?'':'en'} · ${teile.length} Position${teile.length===1?'':'en'}`:teile.join(' · '))
       : `<span style="color:var(--text3);">noch keine Lizenzen hinterlegt${konten?` · ${konten} Konto${konten===1?'':'en'} vorhanden`:''}</span>`;
     return `<tr onclick="lizToggleOrg('${_jsArg(o.id)}')" style="cursor:pointer;${warn?'background:#fdf6e7;':''}${hat?'':'opacity:.6;'}">
       <td style="padding:8px 12px;font-weight:600;white-space:nowrap;${warn?'color:#854f0b;':''}">${open?'▾':'▸'} ${dlEsc(o.name)}</td>
