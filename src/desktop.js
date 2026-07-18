@@ -9452,6 +9452,7 @@ let _lizOpenOrg=null;          // aufgeklappter Kunde
 let _lizLoading=false;
 let _lizAgkSatz=16;            // globaler AGK-Satz (%) — an config/lizenzArtikel gespeichert
 let _lizOrgAgk={};             // orgId -> Satz-Override (Zahl) | undefined = globaler Satz (orgs.lizenzAgkSatz)
+let _lizOrgRabatt={};          // orgId -> Rabatt in % auf die Endsumme (orgs.lizenzRabatt); €-Eingabe wird in % umgerechnet
 // Kunden-Tabelle kompakt (eine Zeile je Kunde, Positionen nur als Anzahl) oder mit voller Artikelliste
 let _lizKompakt=(()=>{ try{ return localStorage.getItem('liz_kompakt')!=='0'; }catch(_){ return true; } })();
 function lizToggleKompakt(){ _lizKompakt=!_lizKompakt; try{ localStorage.setItem('liz_kompakt',_lizKompakt?'1':'0'); }catch(_){} renderLizenzen(); }
@@ -9475,9 +9476,13 @@ function _lizOrgSummeDetail(oid){
     const zu=a.agk?base*(_lizAgkFor(oid)/100):0;
     if(p.optional) opt+=base+zu; else { sum+=base+zu; agk+=zu; }
   });
-  return {sum, agk, opt};
+  // Rabatt (%) auf die feste Endsumme — optionale Positionen bleiben unrabattiert ausgewiesen
+  const rabattP=_lizOrgRabatt[oid]||0;
+  const rabatt=sum*rabattP/100;
+  return {sum, agk, opt, rabattP, rabatt, end:sum-rabatt};
 }
-function _lizOrgSumme(oid){ return _lizOrgSummeDetail(oid).sum; }
+// Kunden-Summe für Übersicht/KPIs = Endsumme NACH Rabatt (der reale Monatsumsatz)
+function _lizOrgSumme(oid){ return _lizOrgSummeDetail(oid).end; }
 // Ist eines Artikels = Summe der aktiven Konten über dessen angehakte Rollen; keine Rollen = kein Zähler (null)
 function _lizIst(oid,art){
   const zr=(art&&Array.isArray(art.zaehlRollen))?art.zaehlRollen:[];
@@ -9709,10 +9714,11 @@ async function initLizenzen(){
     _lizArtikel.forEach(a=>{ if(!Array.isArray(a.zaehlRollen)){ a.zaehlRollen=(a.zaehler==='fahrer')?['fahrer']:[]; } delete a.zaehler; });
     const orgsSnap=await db.collection('orgs').get();
     _lizOrgs=orgsSnap.docs.map(d=>({id:d.id,name:d.data().name||d.id})).sort((a,b)=>a.name.localeCompare(b.name));
-    _lizOrgLizenzen={}; _lizOrgAgk={};
+    _lizOrgLizenzen={}; _lizOrgAgk={}; _lizOrgRabatt={};
     orgsSnap.docs.forEach(d=>{
       _lizOrgLizenzen[d.id]=d.data().lizenzen?JSON.parse(JSON.stringify(d.data().lizenzen)):{};
       if(typeof d.data().lizenzAgkSatz==='number') _lizOrgAgk[d.id]=d.data().lizenzAgkSatz;
+      if(typeof d.data().lizenzRabatt==='number'&&d.data().lizenzRabatt>0) _lizOrgRabatt[d.id]=d.data().lizenzRabatt;
     });
     // Ist-Zähler je Mandant: aktive Konten (PIN-Logins UND E-Mail-Benutzer) je ROLLE zählen.
     // Rollen-Katalog für die Artikel-Auswahl parallel einsammeln (Builtin + Custom aller Mandanten).
@@ -9814,6 +9820,18 @@ function lizOrgAgkSatz(oid,val){
   if(String(val).trim()==='') delete _lizOrgAgk[oid]; else _lizOrgAgk[oid]=Math.max(0,_lizNum(val));
   renderLizenzen();
 }
+// Rabatt beidseitig: %-Eingabe direkt, €-Eingabe wird über die aktuelle Endsumme in % umgerechnet
+function lizOrgRabatt(oid,f,val){
+  if(String(val).trim()===''){ delete _lizOrgRabatt[oid]; renderLizenzen(); return; }
+  let p=_lizNum(val);
+  if(f==='betrag'){
+    const basis=_lizOrgSummeDetail(oid).sum; // Summe VOR Rabatt
+    p=basis>0?(p/basis*100):0;
+  }
+  p=Math.max(0,Math.min(100,p));
+  if(p>0) _lizOrgRabatt[oid]=p; else delete _lizOrgRabatt[oid];
+  renderLizenzen();
+}
 // ── Druck: Stadt-Bericht (Lizenzen + Mitarbeiter) und Gesamtübersicht ──
 function _lizRoleName(key){ return (_lizRollen.find(r=>r.key===key)||{}).name||key; }
 function _lizFmtDatum(){ const d=new Date(); return String(d.getDate()).padStart(2,'0')+'.'+String(d.getMonth()+1).padStart(2,'0')+'.'+d.getFullYear(); }
@@ -9845,8 +9863,8 @@ function _lizPrintSection(o){
     </tr>`).join('')||'<tr><td colspan="5" style="padding:8px 6px;color:#9c9890;">Keine aktiven Konten mit Zugang.</td></tr>';
   return `
     <div style="display:flex;gap:10px;margin:14px 0;">
-      <div style="flex:1;background:#f1efe8;border-radius:6px;padding:8px 12px;"><div style="font-size:10px;color:#6b6760;">Monat</div><div style="font-size:17px;font-weight:600;">${_lizEur(sd.sum)}</div></div>
-      <div style="flex:1;background:#f1efe8;border-radius:6px;padding:8px 12px;"><div style="font-size:10px;color:#6b6760;">Jahr</div><div style="font-size:17px;font-weight:600;">${_lizEur(sd.sum*12)}</div></div>
+      <div style="flex:1;background:#f1efe8;border-radius:6px;padding:8px 12px;"><div style="font-size:10px;color:#6b6760;">Monat</div><div style="font-size:17px;font-weight:600;">${_lizEur(sd.end)}</div></div>
+      <div style="flex:1;background:#f1efe8;border-radius:6px;padding:8px 12px;"><div style="font-size:10px;color:#6b6760;">Jahr</div><div style="font-size:17px;font-weight:600;">${_lizEur(sd.end*12)}</div></div>
       <div style="flex:1;background:#f1efe8;border-radius:6px;padding:8px 12px;"><div style="font-size:10px;color:#6b6760;">Lizenzen</div><div style="font-size:17px;font-weight:600;">${anzLiz}</div></div>
     </div>
     <div style="font-size:12px;font-weight:700;margin:12px 0 6px;color:#2d6a4f;">1 · Lizenzen</div>
@@ -9854,7 +9872,9 @@ function _lizPrintSection(o){
       <thead><tr style="border-bottom:1px solid #1a1917;"><th style="text-align:left;padding:4px 6px;">Artikel</th><th style="text-align:right;padding:4px 6px;">Anzahl</th><th style="text-align:right;padding:4px 6px;">€ / Lizenz</th><th style="text-align:right;padding:4px 6px;">Summe / Monat</th></tr></thead>
       <tbody>${posRows}</tbody>
       <tfoot>
-        <tr style="border-top:1.5px solid #1a1917;"><td colspan="3" style="padding:5px 6px;font-weight:700;">Gesamt pro Monat${sd.opt?' <span style="font-weight:400;color:#6b6760;">(ohne optionale Positionen)</span>':''}${sd.agk?` <span style="font-weight:400;color:#6b6760;">· darin ${_lizEur(sd.agk)} AGK</span>`:''}</td><td style="text-align:right;padding:5px 6px;font-weight:700;">${_lizEur(sd.sum)}</td></tr>
+        <tr style="border-top:1.5px solid #1a1917;"><td colspan="3" style="padding:5px 6px;font-weight:${sd.rabatt?'400':'700'};">Gesamt pro Monat${sd.opt?' <span style="font-weight:400;color:#6b6760;">(ohne optionale Positionen)</span>':''}${sd.agk?` <span style="font-weight:400;color:#6b6760;">· darin ${_lizEur(sd.agk)} AGK</span>`:''}</td><td style="text-align:right;padding:5px 6px;font-weight:${sd.rabatt?'400':'700'};">${_lizEur(sd.sum)}</td></tr>
+        ${sd.rabatt?`<tr><td colspan="3" style="padding:3px 6px;">Rabatt (${dlEsc(_lizPreisStr(Math.round(sd.rabattP*100)/100))} %)</td><td style="text-align:right;padding:3px 6px;">− ${_lizEur(sd.rabatt)}</td></tr>
+        <tr style="border-top:1px solid #1a1917;"><td colspan="3" style="padding:5px 6px;font-weight:700;">Endsumme pro Monat</td><td style="text-align:right;padding:5px 6px;font-weight:700;">${_lizEur(sd.end)}</td></tr>`:''}
         ${sd.opt?`<tr><td colspan="3" style="padding:3px 6px;font-style:italic;color:#6b6760;">optional zusätzlich pro Monat</td><td style="text-align:right;padding:3px 6px;font-style:italic;color:#6b6760;">${_lizEur(sd.opt)}</td></tr>`:''}
       </tfoot>
     </table>
@@ -9921,7 +9941,8 @@ function lizPrintAll(){
 async function lizSaveOrg(oid){
   const liz={}; Object.entries(_lizOrgLizenzen[oid]||{}).forEach(([k,p])=>{ if(p&&(p.menge>0||p.preis!=null||p.optional)) liz[k]={menge:p.menge||0,preis:p.preis==null?null:p.preis,...(p.optional?{optional:true}:{})}; });
   const agk=(oid in _lizOrgAgk)?_lizOrgAgk[oid]:firebase.firestore.FieldValue.delete();
-  try{ await db.collection('orgs').doc(oid).set({lizenzen:liz, lizenzAgkSatz:agk},{merge:true}); notify('✓ Lizenzen gespeichert'); }
+  const rab=(_lizOrgRabatt[oid]>0)?_lizOrgRabatt[oid]:firebase.firestore.FieldValue.delete();
+  try{ await db.collection('orgs').doc(oid).set({lizenzen:liz, lizenzAgkSatz:agk, lizenzRabatt:rab},{merge:true}); notify('✓ Lizenzen gespeichert'); }
   catch(e){ notify(dlErr(e)); }
 }
 function renderLizenzen(){
@@ -10058,7 +10079,17 @@ function renderLizenzen(){
         :(((_lizCounts[dOrg.id]||{})._total||0)===0?`<div style="font-size:12px;background:#fffbeb;color:#854f0b;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;margin-bottom:10px;">Für diesen Mandanten wurden <b>keine aktiven Logins</b> gefunden (gezählt werden Personen mit PIN bzw. E-Mail-Konten, aktiv, mit Rolle — Personen ohne Login zählen nicht). „Vergeben" ist deshalb überall 0. Prüfen unter Admin → Personal/Benutzer.</div>`:'')}
       <table class="ep-table"><thead><tr><th>Artikel</th><th style="width:80px;text-align:right;">Anzahl</th><th style="width:66px;text-align:center;" title="Optional: ausgewiesen, aber nicht in der Vertragssumme">Optional</th><th style="width:96px;text-align:right;">Vergeben</th><th style="width:104px;text-align:right;">€ / Lizenz</th><th style="width:132px;text-align:right;">Summe</th></tr></thead>
       <tbody>${posRows}</tbody>
-      <tfoot><tr style="border-top:2px solid var(--border);"><td colspan="5" style="padding:8px 12px;font-weight:700;">Gesamt${sd.opt?' <span style="font-weight:400;font-size:11px;color:var(--text3);">(ohne optionale Positionen)</span>':''}</td><td style="padding:8px 12px;text-align:right;white-space:nowrap;"><b style="font-size:14px;">${_lizEur(sd.sum)}</b><span style="font-size:10.5px;color:var(--text3);"> / Monat</span><div style="font-size:10.5px;color:var(--text3);">${sd.agk?`darin ${_lizEur(sd.agk)} AGK · `:''}${_lizEur(sd.sum*12)} / Jahr</div>${sd.opt?`<div style="font-size:10.5px;color:var(--text3);font-style:italic;">optional zusätzlich: ${_lizEur(sd.opt)} / Monat</div>`:''}</td></tr></tfoot></table>
+      <tfoot>
+        <tr style="border-top:2px solid var(--border);"><td colspan="5" style="padding:7px 12px;font-weight:600;">Gesamt${sd.opt?' <span style="font-weight:400;font-size:11px;color:var(--text3);">(ohne optionale Positionen)</span>':''}${sd.agk?` <span style="font-weight:400;font-size:11px;color:var(--text3);">· darin ${_lizEur(sd.agk)} AGK</span>`:''}</td><td style="padding:7px 12px;text-align:right;white-space:nowrap;font-weight:600;">${_lizEur(sd.sum)}</td></tr>
+        <tr><td colspan="5" style="padding:4px 12px;">
+          <label style="font-size:12px;color:var(--text2);display:inline-flex;align-items:center;gap:5px;" title="Rabatt auf die Endsumme — beide Felder sind gekoppelt: %-Eingabe zeigt den Betrag, €-Eingabe rechnet den Prozentsatz aus. Gespeichert wird der Prozentsatz (mit „Lizenzen speichern").">Rabatt
+            <input style="${inp}width:64px;text-align:right;${sd.rabattP?'border-color:#93c5fd;':''}" value="${sd.rabattP?dlEsc(_lizPreisStr(Math.round(sd.rabattP*100)/100)):''}" placeholder="0" onchange="lizOrgRabatt('${_jsArg(dOrg.id)}','prozent',this.value)"> %
+            <span style="color:var(--text3);">≙</span>
+            <input style="${inp}width:84px;text-align:right;${sd.rabattP?'border-color:#93c5fd;':''}" value="${sd.rabatt?dlEsc(_lizPreisStr(Math.round(sd.rabatt*100)/100)):''}" placeholder="0,00" onchange="lizOrgRabatt('${_jsArg(dOrg.id)}','betrag',this.value)"> €
+          </label>
+        </td><td style="padding:4px 12px;text-align:right;white-space:nowrap;color:${sd.rabatt?'#b91c1c':'var(--text3)'};">${sd.rabatt?'− '+_lizEur(sd.rabatt):'—'}</td></tr>
+        <tr style="border-top:1.5px solid var(--border);"><td colspan="5" style="padding:8px 12px;font-weight:700;">Endsumme</td><td style="padding:8px 12px;text-align:right;white-space:nowrap;"><b style="font-size:14px;">${_lizEur(sd.end)}</b><span style="font-size:10.5px;color:var(--text3);"> / Monat</span><div style="font-size:10.5px;color:var(--text3);">${_lizEur(sd.end*12)} / Jahr</div>${sd.opt?`<div style="font-size:10.5px;color:var(--text3);font-style:italic;">optional zusätzlich: ${_lizEur(sd.opt)} / Monat</div>`:''}</td></tr>
+      </tfoot></table>
     </div>`;
   }
   root.innerHTML=preisliste+uebersicht+detail;
@@ -18019,7 +18050,7 @@ Object.assign(window,{
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleBhNames,toggleRequiredFeld,toggleRawSeg,_siInfo,
   openPapierkorbAnalyse,closePapierkorbAnalyse,paSetScope,paSetDist,paSetDiff,paSetSameStreet,paZoom,paToggleMin,checkMenuAnalyse,
   createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,dashSetBh,tourSetBh,epChangeBh,epTogglePersnr,epToggleBhCol,psSetOrgFilter,setSiTab,
-  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizArtAgk,lizAgkSatz,lizOrgAgkSatz,lizArtRolle,lizArtMove,lizZrFlip,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,lizPrintOrg,lizPrintAll,lizPrintPreisliste,praesenzRefresh,praesenzToggleLive,praesenzToggleLogging,praesenzResetHistory,errorsRefresh,errorsClear,
+  lizRefresh,lizArtAdd,lizArtDel,lizArtField,lizArtAgk,lizAgkSatz,lizOrgAgkSatz,lizOrgRabatt,lizArtRolle,lizArtMove,lizZrFlip,lizSaveArtikel,lizToggleOrg,lizSelectOrg,lizToggleKompakt,lizToggleListe,lizPosField,lizSaveOrg,lizPrintOrg,lizPrintAll,lizPrintPreisliste,praesenzRefresh,praesenzToggleLive,praesenzToggleLogging,praesenzResetHistory,errorsRefresh,errorsClear,
   switchView,openDetail,openAbschnitt,abschnittAddSeite,selectTree,closePanel,logWatering,applyClusterMode,
   openFoto,stepFoto,closeFoto,deleteFoto,openMeldungFotos,stepMeldungFoto,closeMeldungFoto,
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
