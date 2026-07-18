@@ -112,6 +112,32 @@ service cloud.firestore {
       allow delete: if isSuper();
     }
 
+    // ----- EWKFondsG-Leistungsnachweise (append-only) -----
+    // Unveränderlicher Nachweis je Leistungsereignis. Kein Update/Delete — AUCH NICHT für Admin/Superadmin:
+    // ein überschreibbares Dokument ist kein Nachweis. Korrektur = NEUER Satz mit korrigiertVon-Verweis.
+    // quelleId Pflicht (jedes Ereignis zeigt auf einen Rohbeleg); serverAt == request.time (unveränderlicher
+    // Server-Zeitstempel, auch offline korrekt); Personenbezug liegt GETRENNT in leistungszuordnung.
+    match /leistungsereignisse/{id} {
+      allow read:   if canPlan(resource.data.orgId);
+      allow create: if canPlan(request.resource.data.orgId)
+                    && request.resource.data.quelleId is string
+                    && request.resource.data.quelleId.size() > 0
+                    && request.resource.data.serverAt == request.time
+                    && request.resource.data.leistungsart in
+                       ['reinigung_strecke','sammlung_papierkorb','reinigung_flaeche',
+                        'reinigung_sinkkasten','entsorgung_abfall','sensibilisierung'];
+      allow update, delete: if false;
+    }
+
+    // ----- EWKFondsG-Personenbezug (DSGVO: getrennt vom Nachweis; nur Verwaltung liest) -----
+    // Ordnet ein Ereignis Mitarbeiter/Fahrzeug zu (Leistungskontrolle ≠ Nachweis). Ebenfalls append-only.
+    match /leistungszuordnung/{id} {
+      allow read:   if canManage(resource.data.orgId);
+      allow create: if canPlan(request.resource.data.orgId)
+                    && request.resource.data.serverAt == request.time;
+      allow update, delete: if false;
+    }
+
     // ----- Nutzerprofile (Admin-UI; massgeblich sind die Claims) -----
     match /users/{uid} {
       // Eigenes Profil immer; sonst nur Planer/Admin der Org (ein Fahrer soll die E-Mail-Liste NICHT lesen können).

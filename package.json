@@ -8,7 +8,7 @@
     "build": "node scripts/gen-changelog.mjs && vite build",
     "preview": "vite preview",
     "smoke": "node scripts/smoke.mjs",
-    "test": "node scripts/test-rules-contract.mjs && node scripts/test-handlers.mjs && node scripts/test-analyse.mjs && node scripts/test-session-guard.mjs"
+    "test": "node scripts/test-rules-contract.mjs && node scripts/test-handlers.mjs && node scripts/test-analyse.mjs && node scripts/test-session-guard.mjs && node scripts/test-ewk.mjs"
   },
   "repository": {
     "type": "git",
