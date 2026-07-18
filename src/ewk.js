@@ -31,6 +31,16 @@ export const LEISTUNGSART_INFO = {
   sensibilisierung:     'Aufklärungs-/Sensibilisierungsarbeit gegen Vermüllung (Kampagnen, Aktionen, Öffentlichkeitsarbeit). Menge: aufgewendete Mitarbeiterstunden (h).',
 };
 
+// Beleg-Referenz-Beispiel je Leistungsart (Platzhalter im manuellen Formular) — welcher Nachweis passt.
+export const LEISTUNGSART_BELEG = {
+  reinigung_strecke:    'z. B. Tour-/GPS-Nachweis, Kehrbuch',
+  sammlung_papierkorb:  'z. B. Leerungsnachweis / Kataster-Export',
+  reinigung_flaeche:    'z. B. Tour-/Leistungsnachweis',
+  reinigung_sinkkasten: 'z. B. Reinigungsprotokoll',
+  entsorgung_abfall:    'z. B. Wiegeschein-Nr.',
+  sensibilisierung:     'z. B. Zeiterfassungs-Export / Stundennachweis',
+};
+
 // Leistungsart eines Objekts auflösen: explizites Projekt-Mapping (Objektart → Leistungsart) vor geomType-Default.
 // artMap: { [artId]: leistungsart }. Straßenabschnitts-Objekte (geomType 'linie') gelten ohne Zuordnung als
 // Reinigung Strecke; Punkte/Flächen brauchen ein explizites Mapping (keine stille Klassifizierung).

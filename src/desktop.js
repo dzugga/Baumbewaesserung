@@ -27,7 +27,7 @@ import { printA4, printDoc, printDocFrame } from './printview.js';
 import { startPresence, presenceIsOnline, presenceMaxParallel, presenceDurationMs, presenceSessionEnd, PRESENCE_STALE_MS } from './presence.js';
 import { startAccountGuard, checkAccountLive } from './session-guard.js';
 import { LEISTUNGSARTEN, ortslageRelevant as ewkOrtslageRelevant, tarifFuer as ewkTarifFuer, satzText as ewkSatzText } from './ewk-tarif.js';
-import { LEISTUNGSART_LABELS, LEISTUNGSART_INFO, ewkLeistungsartOf, aggregateEreignisse, buildLeistungsereignis } from './ewk.js';
+import { LEISTUNGSART_LABELS, LEISTUNGSART_INFO, LEISTUNGSART_BELEG, ewkLeistungsartOf, aggregateEreignisse, buildLeistungsereignis } from './ewk.js';
 import { buildBatchDocHtml, REPORT_PRINT_CSS } from './report-batch.js';
 import { findFreqClusters } from './papierkorb-analyse.js'; // pure Erkennungs-Logik (Modul-First)
 import { buildShapefileZip, PRJ_ETRS89_UTM32N } from './geo-export.js';
@@ -12189,6 +12189,7 @@ function renderEwk(){
 function ewkManualHint(){
   const la=document.getElementById('ewk-la')?.value||'';
   const h=document.getElementById('ewk-hint'); if(h) h.textContent=LEISTUNGSART_INFO[la]||'';
+  const q=document.getElementById('ewk-quelle'); if(q) q.placeholder=LEISTUNGSART_BELEG[la]||'Beleg-/Quellenverweis';
   const ow=document.getElementById('ewk-ortslage')?.closest('label'); if(ow) ow.style.display=ewkOrtslageRelevant(la)?'':'none';
 }
 function renderMeldungen(){
