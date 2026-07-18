@@ -8495,13 +8495,75 @@ function _repSubRows(g,cfg){
   }
   return g.items.map(it=>({label:it.el, menge:it.menge, status: it.status==='bewaessert'?'erledigt':it.status==='nicht'?'nicht':'—', red: it.status==='nicht', grund: it.grund||''}));
 }
+// ── „von – bis": Querstraßen an den Kettenenden einer Straße, rein aus dem eigenen Netz ──
+// (kein von/bis im Bestand nötig: Straßenname + Geometrie je Abschnitt reichen)
+function _distPtSegM(p,a,b){ // Punkt→Segment in m (lokale flache Näherung, für <1 km völlig ausreichend)
+  const kx=111320*Math.cos(p[0]*Math.PI/180), ky=110540;
+  const ax=(a[1]-p[1])*kx, ay=(a[0]-p[0])*ky, bx=(b[1]-p[1])*kx, by=(b[0]-p[0])*ky;
+  const dx=bx-ax, dy=by-ay, L2=dx*dx+dy*dy;
+  const t=L2?Math.max(0,Math.min(1,(-(ax*dx+ay*dy))/L2)):0;
+  const x=ax+t*dx, y=ay+t*dy; return Math.sqrt(x*x+y*y);
+}
+function _distPtLineM(p,ll){ let m=Infinity; for(let i=1;i<ll.length;i++){ const d=_distPtSegM(p,ll[i-1],ll[i]); if(d<m)m=d; } return m; }
+// Kandidaten fürs Querstraßen-Matching: je Straße EIN Eintrag pro Linie (Container + freie Strecken;
+// Seiten ausgelassen — sie duplizieren nur die Container-Geometrie). Einmal je Bericht gebaut.
+function _vonBisCandidates(){
+  const out=[];
+  for(const t of (trees||[])){
+    if(t.containerExtId) continue; // Seite → Geometrie käme doppelt
+    const g=_treeGeom(t); if(!g||g.type!=='LineString') continue;
+    const ll=(g.coordinates||[]).map(c=>[c[1],c[0]]); if(ll.length<2) continue;
+    out.push({key:gruppeKeyOf(t,_containerByExt), name:t.name||'', ll});
+  }
+  return out;
+}
+function _streetVonBis(items, myKey, candidates){
+  // Linien der Straße: Container der Seiten (dedupliziert), sonst eigene Linien-Geometrie
+  const seen=new Set(), lines=[];
+  items.forEach(t=>{
+    const c=t.containerExtId?_containerByExt(t.containerExtId):null;
+    const src=c||t, id=src.extId||src.id;
+    if(seen.has(id)) return; seen.add(id);
+    const g=_treeGeom(src); if(!g||g.type!=='LineString') return;
+    const ll=(g.coordinates||[]).map(x=>[x[1],x[0]]); if(ll.length>1) lines.push(ll);
+  });
+  if(!lines.length) return '';
+  // Kettenenden = Endpunkte mit Knotengrad 1 (auf ~1 m gerastert)
+  const key=p=>p[0].toFixed(5)+','+p[1].toFixed(5);
+  const deg=new Map(), pts=new Map();
+  lines.forEach(l=>[l[0],l[l.length-1]].forEach(p=>{ const k=key(p); deg.set(k,(deg.get(k)||0)+1); pts.set(k,p); }));
+  const ends=[...deg.entries()].filter(([,n])=>n===1).map(([k])=>pts.get(k));
+  if(ends.length<2) return ''; // Ring/degeneriert → keine Angabe
+  // „von" = Ende am Routen-Einstieg (Anfang der ersten Linie in Fahrreihenfolge), „bis" = fernstes Ende
+  const entry=lines[0][0];
+  ends.sort((a,b)=>_distM(entry,a)-_distM(entry,b));
+  const von=ends[0]; let bis=ends[1];
+  for(const e of ends) if(_distM(von,e)>_distM(von,bis)) bis=e;
+  const nameAt=(p)=>{
+    let best='', bd=30; // >30 m entfernt = keine Querstraße
+    for(const c of candidates){
+      if(c.key===myKey) continue;
+      // grobe Vorprüfung über Anfang/Mitte/Ende der Kandidaten-Linie (Abschnitte sind kurz)
+      const l=c.ll, m=l[Math.floor(l.length/2)];
+      if(_distM(p,l[0])>800 && _distM(p,l[l.length-1])>800 && _distM(p,m)>800) continue;
+      const d=_distPtLineM(p,l);
+      if(d<bd){ bd=d; best=c.name; }
+    }
+    return best;
+  };
+  const v=nameAt(von), b=nameAt(bis);
+  if(!v&&!b) return '';
+  return 'von '+(v||'?')+' bis '+(b||'?');
+}
 function reportStreetGroups(tourId,cfg){
   const members=_repSort(tourId, trees.filter(t=>treeInTour(t,tourId)), cfg.sort);
   const pos=new Map(members.map((t,i)=>[t.id,i]));
   const groups=gruppiereNachStrasse(members,_containerByExt);
+  const cand=(cfg.vonBis!==false)?_vonBisCandidates():null; // Querstraßen-Kandidaten EINMAL je Bericht
   const out=groups.map(g=>{
     const items=[...g.items].sort((a,b)=>((pos.get(a.id)??1e9)-(pos.get(b.id)??1e9)));
     const minPos=items.reduce((m,t)=>Math.min(m,pos.get(t.id)??1e9),1e9);
+    const vonBis=cand?_streetVonBis(items,g.key,cand):'';
     let done=0,ausfall=0,sollM=0; const isArea=items.some(t=>geomTypeOf(t)==='flaeche');
     const rows=items.map(t=>{
       const rs=t.runStatus&&t.runStatus[tourId]; const st=(rs&&rs.status)||null;
@@ -8509,7 +8571,7 @@ function reportStreetGroups(tourId,cfg){
       const m=_effMenge(t); sollM+=m;
       return {id:t.id, el:orElement(t)||orTitel(t,_containerByExt)||'–', art:orObjektart(t)||t.art||'', menge:m, status:st, grund: st==='nicht'?((rs&&(rs.reason||rs.note))||''):''};
     });
-    return {label:g.label||'–', minPos, items:rows, done, ausfall, total:items.length, sollM, isArea};
+    return {label:g.label||'–', vonBis, minPos, items:rows, done, ausfall, total:items.length, sollM, isArea};
   }).sort((a,b)=>a.minPos-b.minPos);
   out.forEach((g,i)=>g.num=i+1);
   return out;
@@ -8521,7 +8583,7 @@ function _repStreetPreviewHtml(tourId,cfg){
   const th=['Nr.','Straße / Abschnitt','Soll','Status'].map(h=>`<th style="border:${bd};padding:4px 6px;text-align:left;background:var(--surface2);font-size:11px;white-space:nowrap;">${h}</th>`).join('');
   let body='';
   G.forEach(g=>{
-    body+=`<tr style="background:var(--surface2);"><td style="border:${bd};padding:3px 6px;font-size:11px;font-weight:700;">${g.num}</td><td style="border:${bd};padding:3px 6px;font-size:11px;font-weight:700;">${dlEsc(g.label)}</td><td style="border:${bd};padding:3px 6px;font-size:11px;font-weight:700;text-align:right;">${_repMengeFmt(g.sollM,g.isArea)}</td><td style="border:${bd};padding:3px 6px;font-size:11px;font-weight:700;">${dlEsc(_repStreetStatus(g))}</td></tr>`;
+    body+=`<tr style="background:var(--surface2);"><td style="border:${bd};padding:3px 6px;font-size:11px;font-weight:700;">${g.num}</td><td style="border:${bd};padding:3px 6px;font-size:11px;font-weight:700;">${dlEsc(g.label)}${g.vonBis?`<div style="font-size:10px;font-weight:400;color:var(--text3);">${dlEsc(g.vonBis)}</div>`:''}</td><td style="border:${bd};padding:3px 6px;font-size:11px;font-weight:700;text-align:right;">${_repMengeFmt(g.sollM,g.isArea)}</td><td style="border:${bd};padding:3px 6px;font-size:11px;font-weight:700;">${dlEsc(_repStreetStatus(g))}</td></tr>`;
     _repSubRows(g,cfg).forEach(r=>{
       body+=`<tr><td style="border:${bd};"></td><td style="border:${bd};padding:2px 6px 2px 20px;font-size:11px;">${dlEsc(r.label)}${r.grund?` <span style="color:var(--red);">— ${dlEsc(r.grund)}</span>`:''}</td><td style="border:${bd};padding:2px 6px;font-size:11px;text-align:right;">${_repMengeFmt(r.menge,g.isArea)}</td><td style="border:${bd};padding:2px 6px;font-size:11px;${r.red?'color:var(--red);':''}">${dlEsc(r.status)}</td></tr>`;
     });
@@ -8532,7 +8594,7 @@ function _repStreetTableHtml(tourId,cfg){
   const tour=tours.find(t=>t.id===tourId); const G=reportStreetGroups(tourId,cfg); const esc=dlEsc;
   let body='';
   G.forEach(g=>{
-    body+=`<tr style="background:#eee;font-weight:bold;"><td class="nr">${g.num}</td><td>${esc(g.label)}</td><td class="num">${_repMengeFmt(g.sollM,g.isArea)}</td><td>${esc(_repStreetStatus(g))}</td></tr>`;
+    body+=`<tr style="background:#eee;font-weight:bold;"><td class="nr">${g.num}</td><td>${esc(g.label)}${g.vonBis?` <span style="font-weight:normal;font-size:90%;">— ${esc(g.vonBis)}</span>`:''}</td><td class="num">${_repMengeFmt(g.sollM,g.isArea)}</td><td>${esc(_repStreetStatus(g))}</td></tr>`;
     _repSubRows(g,cfg).forEach(r=>{
       body+=`<tr><td></td><td style="padding-left:16px;">${esc(r.label)}${r.grund?` — ${esc(r.grund)}`:''}</td><td class="num">${_repMengeFmt(r.menge,g.isArea)}</td><td>${esc(r.status==='—'?'':r.status)}</td></tr>`;
     });
@@ -8548,9 +8610,9 @@ function openTourReport(tourId){
   const tpls=currentProjectData?.reportTemplates||[];
   let cfg;
   // Vorrang: an der TOUR gespeicherter Standard > erste Projekt-Vorlage > eingebauter Default
-  if(tour.reportCfg&&Array.isArray(tour.reportCfg.columns)){ const t=tour.reportCfg; cfg={columns:[...t.columns],showNotiz:!!t.showNotiz,abhak:t.abhak||'leer',sort:t.sort||'route',title:t.title||'',sub:t.sub||'',gruppe:t.gruppe||'keine',abschnittDetail:t.abschnittDetail||'einzeln'}; }
-  else if(tpls.length){ const t=tpls[0]; cfg={columns:[...(t.columns||[])],showNotiz:!!t.showNotiz,abhak:t.abhak||'leer',sort:t.sort||'route',title:t.title||'',sub:t.sub||'',gruppe:t.gruppe||'keine',abschnittDetail:t.abschnittDetail||'einzeln'}; }
-  else cfg={columns:(isFl?['name','objektart','menge']:['name','baumnr','art']).filter(k=>fields.some(f=>f.key===k)),showNotiz:true,abhak:'leer',sort:(tour.manualOrder?'manual':'route'),title:'Bemerkungen',sub:'',gruppe:'keine',abschnittDetail:'einzeln'};
+  if(tour.reportCfg&&Array.isArray(tour.reportCfg.columns)){ const t=tour.reportCfg; cfg={columns:[...t.columns],showNotiz:!!t.showNotiz,abhak:t.abhak||'leer',sort:t.sort||'route',title:t.title||'',sub:t.sub||'',gruppe:t.gruppe||'keine',abschnittDetail:t.abschnittDetail||'einzeln',vonBis:t.vonBis!==false}; }
+  else if(tpls.length){ const t=tpls[0]; cfg={columns:[...(t.columns||[])],showNotiz:!!t.showNotiz,abhak:t.abhak||'leer',sort:t.sort||'route',title:t.title||'',sub:t.sub||'',gruppe:t.gruppe||'keine',abschnittDetail:t.abschnittDetail||'einzeln',vonBis:t.vonBis!==false}; }
+  else cfg={columns:(isFl?['name','objektart','menge']:['name','baumnr','art']).filter(k=>fields.some(f=>f.key===k)),showNotiz:true,abhak:'leer',sort:(tour.manualOrder?'manual':'route'),title:'Bemerkungen',sub:'',gruppe:'keine',abschnittDetail:'einzeln',vonBis:true};
   _rep={tourId,cfg}; window._rep=_rep;
   document.getElementById('report-modal').classList.add('open');
   renderReportDialog();
@@ -8566,7 +8628,7 @@ async function saveTourReportStd(){
   repApplyFromControls();
   const g=id=>document.getElementById(id);
   const map={ format:g('repmap-format')?.value||'auto', bg:g('repmap-bg')?.value||'grau', depot:!!(g('repmap-depot')?.checked), detail:g('repmap-detail')?.value||'auto' };
-  const cfg={ columns:[..._rep.cfg.columns], showNotiz:!!_rep.cfg.showNotiz, abhak:_rep.cfg.abhak||'leer', sort:_rep.cfg.sort||'route', title:_rep.cfg.title||'', sub:_rep.cfg.sub||'', gruppe:_rep.cfg.gruppe||'keine', abschnittDetail:_rep.cfg.abschnittDetail||'einzeln', map };
+  const cfg={ columns:[..._rep.cfg.columns], showNotiz:!!_rep.cfg.showNotiz, abhak:_rep.cfg.abhak||'leer', sort:_rep.cfg.sort||'route', title:_rep.cfg.title||'', sub:_rep.cfg.sub||'', gruppe:_rep.cfg.gruppe||'keine', abschnittDetail:_rep.cfg.abschnittDetail||'einzeln', vonBis:_rep.cfg.vonBis!==false, map };
   try{
     await updateDoc(doc(db,'projects',currentProjectId,'tours',_rep.tourId),{reportCfg:cfg});
     const t=tours.find(x=>x.id===_rep.tourId); if(t) t.reportCfg=cfg;
@@ -8605,7 +8667,8 @@ function renderReportDialog(){
        <select id="rep-gruppe" class="form-control" style="width:100%;" onchange="repApplyFromControls()"><option value="keine"${cfg.gruppe!=='strasse'?' selected':''}>Keine (je Objekt)</option><option value="strasse"${cfg.gruppe==='strasse'?' selected':''}>Nach Straße (Kehrtour)</option></select>
        ${cfg.gruppe==='strasse'?`<div style="font-size:12px;color:var(--text2);margin:8px 0 3px;">Abschnitte</div>
        <select id="rep-abschnittdetail" class="form-control" style="width:100%;" onchange="repApplyFromControls()"><option value="einzeln"${cfg.abschnittDetail!=='objektart'?' selected':''}>Einzeln auflisten</option><option value="objektart"${cfg.abschnittDetail==='objektart'?' selected':''}>Nach Objektart zusammenfassen</option></select>
-       <div style="font-size:11px;color:var(--text3);margin-top:4px;">Reihenfolge aus der Route · Spalten-/Abhak-Optionen entfallen.</div>`:''}
+       <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-top:8px;"><input type="checkbox" id="rep-vonbis" ${cfg.vonBis!==false?'checked':''} onchange="repApplyFromControls()"> „von – bis" (Querstraßen) je Straße</label>
+       <div style="font-size:11px;color:var(--text3);margin-top:4px;">Reihenfolge aus der Route · Spalten-/Abhak-Optionen entfallen. „von – bis" wird aus den Abschnitts-Geometrien des Projekts abgeleitet.</div>`:''}
      </div>
    </div>
    ${_repH('Kopfzeile')}
@@ -8648,6 +8711,7 @@ function repApplyFromControls(){
   if(g('rep-title')) cfg.title=g('rep-title').value;
   if(g('rep-sub')) cfg.sub=g('rep-sub').value;
   if(g('rep-abschnittdetail')) cfg.abschnittDetail=g('rep-abschnittdetail').value;
+  if(g('rep-vonbis')) cfg.vonBis=g('rep-vonbis').checked;
   const gr=g('rep-gruppe')&&g('rep-gruppe').value;
   if(gr!=null && gr!==cfg.gruppe){ cfg.gruppe=gr; renderReportDialog(); return; } // Modus-Wechsel: Dialog neu (Schalter + Vorschau)
   renderReportPreview();
@@ -8657,7 +8721,13 @@ function repRemoveCol(k){ if(_rep){ _rep.cfg.columns=_rep.cfg.columns.filter(x=>
 function repMoveCol(k,dir){ if(!_rep)return; const a=_rep.cfg.columns,i=a.indexOf(k),j=i+dir; if(i<0||j<0||j>=a.length)return; [a[i],a[j]]=[a[j],a[i]]; renderReportDialog(); }
 function renderReportPreview(){
   if(!_rep) return; const el=document.getElementById('rep-preview'); if(!el) return;
-  if(_rep.cfg.gruppe==='strasse'){ el.innerHTML=_repStreetPreviewHtml(_rep.tourId,_rep.cfg); return; }
+  if(_rep.cfg.gruppe==='strasse'){
+    const hadGeom=Object.keys(_flGeomByExt).length>0;
+    el.innerHTML=_repStreetPreviewHtml(_rep.tourId,_rep.cfg);
+    // Bundle-Geometrie (importierte Abschnitte) ggf. nachladen → „von – bis"/Soll-Längen dann neu rendern
+    if(!hadGeom) _ensureFlaechenGeom().then(()=>{ const e2=document.getElementById('rep-preview'); if(e2&&_rep&&_rep.cfg.gruppe==='strasse') e2.innerHTML=_repStreetPreviewHtml(_rep.tourId,_rep.cfg); });
+    return;
+  }
   const R=reportRows(_rep.tourId,_rep.cfg);
   if(!R.rows.length){ el.innerHTML='<div style="font-size:12px;color:var(--text3);">Keine Objekte in dieser Tour.</div>'; return; }
   const th=R.headers.map(h=>`<th style="border:1px solid var(--border);padding:4px 6px;text-align:left;background:var(--surface2);font-size:11px;white-space:nowrap;">${dlEsc(h)}</th>`).join('');
@@ -8712,7 +8782,7 @@ function exportReportExcel(){
   if(cfg.gruppe==='strasse'){
     const G=reportStreetGroups(tourId,cfg);
     const aoa=[[tour&&tour.name||'Bericht']]; if(cfg.title||cfg.sub) aoa.push([((cfg.title||'')+' '+(cfg.sub||'')).trim()]); aoa.push([]); aoa.push(['Nr.','Straße / Abschnitt','Soll','Status']);
-    G.forEach(g=>{ aoa.push([g.num,g.label,_repMengeFmt(g.sollM,g.isArea),_repStreetStatus(g)]);
+    G.forEach(g=>{ aoa.push([g.num, g.label+(g.vonBis?' ('+g.vonBis+')':''), _repMengeFmt(g.sollM,g.isArea), _repStreetStatus(g)]);
       _repSubRows(g,cfg).forEach(r=>aoa.push(['','   '+r.label+(r.grund?' — '+r.grund:''),_repMengeFmt(r.menge,g.isArea),r.status==='—'?'':r.status])); });
     const ws=XLSX.utils.aoa_to_sheet(aoa); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Straßen');
     XLSX.writeFile(wb, ((tour&&tour.name||'Bericht').replace(/[^\wäöüÄÖÜß-]+/g,'_'))+'_Strassen.xlsx'); return;
@@ -8733,9 +8803,9 @@ function _tourBatchCfg(tour){
   const isFl=trees.some(t=>treeInTour(t,tour.id)&&geomTypeOf(t)==='flaeche');
   const tpls=currentProjectData?.reportTemplates||[];
   let cfg;
-  if(tour.reportCfg&&Array.isArray(tour.reportCfg.columns)){ const t=tour.reportCfg; cfg={columns:[...t.columns],showNotiz:!!t.showNotiz,abhak:t.abhak||'leer',sort:t.sort||'route',title:t.title||'',sub:t.sub||'',gruppe:t.gruppe||'keine',abschnittDetail:t.abschnittDetail||'einzeln'}; }
-  else if(tpls.length){ const t=tpls[0]; cfg={columns:[...(t.columns||[])],showNotiz:!!t.showNotiz,abhak:t.abhak||'leer',sort:t.sort||'route',title:t.title||'',sub:t.sub||'',gruppe:t.gruppe||'keine',abschnittDetail:t.abschnittDetail||'einzeln'}; }
-  else cfg={columns:(isFl?['name','objektart','menge']:['name','baumnr','art']).filter(k=>fields.some(f=>f.key===k)),showNotiz:true,abhak:'leer',sort:(tour.manualOrder?'manual':'route'),title:'Bemerkungen',sub:'',gruppe:'keine',abschnittDetail:'einzeln'};
+  if(tour.reportCfg&&Array.isArray(tour.reportCfg.columns)){ const t=tour.reportCfg; cfg={columns:[...t.columns],showNotiz:!!t.showNotiz,abhak:t.abhak||'leer',sort:t.sort||'route',title:t.title||'',sub:t.sub||'',gruppe:t.gruppe||'keine',abschnittDetail:t.abschnittDetail||'einzeln',vonBis:t.vonBis!==false}; }
+  else if(tpls.length){ const t=tpls[0]; cfg={columns:[...(t.columns||[])],showNotiz:!!t.showNotiz,abhak:t.abhak||'leer',sort:t.sort||'route',title:t.title||'',sub:t.sub||'',gruppe:t.gruppe||'keine',abschnittDetail:t.abschnittDetail||'einzeln',vonBis:t.vonBis!==false}; }
+  else cfg={columns:(isFl?['name','objektart','menge']:['name','baumnr','art']).filter(k=>fields.some(f=>f.key===k)),showNotiz:true,abhak:'leer',sort:(tour.manualOrder?'manual':'route'),title:'Bemerkungen',sub:'',gruppe:'keine',abschnittDetail:'einzeln',vonBis:true};
   const map=(tour.reportCfg&&tour.reportCfg.map)||{format:'auto',bg:'grau',depot:true,detail:'auto'};
   return {cfg,map};
 }
@@ -8865,6 +8935,7 @@ function openTourBatchPrint(){
         i++; go.textContent=`Erzeuge ${i}/${ids.length}…`;
         const {cfg,map}=_tourBatchCfg(tour);
         const sec={name:tour.name||''};
+        if(cfg.gruppe==='strasse') await _ensureFlaechenGeom(); // „von – bis"/Soll braucht die Bundle-Geometrie
         if(mode!=='karte') sec.tableHtml=cfg.gruppe==='strasse'?_repStreetTableHtml(id,cfg):_repTableHtml(id,cfg);
         if(mode!=='bericht') sec.mapImgs=await _batchCaptureTourMap(id,map);
         sections.push(sec);
@@ -9114,14 +9185,14 @@ async function printTourMap(){
 }
 async function saveReportTemplate(){
   if(!_rep) return; const name=(prompt('Name der Vorlage:', _rep.cfg.title||'Bericht')||'').trim(); if(!name) return;
-  const c=_rep.cfg; const tpl={name,columns:[...c.columns],showNotiz:c.showNotiz,abhak:c.abhak,sort:c.sort,title:c.title||'',sub:c.sub||'',gruppe:c.gruppe||'keine',abschnittDetail:c.abschnittDetail||'einzeln'};
+  const c=_rep.cfg; const tpl={name,columns:[...c.columns],showNotiz:c.showNotiz,abhak:c.abhak,sort:c.sort,title:c.title||'',sub:c.sub||'',gruppe:c.gruppe||'keine',abschnittDetail:c.abschnittDetail||'einzeln',vonBis:c.vonBis!==false};
   const list=(currentProjectData?.reportTemplates||[]).filter(t=>t.name!==name); list.push(tpl);
   try{ await saveProjectSettings({reportTemplates:list}); if(currentProjectData) currentProjectData.reportTemplates=list; renderReportDialog(); notify('✓ Vorlage gespeichert'); }
   catch(e){ notify(dlErr(e)); }
 }
 function loadReportTemplate(idx){
   if(idx===''||idx==null||!_rep) return; const t=(currentProjectData?.reportTemplates||[])[+idx]; if(!t) return;
-  _rep.cfg={columns:[...(t.columns||[])],showNotiz:!!t.showNotiz,abhak:t.abhak||'leer',sort:t.sort||'route',title:t.title||'',sub:t.sub||'',gruppe:t.gruppe||'keine',abschnittDetail:t.abschnittDetail||'einzeln'};
+  _rep.cfg={columns:[...(t.columns||[])],showNotiz:!!t.showNotiz,abhak:t.abhak||'leer',sort:t.sort||'route',title:t.title||'',sub:t.sub||'',gruppe:t.gruppe||'keine',abschnittDetail:t.abschnittDetail||'einzeln',vonBis:t.vonBis!==false};
   renderReportDialog();
 }
 function openOrderEditor(){
