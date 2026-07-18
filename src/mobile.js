@@ -1120,25 +1120,49 @@ function renderMarkers() {
 // Kompakte Straßen-Nummern für Abschnitts-Touren: EINE Pille je Straße (gleiche Nummer wie in der
 // Liste), am Anfang des ersten Abschnitts. Nächste Straße = gefüllt, fertige Straßen dezent.
 let _streetPills=[];
-function _streetAnchor(t){
-  const g=_mGeom(t);
-  if(g&&g.type==='LineString'&&(g.coordinates||[]).length) return [g.coordinates[0][1],g.coordinates[0][0]];
-  return navPoint(t);
+// Punkt bei Anteil frac (0..1) entlang einer Linie — Pille sitzt IN der eigenen Straße statt am
+// Anfangspunkt (Anfang = Kreuzung = Anker der Nachbarstraße → Pillen lagen übereinander).
+function _pointAlong(g, frac){
+  const c=(g&&g.type==='LineString'&&g.coordinates)||[]; if(!c.length) return null;
+  const pts=c.map(p=>[p[1],p[0]]); if(pts.length<2) return pts[0];
+  const seg=[]; let total=0;
+  for(let i=1;i<pts.length;i++){ const d=haversine(pts[i-1][0],pts[i-1][1],pts[i][0],pts[i][1]); seg.push(d); total+=d; }
+  if(!total) return pts[0];
+  let target=total*frac;
+  for(let i=0;i<seg.length;i++){
+    if(target<=seg[i]){ const r=seg[i]?target/seg[i]:0; return [pts[i][0]+(pts[i+1][0]-pts[i][0])*r, pts[i][1]+(pts[i+1][1]-pts[i][1])*r]; }
+    target-=seg[i];
+  }
+  return pts[pts.length-1];
 }
 function _renderStreetPills(){
   _streetPills.forEach(m=>{ try{ map.removeLayer(m); }catch(_){} }); _streetPills=[];
   const groups=_streetGroups(trees);
   const color=currentTour?.color||'#2d6a4f';
   const nextId=routeOrder[getNextIdx()];
+  const placed=[]; // gesetzte Anker → Kollisionen vermeiden (Pille rutscht weiter in die Straße)
   groups.forEach((g,gi)=>{
     if(!g.items.some(t=>t.containerExtId)) return; // Straßen-Nummern nur für Abschnitte (Punkte behalten Marker)
-    const first=g.items.find(t=>_mGeom(t))||g.items[0];
-    const anchor=_streetAnchor(first); if(!anchor) return;
-    const fertig=(g.done+g.ausfall)>=g.total;
+    const first=g.items.find(t=>{ const gm=_mGeom(t); return gm&&gm.type==='LineString'; })||g.items[0];
+    const gm=_mGeom(first);
+    // Kandidaten-Positionen entlang der Linie; erste ohne Nachbar-Pille im 30-m-Umkreis gewinnt
+    let anchor=null;
+    for(const frac of [0.35,0.55,0.75,0.15]){
+      const p=gm?_pointAlong(gm,frac):navPoint(first);
+      if(!p) break;
+      if(!placed.some(q=>haversine(q[0],q[1],p[0],p[1])*1000<30)){ anchor=p; break; }
+      if(!anchor) anchor=p; // Fallback: schlechteste Position merken
+    }
+    if(!anchor) anchor=navPoint(first);
+    if(!anchor) return;
+    placed.push(anchor);
+    const rep=g.done+g.ausfall, fertig=rep>=g.total, teil=!fertig&&rep>0;
     const isNext=g.items.some(t=>t.id===nextId);
-    const bg=isNext?color:(fertig?'#f8fafc':'#fff');
-    const fg=isNext?'#fff':(fertig?'#94a3b8':color);
-    const bd=isNext?'#fff':(fertig?'#cbd5e1':color);
+    // Status kräftig in der Pille: fertig = GRÜN gefüllt (roter Rand bei Ausfällen), teilweise = gelb
+    let bg='#fff', fg=color, bd=color;
+    if(isNext){ bg=color; fg='#fff'; bd='#fff'; }
+    else if(fertig){ bg='#16a34a'; fg='#fff'; bd=g.ausfall?'#dc2626':'#fff'; }
+    else if(teil){ bg='#fff'; fg='#b45309'; bd='#f59e0b'; }
     const m=L.marker(anchor,{interactive:true, zIndexOffset:isNext?1000:500, icon:L.divIcon({className:'',
       html:`<div style="min-width:26px;height:22px;padding:0 7px;border-radius:11px;background:${bg};color:${fg};border:2px solid ${bd};box-shadow:0 1px 4px rgba(0,0,0,.3);display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;white-space:nowrap;">${gi+1}</div>`,
       iconSize:null, iconAnchor:[14,11]})})
