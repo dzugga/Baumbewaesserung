@@ -26,8 +26,8 @@ import { tourDueOn as _tkTourDueOn, tourInValidity as _tourInValidity, tourBetri
 import { printA4, printDoc, printDocFrame } from './printview.js';
 import { startPresence, presenceIsOnline, presenceMaxParallel, presenceDurationMs, presenceSessionEnd, PRESENCE_STALE_MS } from './presence.js';
 import { startAccountGuard, checkAccountLive } from './session-guard.js';
-import { LEISTUNGSARTEN, ortslageRelevant as ewkOrtslageRelevant, tarifFuer as ewkTarifFuer } from './ewk-tarif.js';
-import { LEISTUNGSART_LABELS, ewkLeistungsartOf, aggregateEreignisse, buildLeistungsereignis } from './ewk.js';
+import { LEISTUNGSARTEN, ortslageRelevant as ewkOrtslageRelevant, tarifFuer as ewkTarifFuer, satzText as ewkSatzText } from './ewk-tarif.js';
+import { LEISTUNGSART_LABELS, LEISTUNGSART_INFO, ewkLeistungsartOf, aggregateEreignisse, buildLeistungsereignis } from './ewk.js';
 import { buildBatchDocHtml, REPORT_PRINT_CSS } from './report-batch.js';
 import { findFreqClusters } from './papierkorb-analyse.js'; // pure Erkennungs-Logik (Modul-First)
 import { buildShapefileZip, PRJ_ETRS89_UTM32N } from './geo-export.js';
@@ -12146,7 +12146,9 @@ function renderEwk(){
   const ss='padding:5px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;';
   const rows=LEISTUNGSARTEN.map(la=>{ const a=agg.perArt[la]; const el=EINH[la];
     return `<tr style="border-top:1px solid var(--border);">
-      <td style="padding:7px 10px;">${dlEsc(LEISTUNGSART_LABELS[la])}</td>
+      <td style="padding:7px 10px;">
+        <div style="display:flex;align-items:center;gap:6px;"><span>${dlEsc(LEISTUNGSART_LABELS[la])}</span><span title="${dlEsc(LEISTUNGSART_INFO[la]||'')}" style="cursor:help;color:var(--text3);font-size:12px;">ⓘ</span></div>
+        <div style="font-size:11px;color:var(--text3);margin-top:1px;">${dlEsc(ewkSatzText(la, year+'-06-01'))}</div></td>
       <td style="padding:7px 10px;text-align:right;">${a?nf(a.innerorts,0):'0'} ${el}</td>
       <td style="padding:7px 10px;text-align:right;">${a?nf(a.ausserorts,0):'0'} ${el}</td>
       <td style="padding:7px 10px;text-align:right;font-weight:600;">${a?nf(a.punkte):'0,0'}</td></tr>`; }).join('');
@@ -12156,14 +12158,14 @@ function renderEwk(){
       <div style="font-weight:700;font-size:13px;margin-bottom:2px;">Manuelle Leistung erfassen</div>
       <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">Für Leistungen aus Fremdsystemen (Wiegescheine/Abfall, Sensibilisierungsstunden) oder Papierkörbe, solange die UBA-Auslegung offen ist. Beleg-Referenz ist Pflicht.</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
-        <label style="font-size:11px;color:var(--text2);">Leistungsart<br><select id="ewk-la" style="${ss}">${LEISTUNGSARTEN.map(k=>`<option value="${k}">${dlEsc(LEISTUNGSART_LABELS[k])}</option>`).join('')}</select></label>
+        <label style="font-size:11px;color:var(--text2);">Leistungsart<br><select id="ewk-la" onchange="ewkManualHint()" style="${ss}">${LEISTUNGSARTEN.map(k=>`<option value="${k}">${dlEsc(LEISTUNGSART_LABELS[k])}</option>`).join('')}</select></label>
         <label style="font-size:11px;color:var(--text2);">Menge<br><input id="ewk-menge" type="text" inputmode="decimal" style="${ss}width:90px;"></label>
         <label style="font-size:11px;color:var(--text2);">Ortslage<br><select id="ewk-ortslage" style="${ss}"><option value="innerorts">innerorts</option><option value="ausserorts">außerorts</option></select></label>
         <label style="font-size:11px;color:var(--text2);">Datum<br><input id="ewk-datum" type="date" value="${year}-12-31" style="${ss}"></label>
         <label style="font-size:11px;color:var(--text2);flex:1;min-width:170px;">Beleg-Referenz (Pflicht)<br><input id="ewk-quelle" type="text" placeholder="z. B. Wiegeschein-Nr. / Fremdsystem-Export" style="${ss}width:100%;"></label>
         <button class="btn btn-secondary" onclick="ewkAddManual()" style="padding:7px 14px;font-size:12px;">Hinzufügen</button>
       </div>
-      <div style="font-size:11px;color:var(--text3);margin-top:8px;">Einheiten: Strecke km · Papierkorb Liter · Fläche m² · Sinkkasten Stück · Abfall Tonnen · Sensibilisierung Stunden. Menge wird in der jeweiligen Einheit eingegeben.</div>
+      <div id="ewk-hint" style="font-size:11px;color:var(--text2);margin-top:9px;background:var(--surface2);border-radius:6px;padding:7px 10px;"></div>
     </div>`;
   body.innerHTML=`<div style="max-width:900px;margin:0 auto;">
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:4px;">
@@ -12181,6 +12183,13 @@ function renderEwk(){
     </table>
     ${form}
   </div>`;
+  if(!ro) ewkManualHint();
+}
+// Hinweistext + Ortslage-Sichtbarkeit im manuellen Erfassungsformular je gewählter Leistungsart.
+function ewkManualHint(){
+  const la=document.getElementById('ewk-la')?.value||'';
+  const h=document.getElementById('ewk-hint'); if(h) h.textContent=LEISTUNGSART_INFO[la]||'';
+  const ow=document.getElementById('ewk-ortslage')?.closest('label'); if(ow) ow.style.display=ewkOrtslageRelevant(la)?'':'none';
 }
 function renderMeldungen(){
   const el=document.getElementById('meldungen-body'); if(!el) return;
@@ -17638,7 +17647,7 @@ Object.assign(window,{
   filterAbschnitteTable,filterAbschnitteTableDebounced,toggleAbschnShowAll,downloadAbschnitteExport,
   nmSetType,nmSetAudience,nmToggleSel,nmToggle,_nmSetTour,nmSend,nmArchive,
   nmUnarchive,nmToggleArchived,nmDelArm,nmDelCancel,nmDeleteDo,setPushEnabled,
-  renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,ewkFelderAnlegen,ewkSetArtMap,ewkSetYear,ewkAddManual,renameCustomField,removeCustomField,_fillMerge,cfGeomToggle,
+  renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,ewkFelderAnlegen,ewkSetArtMap,ewkSetYear,ewkAddManual,ewkManualHint,renameCustomField,removeCustomField,_fillMerge,cfGeomToggle,
   rankAdd,rankRename,rankSetColor,rankSetZahl,rankSetZahlWinter,rankMove,rankMerge,rankDelete,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
   openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,

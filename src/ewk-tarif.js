@@ -48,6 +48,17 @@ export function tarifFuer(datumStr) {
   return EWK_TARIFE.find(t => d >= t.gueltigVon && (t.gueltigBis == null || d <= t.gueltigBis)) || null;
 }
 
+// Anzeigetext des geltenden Punktesatzes (innerorts / außerorts je Bezugsmenge) — für Transparenz in der UI.
+export function satzText(leistungsart, datumStr) {
+  const t = tarifFuer(datumStr); if (!t) return '';
+  const s = t.saetze[leistungsart]; if (!s) return '';
+  const nf = n => Number(n).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const einh = { reinigung_strecke: 'km', sammlung_papierkorb: 'L', reinigung_flaeche: 'm²', reinigung_sinkkasten: 'Stück', entsorgung_abfall: 't', sensibilisierung: 'h' }[leistungsart] || '';
+  const bezug = (s.pro > 1 ? s.pro.toLocaleString('de-DE') + ' ' : '') + einh;
+  const auss = (s.ausserorts == null) ? '–' : nf(s.ausserorts);
+  return `${nf(s.innerorts)} / ${auss} Punkte je ${bezug}`;
+}
+
 // Punkte für ein einzelnes Ereignis. { punkte, tarifVersion, satz } oder null bei ungültiger Kombination.
 // Bei nicht-lagerelevanten Arten wird der (gleiche) innerorts-Satz genommen. Sinkkasten außerorts → 0 (entfällt).
 export function punkteFuer({ leistungsart, menge, ortslage, datumStr }) {

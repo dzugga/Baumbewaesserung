@@ -21,6 +21,16 @@ export const LEISTUNGSART_LABELS = {
   sensibilisierung:     'Sensibilisierung',
 };
 
+// Kurzbeschreibung je Leistungsart (§ 3 EWKFondsV) + was in der Menge einzutragen ist. Sachlich, keine Euro.
+export const LEISTUNGSART_INFO = {
+  reinigung_strecke:    'Reinigung befestigter Flächen (Fahrbahn, Geh- und Radwege, Plätze). Menge: gereinigte Länge in Kilometern (km).',
+  sammlung_papierkorb:  'Sammlung/Leerung öffentlicher Papierkörbe. Menge: Papierkorb-Volumen in Litern (L). Ob installiertes oder geleertes Volumen gilt, ist beim UBA noch offen.',
+  reinigung_flaeche:    'Reinigung unbefestigter Flächen (Grünflächen u. Ä.). Menge: gereinigte Fläche in Quadratmetern (m²).',
+  reinigung_sinkkasten: 'Reinigung von Straßenabläufen/Sinkkästen. Menge: Anzahl gereinigter Sinkkästen (Stück). Nur innerorts — außerorts entfällt.',
+  entsorgung_abfall:    'Entsorgung der gesammelten Abfallmenge. Menge: Tonnen (t). Beleg z. B. Wiegeschein.',
+  sensibilisierung:     'Aufklärungs-/Sensibilisierungsarbeit gegen Vermüllung (Kampagnen, Aktionen, Öffentlichkeitsarbeit). Menge: aufgewendete Mitarbeiterstunden (h).',
+};
+
 // Leistungsart eines Objekts auflösen: explizites Projekt-Mapping (Objektart → Leistungsart) vor geomType-Default.
 // artMap: { [artId]: leistungsart }. Straßenabschnitts-Objekte (geomType 'linie') gelten ohne Zuordnung als
 // Reinigung Strecke; Punkte/Flächen brauchen ein explizites Mapping (keine stille Klassifizierung).
