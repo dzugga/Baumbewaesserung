@@ -3,7 +3,7 @@ import { installErrorHandler } from './errlog.js'; installErrorHandler('mobil');
 import { BASEMAP_FARBE, BASEMAP_GRAU, BASEMAP_ATTR } from './basemaps.js';
 import { firebaseConfig } from './firebase-config.js';
 import { esc } from './esc.js';
-import { titelOf, typOf, buildContainerIndex, klasseFelderOf } from './objektrollen.js';
+import { titelOf, typOf, buildContainerIndex, klasseFelderOf, gruppiereNachStrasse, elementOf } from './objektrollen.js';
 import { startSession, endSession } from './session.js';
 import { startPresence } from './presence.js';
 import { startAccountGuard } from './session-guard.js';
@@ -472,6 +472,7 @@ async function startBewässerungLogin(name, pid, tid) {
     cacheTreesLocally(pid, tid, trees);
 
     // Render
+    _openStreets.clear(); // Straßen-Akkordeon der vorherigen Tour zurücksetzen
     renderMarkers();
     renderList('');
     updateProgress();
@@ -1843,11 +1844,15 @@ window.naviSetBearing=(deg)=>{ if(map&&map.setBearing){ map.setBearing(deg); ret
 // ═══ ENDE NAVI-MODUS ══════════════════════════════════════════════
 
 // ─── LIST ──────────────────────────────────────────────────────
+// Aufgeklappte Straßen der Straßen-Liste (bleibt über Re-Renders erhalten)
+let _openStreets=new Set();
 function renderList(q=''){
   const el=document.getElementById('tree-list-mobile');
   let list=routeOrder.map(id=>trees.find(t=>t.id===id)).filter(Boolean);
   if(q){ const ql=q.toLowerCase(); list=list.filter(t=>titelOf(t,_getContainer).toLowerCase().includes(ql)||(t.art||'').toLowerCase().includes(ql)); }
-  if(list.length===0){el.innerHTML='<div style="padding:40px;text-align:center;color:var(--text3);">Keine Bäume</div>';return;}
+  if(list.length===0){el.innerHTML='<div style="padding:40px;text-align:center;color:var(--text3);">Keine Objekte</div>';return;}
+  // Straßen-Modus (Kehrtouren): Abschnitts-Seiten je Straße zusammenfassen — nur wenn die Tour welche enthält
+  if(list.some(t=>t.containerExtId)){ _renderStreetList(el,list,q); return; }
   el.innerHTML=list.map((tree,i)=>{
     const idx=routeOrder.indexOf(tree.id);
     const st=tree.lastStatus;
@@ -1866,6 +1871,73 @@ function renderList(q=''){
     const row=e.target.closest('[data-id]');
     if(row) openSheet(row.dataset.id);
   };
+}
+// Straßen-Akkordeon: eine Zeile je Straße (Fahrreihenfolge + aggregierter Status), aufklappbar
+// zu den Abschnitten. Status je Abschnitt = pro-Tour-Meldestatus (lastStatus ist bereits projiziert).
+function _renderStreetList(el,list,q){
+  const pos=new Map(routeOrder.map((id,i)=>[id,i]));
+  const groups=gruppiereNachStrasse(list,_getContainer).map(g=>{
+    const items=[...g.items].sort((a,b)=>((pos.get(a.id)??1e9)-(pos.get(b.id)??1e9)));
+    let done=0,ausfall=0;
+    items.forEach(t=>{ if(t.lastStatus==='bewaessert')done++; else if(t.lastStatus==='nicht')ausfall++; });
+    return {key:g.key,label:g.label||'–',items,done,ausfall,total:items.length,minPos:items.reduce((m,t)=>Math.min(m,pos.get(t.id)??1e9),1e9)};
+  }).sort((a,b)=>a.minPos-b.minPos);
+  const color=currentTour?.color||'#2d6a4f';
+  const searching=!!q;
+  el.innerHTML=groups.map((g,gi)=>{
+    const rep=g.done+g.ausfall, offen=g.total-rep;
+    const open=searching||_openStreets.has(g.key); // bei Suche immer aufgeklappt
+    const stPill = rep===0
+      ? `<span style="font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px;background:var(--surface2,#f1f5f9);color:var(--text3,#94a3b8);border:1px solid var(--border,#e2e8f0);">offen</span>`
+      : offen>0
+        ? `<span style="font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px;background:#fef3c7;color:#92400e;">${rep}/${g.total}${g.ausfall?' · '+g.ausfall+'✕':''}</span>`
+        : g.ausfall
+          ? `<span style="font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px;background:#dcfce7;color:#166534;">fertig · ${g.ausfall}✕</span>`
+          : `<span style="font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px;background:#dcfce7;color:#166534;">erledigt</span>`;
+    const rows=open?g.items.map(t=>{
+      const st=t.lastStatus;
+      const dotClass=st==='bewaessert'?'bewaessert':st==='nicht'?'nicht':'offen';
+      const grund=st==='nicht'&&(t.lastReason||t.lastNote)?` <span style="color:#dc2626;">— ${esc(t.lastReason||t.lastNote)}</span>`:'';
+      return `<div class="tree-row${st?' done':''}" data-id="${t.id}" style="padding-left:34px;">
+        <div class="tree-row-info">
+          <div class="tree-row-name" style="font-size:14px;">${esc(elementOf(t)||titelOf(t,_getContainer)||'–')}${grund}</div>
+        </div>
+        <div class="status-dot ${dotClass}"></div>
+      </div>`;
+    }).join(''):'';
+    const doneBtn=(open&&offen>0&&currentTour?.status!=='abgeschlossen')
+      ? `<div style="padding:4px 12px 10px 34px;"><button data-street-done="${esc(g.key)}" style="width:100%;padding:8px;font-size:13px;font-weight:600;border:1px solid #86efac;border-radius:8px;background:#f0fdf4;color:#166534;">✓ Rest der Straße erledigt (${offen})</button></div>`:'';
+    return `<div style="border-bottom:1px solid var(--border,#e2e8f0);">
+      <div data-street="${esc(g.key)}" style="display:flex;align-items:center;gap:10px;padding:12px;cursor:pointer;">
+        <div class="tree-row-num" style="background:${color}22;color:${color};flex-shrink:0;">${gi+1}</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:600;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(g.label)}</div>
+          <div style="font-size:12px;color:var(--text3,#94a3b8);">${g.total} Abschnitt${g.total!==1?'e':''}</div>
+        </div>
+        ${stPill}
+        <span style="color:var(--text3,#94a3b8);font-size:12px;transform:rotate(${open?'90':'0'}deg);transition:transform .15s;">▶</span>
+      </div>
+      ${rows}${doneBtn}
+    </div>`;
+  }).join('');
+  el.onclick=e=>{
+    const btn=e.target.closest('[data-street-done]');
+    if(btn){ _streetMarkDone(btn.dataset.streetDone); return; }
+    const row=e.target.closest('[data-id]');
+    if(row){ openSheet(row.dataset.id); return; }
+    const head=e.target.closest('[data-street]');
+    if(head){ const k=head.dataset.street; _openStreets.has(k)?_openStreets.delete(k):_openStreets.add(k); renderList(document.getElementById('list-search-input')?.value||''); }
+  };
+}
+// Sammelaktion: alle noch offenen Abschnitte einer Straße als erledigt melden (nutzt markTreeDone,
+// schreibt also nur erlaubte Status-Felder inkl. runStatus der aktuellen Tour).
+async function _streetMarkDone(key){
+  const g=gruppiereNachStrasse(trees,_getContainer).find(x=>x.key===key); if(!g) return;
+  const offen=g.items.filter(t=>!t.lastStatus);
+  if(!offen.length) return;
+  if(!confirm(`${g.label}: ${offen.length} offene${offen.length===1?'r':''} Abschnitt${offen.length!==1?'e':''} als erledigt melden?`)) return;
+  for(const t of offen) await markTreeDone(t);
+  toast(`✓ ${g.label} — ${offen.length} Abschnitt${offen.length!==1?'e':''} erledigt`);
 }
 
 // ─── SHEET ────────────────────────────────────────────────────
