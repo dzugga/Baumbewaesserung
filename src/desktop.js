@@ -4841,7 +4841,7 @@ async function fillArtSelect(current, klasse){
 // Generisches Listen-Dropdown aus listValues füllen (bestehenden Wert nie verlieren)
 function _listOptions(fieldKey,current){
   let labels=[...new Set((listValues[fieldKey]||[]).map(e=>e.label).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
-  current=(current||'').trim();
+  current=String(current==null?'':current).trim();   // robust gegen numerische Werte (z. B. Volumen 60) → kein .trim()-Crash
   if(current && !labels.includes(current)) labels.unshift(current);
   return `<option value="">— bitte wählen —</option>`+labels.map(n=>`<option value="${dlEsc(n)}"${n===current?' selected':''}>${dlEsc(n)}</option>`).join('');
 }
@@ -7500,14 +7500,25 @@ async function addCustomField(){
 async function ewkFelderAnlegen(){
   if(isReadonly()) return;
   const added=[];
-  if(!customFields.some(c=>c.key==='volumen')){ customFields.push({key:'volumen',label:'Volumen (Liter)',aktiv:true,type:'zahl'}); added.push('Volumen (Liter)'); }
+  // Volumen als AUSWAHL-LISTE (Werte kommen i. d. R. aus dem Import) — neu anlegen ODER bestehendes Zahl-Feld umstellen.
+  let volCf=customFields.find(c=>c.key==='volumen');
+  if(!volCf){ volCf={key:'volumen',label:'Volumen (Liter)',aktiv:true,type:'liste'}; customFields.push(volCf); added.push('Volumen (Liter, Auswahlliste)'); }
+  else if(volCf.type!=='liste'){ volCf.type='liste'; added.push('Volumen → Auswahlliste umgestellt'); }
+  // Liste mit den vorhandenen Volumen-Werten der Objekte füllen (nur ergänzen, nichts löschen), numerisch sortiert.
+  const have=new Set((listValues['volumen']||[]).map(e=>String(e.label)));
+  const distinct=[...new Set((trees||[]).map(t=>t.volumen).filter(v=>v!=null&&String(v).trim()!=='').map(v=>String(v).trim()))]
+    .sort((a,b)=>(parseFloat(a)||0)-(parseFloat(b)||0));
+  let volAdded=0;
+  distinct.forEach(v=>{ if(!have.has(v)){ (listValues['volumen']=listValues['volumen']||[]).push({id:_genId(),label:v}); have.add(v); volAdded++; } });
+  // Ortslage (feste Auswahl)
   if(!customFields.some(c=>c.key==='ortslage')){
     customFields.push({key:'ortslage',label:'Ortslage',aktiv:true,type:'liste'});
     if(!(listValues['ortslage']&&listValues['ortslage'].length)) listValues['ortslage']=[{id:_genId(),label:'innerorts'},{id:_genId(),label:'ausserorts'}];
     added.push('Ortslage (innerorts/außerorts)');
   }
-  if(!added.length){ notify('EWK-Felder sind bereits angelegt'); return; }
-  await saveListValues(); renderFieldCatalog(); notify('✓ EWK-Felder angelegt: '+added.join(' · '));
+  if(!added.length && !volAdded){ notify('EWK-Felder sind bereits angelegt'); return; }
+  await saveListValues(); renderFieldCatalog();
+  notify('✓ EWK-Felder'+(added.length?': '+added.join(' · '):' aktualisiert')+(volAdded?` · ${volAdded} Volumen-Werte übernommen`:''));
 }
 // EWKFondsG: Objektart → Leistungsart (§ 3 EWKFondsV) je Projekt. Mapping nach artId am Projekt-Doc.
 async function ewkSetArtMap(artId, la){
