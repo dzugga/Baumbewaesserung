@@ -528,7 +528,7 @@ async function startBewässerungLogin(name, pid, tid) {
     cacheTreesLocally(pid, tid, trees);
 
     // Render — SOFORT, ohne auf das Geometrie-Bundle zu warten (Liste/Marker stehen direkt)
-    _openStreets.clear(); _openAbschn.clear(); // Straßen-/Abschnitts-Akkordeon der vorherigen Tour zurücksetzen
+    _openStreets.clear(); _openAbschn.clear(); _geomParseCache.clear(); // Zustand/Caches der vorherigen Tour zurücksetzen
     renderMarkers();
     renderList('');
     updateProgress();
@@ -1204,10 +1204,17 @@ function _openStreetFromMap(key){
 // Gezeichnete Geometrie (Flächen/Strecken am Doc, geomStr) der Tour auf der Karte zeigen
 let geomLayers={};
 let _flBundle={}; // extId -> Geometrie importierter Flächen (aus dem Storage-Bundle flaechen.json)
+// geomStr-Parse gecacht: renderTourGeoms läuft bei jedem Statuswechsel/Snapshot über ALLE Objekte —
+// ohne Cache würde dieselbe Geometrie je Render erneut geparst (292× bei Kehrtouren).
+const _geomParseCache=new Map(); // o.id -> {src, geom}
 function _geomOf(o){
   if(!o) return null;
   if(o.geom && o.geom.coordinates) return o.geom;          // Alt-Feld (GeoJSON-Objekt)
-  if(o.geomStr){ try{ return JSON.parse(o.geomStr); }catch(_){ } }
+  if(o.geomStr){
+    const c=o.id?_geomParseCache.get(o.id):null;
+    if(c && c.src===o.geomStr) return c.geom;
+    try{ const g=JSON.parse(o.geomStr); if(o.id) _geomParseCache.set(o.id,{src:o.geomStr,geom:g}); return g; }catch(_){ }
+  }
   return null;
 }
 // Geometrie eines Objekts: eigene ODER (Abschnitts-Seite) vom Container geerbt — wie im Desktop (_treeGeom)

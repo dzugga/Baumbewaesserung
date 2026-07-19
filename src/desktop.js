@@ -161,7 +161,18 @@ function getTreeTourIds(tree){
 }
 // Übersichten (z.B. Stadtteil-Touren) sind keine „echten" Touren: kein Marker-Zähler,
 // keine Routenberechnung, auf der Karte standardmäßig ausgeblendet.
-function isOverviewTour(tourId){ const t=tours.find(x=>x.id===tourId); return !!(t&&t.uebersicht); }
+// Tour-Lookups als Map/Set — isOverviewTour/tours.find laufen in Marker-Massen-Renders je Objekt
+// mehrfach (O(Objekte×Touren) bei 20k+). tours wird nur komplett neu zugewiesen → Referenz-Check.
+let _tourLkpRef=null, _tourById=null, _overviewIds=null;
+function _tourLkp(){
+  if(_tourLkpRef!==tours){
+    _tourLkpRef=tours;
+    _tourById=new Map(tours.map(t=>[t.id,t]));
+    _overviewIds=new Set(tours.filter(t=>t.uebersicht).map(t=>t.id));
+  }
+  return {byId:_tourById, ov:_overviewIds};
+}
+function isOverviewTour(tourId){ return _tourLkp().ov.has(tourId); }
 // ── Tour-Rhythmus: läuft die Tour an einem Datum? ──
 // Modell: BETRIEBSTAGE (welche Wochentage) × WOCHEN-RHYTHMUS (jede / jede 2. / jede 4. Woche).
 // Ersetzt das mehrdeutige „täglich". Ohne Betriebstage ist eine Tour bewusst NICHT fällig und zählt 0.
@@ -2009,10 +2020,11 @@ function makeMarker(tree){
     color='#eab308';
   } else {
     // Einfärbung nur bei Tour-Auswahl: gehört das Objekt zu einer AKTIVEN Tour → deren Farbe, sonst neutral
+    const _byId=_tourLkp().byId; // O(1)-Lookup statt tours.find je Objekt (Massen-Render)
     let tour=null;
-    if(activeTourOnMap && treeTourIds.includes(activeTourOnMap)) tour=tours.find(t=>t.id===activeTourOnMap);
-    else { const activeId=treeTourIds.find(id=>activeTours.has(id)); if(activeId) tour=tours.find(t=>t.id===activeId); }
-    if(!tour && assignMode && assignTourId && treeTourIds.includes(assignTourId)) tour=tours.find(t=>t.id===assignTourId); // Planen: Ziel-Tour einfärben (Rest bleibt sichtbar/neutral)
+    if(activeTourOnMap && treeTourIds.includes(activeTourOnMap)) tour=_byId.get(activeTourOnMap);
+    else { const activeId=treeTourIds.find(id=>activeTours.has(id)); if(activeId) tour=_byId.get(activeId); }
+    if(!tour && assignMode && assignTourId && treeTourIds.includes(assignTourId)) tour=_byId.get(assignTourId); // Planen: Ziel-Tour einfärben (Rest bleibt sichtbar/neutral)
     color=tour?tour.color:'#6b6760';
   }
   if(_isCheckMode(_colorMode)){ const b=_checkBucket(tree); if(b) color=_checkColor(_colorMode,b); }  // Plan-/Fälligkeits-Check überschreibt Tourfarbe
