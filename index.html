@@ -409,6 +409,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         <div style="padding:5px 12px 2px;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text3);">Daten</div>
         <button data-module="objekte" onclick="switchView('baeume')">Objekte</button>
         <button data-module="touren" onclick="switchView('touren')">Touren</button>
+        <button data-module="touren" onclick="switchView('tourzuweisung')">Fahrer-Zuweisung</button>
         <button data-module="segmentnetz" onclick="switchView('segmentnetz')">Segmentnetz</button>
         <button data-module="imp_excel,imp_shape,exp_obj,exp_shape" onclick="openImport()">Import / Export</button>
         <div style="border-top:1px solid var(--border);margin:4px 0;"></div>
@@ -1099,6 +1100,23 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
         </div>
         <div id="driver-mgmt-list"></div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- FAHRER-ZUWEISUNG (Kunden-Reiter, Verwaltung → Daten) — teilt die Grid-Logik mit Benutzer-Schritt 4 -->
+<div id="view-tourzuweisung" style="display:none;position:fixed;top:54px;left:0;right:0;bottom:0;z-index:1500;background:var(--bg);overflow-y:auto;">
+  <div style="max-width:980px;margin:0 auto;padding:16px 20px;display:flex;flex-direction:column;gap:14px;">
+    <div>
+      <div style="font-size:16px;font-weight:700;">Fahrer den Touren zuweisen</div>
+      <div style="font-size:12px;color:var(--text3);line-height:1.5;">Legt fest, welche Tour ein Fahrer in der App sieht. Ist ein Fahrer <b>keiner</b> Tour zugewiesen, sieht er <b>alle</b> Touren des Mandanten. Sobald er mindestens einer Tour zugewiesen ist, sieht er nur noch seine zugewiesenen.</div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+      <div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span style="font-size:11px;color:var(--text3);">Projekt:</span>
+        <select id="tz-project" onchange="changeDtaProject(this.value)" style="padding:4px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;min-width:160px;"></select>
+      </div>
+      <div id="tz-list"></div>
     </div>
   </div>
 </div>

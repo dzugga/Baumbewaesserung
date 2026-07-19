@@ -6525,6 +6525,7 @@ function switchView(v){
   const benutzer=document.getElementById('view-benutzer');
   if(feldbez) feldbez.style.display=v==='feldbezeichnungen'?'block':'none';
   if(benutzer) benutzer.style.display=v==='benutzer'?'block':'none';
+  const tourzuw=document.getElementById('view-tourzuweisung'); if(tourzuw) tourzuw.style.display=v==='tourzuweisung'?'block':'none';
   if(baeume) baeume.style.display=v==='baeume'?'flex':'none';
   if(touren) touren.style.display=v==='touren'?'block':'none';
   if(controlling) controlling.style.display=v==='controlling'?'flex':'none';
@@ -6572,6 +6573,7 @@ function switchView(v){
   if(v==='disposition') initDispo();
   if(v==='einsatzplaner') initEinsatzplaner();
   if(v==='verwaltung') initVerwaltung();
+  if(v==='tourzuweisung') renderTourZuweisung();
   if(v==='reinigungssysteme') renderReinigungssysteme();
   if(v==='nachrichten'){ // Gegenstück zu _epRescueNachrichten: Bereich ggf. aus dem Einsatzplaner-Slot zurückholen
     const _nb=document.getElementById('nachrichten-body');
@@ -6837,7 +6839,7 @@ async function changeBenutzerOrg(oid){
   await renderRollenView(); // Rollen der neuen Stadt laden (mandantenscharf)
   renderDriverLogins(); renderUserMgmt(); renderDriverMgmt();
 }
-function changeDtaProject(pid){ dtaProjectId=pid; renderDriverMgmt(); }
+function changeDtaProject(pid){ dtaProjectId=pid; _driverMgmtRerender(); }
 function toggleBenutzerRollen(){
   const body=document.getElementById('rollen-content');
   const chev=document.getElementById('benutzer-rollen-chevron');
@@ -10780,11 +10782,15 @@ async function seedDefaultReasons(){
 }
 
 // ── FAHRER MANAGEMENT ─────────────────────────────────────────
-async function renderDriverMgmt(){
-  const el=document.getElementById('driver-mgmt-list');if(!el)return;
-  const org = driverLoginsOrg || currentOrg; // Mandant aus Schritt 2
-  // Projekte des Mandanten laden → Projekt-Dropdown (Schritt 4)
-  const projSel=document.getElementById('dta-project');
+// Zwei Einstiege teilen sich dieselbe Grid-Logik: der Superadmin-Onboarding-Schritt 4 (view-benutzer,
+// Mandant frei wählbar) und der Kunden-Reiter „Fahrer-Zuweisung" (view-tourzuweisung, fest auf currentOrg).
+async function renderDriverMgmt(){ return _renderDriverGrid(driverLoginsOrg||currentOrg, 'dta-project', 'driver-mgmt-list'); }
+async function renderTourZuweisung(){ return _renderDriverGrid(currentOrg, 'tz-project', 'tz-list'); }
+function _driverMgmtRerender(){ return currentView==='tourzuweisung' ? renderTourZuweisung() : renderDriverMgmt(); }
+async function _renderDriverGrid(org, projSelId, listElId){
+  const el=document.getElementById(listElId);if(!el)return;
+  // Projekte des Mandanten laden → Projekt-Dropdown
+  const projSel=document.getElementById(projSelId);
   let projs=[];
   if(org){ try{ const qs=await db.collection('projects').where('orgId','==',org).get(); projs=qs.docs.map(d=>({id:d.id,name:d.data().name||d.id})); }catch(e){} }
   projs.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
@@ -10825,7 +10831,7 @@ async function renderDriverMgmt(){
           ${tags||'<span style="font-size:11px;color:var(--text3);">Kein Fahrer</span>'}
         </div>
         ${(()=>{ const avail=persons.filter(p=>!drivers.includes(p));
-          if(persons.length===0) return `<div style="font-size:11px;color:var(--text3);">Keine Personen — unter „Personen &amp; PINs" anlegen.</div>`;
+          if(persons.length===0) return `<div style="font-size:11px;color:var(--text3);">Noch keine Personen im Mandanten hinterlegt.</div>`;
           if(avail.length===0) return `<div style="font-size:11px;color:var(--text3);">Alle Personen zugewiesen.</div>`;
           return `<div style="display:flex;gap:4px;">
             <select id="new-driver-${t.id}" style="flex:1;padding:4px 6px;font-size:11px;min-width:0;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
@@ -10847,7 +10853,7 @@ async function addDriver(tourId){
   drivers.push(name);
   await updateDoc(ref,{drivers,assignedDriver:drivers[0]});
   notify('Fahrer hinzugefügt');
-  renderDriverMgmt();
+  _driverMgmtRerender();
 }
 
 async function removeDriver(tourId,idx){
@@ -10858,7 +10864,7 @@ async function removeDriver(tourId,idx){
   drivers.splice(idx,1);
   await updateDoc(ref,{drivers,assignedDriver:drivers[0]||''});
   notify('Fahrer entfernt');
-  renderDriverMgmt();
+  _driverMgmtRerender();
 }
 
 // ── GRÜNDE MANAGEMENT ─────────────────────────────────────────
