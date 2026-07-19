@@ -17595,7 +17595,7 @@ function renderSegmentnetz(){
     <div style="font-size:12px;color:var(--text3);margin-bottom:16px;">Straßensegmente (Linien) zu Reinigungs-Abschnitten mit Seiten verarbeiten — in fünf Schritten. ${anyLines?`Aktuell: <b>${cand.length.toLocaleString('de-DE')}</b> unbearbeitete Segmente · <b>${nAbschn.toLocaleString('de-DE')}</b> Abschnitte.`:'Dieses Projekt hat noch keine Linien-Segmente — zuerst ein Segmentnetz importieren.'}</div>
     ${step(0,'Segmentnetz importieren','Ein Shapefile-ZIP mit dem Straßennetz einlesen (Linien werden Strecken-Objekte). '+btn('Zum Import','openImport()'))}
     ${step(1,'Segmentart bestimmen','Erkennt je Segment, ob parallele Nachbarlinien verlaufen: <b>Einzeln</b> / <b>Parallel</b> / <b>Teiler</b> (Mittellinie, z. B. Fahrbahnteiler). Nur ein Vorschlag — per Lasso „Feld setzen" korrigierbar.<br><span style="color:var(--text3);">Verteilung: Einzeln '+c.Einzeln+' · Parallel '+c.Parallel+' · Teiler '+c.Teiler+(c['']?` · ohne ${c['']}`:'')+`</span>`+btn('Analyse öffnen','segartAnalyseOpen()',true)+' '+btn('Auf Karte prüfen (einfärben)',"setColorMode('segart');switchView('karte')"))}
-    ${step(2,'Zu Abschnitten umwandeln','Erzeugt je Segment einen Straßenabschnitt mit Seiten — <b>regelbasiert je Segmentart</b> (Einzeln/Parallel → Fahrbahn links + rechts, Teiler → nicht umwandeln). Gehwege optional. Reinigungsklasse je Segmentart optional zuweisbar.<br><span style="color:var(--text3);">'+(reinigungsklassen.length?`${reinigungsklassen.length} Reinigungsklasse(n) vorhanden — im Umwandlungs-Dialog je Segmentart wählbar.`:'Keine Reinigungsklassen gepflegt (optional). Anlegen unter Felder &amp; Listen → „Reinigungsklassen (Satzung)".')+'</span>'+btn('Umwandlung öffnen','segmentUmwandelnOpen()',true)+' '+btn('Reinigungsklassen pflegen',"switchView('baeume');switchBaeumeTab('arten')"))}
+    ${step(2,'Zu Abschnitten umwandeln','Erzeugt je Segment einen Straßenabschnitt mit Seiten. <b>Mit gepflegten Reinigungsklassen</b> entstehen nur die Seiten, die die Klasse abdeckt — Abschnitte ohne abgedeckte Reinigung bekommen nur das Netz-Element (keine überflüssigen Objekte). Ohne Klassen: feste Seiten (Fahrbahn links + rechts, Gehweg optional). Teiler bleiben i. d. R. außen vor.<br><span style="color:var(--text3);">'+(reinigungsklassen.length?`${reinigungsklassen.length} Reinigungsklasse(n) vorhanden — der klassenbasierte Modus ist im Dialog vorausgewählt.`:'Keine Reinigungsklassen gepflegt. Für sparsame Ausstattung (nur wo gereinigt wird) zuerst unter Felder &amp; Listen → „Reinigungsklassen (Satzung)" anlegen.')+'</span>'+btn('Umwandlung öffnen','segmentUmwandelnOpen()',true)+' '+btn('Reinigungsklassen pflegen',"switchView('baeume');switchBaeumeTab('arten')"))}
     ${step(3,'Gehweg-Seiten ergänzen (optional)','Nur wo tatsächlich Gehwege gereinigt werden: auf der Karte per Lasso die Abschnitte auswählen und „＋ Gehweg-Seiten" wählen — so entstehen keine flächendeckenden Leer-Seiten.'+btn('Auf der Karte auswählen',"switchView('karte');setTimeout(startAssignMode,150)"))}
     ${step(4,'Abschnittsbezeichnung „von – bis" berechnen','Leitet je Abschnitt aus den Geometrien ab, zwischen welchen Querstraßen er liegt (z. B. „von Bergstraße bis Salzburger Straße") und speichert das als Bezeichnung am Abschnitt — sichtbar im Abschnitts-Detail, im Straßenbericht und in der Fahrer-App. Nach Netzänderungen einfach erneut ausführen.<br><span style="color:var(--text3);">'+(nAbschn?`${(trees||[]).filter(t=>t.containerTyp==='strecke'&&t.vonBis).length.toLocaleString('de-DE')} von ${nAbschn.toLocaleString('de-DE')} Abschnitten haben eine Bezeichnung.`:'Noch keine Abschnitte vorhanden.')+'</span>'+btn('Bezeichnungen berechnen','abschnittVonBisOpen()',true))}
     ${ro?'<div style="font-size:12px;color:#92400e;background:#fef3c7;border-radius:8px;padding:8px 12px;">Nur Planer/Admins können das Segmentnetz verarbeiten.</div>':''}`;
@@ -17736,10 +17736,10 @@ async function segmentUmwandelnOpen(){
       <div style="border-top:1px solid var(--border);padding-top:10px;">
         <div style="font-weight:700;margin-bottom:6px;">B · Welche Seiten &amp; Häufigkeit?</div>
         <select id="sm2-mode" class="form-control" style="padding:5px 8px;font-size:13px;margin-bottom:8px;">
-          <option value="fest">Feste Seiten für alle</option>
-          <option value="klasse"${canClass?'':' disabled'}>Aus Reinigungsklasse je Segment${canClass?'':' — erst Klassen + Feld anlegen'}</option>
+          <option value="klasse"${canClass?' selected':' disabled'}>Aus Reinigungsklasse je Segment${canClass?' (empfohlen)':' — erst Klassen + Feld anlegen'}</option>
+          <option value="fest"${canClass?'':' selected'}>Feste Seiten für alle</option>
         </select>
-        <div id="sm2-fest"><label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" id="sm2-gehweg"> zusätzlich Gehweg links + rechts (sonst nur Fahrbahn)</label></div>
+        <div id="sm2-fest"><label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" id="sm2-gehweg"> zusätzlich Gehweg links + rechts (sonst nur Fahrbahn)</label>${hasRk?'<div style="font-size:11px;color:#92400e;background:#fef3c7;border-radius:6px;padding:6px 9px;margin-top:8px;">⚠ Feste Seiten berücksichtigen die Reinigungsklassen NICHT — es entstehen Fahrbahn-Seiten auch an Abschnitten, die laut Klasse dort nicht gereinigt werden (unnötige Objekte). Bei gepflegten Klassen den Modus „Aus Reinigungsklasse je Segment" nutzen.</div>':''}</div>
         <div id="sm2-klasse" style="display:none;">
           <label style="font-size:12px;color:var(--text2);">Klasse je Segment aus Feld
             <select id="sm2-src" class="form-control" style="width:auto;display:inline-block;padding:4px 8px;font-size:13px;margin-left:6px;">${srcFields.map(c=>`<option value="${dlEsc(c.key)}"${c.key===defSrc?' selected':''}>${dlEsc(c.label)}</option>`).join('')}</select>
@@ -17765,9 +17765,11 @@ async function segmentUmwandelnOpen(){
   const resolveClass=(t,key,map,vals)=>{ const val=t[key]; const e=vals.find(x=>x.id===val||x.label===val); if(!e) return null; return _rkById(map[e.id||e.label]||''); };
   const preview=()=>{
     const work=cand.filter(t=>convOf(bucketOf(t)));
-    if(modeSel.value==='klasse'){ const key=srcSel.value, map=mapOf(), vals=fieldVals(key); let ab=0,se=0,un=0;
-      work.forEach(t=>{ const cls=resolveClass(t,key,map,vals); if(!cls){ un++; return; } ab++; se+=_rkCoveredSides(cls).length; });
-      info.textContent=`Ergibt: ${ab.toLocaleString('de-DE')} Abschnitte · ${se.toLocaleString('de-DE')} Seiten · ${un.toLocaleString('de-DE')} ohne Klassen-Zuordnung (übersprungen)`;
+    if(modeSel.value==='klasse'){ const key=srcSel.value, map=mapOf(), vals=fieldVals(key); let ab=0,se=0,un=0,leer=0;
+      work.forEach(t=>{ const cls=resolveClass(t,key,map,vals); if(!cls){ un++; return; } ab++; const s=_rkCoveredSides(cls).length; se+=s; if(!s) leer++; });
+      info.textContent=`Ergibt: ${ab.toLocaleString('de-DE')} Abschnitte · ${se.toLocaleString('de-DE')} Seiten`+
+        (leer?` · davon ${leer.toLocaleString('de-DE')} ohne Seiten (laut Klasse nicht gereinigt — nur Netz-Element)`:'')+
+        ` · ${un.toLocaleString('de-DE')} ohne Klassen-Zuordnung (übersprungen)`;
     } else { const gw=m.querySelector('#sm2-gehweg').checked; const per=gw?4:2;
       info.textContent=`Ergibt: ${work.length.toLocaleString('de-DE')} Abschnitte · ${(work.length*per).toLocaleString('de-DE')} Seiten`; }
   };
@@ -17776,7 +17778,7 @@ async function segmentUmwandelnOpen(){
   m.querySelector('#sm2-gehweg').onchange=preview; m.querySelectorAll('input[data-conv]').forEach(c=>c.onchange=preview);
   mapBox.addEventListener('change',preview);
   if(canClass) buildMap();
-  preview();
+  syncMode(); // Panels + Vorschau passend zum Default-Modus (klassenbasiert, wenn Klassen vorhanden)
   m.querySelector('#sm2-run').onclick=async()=>{
     const mode=modeSel.value, gw=m.querySelector('#sm2-gehweg').checked;
     const key=srcSel?srcSel.value:'', map=mapOf(), vals=fieldVals(key);
