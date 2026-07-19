@@ -426,6 +426,9 @@ function _subscribeTourTrees(pid, tid){
   const q=db.collection('projects').doc(pid).collection('trees').where('tourIds','array-contains',tid);
   unsubTrees=q.onSnapshot(snap=>{
     if(pauseSnapshot) return;
+    // Echo eigener Writes überspringen (Latenz-Kompensation): die UI ist bereits optimistisch
+    // aktualisiert — die Server-Bestätigung (hasPendingWrites=false) folgt und rendert einmal.
+    if(snap.metadata.hasPendingWrites) return;
     const ids=new Set(snap.docs.map(d=>d.id));
     const all=snap.docs.map(d=>({id:d.id,...d.data()})).concat(_legacyTourTrees.filter(t=>!ids.has(t.id)));
     _setObjIndex(all.concat(_tourContainers));
@@ -2086,8 +2089,8 @@ let _openAbschn=new Set();
 async function _abschnittMarkDone(extId){
   const open=trees.filter(t=>t.containerExtId===extId&&!t.lastStatus);
   if(!open.length) return;
-  for(const t of open) await markTreeDone(t);
-  toast(`✓ Abschnitt — ${open.length} Objekt${open.length>1?'e':''} erledigt`);
+  const n=await _markManyDone(open); // EIN Batch + EIN Render statt je Objekt
+  if(n) toast(`✓ Abschnitt — ${n} Objekt${n>1?'e':''} erledigt`);
 }
 // Sammelaktion: alle noch offenen Abschnitte einer Straße als erledigt melden (nutzt markTreeDone,
 // schreibt also nur erlaubte Status-Felder inkl. runStatus der aktuellen Tour).
@@ -2096,8 +2099,8 @@ async function _streetMarkDone(key){
   const offen=g.items.filter(t=>!t.lastStatus);
   if(!offen.length) return;
   if(!confirm(`${g.label}: ${offen.length} offene${offen.length===1?'r':''} Abschnitt${offen.length!==1?'e':''} als erledigt melden?`)) return;
-  for(const t of offen) await markTreeDone(t);
-  toast(`✓ ${g.label} — ${offen.length} Abschnitt${offen.length!==1?'e':''} erledigt`);
+  const n=await _markManyDone(offen); // EIN Batch + EIN Render statt je Objekt
+  if(n) toast(`✓ ${g.label} — ${n} Abschnitt${n!==1?'e':''} erledigt`);
 }
 
 // ─── SHEET ────────────────────────────────────────────────────
@@ -2546,11 +2549,11 @@ function _updateFollowBar(){
   }
 }
 async function confirmFollowDone(){
-  const ids=_readyOpenIds();
-  for(const id of ids){ const t=trees.find(x=>x.id===id); if(t) await markTreeDone(t); }
+  const ids=new Set(_readyOpenIds());
+  const n=await _markManyDone(trees.filter(t=>ids.has(t.id))); // EIN Batch + EIN Render
   _followReady.clear(); _updateFollowBar(); renderTourGeoms();
   _followSave(true);
-  if(ids.length) toast('✓ '+ids.length+' Abschnitt'+(ids.length>1?'e':'')+' erledigt');
+  if(n) toast('✓ '+n+' Abschnitt'+(n>1?'e':'')+' erledigt');
 }
 
 // Programmatisches „erledigt" ohne Detail-Sheet — schreibt NUR erlaubte Status-Felder (siehe Rules,
@@ -2580,6 +2583,56 @@ async function markTreeDone(tree){
       addToOfflineQueue(id, _u, histEntry, currentTourId, rsEntry);
     }
   });
+}
+// Sammel-Variante von markTreeDone: EIN Firestore-Batch + EIN Render statt je Objekt
+// Write+Voll-Re-Render+Cache (Straßen-/Abschnitts-Sammelaktion, Folgen-Bestätigung).
+// Verhalten identisch: history-Eintrag je Objekt, Rollback bei Ablehnung, Offline-Queue bei Netzfehler.
+async function _markManyDone(list){
+  const open=(list||[]).filter(t=>t && !t.lastStatus);
+  if(!open.length) return 0;
+  const _now=new Date(), now=_now.toISOString();
+  const items=open.map(tree=>{
+    const updates={ lastStatus:'bewaessert', lastReason:null, lastNote:null, lastDriver:currentDriver, lastReportAt:now, datum:_localDateStr(_now) };
+    const rsEntry=_runEntry(updates);
+    const histEntry={ at:now, date:_localDateStr(_now), status:'bewaessert', reason:null, note:'Bewässert', driver:currentDriver, tourId:currentTourId };
+    const _prev={}; Object.keys(updates).forEach(k=>_prev[k]=tree[k]);
+    return {tree, updates, rsEntry, histEntry, _u:onlyTreeStatusFields(updates), _prev, _prevRun: tree.runStatus?{...tree.runStatus}:undefined};
+  });
+  // Optimistisch lokal — genau EIN Render für alle
+  items.forEach(({tree,updates,rsEntry})=>{
+    if(currentTourId) tree.runStatus={...(tree.runStatus||{}), [currentTourId]:rsEntry};
+    Object.assign(tree, updates);
+  });
+  renderMarkers(); renderList(document.getElementById('list-search-input')?.value||''); updateProgress();
+  if(!isOnline){
+    for(const it of items) await addToOfflineQueue(it.tree.id, it._u, it.histEntry, currentTourId, it.rsEntry);
+    return items.length;
+  }
+  pauseSnapshot=true; // Echo-Fenster wie confirmMarkAllDone
+  try{
+    for(let i=0;i<items.length;i+=400){
+      const batch=db.batch();
+      items.slice(i,i+400).forEach(it=>{
+        batch.update(doc(db,'projects',currentProjectId,'trees',it.tree.id),
+          {...it._u, ...(currentTourId?{['runStatus.'+currentTourId]:it.rsEntry}:{}), history:firebase.firestore.FieldValue.arrayUnion(it.histEntry)});
+      });
+      await batch.commit();
+    }
+  }catch(e){
+    const code=e&&e.code;
+    if(code==='permission-denied' || code==='invalid-argument' || code==='not-found'){
+      console.error('Sammel-Meldung abgelehnt:', code, e);
+      items.forEach(it=>{ Object.keys(it._prev).forEach(k=>{ if(it._prev[k]===undefined) delete it.tree[k]; else it.tree[k]=it._prev[k]; }); it.tree.runStatus=it._prevRun; _projectRunStatus(it.tree); });
+      renderMarkers(); renderList(document.getElementById('list-search-input')?.value||''); updateProgress();
+      toast('⚠ Nicht gespeichert ('+(code||'?')+')');
+      setTimeout(()=>{ pauseSnapshot=false; },500);
+      return 0;
+    }
+    for(const it of items) await addToOfflineQueue(it.tree.id, it._u, it.histEntry, currentTourId, it.rsEntry);
+    toast('📦 Offline gespeichert — wird später synchronisiert');
+  }
+  setTimeout(()=>{ pauseSnapshot=false; },500);
+  return items.length;
 }
 
 // ─── TABS ─────────────────────────────────────────────────────
@@ -2744,7 +2797,17 @@ function updateNetworkBadge(){
 
 // ── Local tree cache ──────────────────────────────────────────
 // Volles Tour-Bündel cachen (Objekte + Projekt/Tour/Route/Gründe) → Offline-Öffnen möglich
+// Gedrosselt (3 s): der Offline-Cache enthält das komplette Objekt- + Geometrie-Bundle — bei jedem
+// Snapshot/Statuswechsel sofort zu serialisieren wäre unnötig teuer. Beim Wegblenden wird geflusht.
+let _cacheT=null, _cacheArgs=null;
 async function cacheTreesLocally(projectId, tourId, treesData){
+  _cacheArgs=[projectId, tourId, treesData];
+  if(_cacheT) return;
+  _cacheT=setTimeout(()=>{ _cacheT=null; _cacheWriteNow(); }, 3000);
+}
+async function _cacheWriteNow(){
+  if(!_cacheArgs) return;
+  const [projectId, tourId, treesData]=_cacheArgs;
   try {
     await idbSet(CACHE_KEY, {
       projectId, tourId,
@@ -2760,6 +2823,9 @@ async function cacheTreesLocally(projectId, tourId, treesData){
     });
   } catch(e){ console.warn('Cache write failed:', e); }
 }
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState!=='visible' && _cacheT){ clearTimeout(_cacheT); _cacheT=null; _cacheWriteNow(); }
+});
 
 async function loadCachedTrees(projectId, tourId){
   const b = await loadCachedBundle(projectId, tourId);

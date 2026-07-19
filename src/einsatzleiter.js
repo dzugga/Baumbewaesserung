@@ -422,19 +422,26 @@ async function loadTourHistory(){
   }catch(e){ console.warn('tourHistory:',e); }
 }
 
+// Mehrere Snapshot-Callbacks im selben Frame (z. B. die Chunk-Listener beim Start) lösen nur
+// EINEN render() aus — sonst rechnet das Lagebild 7-9× hintereinander komplett neu.
+let _renderRaf=null;
+function scheduleRender(){
+  if(_renderRaf) return;
+  _renderRaf=requestAnimationFrame(()=>{ _renderRaf=null; render(); });
+}
 function subscribe(){
   unsubTours=db.collection('projects').doc(currentProjectId).collection('tours')
     .onSnapshot(snap=>{
       // Übersichten sind keine echten Touren → nicht im Einsatzleiter anzeigen
       tours=snap.docs.filter(d=>!d.data().uebersicht).map((d,i)=>({id:d.id,color:TOUR_COLORS[i%TOUR_COLORS.length],...d.data()}));
       _subscribeTrees(); // Objekte NUR der Touren laden — folgt der Tour-Menge automatisch
-      render();
+      scheduleRender();
     }, e=>console.warn('tours:',e));
   // tourHistory live statt 60s-Polling: nur bei Änderung Reads (kostengünstig)
   unsubHistory=db.collection('projects').doc(currentProjectId).collection('tourHistory')
     .onSnapshot(snap=>{
       tourHistory=snap.docs.map(d=>normalizeHistory({id:d.id,...d.data()}));
-      tourHistoryLoaded=true; render();
+      tourHistoryLoaded=true; scheduleRender();
     }, e=>console.warn('tourHistory:',e));
 }
 // Objekt-Listener auf die TOUR-Objekte begrenzt (statt aller Objekte des Projekts — das Lagebild
@@ -447,7 +454,7 @@ function _subscribeTrees(){
   if(key===_treeSetKey) return; // Tour-Menge unverändert → Listener stehen lassen
   _treeSetKey=key;
   _treeChunkUnsubs.forEach(u=>{ try{u();}catch(_){} }); _treeChunkUnsubs=[]; _treeChunks=[]; _legacyTrees=[];
-  if(!ids.length){ trees=[]; _elLoadHint(false); render(); return; }
+  if(!ids.length){ trees=[]; _elLoadHint(false); scheduleRender(); return; }
   const col=db.collection('projects').doc(currentProjectId).collection('trees');
   const chunks=[]; for(let i=0;i<ids.length;i+=10) chunks.push(ids.slice(i,i+10));
   chunks.forEach((c,i)=>{
@@ -469,7 +476,7 @@ function _mergeTrees(){
   _treeChunks.forEach(a=>(a||[]).forEach(t=>m.set(t.id,t))); // Live-Stand gewinnt über Alt-Feld-Kopie
   trees=[...m.values()];
   _elLoadHint(false);
-  render();
+  scheduleRender();
 }
 // Dezenter Lade-Hinweis, bis die ersten Objekte da sind (das Lagebild zeigt sonst stumm Nullen)
 function _elLoadHint(on){

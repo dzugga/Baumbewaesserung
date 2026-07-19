@@ -390,11 +390,9 @@ let _erfassteData = [];
 
 async function loadErfassteMarkers() {
   try {
-    const snap = await db.collection('projects').doc(currentProjectId)
-      .collection('trees')
-      .where('erfasstVon', '==', currentErfasser)
-      .get();
-    _erfassteData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Aus dem Live-Bestand filtern statt eigener Firestore-Abfrage — allTrees ist bereits
+    // vollständig geladen (watchTrees) und bleibt per Listener aktuell (spart Doppel-Reads).
+    _erfassteData = allTrees.filter(t => t.erfasstVon === currentErfasser);
     erfassteCount = _erfassteData.length;
     _erfassteData.forEach(t => {
       if (mapNeu) addErfasstMarker(t, mapNeu, erfassteMarkers);
@@ -410,15 +408,11 @@ async function loadErfassteMarkersUebersicht() {
   erfassteMarkersUebersicht.length = 0;
   _erfassteData.forEach(t => addErfasstMarker(t, mapUebersicht, erfassteMarkersUebersicht));
 
-  // Blaue Marker (Koordinaten nacherfasst) aus Firestore laden
+  // Blaue Marker (Koordinaten nacherfasst) — aus dem Live-Bestand statt eigener Firestore-Abfrage
   koordiniertMarkers.forEach(m => mapUebersicht.removeLayer(m));
   koordiniertMarkers.length = 0;
   try {
-    const snap = await db.collection('projects').doc(currentProjectId)
-      .collection('trees')
-      .where('koordiniertVon', '==', currentErfasser)
-      .get();
-    _koordiniertData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    _koordiniertData = allTrees.filter(t => t.koordiniertVon === currentErfasser);
     koordiniertCount = _koordiniertData.length;
     _koordiniertData.forEach(t => addKoordMarker(t, mapUebersicht, koordiniertMarkers));
   } catch(e) { console.warn('loadKoordMarkers:', e); }
@@ -613,6 +607,7 @@ async function doLogin() {
 // kompletter Collection). Nebeneffekt: „ohne Koordinaten"-Liste aktualisiert sich live,
 // wenn Kollegen Koordinaten setzen (kein Doppel-Erfassen).
 let unsubTreesErf = null;
+let _treesSnapT = null; // Drossel für Folge-Snapshots (Cache-Write + Listen-Rebuild)
 function watchTrees(pid){
   if (unsubTreesErf) { try{ unsubTreesErf(); }catch(_){} unsubTreesErf = null; }
   return new Promise(resolve => {
@@ -625,9 +620,16 @@ function watchTrees(pid){
       // wieder Koordinaten/Fotos erhalten (sonst „Wiederbelebung" gelöschter/inaktiver Objekte).
       allTrees = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(t => t.aktiv !== false);
       treesOhneKoords = allTrees.filter(t => !t.lat || !t.lng);
-      cacheTreesLocal(pid, currentErfasser, allTrees);
-      if (first) { first = false; resolve(); }
-      else renderKoordList(document.getElementById('koord-search')?.value || '');
+      if (first) { first = false; cacheTreesLocal(pid, currentErfasser, allTrees); resolve(); }
+      else {
+        // Folge-Snapshots gedrosselt verarbeiten: localStorage-Write (synchron!) und
+        // Listen-Neuaufbau nicht bei jeder fremden Einzeländerung sofort ausführen.
+        clearTimeout(_treesSnapT);
+        _treesSnapT = setTimeout(() => {
+          cacheTreesLocal(pid, currentErfasser, allTrees);
+          renderKoordList(document.getElementById('koord-search')?.value || '');
+        }, 400);
+      }
     }, err => { console.warn('trees-listen:', err); if (first) { first = false; resolve(); } });
   });
 }
@@ -1181,7 +1183,12 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-bestand-toggle')?.addEventListener('click', toggleBestand);
 
   // Modus 2
-  document.getElementById('koord-search').addEventListener('input', e => renderKoordList(e.target.value));
+  // Debounce: nicht bei jedem Tastenanschlag die komplette Liste filtern + neu aufbauen
+  let _koordSearchT=null;
+  document.getElementById('koord-search').addEventListener('input', e => {
+    clearTimeout(_koordSearchT);
+    _koordSearchT=setTimeout(() => renderKoordList(e.target.value), 200);
+  });
   document.getElementById('btn-back-list').addEventListener('click', closeKoordMap);
   document.getElementById('btn-save-koord').addEventListener('click', saveKoordPosition);
   document.getElementById('btn-gps-koord').addEventListener('click', () => {

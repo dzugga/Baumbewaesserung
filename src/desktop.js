@@ -694,7 +694,7 @@ async function openProject(projectId){
   if(unsubProjects){ unsubProjects(); unsubProjects=null; } // Projekt-Listener stoppen (spart Hintergrund-Reads)
   _routesCache={};_routesLoadedFor=null; // Routen-Cache für neues Projekt verwerfen
   _cityFitDone=false; // Karte beim Öffnen einmal auf die Stadt zoomen
-  if(_flaechenLayer){ map.removeLayer(_flaechenLayer); _flaechenLayer=null; } _flaechenLayerKey=''; _flaechenBundle=null; _flaechenBundleKey=''; _flGeomByExt={}; if(_flNumLayer){ try{ map.removeLayer(_flNumLayer); }catch(_){} _flNumLayer=null; } _geomBboxCache={}; _viewportCull=false; // Flächen/Geometrie-Caches des alten Projekts verwerfen
+  if(_flaechenLayer){ map.removeLayer(_flaechenLayer); _flaechenLayer=null; } _flaechenLayerKey=''; _flaechenBundle=null; _flaechenBundleKey=''; _flGeomByExt={}; if(_flNumLayer){ try{ map.removeLayer(_flNumLayer); }catch(_){} _flNumLayer=null; } _geomBboxCache={}; _geomParseCache.clear(); _viewportCull=false; // Flächen/Geometrie-Caches des alten Projekts verwerfen
   currentProjectId=projectId;
   window._tourHistoryCache=null;   // Historie des alten Projekts verwerfen
   _dataViewProject=null;           // Controlling/Dashboard für neues Projekt neu aufbauen
@@ -752,10 +752,10 @@ async function openProject(projectId){
   // Einsatzplaner folgt dem global geöffneten Projekt: eigene Mandant/Projekt-Auswahl neu auf das offene Projekt setzen
   if(currentView==='einsatzplaner'){ _epOrg=''; _epProject=''; initEinsatzplaner(); }
   applyClusterMode(_effectiveCluster(), false); // Marker-Zielebene fürs Projekt (vor erstem Marker-Render) — Cluster nur ohne Tour-Auswahl
-  await loadOrgSettings(); // KI-Modus + ORS-Key + WMS + Dispo dieser Stadt (1 Org-Read) — vor dem Kartenaufbau
-  rebuildLayerControl(); // WMS-Kartenebenen der Stadt laden
-  // Subscribe to tours & trees
+  // Objekt-/Touren-Subscription SOFORT starten (größte Last) — Org-Settings (KI/ORS/WMS/Dispo,
+  // 1 Read) laufen parallel; nur der WMS-Layer-Aufbau wartet darauf.
   subscribeToProject();
+  loadOrgSettings().then(()=>rebuildLayerControl()).catch(e=>console.warn('OrgSettings', e));
   // Gründe des neuen Projekts laden (verhindert projektübergreifendes Hängenbleiben)
   reasons=[]; loadReasons().then(()=>{ if(currentView==='verwaltung') renderReasonsMgmt(); });
   artenList=[]; _artIconMap=null; // Arten-Liste pro Projekt verwerfen (kein projektübergreifendes Hängenbleiben)
@@ -1135,9 +1135,11 @@ function showTourViolations(tourId){
   m.querySelector('#tv-close').onclick=window.showTourViolationsClose;
   m.addEventListener('click',e=>{ if(e.target===m) window.showTourViolationsClose(); });
 }
-function tourViolatingTrees(tour){
+function tourViolatingTrees(tour, members){
   if(!tourHasRules(tour)) return [];
-  return trees.filter(t=>treeInTour(t,tour.id) && !treeMatchesTour(t,tour));
+  // members optional (bereits gruppierte Tour-Objekte, z. B. aus renderTourenGrid) — spart den Voll-Scan
+  const src=members||trees.filter(t=>treeInTour(t,tour.id));
+  return src.filter(t=>!treeMatchesTour(t,tour));
 }
 // Warnung mit Override — Promise<true=trotzdem, false=abbrechen>.
 // Liefert 'cancel' | 'all' | 'matching'. matchLabel optional → dritter Knopf „nur passende zuweisen".
@@ -1655,13 +1657,17 @@ async function loadSavedRoutes(force=false){
   if(!getRoutePlanningEnabled()) return;
   Object.values(tourRoutes).forEach(r=>map.removeLayer(r.layer));tourRoutes={};
   const useCache = !force && _routesLoadedFor===currentProjectId;
-  if(!useCache){ _routesCache={}; }
+  if(!useCache){
+    _routesCache={};
+    // EIN Collection-Read statt einem getDoc je Tour (N+1, sequentiell awaited) — die routes-Rule
+    // ist pfadbasiert (canReadProj), die Query damit erlaubt; verwaiste Routen-Docs stören nicht.
+    try{
+      const snap=await getDocs(collection(db,'projects',currentProjectId,'routes'));
+      snap.forEach(d=>{ _routesCache[d.id]=d.data(); });
+    }catch(e){ console.warn('loadSavedRoutes', e); }
+  }
   for(const tour of tours){
-    let data = useCache ? _routesCache[tour.id] : null;
-    if(!useCache){
-      const routeSnap=await getDoc(doc(db,'projects',currentProjectId,'routes',tour.id));
-      if(routeSnap.exists){ data=routeSnap.data(); _routesCache[tour.id]=data; }
-    }
+    const data=_routesCache[tour.id]||null;
     if(data){
       // Linie nur für ausgewählte Touren zeichnen (Routen folgen der Auswahl; keine Auswahl → keine Linien)
       if(activeTours.has(tour.id)) drawSavedRoute(tour.id, data);
@@ -2786,7 +2792,16 @@ function _fmtLen(m){ return m>=1000?(m/1000).toFixed(2).replace('.',',')+' km':M
 function _fmtArea(m2){ return m2>=10000?(m2/10000).toFixed(2).replace('.',',')+' ha':Math.round(m2)+' m²'; }
 // Geometrie am Doc rendern (Fläche=Polygon, Strecke=Linie) — getrennt vom Import-Bundle
 // Gezeichnete Geometrie liegt als JSON-String am Doc (geomStr) — Firestore kann keine verschachtelten Arrays
-function _treeGeom(t){ if(!t) return null; if(t.geom&&t.geom.coordinates) return t.geom; if(t.geomStr){ try{ return JSON.parse(t.geomStr); }catch(_){ return null; } }
+// geomStr-Parse gecacht: _treeGeom wird pro Objekt mehrfach je Render aufgerufen (Sortierung,
+// Länge/Fläche, Zeichnen) — wiederholtes JSON.parse desselben Strings ist bei 20k+ Objekten teuer.
+// Invalidierung über src-Vergleich (geänderter geomStr parst neu); Reset beim Projektwechsel.
+const _geomParseCache=new Map(); // t.id -> {src, geom}
+function _treeGeom(t){ if(!t) return null; if(t.geom&&t.geom.coordinates) return t.geom;
+  if(t.geomStr){
+    const c=t.id?_geomParseCache.get(t.id):null;
+    if(c && c.src===t.geomStr) return c.geom;
+    try{ const g=JSON.parse(t.geomStr); if(t.id) _geomParseCache.set(t.id,{src:t.geomStr,geom:g}); return g; }catch(_){ return null; }
+  }
   if(t.extId && _flGeomByExt[t.extId]) return _flGeomByExt[t.extId]; // Geometrie aus dem Storage-Bundle (importierte Segmente/Flächen — kein geomStr am Doc)
   const c=_containerOf(t); if(c) return _treeGeom(c); // Seite ohne eigene Geometrie erbt vom Abschnitt-Container
   return null; }
@@ -3977,10 +3992,11 @@ function renderList(){
   });
   // Sort by route number when a tour is active
   if(activeTourOnMap&&tourOrder[activeTourOnMap]){
-    const order=tourOrder[activeTourOnMap];
+    // Index-Map statt order.indexOf im Komparator (der wäre O(n) je Vergleich → O(n² log n))
+    const idx=new Map(tourOrder[activeTourOnMap].map((id,i)=>[id,i]));
     filtered.sort((a,b)=>{
-      const ia=order.indexOf(a.id);
-      const ib=order.indexOf(b.id);
+      const ia=idx.has(a.id)?idx.get(a.id):-1;
+      const ib=idx.has(b.id)?idx.get(b.id):-1;
       if(ia===-1&&ib===-1)return 0;
       if(ia===-1)return 1;
       if(ib===-1)return -1;
@@ -5102,13 +5118,26 @@ async function _stripIdsFromPlanArtifacts(ids){
   }catch(e){ console.warn('_stripIdsFromPlanArtifacts locks',e); }
 }
 
+// EIN gemeinsamer tourHistory-Read für alle Verbraucher (Controlling, Dashboard, Verlaufsliste,
+// Historie-Prüfungen) — die Collection wächst mit jedem Tour-Abschluss; fünf getrennte Voll-Reads
+// je View-Wechsel summieren sich. 60-s-TTL je Projekt; force=true erzwingt Frische (manueller
+// Refresh + Integritäts-Prüfungen vor Löschen/Archivieren).
+let _thCache=null; // {projectId, at, docs:[{id,...data}]}
+async function _tourHistoryDocs(force=false){
+  if(!currentProjectId) return [];
+  const now=Date.now();
+  if(!force && _thCache && _thCache.projectId===currentProjectId && (now-_thCache.at)<60000) return _thCache.docs;
+  const snap=await getDocs(collection(db,'projects',currentProjectId,'tourHistory'));
+  _thCache={projectId:currentProjectId, at:now, docs:snap.docs.map(d=>({id:d.id,...d.data()}))};
+  return _thCache.docs;
+}
 // Hat der Baum eine Bewässerungs-Historie (eigene history[] oder tourHistory-Treffer)?
 async function treeHasHistory(tree){
   if((tree.history||[]).length>0) return true;
   if(tree.lastStatus && tree.lastStatus!=='offen') return true;
   try{
-    const snap=await getDocs(collection(db,'projects',currentProjectId,'tourHistory'));
-    return snap.docs.some(d=>(d.data().trees||[]).some(x=>x.id===tree.id));
+    const docs=await _tourHistoryDocs(true); // Integritäts-Prüfung → immer frisch
+    return docs.some(d=>(d.trees||[]).some(x=>x.id===tree.id));
   }catch(e){ console.warn('treeHasHistory:',e); return true; } // im Zweifel schützen
 }
 
@@ -6977,8 +7006,8 @@ async function bulkDelete(){
   setSyncState('syncing','Prüfe Historie…');
   let histRefs=new Set();
   try{
-    const snap=await getDocs(collection(db,'projects',currentProjectId,'tourHistory'));
-    snap.docs.forEach(d=>(d.data().trees||[]).forEach(x=>{ if(x&&x.id) histRefs.add(x.id); }));
+    const docs=await _tourHistoryDocs(true); // Integritäts-Prüfung vor Löschen → immer frisch
+    docs.forEach(d=>(d.trees||[]).forEach(x=>{ if(x&&x.id) histRefs.add(x.id); }));
   }catch(e){ console.warn('bulkDelete tourHistory',e); setSyncState('ok',''); notify('⚠ Historie-Prüfung fehlgeschlagen — abgebrochen'); return; }
   setSyncState('ok','');
   const hasHist=t=>(t.history||[]).length>0 || (t.lastStatus&&t.lastStatus!=='offen') || histRefs.has(t.id);
@@ -8134,9 +8163,10 @@ function renderBaeumeTableWith(treeList){
   // Sort: if a tour active, sort by route number; else alphabetical
   let sorted=[...treeList];
   if(activeTourOnMap&&tourOrder[activeTourOnMap]){
-    const order=tourOrder[activeTourOnMap];
+    // Index-Map statt order.indexOf im Komparator (O(1)-Lookup statt O(n) je Vergleich)
+    const idx=new Map(tourOrder[activeTourOnMap].map((id,i)=>[id,i]));
     sorted.sort((a,b)=>{
-      const ia=order.indexOf(a.id),ib=order.indexOf(b.id);
+      const ia=idx.has(a.id)?idx.get(a.id):-1, ib=idx.has(b.id)?idx.get(b.id):-1;
       if(ia===-1&&ib===-1)return 0;
       if(ia===-1)return 1;if(ib===-1)return -1;
       return ia-ib;
@@ -8348,8 +8378,11 @@ function renderTourenGrid(){
     return;
   }
 
+  // Objekte EINMAL je Tour gruppieren statt trees.filter je Tour-Zeile (O(Touren × 20k) → O(20k))
+  const _byTour=new Map();
+  trees.forEach(t=>{ if(!isActive(t)) return; getTreeTourIds(t).forEach(id=>{ let a=_byTour.get(id); if(!a){ a=[]; _byTour.set(id,a); } a.push(t); }); });
   grid.innerHTML=list.map(tour=>{
-    const treesInTour=trees.filter(t=>isActive(t)&&treeInTour(t,tour.id)); // wie Legende/Panel: inaktive zählen nicht
+    const treesInTour=_byTour.get(tour.id)||[]; // wie Legende/Panel: inaktive zählen nicht
     const cnt=treesInTour.length;
     const zCounts=rankList('zustand').map(e=>({label:e.label,farbe:e.farbe,n:treesInTour.filter(t=>(t.zustand||'')===e.id).length}));
     // Kennzahlen über tourMetrics: bei Reinigungssystem-Grundlage ohne Route (Strecke ÷ Geschwindigkeit), sonst Route
@@ -8363,7 +8396,7 @@ function renderTourenGrid(){
     const _zusMin=tourZusatzMin(tour);
     const gesamtZeit=_m?fmtMin(Math.round((driveVal||0)/60)+_bewMin+_zusMin):'–';
     const _rz=_m?tourRestzeit(tour,treesInTour,driveVal):null; // ohne Zeitgrundlage keine (halbe) Restzeit zeigen — wie Legende
-    const _violCnt=tourViolatingTrees(tour).length;
+    const _violCnt=tourViolatingTrees(tour, treesInTour).length;
     const _rulesActive=tourHasRules(tour);
     const zusLine=_zusMin>0?`
         <div style="color:var(--text2);">${fmtMin(_zusMin)} <span style="color:var(--text3);font-size:10px;">Zusatz</span></div>`:'';
@@ -11553,10 +11586,10 @@ window._tourHistoryCache = null;
 async function loadTourHistoryForControlling(){
   if(!currentProjectId)return;
   try{
-    const snap=await getDocs(collection(db,'projects',currentProjectId,'tourHistory'));
+    const docs=await _tourHistoryDocs();
     window._tourHistoryCache={
       projectId:currentProjectId,
-      entries:snap.docs.map(d=>normalizeHistory({id:d.id,...d.data()}))
+      entries:docs.map(d=>normalizeHistory({...d}))
     };
     // Re-render controlling with fresh data
     if(currentView==='controlling') renderControlling();
@@ -13705,14 +13738,13 @@ async function loadTourHistory(){
   el.innerHTML='<div style="padding:16px 20px;font-size:13px;color:var(--text3);">Lädt…</div>';
   const loadingForProject=currentProjectId;
   try{
-    const snap=await getDocs(collection(db,'projects',currentProjectId,'tourHistory'));
+    const docs=await _tourHistoryDocs();
     _histListProject=loadingForProject; // Liste spiegelt jetzt dieses Projekt
-    if(snap.empty){
+    if(!docs.length){
       el.innerHTML='<div style="padding:16px 20px;font-size:13px;color:var(--text3);">Noch keine abgeschlossenen Touren.</div>';
       return;
     }
-    const histories=snap.docs.map(d=>({id:d.id,...d.data()}))
-      .sort((a,b)=>b.date.localeCompare(a.date));
+    const histories=[...docs].sort((a,b)=>b.date.localeCompare(a.date));
 
     // ── Summenzeile berechnen ──────────────────────────────────
     const totalBew=histories.reduce((s,h)=>s+(h.stats?.bewaessert||0),0);
@@ -14964,11 +14996,10 @@ function dashRenderNichtMap(nichtReports){
   setTimeout(()=>dashNichtMap.invalidateSize(),100);
 }
 
-async function loadDashTourHistory(){
+async function loadDashTourHistory(force){
   if(!currentProjectId)return;
   try{
-    const snap=await getDocs(collection(db,'projects',currentProjectId,'tourHistory'));
-    dashTourHistory=snap.docs.map(d=>({id:d.id,...d.data()}));
+    dashTourHistory=await _tourHistoryDocs(force===true);
     dashTourHistoryLoaded=true;
     if(currentView==='dashboard') renderDashboard();
   }catch(e){ console.warn('dashboard tourHistory:',e); }
@@ -14976,7 +15007,7 @@ async function loadDashTourHistory(){
 
 async function refreshDashboard(){
   const icon=document.getElementById('dash-refresh-icon'); if(icon) icon.style.animation='dsh-spin .7s linear infinite';
-  await loadDashTourHistory();
+  await loadDashTourHistory(true); // manueller Refresh → Cache umgehen
   renderDashboard();
   if(icon) setTimeout(()=>icon.style.animation='',700);
 }
