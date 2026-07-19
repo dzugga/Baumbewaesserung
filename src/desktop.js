@@ -173,6 +173,22 @@ function _tourLkp(){
   return {byId:_tourById, ov:_overviewIds};
 }
 function isOverviewTour(tourId){ return _tourLkp().ov.has(tourId); }
+// Diagnose (Konsole): Zusammensetzung des offenen Objektbestands — Container/Seiten/Punkte/Flächen,
+// Element-Verteilung, mit/ohne Tour, mit history[]. Hilft bei Ladezeit-/Read-Analysen.
+window.objStats=function(){
+  const arr=_allTrees||[]; const cat={container:0,seite:0,punkt:0,flaeche:0,linie:0};
+  const elem={}; let mitTour=0, mitHist=0, mitGeomStr=0, seiteMitGeom=0;
+  arr.forEach(t=>{
+    if(t.containerTyp) cat.container++;
+    else if(t.containerExtId){ cat.seite++; const e=t.element||'—'; elem[e]=(elem[e]||0)+1; if(t.geomStr||(t.geom&&t.geom.coordinates)) seiteMitGeom++; }
+    else { const g=(t.geomType||'punkt'); cat[g]=(cat[g]||0)+1; }
+    if(getTreeTourIds(t).length) mitTour++;
+    if((t.history||[]).length) mitHist++;
+    if(t.geomStr) mitGeomStr++;
+  });
+  const out={ gesamt:arr.length, ...cat, mitTour, ohneTour:arr.length-mitTour, mitHistory:mitHist, mitGeomStrAmDoc:mitGeomStr, seitenMitEigenerGeom:seiteMitGeom, elementVerteilung:elem };
+  console.table(out); console.log('Element-Verteilung der Seiten:', elem); return out;
+};
 // ── Tour-Rhythmus: läuft die Tour an einem Datum? ──
 // Modell: BETRIEBSTAGE (welche Wochentage) × WOCHEN-RHYTHMUS (jede / jede 2. / jede 4. Woche).
 // Ersetzt das mehrdeutige „täglich". Ohne Betriebstage ist eine Tour bewusst NICHT fällig und zählt 0.
