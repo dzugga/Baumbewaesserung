@@ -2081,8 +2081,9 @@ function _lassoSelectable(tree){
   if(_isCheckMode(_colorMode)){ const b=_checkBucket(tree); if(b && !_checkShow.has(b)) return false; }
   return true;
 }
-function setMarkerVisibility(){
-  trees.forEach(tree=>{
+function setMarkerVisibility(subset){
+  // subset optional: beim häppchenweisen Marker-Aufbau nur die frisch gebauten anfassen
+  (subset||trees).forEach(tree=>{
     const m=mapMarkers[tree.id];if(!m)return;
     if(_lassoSelectable(tree)) _mAdd(m); else _mDel(m);
   });
@@ -2368,13 +2369,39 @@ function toggleRouteNums(){
   renderFlaechenNumbers();                 // Routennummern auf importierten Flächen
 }
 
+// ── Marker-Voll-Aufbau, bei großen Projekten HÄPPCHENWEISE je Frame ──────────────────────────
+// 20k+ Marker in einem Block bauten mehrere Sekunden Main-Thread-Freeze nach dem Laden. Jetzt:
+// kleine Projekte weiter synchron (kein „Tröpfeln"), große in 800er-Chunks per requestAnimationFrame
+// — die Karte bleibt bedienbar, Marker erscheinen fortlaufend. Ein Token bricht laufende Aufbauten
+// ab, sobald ein neuer startet (Projektwechsel/Snapshot/Tour-Umschaltung); von diffMarkers während
+// des Aufbaus angelegte (neuere) Marker werden nicht überschrieben.
+let _mbToken=0;
+const _MB_CHUNK=800, _MB_SYNC_MAX=2500;
+function _buildMarkers(){
+  const token=++_mbToken;
+  Object.values(mapMarkers).forEach(m=>_mDel(m)); mapMarkers={};
+  const list=trees.filter(t=>isActive(t)&&t.lat&&t.lng);
+  const numMap=buildRouteNumMap();
+  const build=(from,to)=>{
+    _routeNumMap=numMap;
+    try{ for(let i=from;i<to;i++){ const t=list[i]; if(mapMarkers[t.id]===undefined) mapMarkers[t.id]=makeMarker(t); } }
+    finally{ _routeNumMap=null; }
+  };
+  if(list.length<=_MB_SYNC_MAX){ build(0,list.length); setMarkerVisibility(list); return; }
+  let i=0;
+  const step=()=>{
+    if(token!==_mbToken) return; // neuer Aufbau gestartet → diesen verwerfen
+    const end=Math.min(i+_MB_CHUNK, list.length);
+    build(i,end);
+    setMarkerVisibility(list.slice(i,end));
+    i=end;
+    if(i<list.length) requestAnimationFrame(step);
+  };
+  step();
+}
 function refreshMarkers(){
-  Object.values(mapMarkers).forEach(m=>_mDel(m));mapMarkers={};
   if(_clusterOn&&_clusterGroup) _clusterGroup.clearLayers();
-  _routeNumMap=buildRouteNumMap();
-  try{ trees.forEach(tree=>{ if(isActive(tree)&&tree.lat&&tree.lng) mapMarkers[tree.id]=makeMarker(tree); }); }
-  finally{ _routeNumMap=null; }
-  setMarkerVisibility();
+  _buildMarkers();
   renderObjFilterUI();
   loadSavedRoutes();  // load from Firestore, never auto-recalculate
   renderDepotMarker();
@@ -3323,12 +3350,8 @@ function diffMarkers(changes){
 }
 
 function rebuildMarkersWithNumbers(){
-  Object.values(mapMarkers).forEach(m=>_mDel(m));mapMarkers={};
   // makeMarker uses selectedTreeId for highlight — always passes current state
-  _routeNumMap=buildRouteNumMap();
-  try{ trees.forEach(tree=>{ if(isActive(tree)&&tree.lat&&tree.lng) mapMarkers[tree.id]=makeMarker(tree); }); }
-  finally{ _routeNumMap=null; }
-  setMarkerVisibility();
+  _buildMarkers(); // bei großen Projekten häppchenweise (siehe oben)
 }
 
 let _bhLayer=null, _showBetriebshoefe=true;
@@ -6898,11 +6921,24 @@ function updateBtnFilterNoGps(){
   btn.style.borderColor = _baeumeNoGpsFilter ? 'var(--amber)' : '';
 }
 
+// Vorberechneter Kleinschreib-Suchstring je Objekt — der Aufbau je Tastendruck über 20k+ Objekte
+// war der Suchkosten-Treiber. WeakMap: jeder Snapshot erzeugt NEUE Objekt-Instanzen, alte Einträge
+// verfallen automatisch (keine manuelle Invalidierung nötig).
+const _searchStrCache=new WeakMap();
+function _treeSearchStr(tree){
+  let s=_searchStrCache.get(tree);
+  if(s===undefined){
+    s=[tree.name,tree.art,tree.stadtteil,tree.baumnr,tree.baumId,tree.pflanzjahr,tree.pflanzzeitpunkt,(tree.containerExtId&&_containerOf(tree)?.name)||''].join(' ').toLowerCase();
+    _searchStrCache.set(tree,s);
+  }
+  return s;
+}
 function filterBaeumeTable(q){
   const countEl = document.getElementById('baeume-search-count');
-  let filtered = _baeumeAllTrees.filter(tree=>
-    matchTerms([tree.name,tree.art,tree.stadtteil,tree.baumnr,tree.baumId,tree.pflanzjahr,tree.pflanzzeitpunkt,(tree.containerExtId&&_containerOf(tree)?.name)||''].join(' '), q)
-  );
+  const terms=(q||'').toLowerCase().split(/\s+/).filter(Boolean);
+  let filtered = terms.length
+    ? _baeumeAllTrees.filter(tree=>{ const h=_treeSearchStr(tree); return terms.every(t=>h.includes(t)); })
+    : [..._baeumeAllTrees];
   if(_baeumeNoGpsFilter) filtered = filtered.filter(t => !t.lat || !t.lng);
   if(!_baeumeShowInactive) filtered = filtered.filter(isActive);
   const hasFilter = q.trim() || _baeumeNoGpsFilter;
