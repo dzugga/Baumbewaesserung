@@ -732,7 +732,6 @@ async function openProject(projectId){
   _listMode = currentProjectData.listAbschnitteDefault ? 'abschnitte' : 'objekte'; // Listen-Standard je Projekt
   document.getElementById('active-project-name').textContent=currentProjectData.name;
   _showLoadOverlay(currentProjectData.name); // A2: Lade-Overlay bis Objekte gerendert
-  window._perfOpenT0=performance.now(); window._perfNetDone=null; // [Perf]-Diagnose: Phasen des Projekt-Öffnens (NetDone zurücksetzen, sonst schluckt ein voriges Öffnen den Netz-Log)
   // Mandant neben dem Projektnamen (gecacht, max. 1 Read)
   const apOrg=document.getElementById('active-project-org');
   if(apOrg){ apOrg.textContent=''; const _oid=currentProjectData.orgId; if(_oid) orgDisplayName(_oid).then(n=>{ if(n&&currentProjectData?.orgId===_oid) apOrg.textContent='· '+n; }); }
@@ -922,13 +921,6 @@ function subscribeToProject(){
 
   const treesRef=collection(db,'projects',currentProjectId,'trees');
   unsubTrees=onSnapshot(treesRef,snap=>{
-    // [Perf]-Diagnose ZUERST (vor jedem Render — sonst nullt der Marker-Log die Messung):
-    // Netz-Zeit bis zum ersten Snapshot + grobes Datenvolumen der Objekt-Dokumente.
-    if(window._perfOpenT0 && !window._perfNetDone){
-      window._perfNetDone=performance.now();
-      console.info(`[Perf] Daten empfangen: ${Math.round(window._perfNetDone-window._perfOpenT0)} ms (${snap.size.toLocaleString('de-DE')} Objekte)`);
-      try{ const mb=(JSON.stringify(snap.docs.map(d=>d.data())).length/1048576).toFixed(1); console.info(`[Perf] Datenvolumen (roh, JSON-Näherung): ~${mb} MB`); }catch(_){}
-    }
     _allTrees=snap.docs.map(d=>({id:d.id,...d.data()}));
     maybeHealCount('treeCount',_allTrees.length); // echter Projekt-Gesamtstand (vor Pilot-Filter)
     trees=_applyPilotScope(_allTrees);             // Pilot-Bereich: Arbeitsmenge ggf. auf Ausschnitt eingrenzen
@@ -949,7 +941,6 @@ function subscribeToProject(){
         // zuerst auf die Gesamt-Ausdehnung zoomen (sonst würde das Viewport-Culling im Start-Ausschnitt nichts finden)
         if(!_cityFitDone && currentView==='karte' && !activeTours.size){ const bb=_allDrawnBounds(); if(bb&&bb.isValid()){ try{ map.fitBounds(bb,{padding:[40,40],maxZoom:16}); _cityFitDone=true; }catch(_){} } }
         try{ renderDrawnGeoms(); renderFlaechenNumbers(); renderListDebounced(); }catch(_){}
-        if(window._perfNetDone){ console.info(`[Perf] Geometrie-Bundle geladen + gezeichnet: gesamt ${Math.round(performance.now()-(window._perfOpenT0||window._perfNetDone))} ms seit ${window._perfOpenT0?'Öffnen':'Daten-Empfang'}`); window._perfNetDone=null; }
       });
     }
     if(document.getElementById('project-loading')){ _setLoadOverlaySub(`${_allTrees.length.toLocaleString('de-DE')} Objekte geladen`); _hideLoadOverlay(); } // A2: Overlay weg, sobald gerendert
@@ -2396,10 +2387,7 @@ function _buildMarkers(){
     try{ for(let i=from;i<to;i++){ const t=list[i]; if(mapMarkers[t.id]===undefined) mapMarkers[t.id]=makeMarker(t); } }
     finally{ _routeNumMap=null; }
   };
-  // Erst NACH dem Daten-Empfang loggen — frühe UI-Aufbauten (leere Objektliste, vor dem ersten
-  // Snapshot) würden sonst die Messung nullen und als „gesamt" erscheinen.
-  const _perfDone=()=>{ if(window._perfOpenT0 && window._perfNetDone){ const n=performance.now(); console.info(`[Perf] Marker-Aufbau fertig: +${Math.round(n-window._perfNetDone)} ms nach Daten-Empfang · gesamt ${Math.round(n-window._perfOpenT0)} ms seit Öffnen (${list.length.toLocaleString('de-DE')} Punkt-Kandidaten)`); window._perfOpenT0=null; } };
-  if(list.length<=_MB_SYNC_MAX){ build(0,list.length); setMarkerVisibility(list); _perfDone(); return; }
+  if(list.length<=_MB_SYNC_MAX){ build(0,list.length); setMarkerVisibility(list); return; }
   let i=0;
   const step=()=>{
     if(token!==_mbToken) return; // neuer Aufbau gestartet → diesen verwerfen
@@ -2408,7 +2396,6 @@ function _buildMarkers(){
     setMarkerVisibility(list.slice(i,end));
     i=end;
     if(i<list.length) requestAnimationFrame(step);
-    else _perfDone();
   };
   step();
 }
