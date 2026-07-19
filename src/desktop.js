@@ -732,7 +732,7 @@ async function openProject(projectId){
   _listMode = currentProjectData.listAbschnitteDefault ? 'abschnitte' : 'objekte'; // Listen-Standard je Projekt
   document.getElementById('active-project-name').textContent=currentProjectData.name;
   _showLoadOverlay(currentProjectData.name); // A2: Lade-Overlay bis Objekte gerendert
-  window._perfOpenT0=performance.now(); // [Perf]-Diagnose: Phasen des Projekt-Öffnens in der Konsole
+  window._perfOpenT0=performance.now(); window._perfNetDone=null; // [Perf]-Diagnose: Phasen des Projekt-Öffnens (NetDone zurücksetzen, sonst schluckt ein voriges Öffnen den Netz-Log)
   // Mandant neben dem Projektnamen (gecacht, max. 1 Read)
   const apOrg=document.getElementById('active-project-org');
   if(apOrg){ apOrg.textContent=''; const _oid=currentProjectData.orgId; if(_oid) orgDisplayName(_oid).then(n=>{ if(n&&currentProjectData?.orgId===_oid) apOrg.textContent='· '+n; }); }
