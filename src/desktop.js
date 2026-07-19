@@ -10785,7 +10785,9 @@ async function seedDefaultReasons(){
 // Zwei Einstiege teilen sich dieselbe Grid-Logik: der Superadmin-Onboarding-Schritt 4 (view-benutzer,
 // Mandant frei wählbar) und der Kunden-Reiter „Fahrer-Zuweisung" (view-tourzuweisung, fest auf currentOrg).
 async function renderDriverMgmt(){ return _renderDriverGrid(driverLoginsOrg||currentOrg, 'dta-project', 'driver-mgmt-list'); }
-async function renderTourZuweisung(){ return _renderDriverGrid(currentOrg, 'tz-project', 'tz-list'); }
+// An die org des GEÖFFNETEN Projekts binden, nicht an currentOrg (= Heimat-org aus den Claims). Sonst
+// sieht ein Superadmin, der ein Fremd-Mandanten-Projekt offen hat, die Projekte seiner eigenen org.
+async function renderTourZuweisung(){ return _renderDriverGrid(currentProjectData?.orgId||currentOrg, 'tz-project', 'tz-list'); }
 function _driverMgmtRerender(){ return currentView==='tourzuweisung' ? renderTourZuweisung() : renderDriverMgmt(); }
 async function _renderDriverGrid(org, projSelId, listElId){
   const el=document.getElementById(listElId);if(!el)return;
