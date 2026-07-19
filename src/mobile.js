@@ -2613,6 +2613,7 @@ async function _markManyDone(list){
   renderMarkers(); renderList(document.getElementById('list-search-input')?.value||''); updateProgress();
   if(!isOnline){
     for(const it of items) await addToOfflineQueue(it.tree.id, it._u, it.histEntry, currentTourId, it.rsEntry);
+    cacheTreesLocally(currentProjectId,currentTourId,trees); // Offline-Cache auf den erledigten Stand
     return items.length;
   }
   pauseSnapshot=true; // Echo-Fenster wie confirmMarkAllDone
@@ -2631,6 +2632,7 @@ async function _markManyDone(list){
       console.error('Sammel-Meldung abgelehnt:', code, e);
       items.forEach(it=>{ Object.keys(it._prev).forEach(k=>{ if(it._prev[k]===undefined) delete it.tree[k]; else it.tree[k]=it._prev[k]; }); it.tree.runStatus=it._prevRun; _projectRunStatus(it.tree); });
       renderMarkers(); renderList(document.getElementById('list-search-input')?.value||''); updateProgress();
+      cacheTreesLocally(currentProjectId,currentTourId,trees); // Cache auf den zurückgerollten Stand
       toast('⚠ Nicht gespeichert ('+(code||'?')+')');
       setTimeout(()=>{ pauseSnapshot=false; },500);
       return 0;
@@ -2638,6 +2640,8 @@ async function _markManyDone(list){
     for(const it of items) await addToOfflineQueue(it.tree.id, it._u, it.histEntry, currentTourId, it.rsEntry);
     toast('📦 Offline gespeichert — wird später synchronisiert');
   }
+  // Cache selbst auffrischen: der pauseSnapshot verwirft das Server-Echo, das sonst den Cache schriebe.
+  cacheTreesLocally(currentProjectId,currentTourId,trees);
   setTimeout(()=>{ pauseSnapshot=false; },500);
   return items.length;
 }
@@ -2830,9 +2834,9 @@ async function _cacheWriteNow(){
     });
   } catch(e){ console.warn('Cache write failed:', e); }
 }
-document.addEventListener('visibilitychange', ()=>{
-  if(document.visibilityState!=='visible' && _cacheT){ clearTimeout(_cacheT); _cacheT=null; _cacheWriteNow(); }
-});
+function _cacheFlush(){ if(_cacheT){ clearTimeout(_cacheT); _cacheT=null; _cacheWriteNow(); } }
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState!=='visible') _cacheFlush(); });
+window.addEventListener('pagehide', _cacheFlush); // hartes Schließen/Reload → letzten Cache noch sichern
 
 async function loadCachedTrees(projectId, tourId){
   const b = await loadCachedBundle(projectId, tourId);

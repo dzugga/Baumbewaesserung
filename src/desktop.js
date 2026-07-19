@@ -944,8 +944,10 @@ function subscribeToProject(){
       _pendingTreeRender=true; // Massen-Schreibvorgang läuft — EIN Render am Ende statt je Batch
     }else{
       const changes=snap.docChanges();
-      // Erstladung/Projektwechsel (alles neu) → Voll-Aufbau; sonst nur Geändertes anfassen
-      if(Object.keys(mapMarkers).length===0 || changes.length>=snap.size) refreshMarkers();
+      // Erstladung/Projektwechsel (alles neu) ODER während ein häppchenweiser Aufbau noch läuft
+      // (sonst würde diffMarkers gegen den unfertigen mapMarkers-Stand arbeiten → Waisen) → Voll-Aufbau;
+      // sonst nur Geändertes anfassen.
+      if(Object.keys(mapMarkers).length===0 || changes.length>=snap.size || _mbBuilding) refreshMarkers();
       else { diffMarkers(changes); try{ renderDrawnGeoms(); }catch(_){} try{ _applyFlaechenSelection(); }catch(_){} } // gezeichnete + importierte Geometrie bei Teil-Updates mitziehen (gelöschte Flächen ausblenden)
       renderListDebounced();
       _refreshTourPanelsDebounced(); // Kennzahlen-Panel + Legende folgen Mitglieder-Änderungen (Zeit/Strecke je zeitBasis live)
@@ -2391,7 +2393,7 @@ function toggleRouteNums(){
 // — die Karte bleibt bedienbar, Marker erscheinen fortlaufend. Ein Token bricht laufende Aufbauten
 // ab, sobald ein neuer startet (Projektwechsel/Snapshot/Tour-Umschaltung); von diffMarkers während
 // des Aufbaus angelegte (neuere) Marker werden nicht überschrieben.
-let _mbToken=0;
+let _mbToken=0, _mbBuilding=false; // _mbBuilding: läuft gerade ein häppchenweiser Aufbau?
 const _MB_CHUNK=800, _MB_SYNC_MAX=2500;
 function _buildMarkers(){
   const token=++_mbToken;
@@ -2403,8 +2405,8 @@ function _buildMarkers(){
     try{ for(let i=from;i<to;i++){ const t=list[i]; if(mapMarkers[t.id]===undefined) mapMarkers[t.id]=makeMarker(t); } }
     finally{ _routeNumMap=null; }
   };
-  if(list.length<=_MB_SYNC_MAX){ build(0,list.length); setMarkerVisibility(list); return; }
-  let i=0;
+  if(list.length<=_MB_SYNC_MAX){ _mbBuilding=false; build(0,list.length); setMarkerVisibility(list); return; }
+  let i=0; _mbBuilding=true;
   const step=()=>{
     if(token!==_mbToken) return; // neuer Aufbau gestartet → diesen verwerfen
     const end=Math.min(i+_MB_CHUNK, list.length);
@@ -2412,6 +2414,7 @@ function _buildMarkers(){
     setMarkerVisibility(list.slice(i,end));
     i=end;
     if(i<list.length) requestAnimationFrame(step);
+    else _mbBuilding=false; // fertig
   };
   step();
 }
@@ -11647,10 +11650,10 @@ async function getNextBaumId(){
 // Cache tourHistory for controlling (authoritative source)
 window._tourHistoryCache = null;
 
-async function loadTourHistoryForControlling(){
+async function loadTourHistoryForControlling(force){
   if(!currentProjectId)return;
   try{
-    const docs=await _tourHistoryDocs();
+    const docs=await _tourHistoryDocs(force===true);
     window._tourHistoryCache={
       projectId:currentProjectId,
       entries:docs.map(d=>normalizeHistory({...d}))
@@ -11779,7 +11782,7 @@ async function refreshControlling(silent=false){
   const icon=document.getElementById('ctrl-refresh-icon');
   if(icon) icon.style.animation='spin .7s linear infinite';
 
-  await loadTourHistoryForControlling();
+  await loadTourHistoryForControlling(true); // manueller Refresh → TTL-Cache umgehen
   updateCtrlLastUpdated();
 
   if(icon) setTimeout(()=>icon.style.animation='',700);
@@ -11836,9 +11839,10 @@ function inCtrlRange(dateStr){
 }
 
 function initControlling(){
-  // Refresh tourHistory cache on every open
+  // Refresh tourHistory cache on every open — force umgeht den 60-s-TTL-Cache, damit gerade
+  // abgeschlossene Touren (Fahrer-App) beim Öffnen sofort im Controlling erscheinen.
   window._tourHistoryCache=null;
-  loadTourHistoryForControlling();
+  loadTourHistoryForControlling(true);
   // Untere Historie-Liste bei Projektwechsel automatisch neu laden,
   // falls sie für ein anderes Projekt bereits geladen war.
   if(_histListProject && _histListProject!==currentProjectId) loadTourHistory();
@@ -15079,7 +15083,7 @@ async function refreshDashboard(){
 function initDashboard(){
   dashTourHistoryLoaded=false;
   renderDashboard();        // sofort mit Live-Daten (tree.history/lastStatus)
-  loadDashTourHistory();    // dann autoritativ aus tourHistory nachladen
+  loadDashTourHistory(true); // autoritativ aus tourHistory — beim Öffnen frisch (TTL-Cache umgehen)
   setTimeout(()=>{ if(dashNichtMap) dashNichtMap.invalidateSize(); },200);
 }
 
