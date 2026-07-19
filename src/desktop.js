@@ -2396,7 +2396,9 @@ function _buildMarkers(){
     try{ for(let i=from;i<to;i++){ const t=list[i]; if(mapMarkers[t.id]===undefined) mapMarkers[t.id]=makeMarker(t); } }
     finally{ _routeNumMap=null; }
   };
-  const _perfDone=()=>{ if(window._perfOpenT0){ const n=performance.now(); console.info(`[Perf] Marker-Aufbau fertig: +${Math.round(n-(window._perfNetDone||window._perfOpenT0))} ms · gesamt ${Math.round(n-window._perfOpenT0)} ms seit Öffnen (${list.length.toLocaleString('de-DE')} Punkt-Kandidaten)`); window._perfOpenT0=null; } };
+  // Erst NACH dem Daten-Empfang loggen — frühe UI-Aufbauten (leere Objektliste, vor dem ersten
+  // Snapshot) würden sonst die Messung nullen und als „gesamt" erscheinen.
+  const _perfDone=()=>{ if(window._perfOpenT0 && window._perfNetDone){ const n=performance.now(); console.info(`[Perf] Marker-Aufbau fertig: +${Math.round(n-window._perfNetDone)} ms nach Daten-Empfang · gesamt ${Math.round(n-window._perfOpenT0)} ms seit Öffnen (${list.length.toLocaleString('de-DE')} Punkt-Kandidaten)`); window._perfOpenT0=null; } };
   if(list.length<=_MB_SYNC_MAX){ build(0,list.length); setMarkerVisibility(list); _perfDone(); return; }
   let i=0;
   const step=()=>{
