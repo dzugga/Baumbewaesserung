@@ -1,6 +1,6 @@
 import { initAppCheck } from './appcheck.js';
 import { installErrorHandler } from './errlog.js'; installErrorHandler('einsatzleiter');
-import { BASEMAP_FARBE, BASEMAP_ATTR } from './basemaps.js';
+import { BASEMAP_FARBE, BASEMAP_ATTR, TILE_PERF } from './basemaps.js';
 import { firebaseConfig } from './firebase-config.js';
 import { esc } from './esc.js';
 import { titelOf as orTitel, buildContainerIndex } from './objektrollen.js';
@@ -370,7 +370,7 @@ function renderNichtMap(nichtReports){
   if(!L || !wrap) return;
   if(!nichtMap){
     nichtMap=L.map('nicht-map',{zoomControl:true,attributionControl:false}).setView([50.0,8.42],12);
-    L.tileLayer(BASEMAP_FARBE,{maxZoom:20,maxNativeZoom:18,attribution:BASEMAP_ATTR}).addTo(nichtMap);
+    L.tileLayer(BASEMAP_FARBE,{maxZoom:20,maxNativeZoom:18,attribution:BASEMAP_ATTR,...TILE_PERF}).addTo(nichtMap);
     nichtLayer=L.layerGroup().addTo(nichtMap);
     setTimeout(()=>nichtMap.invalidateSize(),200);
   }

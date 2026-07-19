@@ -5,7 +5,7 @@ import { HANDBUCH } from './handbuch-daten.js';
 import { installErrorHandler } from './errlog.js'; installErrorHandler('desktop');
 import { SI_DSGVO, SI_STACK, SI_REGIONEN, SI_APPS, SI_SICHERHEIT, SI_DIENSTE } from './systeminfo-daten.js';
 import { initAppCheck } from './appcheck.js';
-import { basemapLayer, BASEMAP_FARBE, BASEMAP_GRAU, BASEMAP_ATTR } from './basemaps.js';
+import { basemapLayer, BASEMAP_FARBE, BASEMAP_GRAU, BASEMAP_ATTR, TILE_PERF } from './basemaps.js';
 import { firebaseConfig } from './firebase-config.js';
 import { esc as dlEsc } from './esc.js'; // dlEsc = projektweites HTML-Escape (zentral in esc.js)
 // Escaper für Zeichenketten, die als JS-String-Argument in einem Inline-Handler stehen
@@ -8972,7 +8972,7 @@ async function _batchCaptureTourMap(tourId, mapCfg){
   const imgs=[];
   const pmap=L.map(inner,{zoomControl:false,attributionControl:true,zoomSnap:0.25});
   try{
-    const pbase=base.kind==='wms'?L.tileLayer.wms(base.url,{layers:base.layers,format:'image/png',version:base.version,transparent:false,maxZoom:20,attribution:baseAttr,crossOrigin:true}):L.tileLayer(base.url,{maxZoom:20,maxNativeZoom:18,attribution:baseAttr,crossOrigin:true});
+    const pbase=base.kind==='wms'?L.tileLayer.wms(base.url,{layers:base.layers,format:'image/png',version:base.version,transparent:false,maxZoom:20,attribution:baseAttr,...TILE_PERF}):L.tileLayer(base.url,{maxZoom:20,maxNativeZoom:18,attribution:baseAttr,...TILE_PERF});
     pbase.addTo(pmap);
     const pb=L.latLngBounds([]);
     if(flFeatures.length){ const fl=L.geoJSON({type:'FeatureCollection',features:flFeatures},{renderer:L.canvas({padding:0.5}),style:{color,weight:1.5,fillColor:color,fillOpacity:0.45}}).addTo(pmap); try{ pb.extend(fl.getBounds()); }catch(_){} }
@@ -9223,7 +9223,7 @@ async function printTourMap(){
   };
   sizePage();
   const pmap=L.map('mapprint-map',{zoomControl:true,attributionControl:true,zoomSnap:0.25,zoomDelta:0.25,wheelPxPerZoomLevel:140});
-  const pbase = base.kind==='wms' ? L.tileLayer.wms(base.url,{layers:base.layers,format:'image/png',version:base.version,transparent:false,maxZoom:20,attribution:baseAttr,crossOrigin:true}) : L.tileLayer(base.url,{maxZoom:20,maxNativeZoom:18,attribution:baseAttr,crossOrigin:true});
+  const pbase = base.kind==='wms' ? L.tileLayer.wms(base.url,{layers:base.layers,format:'image/png',version:base.version,transparent:false,maxZoom:20,attribution:baseAttr,...TILE_PERF}) : L.tileLayer(base.url,{maxZoom:20,maxNativeZoom:18,attribution:baseAttr,...TILE_PERF});
   pbase.addTo(pmap);
   const pb=L.latLngBounds([]);
   // Flächen-Umrisse (Nummerierung übernimmt die Stopp-Schleife unten, da Flächen als Zentroid-Stopps in `stops` stecken)
@@ -11489,7 +11489,7 @@ function showImportPreview(){
   // Karte initialisieren
   try{
     _impMap=L.map('imp-map',{zoomControl:true}).setView([51,9],5);
-    L.tileLayer(BASEMAP_FARBE,{maxZoom:20,maxNativeZoom:18,attribution:BASEMAP_ATTR}).addTo(_impMap);
+    L.tileLayer(BASEMAP_FARBE,{maxZoom:20,maxNativeZoom:18,attribution:BASEMAP_ATTR,...TILE_PERF}).addTo(_impMap);
     _impLayer=L.layerGroup().addTo(_impMap);
     setTimeout(()=>{ try{_impMap.invalidateSize();}catch(e){} renderImportPreview(); },200);
   }catch(e){ renderImportPreview(); }
@@ -13206,7 +13206,7 @@ function _apRenderMap(v){
   try{ if(_apMap){ _apMap.remove(); } }catch(_){}
   _apMap=L.map('ap-map',{zoomControl:true,attributionControl:false}).setView([51,9],6);
   _apMapVid=viewKey; _apMarkers={};
-  L.tileLayer(BASEMAP_FARBE,{maxZoom:20,maxNativeZoom:18}).addTo(_apMap);
+  L.tileLayer(BASEMAP_FARBE,{maxZoom:20,maxNativeZoom:18,...TILE_PERF}).addTo(_apMap);
   const grp=L.layerGroup().addTo(_apMap), pts=[];
   const byId={}; trees.forEach(t=>{ byId[t.id]=t; });
   const addMarker=(t,fill,tip)=>{
@@ -15023,7 +15023,7 @@ function dashRenderNichtMap(nichtReports){
   if(!dashNichtMap){
     let _c=[52.279,8.047], _z=12; try{ if(map&&map.getCenter){ const mc=map.getCenter(); _c=[mc.lat,mc.lng]; _z=Math.min(map.getZoom()||12,13); } }catch(_){}
     dashNichtMap=L.map('dash-nicht-map',{zoomControl:true,attributionControl:false}).setView(_c,_z);   // Start am Projekt, nicht am alten Hessen-Default
-    L.tileLayer(BASEMAP_FARBE,{maxZoom:20,maxNativeZoom:18}).addTo(dashNichtMap);
+    L.tileLayer(BASEMAP_FARBE,{maxZoom:20,maxNativeZoom:18,...TILE_PERF}).addTo(dashNichtMap);
     dashNichtLayer=L.layerGroup().addTo(dashNichtMap);
     setTimeout(()=>dashNichtMap.invalidateSize(),200);
     // Aufziehbare Karte (CSS resize:vertical am .dsh-map-wrap): Leaflet nachziehen + Höhe merken

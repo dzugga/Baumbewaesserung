@@ -1,6 +1,6 @@
 import { initAppCheck } from './appcheck.js';
 import { installErrorHandler } from './errlog.js'; installErrorHandler('erfassung');
-import { BASEMAP_FARBE, BASEMAP_ATTR } from './basemaps.js';
+import { BASEMAP_FARBE, BASEMAP_ATTR, TILE_PERF } from './basemaps.js';
 import { firebaseConfig } from './firebase-config.js';
 import { esc } from './esc.js';
 import { titelOf as orTitel, buildContainerIndex, klasseFelderOf } from './objektrollen.js';
@@ -365,7 +365,7 @@ function initMapUebersicht() {
   if (mapUebersicht) return;
   mapUebersicht = L.map('map-uebersicht', { zoomControl: false }).setView([51.05, 13.73], 13);
   L.tileLayer(BASEMAP_FARBE, {
-    attribution: BASEMAP_ATTR, maxZoom: 20, maxNativeZoom: 18
+    attribution: BASEMAP_ATTR, maxZoom: 20, maxNativeZoom: 18, ...TILE_PERF
   }).addTo(mapUebersicht);
   L.control.zoom({ position: 'topright' }).addTo(mapUebersicht);
 }
@@ -488,7 +488,7 @@ function initMapNeu() {
   if (mapNeu) return;
   mapNeu = L.map('map-neu', { zoomControl: false }).setView([51.05, 13.73], 14);
   L.tileLayer(BASEMAP_FARBE, {
-    attribution: BASEMAP_ATTR, maxZoom: 20, maxNativeZoom: 18
+    attribution: BASEMAP_ATTR, maxZoom: 20, maxNativeZoom: 18, ...TILE_PERF
   }).addTo(mapNeu);
   L.control.zoom({ position: 'topright' }).addTo(mapNeu);
 
@@ -504,7 +504,7 @@ function initMapKoord() {
   if (mapKoord) return;
   mapKoord = L.map('map-koord', { zoomControl: false }).setView([51.05, 13.73], 16);
   L.tileLayer(BASEMAP_FARBE, {
-    attribution: BASEMAP_ATTR, maxZoom: 20, maxNativeZoom: 18
+    attribution: BASEMAP_ATTR, maxZoom: 20, maxNativeZoom: 18, ...TILE_PERF
   }).addTo(mapKoord);
   L.control.zoom({ position: 'topright' }).addTo(mapKoord);
 }
