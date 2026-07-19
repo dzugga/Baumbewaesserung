@@ -17021,7 +17021,9 @@ const KI_PROMPTS=[
 
 // Projektweite Auswahl, welche Analysen sichtbar sind (am Projekt-Doc, Feld kiAnalysen)
 function _kiOn(id){ const w=currentProjectData&&currentProjectData.kiAnalysen; if(!w||typeof w!=='object') return true; return w[id]!==false; }
-function _kiCanConfig(){ return currentRole==='superadmin'||currentCap==='admin'; }
+// Nur Superadmin (Betreiber) stellt die Analysen-Auswahl je Projekt für den Kunden voreins; der Kunde
+// (auch mit Admin-Cap) sieht den „Analysen wählen"-Button nicht und kann die Auswahl nicht ändern.
+function _kiCanConfig(){ return currentRole==='superadmin'; }
 function renderKi(){
   const grid=document.getElementById('ki-grid'); if(!grid) return;
   const list=KI_PROMPTS.filter(p=>_kiOn(p.id));
