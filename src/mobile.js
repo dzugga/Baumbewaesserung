@@ -2058,7 +2058,10 @@ function _renderStreetList(el,list,q){
       });
     }
     const doneBtn=(open&&offen>0&&currentTour?.status!=='abgeschlossen')
-      ? `<div style="padding:4px 12px 10px 34px;"><button data-street-done="${esc(g.key)}" style="width:100%;padding:8px;font-size:13px;font-weight:600;border:1px solid #86efac;border-radius:8px;background:#f0fdf4;color:#166534;">✓ Rest der Straße erledigt (${offen})</button></div>`:'';
+      ? `<div style="padding:4px 12px 10px 34px;display:flex;gap:8px;">
+          <button data-street-done="${esc(g.key)}" style="flex:1;padding:8px;font-size:13px;font-weight:600;border:1px solid #86efac;border-radius:8px;background:#f0fdf4;color:#166534;">✓ Rest erledigt (${offen})</button>
+          <button data-street-nicht="${esc(g.key)}" style="flex:1;padding:8px;font-size:13px;font-weight:600;border:1px solid #fecaca;border-radius:8px;background:#fef2f2;color:#991b1b;">✕ Nicht befahrbar</button>
+        </div>`:'';
     return `<div style="border-bottom:1px solid var(--border,#e2e8f0);">
       <div data-street="${esc(g.key)}" style="display:flex;align-items:center;gap:10px;padding:12px;cursor:pointer;">
         <div class="tree-row-num" style="background:${color}22;color:${color};flex-shrink:0;">${gi+1}</div>
@@ -2081,6 +2084,8 @@ function _renderStreetList(el,list,q){
     if(abd){ _abschnittMarkDone(abd.dataset.abDone); return; }
     const btn=e.target.closest('[data-street-done]');
     if(btn){ _streetMarkDone(btn.dataset.streetDone); return; }
+    const btnN=e.target.closest('[data-street-nicht]');
+    if(btnN){ _streetMarkNicht(btnN.dataset.streetNicht); return; }
     const ab=e.target.closest('[data-ab]');
     if(ab){ const k=ab.dataset.ab; _openAbschn.has(k)?_openAbschn.delete(k):_openAbschn.add(k); renderList(document.getElementById('list-search-input')?.value||''); return; }
     const row=e.target.closest('[data-id]');
@@ -2096,7 +2101,7 @@ let _openAbschn=new Set();
 async function _abschnittMarkDone(extId){
   const open=trees.filter(t=>t.containerExtId===extId&&!t.lastStatus);
   if(!open.length) return;
-  const n=await _markManyDone(open); // EIN Batch + EIN Render statt je Objekt
+  const n=await _markMany(open); // EIN Batch + EIN Render statt je Objekt
   if(n) toast(`✓ Abschnitt — ${n} Objekt${n>1?'e':''} erledigt`);
 }
 // Sammelaktion: alle noch offenen Abschnitte einer Straße als erledigt melden (nutzt markTreeDone,
@@ -2106,8 +2111,49 @@ async function _streetMarkDone(key){
   const offen=g.items.filter(t=>!t.lastStatus);
   if(!offen.length) return;
   if(!confirm(`${g.label}: ${offen.length} offene${offen.length===1?'r':''} Abschnitt${offen.length!==1?'e':''} als erledigt melden?`)) return;
-  const n=await _markManyDone(offen); // EIN Batch + EIN Render statt je Objekt
+  const n=await _markMany(offen); // EIN Batch + EIN Render statt je Objekt
   if(n) toast(`✓ ${g.label} — ${n} Abschnitt${n!==1?'e':''} erledigt`);
+}
+// Negativ-Sammelaktion: ganze Straße „nicht befahrbar" — EIN Grund für alle offenen Abschnitte.
+// Einzelne Seiten lassen sich danach weiterhin abweichend korrigieren (Meldung überschreibt).
+async function _streetMarkNicht(key){
+  const g=gruppiereNachStrasse(trees,_getContainer).find(x=>x.key===key); if(!g) return;
+  const offen=g.items.filter(t=>!t.lastStatus);
+  if(!offen.length) return;
+  const res=await _pickReason(`${g.label} · ${offen.length} offene${offen.length===1?'r':''} Abschnitt${offen.length!==1?'e':''}`);
+  if(!res) return;
+  const n=await _markMany(offen, {status:'nicht', reason:res.reason||null, note:res.note||null});
+  if(n) toast(`✕ ${g.label} — ${n} Abschnitt${n!==1?'e':''} als nicht befahrbar`);
+}
+// Grund-Auswahl-Bottom-Sheet (fahrerfreundlich, große Chips) → Promise<{reason,note}|null>.
+function _pickReason(titel){
+  return new Promise(resolve=>{
+    const ov=document.createElement('div');
+    ov.style.cssText='position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;';
+    let sel='';
+    const chips=reasons.length
+      ? reasons.map(r=>`<span data-r="${esc(r.text)}" style="font-size:14px;padding:9px 14px;border-radius:20px;border:1px solid var(--border,#e2e8f0);background:var(--surface,#fff);cursor:pointer;">${esc(r.text)}</span>`).join('')
+      : '<div style="font-size:13px;color:var(--text3,#94a3b8);">Keine Gründe hinterlegt — es wird ohne Grund gemeldet.</div>';
+    ov.innerHTML=`<div style="background:var(--bg,#fff);width:100%;border-radius:16px 16px 0 0;padding:16px 18px calc(16px + env(safe-area-inset-bottom));max-height:80vh;overflow:auto;">
+      <div style="font-size:16px;font-weight:600;">Nicht befahrbar</div>
+      <div style="font-size:13px;color:var(--text3,#94a3b8);margin:2px 0 12px;">${esc(titel||'')}</div>
+      <div style="font-size:12px;color:var(--text2,#64748b);margin-bottom:8px;">Grund wählen:</div>
+      <div id="_pr-chips" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;">${chips}</div>
+      <input id="_pr-note" placeholder="Notiz (optional)" style="width:100%;box-sizing:border-box;padding:10px;font-size:14px;border:1px solid var(--border,#e2e8f0);border-radius:10px;margin-bottom:14px;">
+      <div style="display:flex;gap:10px;">
+        <button id="_pr-cancel" style="flex:1;padding:12px;font-size:15px;border:1px solid var(--border,#e2e8f0);border-radius:10px;background:var(--surface,#fff);">Abbrechen</button>
+        <button id="_pr-ok" style="flex:1;padding:12px;font-size:15px;font-weight:600;border:1px solid #fecaca;border-radius:10px;background:#fef2f2;color:#991b1b;">Melden</button>
+      </div>
+    </div>`;
+    document.body.appendChild(ov);
+    const close=v=>{ try{ov.remove();}catch(_){} resolve(v); };
+    ov.querySelector('#_pr-chips').onclick=e=>{ const c=e.target.closest('[data-r]'); if(!c) return;
+      ov.querySelectorAll('[data-r]').forEach(x=>{ x.style.background='var(--surface,#fff)'; x.style.borderColor='var(--border,#e2e8f0)'; x.style.color=''; });
+      c.style.background='#fef2f2'; c.style.borderColor='#dc2626'; c.style.color='#991b1b'; sel=c.dataset.r; };
+    ov.querySelector('#_pr-cancel').onclick=()=>close(null);
+    ov.querySelector('#_pr-ok').onclick=()=>close({reason:sel, note:(ov.querySelector('#_pr-note')?.value||'').trim()});
+    ov.addEventListener('click',e=>{ if(e.target===ov) close(null); });
+  });
 }
 
 // ─── SHEET ────────────────────────────────────────────────────
@@ -2558,7 +2604,7 @@ function _updateFollowBar(){
 }
 async function confirmFollowDone(){
   const ids=new Set(_readyOpenIds());
-  const n=await _markManyDone(trees.filter(t=>ids.has(t.id))); // EIN Batch + EIN Render
+  const n=await _markMany(trees.filter(t=>ids.has(t.id))); // EIN Batch + EIN Render
   _followReady.clear(); _updateFollowBar(); renderTourGeoms();
   _followSave(true);
   if(n) toast('✓ '+n+' Abschnitt'+(n>1?'e':'')+' erledigt');
@@ -2595,14 +2641,18 @@ async function markTreeDone(tree){
 // Sammel-Variante von markTreeDone: EIN Firestore-Batch + EIN Render statt je Objekt
 // Write+Voll-Re-Render+Cache (Straßen-/Abschnitts-Sammelaktion, Folgen-Bestätigung).
 // Verhalten identisch: history-Eintrag je Objekt, Rollback bei Ablehnung, Offline-Queue bei Netzfehler.
-async function _markManyDone(list){
+// Sammel-Meldung EINES Status (erledigt ODER nicht+Grund) für viele Objekte — EIN Batch + EIN Render.
+// opts: {status:'bewaessert'|'nicht', reason, note}; Default = erledigt.
+async function _markMany(list, opts){
+  const o=opts||{}, status=o.status||'bewaessert', reason=o.reason||null, note=(o.note!=null?o.note:null);
   const open=(list||[]).filter(t=>t && !t.lastStatus);
   if(!open.length) return 0;
   const _now=new Date(), now=_now.toISOString();
+  const defNote=status==='nicht'?'Nicht erledigt':'Bewässert';
   const items=open.map(tree=>{
-    const updates={ lastStatus:'bewaessert', lastReason:null, lastNote:null, lastDriver:currentDriver, lastReportAt:now, datum:_localDateStr(_now) };
+    const updates={ lastStatus:status, lastReason:reason, lastNote:note, lastDriver:currentDriver, lastReportAt:now, datum:_localDateStr(_now) };
     const rsEntry=_runEntry(updates);
-    const histEntry={ at:now, date:_localDateStr(_now), status:'bewaessert', reason:null, note:'Bewässert', driver:currentDriver, tourId:currentTourId };
+    const histEntry={ at:now, date:_localDateStr(_now), status, reason, note:note||defNote, driver:currentDriver, tourId:currentTourId };
     const _prev={}; Object.keys(updates).forEach(k=>_prev[k]=tree[k]);
     return {tree, updates, rsEntry, histEntry, _u:onlyTreeStatusFields(updates), _prev, _prevRun: tree.runStatus?{...tree.runStatus}:undefined};
   });
