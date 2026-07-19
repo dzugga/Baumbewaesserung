@@ -719,6 +719,11 @@ function _setLoadOverlaySub(txt){ const e=document.getElementById('pl-sub'); if(
 function _hideLoadOverlay(){ clearTimeout(_loadOverlayTimer); const e=document.getElementById('project-loading'); if(e) e.remove(); }
 async function openProject(projectId){
   if(unsubProjects){ unsubProjects(); unsubProjects=null; } // Projekt-Listener stoppen (spart Hintergrund-Reads)
+  // Alt-Projekt-Objekt-/Touren-Listener SOFORT stoppen — VOR currentProjectId= und dem await getDoc().
+  // Sonst könnte ein noch feuernder Snapshot-Tick des ALTEN Projekts im await-Fenster mit bereits neuem
+  // currentProjectId laufen und Alt-Daten/Alt-Zähler ins NEUE Projekt schreiben (maybeHealCount).
+  if(unsubTrees){ unsubTrees(); unsubTrees=null; } if(unsubTours){ unsubTours(); unsubTours=null; }
+  _suppressTreeRender=false; _pendingTreeRender=false; // evtl. laufende Massen-Op des Alt-Projekts nicht ins neue durchdrücken
   _routesCache={};_routesLoadedFor=null; // Routen-Cache für neues Projekt verwerfen
   _cityFitDone=false; // Karte beim Öffnen einmal auf die Stadt zoomen
   if(_flaechenLayer){ map.removeLayer(_flaechenLayer); _flaechenLayer=null; } _flaechenLayerKey=''; _flaechenBundle=null; _flaechenBundleKey=''; _flGeomByExt={}; if(_flNumLayer){ try{ map.removeLayer(_flNumLayer); }catch(_){} _flNumLayer=null; } _geomBboxCache={}; _geomParseCache.clear(); _viewportCull=false; // Flächen/Geometrie-Caches des alten Projekts verwerfen
@@ -1767,6 +1772,7 @@ async function calculateAndSaveRoute(tourId){
   if(!getRoutePlanningEnabled()){ notify('Reihenfolgeplanung ist deaktiviert'); return; }
   if(isOverviewTour(tourId)){ notify('Übersichten erhalten keine Route'); return; }
   const tour=tours.find(t=>t.id===tourId);if(!tour)return;
+  const pid=currentProjectId; // Projekt am Anfang kapseln — ein Projektwechsel während der (langen) ORS-Awaits darf die Route NICHT ins neue Projekt schreiben
   await _ensureFlaechenGeom(); // importierte Flächen fürs Routing verfügbar machen (Zentroid als Stopp)
   const trs=_routableTrees(tourId); // Punkte + Flächen/Linien (Stellvertreter-Koordinate)
   if(trs.length<1){notify('Keine Objekte in dieser Tour');return;}
@@ -1794,6 +1800,8 @@ async function calculateAndSaveRoute(tourId){
 
   const geo=await fetchOrsRoute(coords);
   document.getElementById('route-spinner').classList.remove('visible');
+  // Projekt zwischenzeitlich gewechselt? Dann nichts speichern (sonst Route für Projekt A im Projekt B).
+  if(pid!==currentProjectId){ setSyncState('ok',''); document.getElementById('route-info-bar')?.classList.remove('visible'); return; }
 
   let km=0,geojsonToSave=null;
   if(geo?.features?.[0]){
@@ -1821,12 +1829,12 @@ async function calculateAndSaveRoute(tourId){
     geojsonStr:geojsonToSave?JSON.stringify(geojsonToSave):null,
     km,durationSec,updatedAt:serverTimestamp()
   };
-  await setDoc(doc(db,'projects',currentProjectId,'routes',tourId),routeData);
+  await setDoc(doc(db,'projects',pid,'routes',tourId),routeData);
   _routesCache[tourId]=routeData; // Cache aktuell halten (spart Re-Read)
   // Kennzahlen aufs Tour-Dokument speichern → in der Touren-Tabelle dauerhaft sichtbar,
   // ohne dass die Route in den Speicher geladen sein muss. Ändert sich nur bei Neuberechnung.
   try{
-    await updateDoc(doc(db,'projects',currentProjectId,'tours',tourId),{routeKm:km, routeDriveSec:durationSec, routeComputedAt:new Date().toISOString(), routeStale:false});
+    await updateDoc(doc(db,'projects',pid,'tours',tourId),{routeKm:km, routeDriveSec:durationSec, routeComputedAt:new Date().toISOString(), routeStale:false});
     const _t=tours.find(t=>t.id===tourId); if(_t){ _t.routeKm=km; _t.routeDriveSec=durationSec; }
   }catch(e){ console.warn('Tour-Kennzahlen speichern:',e); }
 
@@ -14529,7 +14537,7 @@ async function lassoAction(mode){
     try{
       for(let i=0;i<_undoSnap.length;i+=400){
         const b=db.batch();
-        _undoSnap.slice(i,i+400).forEach(s=>b.update(doc(db,'projects',currentProjectId,'trees',s.id),{tourIds:s.tourIds,tourId:s.tourId}));
+        _undoSnap.slice(i,i+400).forEach(s=>b.update(doc(db,'projects',_undoPid,'trees',s.id),{tourIds:s.tourIds,tourId:s.tourId})); // _undoPid statt currentProjectId — bleibt über die await-Commits aufs Ausgangsprojekt gepinnt
         try{ await b.commit(); _bumpUsage('writes',Math.min(400,_undoSnap.length-i)); }
         catch(e){ _undoFail+=Math.min(400,_undoSnap.length-i); console.warn('Undo-Chunk',e); } // z. B. zwischenzeitlich gelöschtes Objekt — Rest trotzdem zurücksetzen
       }

@@ -21,7 +21,10 @@ service cloud.firestore {
     function cap()      { return signedIn() && ('cap'   in request.auth.token) ? request.auth.token.cap   : ''; }
     function myOrg()    { return signedIn() && ('orgId' in request.auth.token) ? request.auth.token.orgId : ''; }
     function isSuper()  { return signedIn() && role() == 'superadmin'; }
-    function inOrg(oid) { return signedIn() && (myOrg() == oid || isSuper()); }
+    // Haerte: leere orgId nie matchen — sonst koennte ein Konto OHNE orgId-Claim (myOrg()=='')
+    // ueber inOrg('') an Dokumente mit leerem orgId-Feld. Echte Docs tragen echte orgIds; dies ist
+    // Defense-in-Depth gegen fehl-provisionierte Konten.
+    function inOrg(oid) { return signedIn() && (isSuper() || (oid != '' && myOrg() == oid)); }
 
     // Datenrechte ueber den Basis-Typ (cap), Superadmin immer
     function canManage(oid) { return isSuper() || (inOrg(oid) && cap() == 'admin'); }

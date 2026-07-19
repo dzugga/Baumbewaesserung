@@ -2411,8 +2411,9 @@ async function saveReport(id){
         renderMarkers(); renderList(''); updateProgress();
         toast('⚠ Abgelehnt ('+(code||'?')+') · Felder: '+Object.keys(firestoreUpdates).join(',')+' · orgId '+(tree.orgId?'ok':'FEHLT'), 6000);
       } else {
-        // echtes Netzproblem (unavailable/timeout) → offline puffern
-        addToOfflineQueue(id, _u, histEntry);
+        // echtes Netzproblem (unavailable/timeout) → offline puffern (inkl. Tour + runStatus,
+        // sonst fehlt beim späteren Sync der pro-Tour-Meldestatus — nur flache last*-Felder kämen an)
+        addToOfflineQueue(id, _u, histEntry, currentTourId, rsEntry);
         toast('📦 Offline gespeichert — wird später synchronisiert');
       }
     });
