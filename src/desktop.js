@@ -4260,11 +4260,11 @@ function openDetail(id){
     <div class="form-section">Identifikation</div>
     <div class="detail-field" style="padding:5px 0;"><span class="detail-key">Objekt-ID</span><span class="detail-val" style="font-family:monospace;font-weight:700;color:var(--green);">${tree.baumId||'–'}</span></div>
     ${geomTypeOf(tree)!=='punkt'?drow('Geometrie',_geomLabel(tree)):''}
-    ${drow(FL.baumnr||'Baumnummer',tree.baumnr)}
+    ${drow(FL.baumnr||'Objektnummer',tree.baumnr)}
     ${drow(FL.stadtteil,tree.stadtteil)}
     ${drow(FL.art,tree.art,'font-style:italic;')}
     ${drow(FL.pflanzjahr,tree.pflanzjahr)}
-    ${drow(FL.pflanzzeitpunkt||'Pflanzzeitpunkt',tree.pflanzzeitpunkt)}
+    ${drow(FL.pflanzzeitpunkt||'Zeitpunkt',tree.pflanzzeitpunkt)}
     ${customFields.filter(c=>fieldAppliesTo(c,geomTypeOf(tree)) && !(geomTypeOf(tree)==='flaeche' && _FLAECHE_PLAN_KEYS.includes(c.key))).map(c=>drow(c.label,tree[c.key])).join('')}
 
     ${(tree.containerExtId)?(()=>{
@@ -4873,9 +4873,9 @@ async function saveInlineFields(id){
 async function logWatering(id){
   const tree=trees.find(t=>t.id===id);if(!tree)return;
   const date=document.getElementById('water-date').value;
-  const history=[...(tree.history||[]),{date,note:'Bewässerung'}];
+  const history=[...(tree.history||[]),{date,note:'Erledigt'}];
   await updateDoc(doc(db,'projects',currentProjectId,'trees',id),{datum:date,history});
-  notify('Bewässerung erfasst');
+  notify('Erledigung erfasst');
 }
 
 // ─── TREE CRUD ────────────────────────────────────────────────
@@ -8132,7 +8132,7 @@ function renderFieldOverview(el){
   // Objektklassen (Stage 1: nur Definition — Zuordnung & Scoping folgen)
   const klassenSection = ro ? '' : `
     <div style="font-size:13px;font-weight:700;margin:26px 0 4px;">Objektklassen</div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">Definiere Objekttypen (z. B. „Abfallbehälter", „Baum", „Straßenabschnitt") und welche Felder zu ihnen gehören. Ohne Klassen bleibt alles wie bisher — die Zuordnung der Objekte und das Ausblenden nicht-passender Felder folgt im nächsten Schritt.</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">Definiere Objekttypen (z. B. „Abfallbehälter", „Schild", „Straßenabschnitt") und welche Felder zu ihnen gehören. Ohne Klassen bleibt alles wie bisher — die Zuordnung der Objekte und das Ausblenden nicht-passender Felder folgt im nächsten Schritt.</div>
     ${objektklassen.map(k=>`
       <div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px;background:var(--surface);">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
@@ -10772,7 +10772,7 @@ function applyModulePermissions(){
 
 async function seedDefaultReasons(){
   if(!currentProjectId)return;
-  const defaults=['Zugang gesperrt','Baum krank / abgestorben','Gerät defekt','Kein Wasser verfügbar','Baum bereits bewässert','Baum nicht auffindbar','Witterung (Starkregen)','Sonstiges'];
+  const defaults=['Zugang gesperrt','Objekt beschädigt / defekt','Gerät defekt','Betriebsmittel fehlt','Objekt bereits erledigt','Objekt nicht auffindbar','Witterung','Sonstiges'];
   for(const text of defaults){
     await addDoc(collection(db,'projects',currentProjectId,'reasons'),{text,createdAt:serverTimestamp()});
   }
@@ -11881,7 +11881,7 @@ function initControlling(){
   const jahrSel=document.getElementById('ctrl-filter-pflanzjahr');
   if(jahrSel){
     const vals=[...new Set(trees.map(t=>t.pflanzjahr).filter(Boolean))].sort();
-    jahrSel.innerHTML='<option value="">Alle Pflanzjahre</option>'+
+    jahrSel.innerHTML='<option value="">Alle Jahre</option>'+
       vals.map(v=>`<option value="${v}"${v===prev('ctrl-filter-pflanzjahr')?' selected':''}>${v}</option>`).join('');
   }
 
@@ -13487,7 +13487,7 @@ function renderControlling(){
   const fBaumart=document.getElementById('ctrl-filter-baumart')?.value;
   if(fTour) activeFilters.push(`Tour: ${tours.find(t=>t.id===fTour)?.name||fTour}`);
   if(fStadt) activeFilters.push(`Stadtteil: ${fStadt}`);
-  if(fJahr) activeFilters.push(`Pflanzjahr: ${fJahr}`);
+  if(fJahr) activeFilters.push(`${FL.pflanzjahr}: ${fJahr}`);
   if(fStatus) activeFilters.push(`Status: ${{bewaessert:'✓ Erledigt',nicht:'✕ Nicht erledigt',offen:'○ Offen'}[fStatus]}`);
   if(fFahrer) activeFilters.push(`Fahrer: ${fFahrer}`);
   if(fBaumart) activeFilters.push(`${FL.art||'Typ/Art'}: ${fBaumart}`);
@@ -14069,7 +14069,7 @@ async function exportHistoryCSV(histId){
   // tourHistory-Snapshot trägt sie nicht, sonst blieben die Spalten leer (wie beim Einsatzleiter).
   const _liveById=new Map((_allTrees.length?_allTrees:trees).map(x=>[x.id,x])); // Gesamtbestand — bei aktivem Pilot fehlten sonst Objekte außerhalb des Ausschnitts
   const _fgAktiv=!!(currentProjectData&&currentProjectData.fuellgradAktiv);
-  const header=`Tour;Datum;Fahrer;${FL.name||'Anlage/Straße'};${FL.stadtteil||'Stadtteil'};${FL.art||'Typ/Art'};${FL.baumnr||'Objektnr.'};Status;Grund;Notiz;${FL.zustand||'Zustand'};${FL.wasser||'Wasserbedarf'}`+(_fgAktiv?';Füllgrad':'');
+  const header=`Tour;Datum;Fahrer;${FL.name||'Anlage/Straße'};${FL.stadtteil||'Stadtteil'};${FL.art||'Typ/Art'};${FL.baumnr||'Objektnr.'};Status;Grund;Notiz;${FL.zustand||'Zustand'};${FL.wasser||'Priorität'}`+(_fgAktiv?';Füllgrad':'');
   const rows=h.trees.map(t=>{
     const lv=_liveById.get(t.id);
     const zustand=(t.zustand!=null?t.zustand:(lv?lv.zustand:''));
@@ -17011,8 +17011,8 @@ const KI_PROMPTS=[
    build:c=>`Untersuche die Gründe für „nicht erledigt" im Zeitverlauf und je Gebiet. Welche Probleme treten wiederholt auf, wo häufen sie sich, und welche organisatorischen oder technischen Gegenmaßnahmen empfiehlst du? Nach Wirkung/Aufwand priorisieren.\n\nDaten:\n${c}`},
   {id:'mengen',icon:'📐',title:'Flächen-/Mengen-Auswertung',desc:'Aufwand nach Fläche/Länge (m²/m).',
    build:c=>`Werte die Mengen (Flächen in m², Strecken in m) aus: Wo konzentriert sich der Aufwand (Gebiete, Touren, Objekttypen)? Gibt es Auffälligkeiten zwischen Mengen und Erledigungsquote? Falls kaum Mengendaten vorliegen, weise ausdrücklich darauf hin.\n\nDaten:\n${c}`},
-  {id:'jung',icon:'🌱',title:'Jungbaum-Check',desc:'Nur Baumpflege: werden frisch gepflanzte Bäume ausreichend versorgt?',
-   build:c=>`Jung gepflanzte Bäume benötigen besonders viel Wasser. Prüfe anhand der ${FL.pflanzjahr}-Angaben, ob die jüngsten Objekte ausreichend versorgt werden, und gib konkrete Empfehlungen für deren Pflege.\n\nDaten:\n${c}`},
+  {id:'jung',icon:'🆕',title:'Neuzugänge-Check',desc:'Werden zuletzt hinzugekommene Objekte ausreichend bearbeitet?',
+   build:c=>`Prüfe anhand der ${FL.pflanzjahr}-Angaben, ob die jüngsten Objekte ausreichend bearbeitet werden, und gib konkrete Empfehlungen für deren Betreuung.\n\nDaten:\n${c}`},
   {id:'bericht',icon:'📋',title:'Management-Bericht',desc:'Kompakter Wochenbericht für die Amtsleitung.',
    build:c=>`Erstelle einen prägnanten Management-Wochenbericht (max. 1 Seite): aktuelle Lage, Fortschritt, nicht erledigte Objekte/Ausfälle, Risiken und 3 Empfehlungen. Sachlicher Ton, für die Amtsleitung.\n\nDaten:\n${c}`},
   {id:'frei',icon:'💬',title:'Eigene Frage',desc:'Freie Frage an die KI – Projektdaten als Kontext.',

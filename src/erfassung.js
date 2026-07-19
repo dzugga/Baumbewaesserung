@@ -446,7 +446,7 @@ function clearOverviewLocal() {
 }
 
 async function resetUebersicht() {
-  if (!confirm('Karte leeren?\nEntfernt deine Erfassungs-Markierungen aus der Übersicht. Bäume und Koordinaten bleiben erhalten.')) return;
+  if (!confirm('Karte leeren?\nEntfernt deine Erfassungs-Markierungen aus der Übersicht. Objekte und Koordinaten bleiben erhalten.')) return;
   toast('Karte wird geleert…');
   try {
     const col = db.collection('projects').doc(currentProjectId).collection('trees');
@@ -723,13 +723,13 @@ function renderKoordList(q) {
   );
 
   const countEl = document.getElementById('koord-count');
-  countEl.textContent = `${list.length} Baum${list.length !== 1 ? 'bäume' : ''} ohne Koordinaten`;
+  countEl.textContent = `${list.length} Objekt${list.length !== 1 ? 'e' : ''} ohne Koordinaten`;
 
   const el = document.getElementById('koord-list');
   if (list.length === 0) {
     el.innerHTML = `<div class="empty-state">
       <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 6L9 17l-5-5"/><circle cx="12" cy="12" r="10"/></svg>
-      <p>${q ? 'Keine Bäume gefunden' : 'Alle Bäume haben bereits Koordinaten 🎉'}</p>
+      <p>${q ? 'Keine Objekte gefunden' : 'Alle Objekte haben bereits Koordinaten 🎉'}</p>
     </div>`;
     return;
   }
@@ -823,12 +823,12 @@ async function saveKoordPosition() {
       toast(`✓ Gespeichert & synchronisiert — ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
     } else {
       // Nicht bestätigt → Baum BLEIBT in der Liste, klare Warnung
-      toast('⚠ Nicht synchronisiert — Verbindung prüfen und erneut speichern. Baum bleibt in der Liste.');
+      toast('⚠ Nicht synchronisiert — Verbindung prüfen und erneut speichern. Objekt bleibt in der Liste.');
     }
   } catch (e) {
     addToQueue({ type: 'updateCoords', projectId: currentProjectId, treeId, data: coordUpdate });
     console.warn('Koordinaten-Save fehlgeschlagen:', e);
-    toast(`⚠ Fehler: ${e.code || e.message} — in Warteschlange, Baum bleibt in der Liste`);
+    toast(`⚠ Fehler: ${e.code || e.message} — in Warteschlange, Objekt bleibt in der Liste`);
   }
 }
 

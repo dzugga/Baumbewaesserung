@@ -727,7 +727,7 @@ function markAllDone(){
   // Count only truly open trees (no status at all)
   const open = trees.filter(t => !t.lastStatus);
   if(open.length === 0){
-    toast('Keine offenen Bäume mehr');
+    toast('Keine offenen Objekte mehr');
     return;
   }
   // Show confirm sheet
@@ -747,7 +747,7 @@ async function confirmMarkAllDone(){
   closeBulkSheet();
   const now = new Date().toISOString();
   const open = trees.filter(t => !t.lastStatus);
-  if(open.length === 0){ toast('Keine offenen Bäume'); return; }
+  if(open.length === 0){ toast('Keine offenen Objekte'); return; }
 
   const updates = onlyTreeStatusFields({
     lastStatus: 'bewaessert',
@@ -879,7 +879,7 @@ function showFinishConfirm() {
     content.innerHTML = `
       <div style="text-align:center;margin-bottom:16px;">
         <div style="font-size:17px;font-weight:700;">${offen===0?'🎉 Alle erledigt!':'Tour abschließen'}</div>
-        <div style="font-size:13px;color:var(--text3);margin-top:4px;">${offen>0?`Noch ${offen} Bäume ohne Rückmeldung`:'Alle Bäume wurden bearbeitet'}</div>
+        <div style="font-size:13px;color:var(--text3);margin-top:4px;">${offen>0?`Noch ${offen} Objekte ohne Rückmeldung`:'Alle Objekte wurden bearbeitet'}</div>
       </div>
       ${statsHtml}
       <button id="btn-finish-confirm" onclick="finishTour()" style="width:100%;padding:14px;background:#991b1b;color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer;margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:8px;">
@@ -979,7 +979,7 @@ async function finishTour() {
 
     // Starte Fake-Animation sofort (0→75% in 800ms)
     const lbl = document.getElementById('finish-progress-label');
-    if(lbl) lbl.textContent = `${treesWithStatus.length} Bäume werden gespeichert…`;
+    if(lbl) lbl.textContent = `${treesWithStatus.length} Objekte werden gespeichert…`;
     startFakeProgress(0, 75, 800);
 
     // ── Lean snapshot ────────────────────────────────────────────
@@ -1423,7 +1423,7 @@ function getNextIdx(){
 
 function goToNextTree(){
   const idx=getNextIdx();
-  if(idx===-1){toast('Alle Bäume abgearbeitet! 🎉');return;}
+  if(idx===-1){toast('Alle Objekte abgearbeitet! 🎉');return;}
   const id=routeOrder[idx];
   const tree=trees.find(t=>t.id===id);
   const np=navPoint(tree); if(np) map.panTo(np,{animate:true});
@@ -2385,7 +2385,7 @@ async function saveReport(id){
     date:_localDateStr(_now),       // lokaler Kalendertag (nicht UTC) für Zeitraum-Filter
     status,                         // 'bewaessert' | 'nicht' — Auswertungen zählen ausschließlich hierüber
     reason:reason||null,
-    note:`${status==='bewaessert'?'Bewässert':'Nicht bewässert'}${reason?' — '+reason:''}${note?' ('+note+')':''}${fuellgrad!=null?' · Füllgrad: '+fgLabel(fuellgrad):''}`,
+    note:`${status==='bewaessert'?'Erledigt':'Nicht erledigt'}${reason?' — '+reason:''}${note?' ('+note+')':''}${fuellgrad!=null?' · Füllgrad: '+fgLabel(fuellgrad):''}`,
     driver:currentDriver,
     tourId:currentTourId            // Meldung tour-genau (history bleibt reines Append-Log)
   };
@@ -2617,7 +2617,7 @@ async function markTreeDone(tree){
   const id=tree.id, _now=new Date(), now=_now.toISOString();
   const updates={ lastStatus:'bewaessert', lastReason:null, lastNote:null, lastDriver:currentDriver, lastReportAt:now, datum:_localDateStr(_now) };
   const rsEntry=_runEntry(updates);
-  const histEntry={ at:now, date:_localDateStr(_now), status:'bewaessert', reason:null, note:'Bewässert', driver:currentDriver, tourId:currentTourId };
+  const histEntry={ at:now, date:_localDateStr(_now), status:'bewaessert', reason:null, note:'Erledigt', driver:currentDriver, tourId:currentTourId };
   const _u=onlyTreeStatusFields(updates);   // nur erlaubte Fahrer-Felder (Rules onlyStatusFields)
   const firestoreUpdates={..._u, ...(currentTourId?{['runStatus.'+currentTourId]:rsEntry}:{}), history:firebase.firestore.FieldValue.arrayUnion(histEntry)};
   const _prev={}; Object.keys(updates).forEach(k=>_prev[k]=tree[k]); const _prevRun=tree.runStatus?{...tree.runStatus}:undefined;
@@ -2648,7 +2648,7 @@ async function _markMany(list, opts){
   const open=(list||[]).filter(t=>t && !t.lastStatus);
   if(!open.length) return 0;
   const _now=new Date(), now=_now.toISOString();
-  const defNote=status==='nicht'?'Nicht erledigt':'Bewässert';
+  const defNote=status==='nicht'?'Nicht erledigt':'Erledigt';
   const items=open.map(tree=>{
     const updates={ lastStatus:status, lastReason:reason, lastNote:note, lastDriver:currentDriver, lastReportAt:now, datum:_localDateStr(_now) };
     const rsEntry=_runEntry(updates);
