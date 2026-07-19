@@ -288,6 +288,7 @@ const MODULES = [
   {key:'objekte',     label:'Objekte'},
   {key:'touren',      label:'Touren'},
   {key:'verwaltung',  label:'Gründe'},
+  {key:'reinigungssysteme', label:'Reinigungssysteme'},
   {key:'wms',         label:'WMS-Karten'},
   {key:'imp_excel',   label:'Import: Excel/CSV'},
   {key:'imp_shape',   label:'Import: Shapefile'},
@@ -319,8 +320,21 @@ let rolesCache = {};   // roleKey -> {name, baseType, modules, builtin}
 function roleModules(roleKey){
   const r=rolesCache[roleKey]||BUILTIN_ROLES[roleKey]; if(!r) return {};
   const bi=BUILTIN_ROLES[roleKey];
-  if(bi){ const m={...(r.modules||{})}; _allModKeys.forEach(k=>{ if(m[k]===undefined) m[k]=!!bi.modules[k]; }); return m; } // neue Modul-Keys (z. B. nachrichten) an Vorlagen-Rollen sofort nachziehen
-  return r.modules||{};
+  let m;
+  if(bi){ m={...(r.modules||{})}; _allModKeys.forEach(k=>{ if(m[k]===undefined) m[k]=!!bi.modules[k]; }); } // neue Modul-Keys (z. B. nachrichten) an Vorlagen-Rollen sofort nachziehen
+  else m={...(r.modules||{})};
+  // Reinigungssysteme hing früher am Modul 'verwaltung' (Gründe). Neue eigene Sichtbarkeit erbt den alten
+  // Gate-Wert, solange sie nicht explizit gesetzt ist → kein stiller Verlust bei Bestandsrollen.
+  if(m.reinigungssysteme===undefined) m.reinigungssysteme=!!m.verwaltung;
+  return m;
+}
+// Checkbox-Zustand im Rollen-Editor: explizit gesetzter Wert gewinnt; sonst erbt reinigungssysteme den
+// verwaltung-Wert (deckungsgleich mit roleModules), damit Anzeige und Sichtbarkeit nicht auseinanderlaufen.
+function _roleModChecked(r,key){
+  const v=r&&r.modules&&r.modules[key];
+  if(v!==undefined) return !!v;
+  if(key==='reinigungssysteme') return !!(r&&r.modules&&r.modules.verwaltung);
+  return false;
 }
 // Modul projektscharf abschaltbar: projects/{id}.modules[key]===false → aus (fehlt/true → an).
 function projectAllowsModule(key){ const m=currentProjectData&&currentProjectData.modules; return !m || m[key]!==false; }
@@ -10702,7 +10716,7 @@ function roleCard(key,r){
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:4px 14px;margin-bottom:10px;">
       ${MODULES.map(m=>`<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
-        <input type="checkbox" class="rc-mod" data-mod="${m.key}"${r.modules&&r.modules[m.key]?' checked':''}> ${m.label}</label>`).join('')}
+        <input type="checkbox" class="rc-mod" data-mod="${m.key}"${_roleModChecked(r,m.key)?' checked':''}> ${m.label}</label>`).join('')}
     </div>
     <div style="font-size:10px;color:var(--text3);margin:-4px 0 10px;line-height:1.5;">↗ = Start-Verknüpfung der App im Menü „Apps". Steuert nur die Desktop-Verknüpfung — der direkte App-Zugang (PIN-Login in der jeweiligen App) bleibt davon unberührt.</div>
     <div style="display:flex;gap:8px;">
