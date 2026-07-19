@@ -922,6 +922,13 @@ function subscribeToProject(){
 
   const treesRef=collection(db,'projects',currentProjectId,'trees');
   unsubTrees=onSnapshot(treesRef,snap=>{
+    // [Perf]-Diagnose ZUERST (vor jedem Render — sonst nullt der Marker-Log die Messung):
+    // Netz-Zeit bis zum ersten Snapshot + grobes Datenvolumen der Objekt-Dokumente.
+    if(window._perfOpenT0 && !window._perfNetDone){
+      window._perfNetDone=performance.now();
+      console.info(`[Perf] Daten empfangen: ${Math.round(window._perfNetDone-window._perfOpenT0)} ms (${snap.size.toLocaleString('de-DE')} Objekte)`);
+      try{ const mb=(JSON.stringify(snap.docs.map(d=>d.data())).length/1048576).toFixed(1); console.info(`[Perf] Datenvolumen (roh, JSON-Näherung): ~${mb} MB`); }catch(_){}
+    }
     _allTrees=snap.docs.map(d=>({id:d.id,...d.data()}));
     maybeHealCount('treeCount',_allTrees.length); // echter Projekt-Gesamtstand (vor Pilot-Filter)
     trees=_applyPilotScope(_allTrees);             // Pilot-Bereich: Arbeitsmenge ggf. auf Ausschnitt eingrenzen
@@ -945,10 +952,7 @@ function subscribeToProject(){
         if(window._perfNetDone){ console.info(`[Perf] Geometrie-Bundle geladen + gezeichnet: gesamt ${Math.round(performance.now()-(window._perfOpenT0||window._perfNetDone))} ms seit ${window._perfOpenT0?'Öffnen':'Daten-Empfang'}`); window._perfNetDone=null; }
       });
     }
-    if(document.getElementById('project-loading')){
-      _setLoadOverlaySub(`${_allTrees.length.toLocaleString('de-DE')} Objekte geladen`); _hideLoadOverlay(); // A2: Overlay weg, sobald gerendert
-      if(window._perfOpenT0){ window._perfNetDone=performance.now(); console.info(`[Perf] Daten empfangen: ${Math.round(window._perfNetDone-window._perfOpenT0)} ms (${_allTrees.length.toLocaleString('de-DE')} Objekte)`); }
-    }
+    if(document.getElementById('project-loading')){ _setLoadOverlaySub(`${_allTrees.length.toLocaleString('de-DE')} Objekte geladen`); _hideLoadOverlay(); } // A2: Overlay weg, sobald gerendert
     if(currentView==='baeume'){
       const artenTab=document.getElementById('baeume-arten');
       if(artenTab && getComputedStyle(artenTab).display!=='none') renderFieldCatalog();
