@@ -38,8 +38,11 @@ const { Firestore, Timestamp, GeoPoint, DocumentReference } =
 
 const PROJECT_ID = 'baumbewaesserung';
 // Mandantengebundene Top-Level-Collections (Abfrage where orgId==X). Bewusst NICHT dabei:
-const ORG_SCOPED = ['drivers', 'leistungsereignisse', 'messages', 'recipients', 'users'];
-const SKIPPED_GLOBAL = ['config', 'appsettings', 'usage', 'errors', 'presence', 'tokens', 'availability'];
+const ORG_SCOPED = ['drivers', 'leistungsereignisse', 'messages', 'recipients', 'users', 'availability'];
+// Bewusst NICHT gesichert: config/appsettings (global), usage/errors (Telemetrie), presence/tokens
+// (flüchtig, regenerieren sich), roles (top-level = Legacy-Global; die aktiven Rollen liegen mandanten-
+// scharf unter orgs/{org}/roles und werden rekursiv miterfasst).
+const SKIPPED_GLOBAL = ['config', 'appsettings', 'usage', 'errors', 'presence', 'tokens', 'roles'];
 
 // ── Argumente ──
 const argv = process.argv.slice(2);
