@@ -15234,7 +15234,10 @@ function dispoShowAllVehicles(){ dispoVisible=null; dispoRenderResults(); dispoR
 
 // Dispo-Konfig stadtscharf: orgs/{orgId}.dispoConfig + .dispoResources (in loadOrgSettings geladen).
 // Bins bleiben lokal (transiente Simulations-Ausgabe, wird je Lauf neu erzeugt).
-const DISPO_DEFAULT_CFG={kritisch:80, planbar:50, aus:50, emptyMin:3, reservePct:10, speedKmh:25, binCount:40, defaultRate:10};
+const DISPO_DEFAULT_CFG={kritisch:80, planbar:50, aus:50, emptyMin:3, reservePct:10, speedKmh:25, binCount:40, defaultRate:10,
+  // Datenreife-Ziele (Füllstand-Auswertung): Abdeckung %, Zeitspanne Wochen, Mindest-Meldungen je Objekt,
+  // Aktualität in Tagen, Wochentage mit Daten (von 7)
+  reifeCov:80, reifeWochen:4, reifeMinMeld:3, reifeAktualTage:7, reifeTage:5};
 const DISPO_DEFAULT_RES=[
   {id:'r1', name:'Fahrzeug 1', arbeitszeitMin:420, depot:null, maxBins:0},
   {id:'r2', name:'Fahrzeug 2', arbeitszeitMin:420, depot:null, maxBins:0},
@@ -16872,6 +16875,8 @@ function dispoOpenSettings(){
         <label style="font-size:12px;">Reservepuffer (%)<input id="ds-res" type="number" class="form-control" value="${cfg.reservePct}" style="padding:6px 8px;"></label>
         <label style="font-size:12px;">Ø Tempo (km/h)<input id="ds-speed" type="number" class="form-control" value="${cfg.speedKmh}" style="padding:6px 8px;"></label>
         <label style="font-size:12px;">Anzahl Körbe (Simulation)<input id="ds-count" type="number" class="form-control" value="${cfg.binCount}" style="padding:6px 8px;"></label>
+        <label style="font-size:12px;" title="Datenreife-Ziel: Anteil Objekte mit genug Füllgrad-Meldungen">Datenreife: Abdeckung-Ziel (%)<input id="ds-rcov" type="number" min="0" max="100" class="form-control" value="${cfg.reifeCov}" style="padding:6px 8px;"></label>
+        <label style="font-size:12px;" title="Datenreife-Ziel: Mindest-Zeitspanne der Füllgrad-Daten">Datenreife: Zeitspanne (Wochen)<input id="ds-rwo" type="number" min="1" class="form-control" value="${cfg.reifeWochen}" style="padding:6px 8px;"></label>
       </div>
       <div style="font-size:11px;color:var(--text3);margin-top:6px;">Hinweis: „Auslassen" = alles unter „Planbar ab".</div>
       <div class="dispo-sec">Ressourcen <button id="ds-add" class="btn btn-secondary" style="padding:2px 8px;font-size:11px;margin-left:6px;">+ Ressource</button></div>
@@ -16898,7 +16903,7 @@ function dispoOpenSettings(){
   const listEl=modal.querySelector('#ds-res-list');
   const num=(id,def)=>{ const v=parseFloat(modal.querySelector('#'+id).value); return isNaN(v)?def:v; };
   function collectSave(){
-    const newCfg={...cfg, kritisch:num('ds-krit',80), planbar:num('ds-plan',50), aus:num('ds-plan',50), emptyMin:num('ds-empty',3), reservePct:num('ds-res',10), speedKmh:num('ds-speed',25), binCount:Math.round(num('ds-count',40))};
+    const newCfg={...cfg, kritisch:num('ds-krit',80), planbar:num('ds-plan',50), aus:num('ds-plan',50), emptyMin:num('ds-empty',3), reservePct:num('ds-res',10), speedKmh:num('ds-speed',25), binCount:Math.round(num('ds-count',40)), reifeCov:num('ds-rcov',80), reifeWochen:num('ds-rwo',4)};
     dispoSetConfig(newCfg);
     const _origRes=dispoGetResources();
     const newRes=[...listEl.querySelectorAll('.ds-row')].map((row,i)=>{
@@ -16925,6 +16930,7 @@ function dispoOpenSettings(){
   modal.querySelector('#ds-save').onclick=()=>{
     collectSave(); close();
     window.__dispoPlan=null; dispoRenderResults(); dispoRenderMap();
+    renderDispoFillWeekday(); // Datenreife-Ampel mit neuen Zielen nachziehen
     notify('Einstellungen gespeichert');
   };
 }
@@ -16958,59 +16964,186 @@ function initDispo(){
   setTimeout(()=>{ if(dispoMap) dispoMap.invalidateSize(); },200);
 }
 
-// Mittlerer Füllstand je Wochentag aus allen Füllgrad-Meldungen (history). Rein lesend, ändert nichts.
-// Grundlage für die spätere Datenreife-Ampel: liefert Mittelwerte, Stichprobengröße (n) je Wochentag,
-// Gesamtzahl und die Zeitspanne der Daten.
-function _fillByWeekday(){
-  const sums=[0,0,0,0,0,0,0], counts=[0,0,0,0,0,0,0]; // Mo..So
-  let total=0, minD=null, maxD=null;
+// ── Füllstand-Auswertung: Wochentags-Statistik (projektweit + je Papierkorb) + Datenreife-Ampel ──
+// Rein lesend aus history[].fuellgrad — beeinflusst weder manuelle noch automatische Planung.
+const _WD_LABELS=['Mo','Di','Mi','Do','Fr','Sa','So'];
+// Aggregation: global (Ø/n je Wochentag, Zeitspanne) + je Objekt (Ø/n je Wochentag, n gesamt).
+// Grundgesamtheit = wie die Dispo-Planung: aktive Objekte mit Koordinaten.
+function _fillStats(){
+  const g={sums:[0,0,0,0,0,0,0],counts:[0,0,0,0,0,0,0],total:0,minD:null,maxD:null};
+  const per=[]; let scope=0;
   (trees||[]).forEach(t=>{
-    if(!isActive(t)) return;
+    if(!isActive(t)||!t.lat||!t.lng) return;
+    scope++;
+    const p={id:t.id,name:t.name||t.baumId||'Objekt',stadtteil:t.stadtteil||'',art:t.art||'',sums:[0,0,0,0,0,0,0],counts:[0,0,0,0,0,0,0],n:0,last:null};
     (t.history||[]).forEach(h=>{
       if(typeof h.fuellgrad!=='number') return;
       const raw=h.date||h.at; if(!raw) return;
       const dt=new Date(raw); if(isNaN(+dt)) return;
-      const wd=(dt.getDay()+6)%7; // getDay(): 0=So..6=Sa → Mo=0..So=6
-      sums[wd]+=h.fuellgrad; counts[wd]++; total++;
-      const ms=+dt; if(minD==null||ms<minD)minD=ms; if(maxD==null||ms>maxD)maxD=ms;
+      const wd=(dt.getDay()+6)%7; // 0=Mo..6=So
+      p.sums[wd]+=h.fuellgrad; p.counts[wd]++; p.n++;
+      g.sums[wd]+=h.fuellgrad; g.counts[wd]++; g.total++;
+      const ms=+dt; if(g.minD==null||ms<g.minD)g.minD=ms; if(g.maxD==null||ms>g.maxD)g.maxD=ms;
+      if(p.last==null||ms>p.last)p.last=ms;
     });
+    if(p.n>0) per.push(p);
   });
-  const means=sums.map((s,i)=>counts[i]?Math.round(s/counts[i]):null);
-  const weeks=(minD!=null&&maxD!=null)?(maxD-minD)/(7*86400000):0;
-  return { means, counts, total, weeks };
+  const means=g.sums.map((s,i)=>g.counts[i]?Math.round(s/g.counts[i]):null);
+  per.forEach(p=>{ p.means=p.sums.map((s,i)=>p.counts[i]?Math.round(s/p.counts[i]):null); p.max=Math.max(0,...p.means.filter(m=>m!=null)); });
+  const weeks=(g.minD!=null&&g.maxD!=null)?(g.maxD-g.minD)/(7*86400000):0;
+  const lastAny=per.length?Math.max(...per.map(p=>p.last)):null;
+  return { means, counts:g.counts, total:g.total, weeks, per, scope, lastAny };
 }
-const _WD_LABELS=['Mo','Di','Mi','Do','Fr','Sa','So'];
+// Datenreife: 4 Kriterien → grün (alle erfüllt) / gelb (≥2) / rot. Weicher Hinweis, keine Sperre.
+// Ziele über die Dispo-Einstellungen anpassbar (reifeCov/reifeWochen; minMeld+Aktualität via Config-Doc).
+function _fillReife(s){
+  const cfg=dispoGetConfig();
+  const covZiel=cfg.reifeCov??80, woZiel=cfg.reifeWochen??4, minMeld=cfg.reifeMinMeld??3, aktTage=cfg.reifeAktualTage??7, tageZiel=cfg.reifeTage??5;
+  const reif=s.per.filter(p=>p.n>=minMeld).length;
+  const cov=s.scope?Math.round(reif/s.scope*100):0;
+  const days=s.lastAny!=null?Math.round((Date.now()-s.lastAny)/86400000):null;
+  const wdDays=s.counts.filter(c=>c>0).length;
+  const k=[
+    {label:'Abdeckung', ist:cov, ziel:covZiel, txt:`${cov} % (Ziel ${covZiel}) — ${reif}/${s.scope} Objekte mit ≥${minMeld} Meldungen`, ok:cov>=covZiel, pct:Math.min(100,covZiel?cov/covZiel*100:0)},
+    {label:'Zeitspanne', ist:s.weeks, ziel:woZiel, txt:`${s.weeks<1?'<1':Math.round(s.weeks)} / ${woZiel} Wochen`, ok:s.weeks>=woZiel, pct:Math.min(100,woZiel?s.weeks/woZiel*100:0)},
+    {label:'Wochentage', ist:wdDays, ziel:tageZiel, txt:`${wdDays} / 7 Tagen mit Daten (Ziel ${tageZiel})`, ok:wdDays>=tageZiel, pct:Math.min(100,wdDays/7*100)},
+    {label:'Aktualität', ist:days, ziel:aktTage, txt:days==null?'keine Meldung':`letzte vor ${days} T (Ziel ≤${aktTage})`, ok:days!=null&&days<=aktTage, pct:days==null?0:Math.min(100,days<=aktTage?100:Math.max(10,100-(days-aktTage)*8))},
+  ];
+  const okN=k.filter(x=>x.ok).length;
+  const stufe=okN===4?'gruen':okN>=2?'gelb':'rot';
+  return {k, stufe, okN};
+}
+const _REIFE_UI={gruen:['#16a34a','Automatische Planung empfohlen — Datenlage ausreichend'],gelb:['#b45309','Eingeschränkt nutzbar — erste Prognosen möglich, Muster teils dünn'],rot:['#991b1b','Noch nicht empfohlen — zu wenig Füllstandsdaten']};
+function _fillCellColor(m){ if(m==null) return ['transparent','var(--text3)']; if(m>=75)return['#F09595','#501313']; if(m>=50)return['#FAC775','#412402']; if(m>=25)return['#C0DD97','#173404']; return ['#EAF3DE','#173404']; }
+// Kompakte Zeile in der Dispo-Seitenleiste: Mini-Ampel + Öffnen-Knopf (Details im Popup).
 function renderDispoFillWeekday(){
   const el=document.getElementById('dispo-fillweekday'); if(!el) return;
-  if(!(currentProjectData&&currentProjectData.fuellgradAktiv)){
-    el.innerHTML='<div class="dispo-sec">Füllstand je Wochentag</div><div style="font-size:12px;color:var(--text3);padding:2px 0 4px;">Füllgrad-Erfassung ist für dieses Projekt nicht aktiv (Projekt-Einstellungen).</div>';
-    destroyChart('dispoFill'); return;
-  }
-  const s=_fillByWeekday();
+  if(!(currentProjectData&&currentProjectData.fuellgradAktiv)){ el.innerHTML=''; return; }
+  const s=_fillStats();
   if(!s.total){
-    el.innerHTML='<div class="dispo-sec">Füllstand je Wochentag</div><div style="font-size:12px;color:var(--text3);padding:2px 0 4px;">Noch keine Füllgrad-Meldungen vorhanden.</div>';
-    destroyChart('dispoFill'); return;
+    el.innerHTML=`<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;font-size:12px;color:var(--text3);">Füllstand-Auswertung: noch keine Füllgrad-Meldungen.</div>`;
+    return;
   }
+  const r=_fillReife(s); const [col,txt]=_REIFE_UI[r.stufe];
+  el.innerHTML=`<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;">
+    <span style="width:10px;height:10px;border-radius:50%;background:${col};flex-shrink:0;" title="${dlEsc(txt)}"></span>
+    <span style="flex:1;min-width:0;font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${dlEsc(txt)}">Füllstand-Daten: ${r.okN}/4 Kriterien</span>
+    <span style="font-size:11px;color:var(--text3);white-space:nowrap;">${s.total} Meld.</span>
+    <button class="btn btn-secondary" style="padding:3px 10px;font-size:11px;white-space:nowrap;" onclick="dispoFillAuswertungOpen()">Auswertung</button>
+  </div>`;
+}
+// Popup „Füllstand-Auswertung": A Datenreife-Ampel · B projektweites Wochentags-Diagramm · C Heatmap je Objekt.
+let _fillSort='max', _fillQ='', _fillFStadtteil='', _fillFArt='';
+function dispoFillAuswertungOpen(){
+  const s=_fillStats();
+  if(!s.total){ notify('Noch keine Füllgrad-Meldungen vorhanden'); return; }
+  const r=_fillReife(s); const [col,txt]=_REIFE_UI[r.stufe];
+  _fillQ=''; // Suche bei jedem Öffnen frisch
   const wk=s.weeks<1?'&lt;1':Math.round(s.weeks);
-  el.innerHTML=`<div class="dispo-sec">Füllstand je Wochentag <span style="font-weight:400;text-transform:none;color:var(--text3);">(Ø aus ${s.total} Meldungen, ~${wk} Wo)</span></div>
-    <canvas id="dispo-fill-canvas" width="360" height="150" style="max-width:100%;"></canvas>
-    <table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:6px;">
-      <tr style="color:var(--text3);"><td style="padding:2px 4px;">Ø&nbsp;%</td>${s.means.map(m=>`<td style="padding:2px 4px;text-align:center;font-weight:700;color:var(--text);">${m==null?'–':m}</td>`).join('')}</tr>
-      <tr style="color:var(--text3);"><td style="padding:2px 4px;">Tag</td>${_WD_LABELS.map(w=>`<td style="padding:2px 4px;text-align:center;">${w}</td>`).join('')}</tr>
-      <tr style="color:var(--text3);"><td style="padding:2px 4px;">n</td>${s.counts.map(c=>`<td style="padding:2px 4px;text-align:center;">${c||'–'}</td>`).join('')}</tr>
-    </table>
-    <div style="font-size:10px;color:var(--text3);margin-top:4px;line-height:1.4;">n = Anzahl Meldungen je Wochentag. Dünne Datenlage (kleine n) macht die Mittelwerte unsicher.</div>`;
-  if(!window.Chart){ setTimeout(renderDispoFillWeekday,500); return; }
-  destroyChart('dispoFill');
-  const canvas=document.getElementById('dispo-fill-canvas'); if(!canvas) return;
-  const colors=s.means.map(m=> m==null?'#d1d5db' : (m>=75?'#991b1b' : m>=50?'#b45309' : '#16a34a'));
-  ctrlCharts['dispoFill']=new Chart(canvas,{
-    type:'bar',
-    data:{ labels:_WD_LABELS, datasets:[{ data:s.means.map(m=>m==null?0:m), backgroundColor:colors, borderWidth:0 }] },
-    options:{ responsive:false, plugins:{ legend:{display:false},
-        tooltip:{callbacks:{label:ctx=>{const i=ctx.dataIndex; return s.means[i]==null?'keine Daten':`Ø ${s.means[i]} % (n=${s.counts[i]})`;}}} },
-      scales:{ y:{beginAtZero:true,max:120,ticks:{stepSize:25,font:{size:10},callback:v=>v+'%'}}, x:{ticks:{font:{size:11}}} } }
-  });
+  const stList=[...new Set(s.per.map(p=>p.stadtteil).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  const artList=[...new Set(s.per.map(p=>p.art).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  const modal=document.createElement('div');
+  modal.id='dispo-fill-modal';
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);width:720px;max-width:96vw;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;">
+    <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;">
+      <span style="font-size:15px;font-weight:700;">Füllstand-Auswertung</span>
+      <span style="font-size:11px;color:var(--text3);">Ø aus ${s.total} Meldungen · ~${wk} Wochen · ${s.per.length}/${s.scope} Objekten</span>
+      <button class="panel-close" style="margin-left:auto;" data-close><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:14px 20px;">
+      <div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+          <span style="width:10px;height:10px;border-radius:50%;background:${col};flex-shrink:0;"></span>
+          <span style="font-size:13px;font-weight:700;">${dlEsc(txt.split(' — ')[0])}</span>
+          <span style="font-size:12px;color:var(--text3);">— ${dlEsc(txt.split(' — ')[1]||'')}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">
+          ${r.k.map(x=>`<div>
+            <div style="font-size:11px;color:var(--text3);margin-bottom:3px;">${x.label}</div>
+            <div style="height:5px;background:var(--surface2);border-radius:3px;overflow:hidden;"><div style="width:${Math.round(x.pct)}%;height:100%;background:${x.ok?'#16a34a':'#b45309'};"></div></div>
+            <div style="font-size:11px;color:var(--text3);margin-top:3px;">${dlEsc(x.txt)} ${x.ok?'✓':''}</div>
+          </div>`).join('')}
+        </div>
+        <div style="font-size:10px;color:var(--text3);margin-top:8px;">Empfehlung, keine Sperre — die automatische Planung bleibt jederzeit nutzbar und verändert die manuelle Planung nie. Ziele anpassbar unter ⚙ Einstellungen.</div>
+      </div>
+      <div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+          <span style="font-size:12px;color:var(--text3);">Projektweit · Ø Füllstand je Wochentag</span>
+          <span style="margin-left:auto;display:flex;gap:10px;font-size:10px;color:var(--text3);">
+            <span><i style="display:inline-block;width:9px;height:9px;border-radius:2px;background:#16a34a;vertical-align:-1px;"></i> &lt;50</span>
+            <span><i style="display:inline-block;width:9px;height:9px;border-radius:2px;background:#b45309;vertical-align:-1px;"></i> 50–74</span>
+            <span><i style="display:inline-block;width:9px;height:9px;border-radius:2px;background:#991b1b;vertical-align:-1px;"></i> ≥75 %</span>
+          </span>
+        </div>
+        <canvas id="dispo-fill-big" width="640" height="170" style="max-width:100%;"></canvas>
+        <table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:6px;">
+          <tr style="color:var(--text3);"><td style="padding:1px 4px;width:40px;">Ø&nbsp;%</td>${s.means.map(m=>`<td style="padding:1px 4px;text-align:center;font-weight:700;color:var(--text);">${m==null?'–':m}</td>`).join('')}</tr>
+          <tr style="color:var(--text3);"><td style="padding:1px 4px;">n</td>${s.counts.map(c=>`<td style="padding:1px 4px;text-align:center;">${c||'–'}</td>`).join('')}</tr>
+        </table>
+      </div>
+      <div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap;">
+          <span style="font-size:12px;color:var(--text3);white-space:nowrap;">Je Objekt · Ø je Wochentag</span>
+          <input id="df-q" class="form-control" placeholder="suchen…" style="margin-left:auto;width:130px;padding:4px 8px;font-size:11px;">
+          ${stList.length?`<select id="df-st" style="padding:4px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;max-width:130px;"><option value="">Alle Stadtteile</option>${stList.map(v=>`<option${v===_fillFStadtteil?' selected':''}>${dlEsc(v)}</option>`).join('')}</select>`:''}
+          ${artList.length?`<select id="df-art" style="padding:4px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;max-width:130px;"><option value="">Alle Arten</option>${artList.map(v=>`<option${v===_fillFArt?' selected':''}>${dlEsc(v)}</option>`).join('')}</select>`:''}
+          <select id="df-sort" style="padding:4px 6px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
+            <option value="max"${_fillSort==='max'?' selected':''}>vollster Tag</option>
+            <option value="name"${_fillSort==='name'?' selected':''}>Name</option>
+            <option value="n"${_fillSort==='n'?' selected':''}>meiste Meldungen</option>
+          </select>
+        </div>
+        <div id="df-heat" style="max-height:300px;overflow-y:auto;"></div>
+        <div style="font-size:10px;color:var(--text3);margin-top:6px;">Zelle = Ø Füllstand (%) an dem Wochentag · „–" = keine Meldungen · n = Meldungen je Objekt · Klick auf Zeile zeigt das Objekt auf der Karte.</div>
+      </div>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+  const close=()=>{ destroyChart('dispoFillBig'); modal.remove(); document.removeEventListener('keydown',esc); };
+  const esc=e=>{ if(e.key==='Escape') close(); };
+  document.addEventListener('keydown',esc);
+  modal.addEventListener('click',e=>{ if(e.target===modal||e.target.closest('[data-close]')) close(); });
+  // Zone B: Diagramm
+  if(window.Chart){
+    destroyChart('dispoFillBig');
+    const colors=s.means.map(m=>m==null?'#d1d5db':(m>=75?'#991b1b':m>=50?'#b45309':'#16a34a'));
+    ctrlCharts['dispoFillBig']=new Chart(document.getElementById('dispo-fill-big'),{
+      type:'bar',
+      data:{labels:_WD_LABELS,datasets:[{data:s.means.map(m=>m==null?0:m),backgroundColor:colors,borderWidth:0}]},
+      options:{responsive:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>{const i=c.dataIndex;return s.means[i]==null?'keine Daten':`Ø ${s.means[i]} % (n=${s.counts[i]})`;}}}},
+        scales:{y:{beginAtZero:true,max:120,ticks:{stepSize:25,font:{size:10},callback:v=>v+'%'}},x:{ticks:{font:{size:11}}}}}
+    });
+  }
+  // Zone C: Heatmap (filter-/sortier-/durchsuchbar)
+  const renderHeat=()=>{
+    const q=_fillQ.toLowerCase();
+    let rows=s.per.filter(p=>(!q||p.name.toLowerCase().includes(q))&&(!_fillFStadtteil||p.stadtteil===_fillFStadtteil)&&(!_fillFArt||p.art===_fillFArt));
+    if(_fillSort==='name') rows.sort((a,b)=>a.name.localeCompare(b.name));
+    else if(_fillSort==='n') rows.sort((a,b)=>b.n-a.n);
+    else rows.sort((a,b)=>b.max-a.max);
+    const el=document.getElementById('df-heat'); if(!el) return;
+    if(!rows.length){ el.innerHTML='<div style="font-size:12px;color:var(--text3);padding:8px 0;">Keine Objekte für diese Auswahl.</div>'; return; }
+    el.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:11px;table-layout:fixed;">
+      <tr style="color:var(--text3);position:sticky;top:0;background:var(--surface);"><td style="width:32%;padding:2px 4px;"></td>${_WD_LABELS.map(w=>`<td style="text-align:center;">${w}</td>`).join('')}<td style="text-align:center;width:8%;">n</td></tr>
+      ${rows.map(p=>`<tr data-tid="${dlEsc(p.id)}" style="cursor:pointer;">
+        <td style="padding:3px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${dlEsc(p.name)}${p.stadtteil?' · '+dlEsc(p.stadtteil):''}">${dlEsc(p.name)}</td>
+        ${p.means.map((m,i)=>{const [bg,fg]=_fillCellColor(m);return `<td style="text-align:center;background:${bg};color:${fg};border:1px solid var(--surface);" title="${_WD_LABELS[i]}: ${m==null?'keine Daten':'Ø '+m+' % (n='+p.counts[i]+')'}">${m==null?'–':m}</td>`;}).join('')}
+        <td style="text-align:center;color:var(--text3);">${p.n}</td>
+      </tr>`).join('')}
+    </table>`;
+    el.querySelectorAll('tr[data-tid]').forEach(tr=>{ tr.onclick=()=>{ close(); _fillFocusOnMap(tr.dataset.tid); }; });
+  };
+  renderHeat();
+  const _wire=(id,fn)=>{ const e=document.getElementById(id); if(e) e.oninput=e.onchange=()=>{ fn(e.value); renderHeat(); }; };
+  _wire('df-q',v=>_fillQ=v); _wire('df-st',v=>_fillFStadtteil=v); _wire('df-art',v=>_fillFArt=v); _wire('df-sort',v=>_fillSort=v);
+}
+// Objekt auf der Dispo-Karte zeigen: vorhandenen Bin-Marker fokussieren, sonst Karte auf die Koordinate schwenken.
+function _fillFocusOnMap(id){
+  const m=dispoMarkers[id];
+  if(m&&dispoMap){ dispoMap.setView(m.getLatLng(),Math.max(dispoMap.getZoom(),16),{animate:true}); m.openPopup(); return; }
+  const t=trees.find(x=>x.id===id);
+  if(t&&t.lat&&t.lng&&dispoMap) dispoMap.setView([t.lat,t.lng],Math.max(dispoMap.getZoom(),16),{animate:true});
 }
 
 // ─── KI-AUSWERTUNG (Prompt-Bibliothek) ───────────────────────
@@ -18314,7 +18447,7 @@ async function renderHbUpdates(q){
 Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,openKiConfigMenu,toggleKiAnalyse,resetKiAnalysen,
   renderHandbuch,setHbTab,hbSearchDebounced,openHbImg,closeHbImg,
-  dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,
+  dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,dispoFillAuswertungOpen,
   epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epApplyStandardOne,epTagesplanScope,epSendTagesplan,epTgInput,epTgRegen,epCycleVehicleStatus,epVehTypesOpen,epAbsTypesOpen,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,epWeekShift,epWeekThis,epWeekToggleEmpty,epWeekFilter,epDayFilter,epTourCtx,epEditTour,_epCloseCtx,epPersonOpenCard,
   renderDashboard,refreshDashboard,
   saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterInlineTours,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
