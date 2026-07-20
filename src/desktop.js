@@ -3178,6 +3178,10 @@ function cancelDraw(){
   if(map) map.getContainer().style.cursor='';
   document.getElementById('draw-bar')?.remove();
 }
+// Id einer FRISCH gezeichneten Geometrie, deren Anlage noch nicht per „Speichern" bestätigt wurde.
+// Bricht der Nutzer das direkt danach geöffnete Formular ab, wird genau dieses Objekt wieder verworfen
+// (sonst bliebe eine typenlose Geometrie liegen). Wird bei Speichern/Löschen/Weiter-Aktionen zurückgesetzt.
+let _freshDrawId=null;
 async function finishDraw(){
   const type=_drawMode, pts=_drawPts.slice();
   if(type==='flaeche' && pts.length<3){ notify('Mindestens 3 Punkte für eine Fläche'); return; } // Zeichnung NICHT verwerfen → weiter Punkte setzen möglich
@@ -3202,6 +3206,7 @@ async function finishDraw(){
     return;
   }
   setSyncState('ok','Synchronisiert');
+  _freshDrawId=ref.id; // bis zum ersten erfolgreichen Speichern „unbestätigt" → Abbrechen verwirft die Geometrie
   notify(`✓ ${type==='flaeche'?'Fläche '+_fmtArea(menge):'Strecke '+_fmtLen(menge)} angelegt`);
   // Wie bei der Punkt-Neuanlage das Bearbeiten-Formular öffnen, sobald das Objekt im Snapshot da ist.
   // So werden auch bei Linien/Flächen die Pflichtfelder (MUSS) erzwungen — saveTree prüft sie und lässt
@@ -5064,8 +5069,24 @@ async function openEditTree(id){
   }
   document.getElementById('tree-modal').classList.add('open'); _initTreeModalDrag(); _resetTreeModalPos(); _markRequiredLabels();
 }
-function closeTreeModal(){ document.getElementById('tree-modal').classList.remove('open');editingTreeId=null;
-  const danger=document.getElementById('tree-danger'); if(danger) danger.style.display='none'; }
+function closeTreeModal(){
+  // Abbrechen einer frisch gezeichneten, noch nicht gespeicherten Geometrie → verwerfen (sonst bliebe ein
+  // typenloses Objekt ohne Pflichtfelder liegen). Greift NUR für genau dieses eine Objekt, nie für Bestand.
+  const _discard=(editingTreeId&&editingTreeId===_freshDrawId)?editingTreeId:null;
+  _freshDrawId=null;
+  document.getElementById('tree-modal').classList.remove('open');editingTreeId=null;
+  const danger=document.getElementById('tree-danger'); if(danger) danger.style.display='none';
+  if(_discard) _discardFreshDraw(_discard);
+}
+async function _discardFreshDraw(id){
+  try{
+    await deleteDoc(doc(db,'projects',currentProjectId,'trees',id));
+    trees=trees.filter(t=>t.id!==id); _allTrees=_allTrees.filter(t=>t.id!==id);
+    try{ renderDrawnGeoms(); }catch(_){}
+    try{ refreshMarkers(); }catch(_){}
+    notify('Zeichnung verworfen (nicht gespeichert)');
+  }catch(e){ console.warn('Verwerfen der Zeichnung fehlgeschlagen', e); }
+}
 // Objekt-Formular per Titelleiste verschiebbar (Karte bleibt sichtbar). Position beim Öffnen zurücksetzen.
 let _treeDrag={x:0,y:0}, _treeDragInit=false;
 function _resetTreeModalPos(){ _treeDrag={x:0,y:0}; const mb=document.querySelector('#tree-modal .modal'); if(mb) mb.style.transform=''; }
@@ -5139,6 +5160,7 @@ async function saveTree(){
       });
       notify('Objekt hinzugefügt');
     }
+    _freshDrawId=null; // Anlage bestätigt → beim folgenden Schließen NICHT verwerfen
     routeCache={};closeTreeModal();
   }catch(e){ notify('Fehler: '+e.message); }
 }
@@ -5261,14 +5283,15 @@ async function deleteTree(id){
     await removeTreeFromRoutes(id);
     await _stripIdsFromPlanArtifacts([id]); // aus Auto-Planungs-Varianten + Fixierungen entfernen
     await deleteDoc(doc(db,'projects',currentProjectId,'trees',id));
+    _freshDrawId=null; // bereits explizit gelöscht → closeTreeModal soll nicht nochmal „verwerfen"
     closePanel(); closeTreeModal(); notify('Objekt gelöscht');
   }catch(e){ notify('Fehler: '+e.message); }
 }
 
 // Modal-Wrapper (nutzen editingTreeId)
-function showTreeOnMapFromModal(){ const id=editingTreeId; closeTreeModal(); if(id) selectTree(id); }
-function archiveTreeFromModal(){ const id=editingTreeId; closeTreeModal(); if(id) archiveTree(id); }
-function reactivateTreeFromModal(){ const id=editingTreeId; closeTreeModal(); if(id) reactivateTree(id); }
+function showTreeOnMapFromModal(){ _freshDrawId=null; const id=editingTreeId; closeTreeModal(); if(id) selectTree(id); }
+function archiveTreeFromModal(){ _freshDrawId=null; const id=editingTreeId; closeTreeModal(); if(id) archiveTree(id); }
+function reactivateTreeFromModal(){ _freshDrawId=null; const id=editingTreeId; closeTreeModal(); if(id) reactivateTree(id); }
 function deleteTreeFromModal(){ if(editingTreeId) deleteTree(editingTreeId); }
 
 // ─── PLACEMENT & ASSIGN ───────────────────────────────────────
