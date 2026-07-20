@@ -118,6 +118,38 @@ export const SI_SICHERUNG = {
   ],
 };
 
+// ── Kunden-Onboarding (Betreiber-Ablauf, neuen Mandanten anlegen) ──────────────
+export const SI_ONBOARDING = {
+  intro: 'Reihenfolge zum Einrichten eines neuen Kunden (Mandant) – jeder Schritt baut auf dem vorigen auf. Alles im Desktop als Superadmin. URL für den Kunden: infa-planungsmanager.web.app',
+  schritte: [
+    { nr: 1, titel: 'Mandant anlegen', wo: 'Admin → Mandanten → „Anlegen"', punkte: [
+      'Name (z. B. „Stadt Musterhausen") + eindeutiger Stadt-Code (Anmelde-Code für alle Nutzer).',
+      'Keine Demo-Codes/-Mandanten verwenden oder vermischen.' ]},
+    { nr: 2, titel: 'Module & Rollen festlegen', wo: 'Admin → Benutzer & Rollen → „Rollen & Module"', punkte: [
+      'Je Kundenrolle festlegen, welche Module sichtbar sind (z. B. Reinigungssysteme, Einsatzplaner, EWK, KI-Analysen).' ]},
+    { nr: 3, titel: 'Lizenzen hinterlegen', wo: 'Admin → Lizenzen', punkte: [
+      'Artikel-/Personen-Lizenzen, AGK-Satz und ggf. Rabatt für diesen Mandanten; Ist-Zähler prüfen.' ]},
+    { nr: 4, titel: 'Zugänge anlegen', wo: 'Admin → Benutzer & Rollen → „Personen & PINs"', punkte: [
+      'Admin-Zugang des Kunden (Name + PIN + Rolle Org-Admin); weitere Personen nach Bedarf.',
+      'PIN sicher übergeben (nicht per unverschlüsselter E-Mail).' ]},
+    { nr: 5, titel: 'Projekt & Datenmodell', wo: 'Verwaltung → Projekte / Felder & Listen', punkte: [
+      'Erstes Projekt anlegen; Wertelisten, Kundenfelder, Soll-/Häufigkeitsfeld und Pflichtfelder konfigurieren.' ]},
+    { nr: 6, titel: 'Daten importieren', wo: 'Verwaltung → Import / Export', punkte: [
+      'Excel/CSV oder Shapefile über den Import-Assistenten (Spalte → Feld). Nur echte Kundendaten.' ]},
+    { nr: 7, titel: 'Touren & Fahrer-Zuweisung', wo: 'Verwaltung → Touren / Fahrer-Zuweisung', punkte: [
+      'Touren anlegen, ggf. Routen berechnen; festlegen, welche Person welche Tour sieht.',
+      'Hinweis: Fahrer ohne jede Zuweisung sieht ALLE Touren.' ]},
+    { nr: 8, titel: 'Erste Sicherung ziehen', wo: 'Kommandozeile (Betreiber)', punkte: [
+      'scripts/tenant-backup.mjs export --org <orgId>  → Ausgangs-Snapshot; vor riskanten Aktionen wiederholen.' ]},
+    { nr: 9, titel: 'Übergabe an den Kunden', wo: '—', punkte: [
+      'URL infa-planungsmanager.web.app, Stadt-Code + Zugangsdaten (sicher), Hinweis aufs Handbuch (Avatar-Menü).' ]},
+  ],
+  hinweise: [
+    'Rechtlich: AV-Vertrag (Auftragsverarbeitung, DSGVO) mit der Kommune abschließen. Der Mandanten-Export dient zugleich dem Auskunfts-/Löschanspruch.',
+    'Testdaten-Hygiene: eindeutiger Stadt-Code, keine Demo-Objekte im Mandanten, nur benötigte Module freigeschaltet, erster Backup-Export gezogen.',
+  ],
+};
+
 // ── Lizenzen & Dienste (Komponenten-Compliance) ──────────────
 // status: 'ok' (rechtlich/kommerziell unbedenklich) | 'achtung' (Bedingung/Restrisiko beachten) | 'risiko' (vor breitem Produktiveinsatz klären)
 // Gruppen je Einsatzgebiet. Pflegepflicht: bei neuer externer Bibliothek/Dienst hier ergänzen.

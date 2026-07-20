@@ -3,7 +3,7 @@ const APP_VERSION = '1.0';
 
 import { HANDBUCH } from './handbuch-daten.js';
 import { installErrorHandler } from './errlog.js'; installErrorHandler('desktop');
-import { SI_DSGVO, SI_STACK, SI_REGIONEN, SI_APPS, SI_SICHERHEIT, SI_DIENSTE, SI_SICHERUNG } from './systeminfo-daten.js';
+import { SI_DSGVO, SI_STACK, SI_REGIONEN, SI_APPS, SI_SICHERHEIT, SI_DIENSTE, SI_SICHERUNG, SI_ONBOARDING } from './systeminfo-daten.js';
 import { initAppCheck } from './appcheck.js';
 import { basemapLayer, BASEMAP_FARBE, BASEMAP_GRAU, BASEMAP_ATTR, TILE_PERF } from './basemaps.js';
 import { firebaseConfig } from './firebase-config.js';
@@ -18040,6 +18040,7 @@ const SI_TABS=[
   {id:'apps',label:'Apps & Versionen'},
   {id:'sicherheit',label:'Sicherheit'},
   {id:'sicherung',label:'Datensicherung'},
+  {id:'onboarding',label:'Kunden-Onboarding'},
   {id:'dienste',label:'Lizenzen & Dienste'},
 ];
 function setSiTab(t){ _siTab=t; renderSystemInfo(); }
@@ -18122,6 +18123,19 @@ function renderSystemInfo(){
             ${b.punkte.map(p=>`<li>${dlEsc(p)}</li>`).join('')}
           </ul>
         </div>`).join('');
+  }else if(_siTab==='onboarding'){
+    cont.innerHTML=`<div style="font-size:13px;color:var(--text2);margin-bottom:14px;line-height:1.55;">${dlEsc(SI_ONBOARDING.intro)}</div>`
+      +SI_ONBOARDING.schritte.map(s=>`
+        <div style="display:flex;gap:12px;align-items:flex-start;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:11px 14px;margin-bottom:7px;">
+          <div style="width:24px;height:24px;border-radius:50%;background:var(--green);color:#fff;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">${s.nr}</div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:13px;font-weight:700;">${dlEsc(s.titel)}</div>
+            ${s.wo&&s.wo!=='—'?`<div style="font-size:11px;color:var(--green);font-weight:600;margin:1px 0 4px;">${dlEsc(s.wo)}</div>`:''}
+            <ul style="margin:2px 0 0;padding-left:18px;font-size:12px;color:var(--text2);line-height:1.55;">${s.punkte.map(p=>`<li>${dlEsc(p)}</li>`).join('')}</ul>
+          </div>
+        </div>`).join('')
+      +`<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin:16px 0 8px;">Nicht vergessen</div>`
+      +SI_ONBOARDING.hinweise.map(h=>`<div style="display:flex;gap:8px;align-items:flex-start;background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--amber);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:6px;font-size:12px;color:var(--text2);line-height:1.55;">${dlEsc(h)}</div>`).join('');
   }else if(_siTab==='dienste'){
     const all=SI_DIENSTE.flatMap(g=>g.items);
     const n=k=>all.filter(i=>i.status===k).length;
