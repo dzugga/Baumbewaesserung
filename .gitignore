@@ -18,3 +18,8 @@ functions/scripts/*key*.json
 
 # lokale Diagnose-Ausgabe (nicht einchecken)
 functions/scripts/dup-coords.csv
+
+# Mandanten-Backups (Kundendaten) – nie committen
+backups/
+*.sa.json
+serviceAccount*.json
