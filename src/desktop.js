@@ -287,6 +287,7 @@ const MODULES = [
   {key:'ki',          label:'KI-Analysen'},
   {key:'objekte',     label:'Objekte'},
   {key:'touren',      label:'Touren'},
+  {key:'fahrerzuweisung', label:'Fahrer-Zuweisung'},
   {key:'verwaltung',  label:'Gründe'},
   {key:'reinigungssysteme', label:'Reinigungssysteme'},
   {key:'wms',         label:'WMS-Karten'},
@@ -326,6 +327,8 @@ function roleModules(roleKey){
   // Reinigungssysteme hing früher am Modul 'verwaltung' (Gründe). Neue eigene Sichtbarkeit erbt den alten
   // Gate-Wert, solange sie nicht explizit gesetzt ist → kein stiller Verlust bei Bestandsrollen.
   if(m.reinigungssysteme===undefined) m.reinigungssysteme=!!m.verwaltung;
+  // Fahrer-Zuweisung hing bisher am Touren-Modul → erbt dessen Wert, bis explizit gesetzt (kein stiller Verlust).
+  if(m.fahrerzuweisung===undefined) m.fahrerzuweisung=!!m.touren;
   return m;
 }
 // Checkbox-Zustand im Rollen-Editor: explizit gesetzter Wert gewinnt; sonst erbt reinigungssysteme den
@@ -334,6 +337,7 @@ function _roleModChecked(r,key){
   const v=r&&r.modules&&r.modules[key];
   if(v!==undefined) return !!v;
   if(key==='reinigungssysteme') return !!(r&&r.modules&&r.modules.verwaltung);
+  if(key==='fahrerzuweisung') return !!(r&&r.modules&&r.modules.touren);
   return false;
 }
 // Modul projektscharf abschaltbar: projects/{id}.modules[key]===false → aus (fehlt/true → an).
