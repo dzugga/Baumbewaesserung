@@ -14645,7 +14645,10 @@ function showTreeTourContextMenu(tree, e){
   const _ps=planStatusOf(tree);
   const _ovd=overdueInfoOf(tree);
   const _ovdProblem = _ovd && (_ovd.status==='faellig'||_ovd.status==='ueber'||_ovd.status==='nie');
-  if(rows.length===0 && !(_ps && _ps.status!=='kein') && !_ovdProblem) return; // kein Popup, wenn weder Tour noch aussagekräftiger Status
+  // Füllstand-Einzel-Auswertung anbieten, wenn das Projekt Füllgrad erfasst und das Punkt-Objekt Meldungen hat
+  const _hasFill = !!(currentProjectData&&currentProjectData.fuellgradAktiv) && !_isContainer(tree) && geomTypeOf(tree)==='punkt'
+    && (tree.history||[]).some(h=>typeof h.fuellgrad==='number');
+  if(rows.length===0 && !(_ps && _ps.status!=='kein') && !_ovdProblem && !_hasFill) return; // kein Popup, wenn weder Tour noch aussagekräftiger Status
   const treeTourList=rows; // (Variablenname unten beibehalten)
 
   // Position aus Leaflet-Event
@@ -14688,6 +14691,7 @@ function showTreeTourContextMenu(tree, e){
         <span style="min-width:0;"><span style="font-weight:600;color:${t.color};">${dlEsc(t.name)}</span>${t.ueb?_uebTag:''}${t.sub?`<br><span style="font-size:11px;color:var(--text3);">${dlEsc(t.sub)}</span>`:''}</span>${badge}
       </div>`; }).join(''); })()}
     <div style="margin-top:8px;font-size:11px;color:var(--text3);">${_rc} Tour${_rc!==1?'en':''}${_uc?` · ${_uc} Übersicht`:''}</div>
+    ${_hasFill?`<button onclick="dispoFillObjektOpen('${_jsArg(tree.id)}', event.clientX, event.clientY)" style="margin-top:8px;width:100%;padding:5px 10px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);cursor:pointer;font-family:inherit;">📊 Füllstand-Auswertung</button>`:''}
   `;
   document.body.appendChild(popup);
 
@@ -16838,6 +16842,9 @@ function dispoRenderMap(){
     }
     m.bindPopup(`<b>${dlEsc(b.name)}</b><br>Füllstand: <b>${b.fuellstand}%</b>${b.fillRate?`<br>~voll in ${Math.max(0,Math.ceil((100-b.fuellstand)/b.fillRate))} Tagen`:''}${plan?`<br>Status: ${plan.begr[b.id]?.status||'-'}`:''}${b._real?`<br><button onclick="dispoOpenObjectDetail('${b.id}')" style="margin-top:7px;padding:4px 9px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;font-family:inherit;">Objekt-Details ansehen →</button>`:''}`);
     m.on('click',()=>dispoFocusBin(b.id));
+    // Rechtsklick → Einzel-Auswertung des Korbs (Wochentags-Statistik, verschiebbares Panel)
+    m.on('contextmenu',e=>{ L.DomEvent.stopPropagation(e); try{ e.originalEvent&&e.originalEvent.preventDefault(); }catch(_){}
+      const oe=e.originalEvent||{}; dispoFillObjektOpen(b.id, oe.clientX, oe.clientY); });
     dispoMarkers[b.id]=m;
     if(!filtered || !dim) pts.push([b.lat,b.lng]); // Zoom nur auf sichtbare Elemente
   });
@@ -17044,9 +17051,11 @@ function dispoFillAuswertungOpen(){
   const artList=[...new Set(s.per.map(p=>p.art).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
   const modal=document.createElement('div');
   modal.id='dispo-fill-modal';
-  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;';
-  modal.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.18);width:720px;max-width:96vw;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;">
-    <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;">
+  // Kein Abdunkeln (pointer-events:none am Wrapper): Karte/Seite bleiben sichtbar und bedienbar,
+  // das Popup selbst ist per Titelleiste verschiebbar (Muster #tree-modal).
+  modal.style.cssText='position:fixed;inset:0;background:transparent;pointer-events:none;z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.innerHTML=`<div id="df-box" style="pointer-events:auto;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.35);width:720px;max-width:96vw;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;">
+    <div id="df-head" style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;">
       <span style="font-size:15px;font-weight:700;">Füllstand-Auswertung</span>
       <span style="font-size:11px;color:var(--text3);">Ø aus ${s.total} Meldungen · ~${wk} Wochen · ${s.per.length}/${s.scope} Objekten</span>
       <button class="panel-close" style="margin-left:auto;" data-close><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
@@ -17100,10 +17109,11 @@ function dispoFillAuswertungOpen(){
     </div>
   </div>`;
   document.body.appendChild(modal);
-  const close=()=>{ destroyChart('dispoFillBig'); modal.remove(); document.removeEventListener('keydown',esc); };
+  const _undrag=_dragModal(modal.querySelector('#df-box'), modal.querySelector('#df-head'));
+  const close=()=>{ destroyChart('dispoFillBig'); _undrag(); modal.remove(); document.removeEventListener('keydown',esc); };
   const esc=e=>{ if(e.key==='Escape') close(); };
   document.addEventListener('keydown',esc);
-  modal.addEventListener('click',e=>{ if(e.target===modal||e.target.closest('[data-close]')) close(); });
+  modal.addEventListener('click',e=>{ if(e.target.closest('[data-close]')) close(); });
   // Zone B: Diagramm
   if(window.Chart){
     destroyChart('dispoFillBig');
@@ -17144,6 +17154,90 @@ function _fillFocusOnMap(id){
   if(m&&dispoMap){ dispoMap.setView(m.getLatLng(),Math.max(dispoMap.getZoom(),16),{animate:true}); m.openPopup(); return; }
   const t=trees.find(x=>x.id===id);
   if(t&&t.lat&&t.lng&&dispoMap) dispoMap.setView([t.lat,t.lng],Math.max(dispoMap.getZoom(),16),{animate:true});
+}
+// Popup per Titelleiste verschiebbar machen (Muster wie das Objekt-Formular). Bewegt left/top direkt.
+function _dragModal(box, handle){
+  let sx,sy,ox,oy,drag=false;
+  handle.style.cursor='move'; handle.style.userSelect='none';
+  handle.addEventListener('mousedown',e=>{ if(e.target.closest('button,input,select')) return; drag=true; const r=box.getBoundingClientRect(); sx=e.clientX; sy=e.clientY; ox=r.left; oy=r.top; box.style.margin='0'; e.preventDefault(); });
+  const move=e=>{ if(!drag) return; box.style.left=Math.max(4,ox+(e.clientX-sx))+'px'; box.style.top=Math.max(4,oy+(e.clientY-sy))+'px'; box.style.position='fixed'; };
+  const up=()=>{ drag=false; };
+  window.addEventListener('mousemove',move); window.addEventListener('mouseup',up);
+  return ()=>{ window.removeEventListener('mousemove',move); window.removeEventListener('mouseup',up); };
+}
+// Wochentags-Statistik EINES Objekts (für die Einzel-Auswertung per Rechtsklick).
+function _fillStatsOne(t){
+  const sums=[0,0,0,0,0,0,0], counts=[0,0,0,0,0,0,0]; const msgs=[];
+  let minD=null,maxD=null;
+  (t.history||[]).forEach(h=>{
+    if(typeof h.fuellgrad!=='number') return;
+    const raw=h.date||h.at; if(!raw) return;
+    const dt=new Date(raw); if(isNaN(+dt)) return;
+    const wd=(dt.getDay()+6)%7;
+    sums[wd]+=h.fuellgrad; counts[wd]++;
+    msgs.push({ms:+dt, date:(''+(h.date||'')).slice(0,10)||dt.toISOString().slice(0,10), f:h.fuellgrad, driver:h.driver||''});
+    if(minD==null||+dt<minD)minD=+dt; if(maxD==null||+dt>maxD)maxD=+dt;
+  });
+  msgs.sort((a,b)=>b.ms-a.ms);
+  return { means:sums.map((s,i)=>counts[i]?Math.round(s/counts[i]):null), counts, n:msgs.length,
+    weeks:(minD!=null&&maxD!=null)?(maxD-minD)/(7*86400000):0, last:msgs[0]||null, msgs };
+}
+// Einzel-Auswertung eines Papierkorbs: schwebendes, verschiebbares Panel (Rechtsklick auf Marker /
+// Kontextmenü der Hauptkarte). Kein Abdunkeln — die Karte bleibt sichtbar und bedienbar.
+let _fillObjCleanup=null;
+function dispoFillObjektOpen(id, x, y){
+  const t=trees.find(v=>v.id===id); if(!t){ notify('Objekt nicht gefunden'); return; }
+  document.getElementById('dispo-fill-obj')?.remove(); if(_fillObjCleanup){ _fillObjCleanup(); _fillObjCleanup=null; }
+  destroyChart('dispoFillObj');
+  const s=_fillStatsOne(t);
+  const rate=_dispoFillRate(t);
+  const box=document.createElement('div');
+  box.id='dispo-fill-obj';
+  const px=Math.min((x??(window.innerWidth/2-190)), window.innerWidth-400), py=Math.min((y??110), window.innerHeight-320);
+  box.style.cssText=`position:fixed;left:${Math.max(4,px)}px;top:${Math.max(4,py)}px;z-index:9998;width:380px;max-width:94vw;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.3);overflow:hidden;`;
+  const wdRow=(vals,fmt)=>vals.map(v=>`<td style="padding:1px 3px;text-align:center;">${fmt(v)}</td>`).join('');
+  box.innerHTML=`
+    <div id="dfo-head" style="padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;">
+      <span style="font-size:13px;font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(t.name||t.baumId||'Objekt')}</span>
+      ${t.stadtteil?`<span style="font-size:11px;color:var(--text3);white-space:nowrap;">· ${dlEsc(t.stadtteil)}</span>`:''}
+      <button class="panel-close" style="margin-left:auto;" data-close><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div style="padding:10px 14px;">
+      ${s.n===0?`<div style="font-size:12px;color:var(--text3);padding:6px 0;">Für dieses Objekt liegen noch keine Füllgrad-Meldungen vor.</div>`:`
+      <div style="font-size:11px;color:var(--text3);margin-bottom:6px;">Ø Füllstand je Wochentag <span style="color:var(--text3);">(${s.n} Meldungen · ~${s.weeks<1?'<1':Math.round(s.weeks)} Wo)</span></div>
+      <canvas id="dispo-fill-obj-canvas" width="340" height="120" style="max-width:100%;"></canvas>
+      <table style="width:100%;border-collapse:collapse;font-size:10px;margin-top:4px;color:var(--text3);">
+        <tr><td style="width:30px;padding:1px 3px;">Ø%</td>${wdRow(s.means,m=>m==null?'–':`<b style="color:var(--text);">${m}</b>`)}</tr>
+        <tr><td style="padding:1px 3px;">n</td>${wdRow(s.counts,c=>c||'–')}</tr>
+        <tr><td></td>${wdRow(_WD_LABELS,w=>w)}</tr>
+      </table>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:11px;margin-top:8px;">
+        <div><span style="color:var(--text3);">Gelernte Füllrate:</span> <b>${rate!=null?Math.round(rate)+' %/Tag':'–'}</b></div>
+        <div><span style="color:var(--text3);">Letzte Meldung:</span> <b>${s.last?s.last.date.split('-').reverse().join('.'):'–'}</b></div>
+        <div><span style="color:var(--text3);">Letzter Füllstand:</span> <b>${typeof t.lastFuellgrad==='number'?fgLabelD(t.lastFuellgrad):'–'}</b></div>
+        <div><span style="color:var(--text3);">Voraussichtl. voll:</span> <b>${rate!=null?'~'+Math.max(0,Math.ceil((100-((t.lastStatus==='bewaessert')?0:(t.lastFuellgrad||0)))/rate))+' T':'–'}</b></div>
+      </div>
+      ${s.msgs.length?`<div style="font-size:11px;color:var(--text3);margin:8px 0 3px;">Letzte Meldungen</div>
+      <div style="max-height:90px;overflow-y:auto;font-size:11px;">${s.msgs.slice(0,6).map(m=>`<div style="display:flex;gap:8px;padding:2px 0;border-bottom:1px solid var(--border);"><span style="color:var(--text3);">${m.date.split('-').reverse().join('.')}</span><b>${fgLabelD(m.f)}</b>${m.driver?`<span style="margin-left:auto;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px;">${dlEsc(m.driver)}</span>`:''}</div>`).join('')}</div>`:''}`}
+      ${(currentView==='disposition'&&t.lat&&t.lng)?`<button class="btn btn-secondary" style="margin-top:10px;padding:4px 10px;font-size:11px;" data-showmap>Auf Karte zeigen</button>`:''}
+    </div>`;
+  document.body.appendChild(box);
+  const undrag=_dragModal(box, box.querySelector('#dfo-head'));
+  const close=()=>{ destroyChart('dispoFillObj'); undrag(); box.remove(); document.removeEventListener('keydown',esc); _fillObjCleanup=null; };
+  const esc=e=>{ if(e.key==='Escape') close(); };
+  document.addEventListener('keydown',esc);
+  _fillObjCleanup=close;
+  box.querySelector('[data-close]').onclick=close;
+  const sm=box.querySelector('[data-showmap]'); if(sm) sm.onclick=()=>_fillFocusOnMap(id);
+  if(s.n&&window.Chart){
+    const colors=s.means.map(m=>m==null?'#d1d5db':(m>=75?'#991b1b':m>=50?'#b45309':'#16a34a'));
+    ctrlCharts['dispoFillObj']=new Chart(document.getElementById('dispo-fill-obj-canvas'),{
+      type:'bar',
+      data:{labels:_WD_LABELS,datasets:[{data:s.means.map(m=>m==null?0:m),backgroundColor:colors,borderWidth:0}]},
+      options:{responsive:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>{const i=c.dataIndex;return s.means[i]==null?'keine Daten':`Ø ${s.means[i]} % (n=${s.counts[i]})`;}}}},
+        scales:{y:{beginAtZero:true,max:120,ticks:{stepSize:25,font:{size:9},callback:v=>v+'%'}},x:{ticks:{font:{size:10}}}}}
+    });
+  }
 }
 
 // ─── KI-AUSWERTUNG (Prompt-Bibliothek) ───────────────────────
@@ -18447,7 +18541,7 @@ async function renderHbUpdates(q){
 Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,openKiConfigMenu,toggleKiAnalyse,resetKiAnalysen,
   renderHandbuch,setHbTab,hbSearchDebounced,openHbImg,closeHbImg,
-  dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,dispoFillAuswertungOpen,
+  dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,dispoFillAuswertungOpen,dispoFillObjektOpen,
   epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epApplyStandardOne,epTagesplanScope,epSendTagesplan,epTgInput,epTgRegen,epCycleVehicleStatus,epVehTypesOpen,epAbsTypesOpen,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,epWeekShift,epWeekThis,epWeekToggleEmpty,epWeekFilter,epDayFilter,epTourCtx,epEditTour,_epCloseCtx,epPersonOpenCard,
   renderDashboard,refreshDashboard,
   saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterInlineTours,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
