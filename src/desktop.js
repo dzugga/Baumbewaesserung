@@ -16953,8 +16953,64 @@ function dispoPickDepot(i){
 
 function initDispo(){
   dispoGetResources(); // Defaults sicherstellen
+  renderDispoFillWeekday(); // Datengrundlage: mittlerer Füllstand je Wochentag (read-only, aus history)
   if(dispoGetBins().length===0) dispoSimulate(); else { dispoRenderResults(); dispoRenderMap(); }
   setTimeout(()=>{ if(dispoMap) dispoMap.invalidateSize(); },200);
+}
+
+// Mittlerer Füllstand je Wochentag aus allen Füllgrad-Meldungen (history). Rein lesend, ändert nichts.
+// Grundlage für die spätere Datenreife-Ampel: liefert Mittelwerte, Stichprobengröße (n) je Wochentag,
+// Gesamtzahl und die Zeitspanne der Daten.
+function _fillByWeekday(){
+  const sums=[0,0,0,0,0,0,0], counts=[0,0,0,0,0,0,0]; // Mo..So
+  let total=0, minD=null, maxD=null;
+  (trees||[]).forEach(t=>{
+    if(!isActive(t)) return;
+    (t.history||[]).forEach(h=>{
+      if(typeof h.fuellgrad!=='number') return;
+      const raw=h.date||h.at; if(!raw) return;
+      const dt=new Date(raw); if(isNaN(+dt)) return;
+      const wd=(dt.getDay()+6)%7; // getDay(): 0=So..6=Sa → Mo=0..So=6
+      sums[wd]+=h.fuellgrad; counts[wd]++; total++;
+      const ms=+dt; if(minD==null||ms<minD)minD=ms; if(maxD==null||ms>maxD)maxD=ms;
+    });
+  });
+  const means=sums.map((s,i)=>counts[i]?Math.round(s/counts[i]):null);
+  const weeks=(minD!=null&&maxD!=null)?(maxD-minD)/(7*86400000):0;
+  return { means, counts, total, weeks };
+}
+const _WD_LABELS=['Mo','Di','Mi','Do','Fr','Sa','So'];
+function renderDispoFillWeekday(){
+  const el=document.getElementById('dispo-fillweekday'); if(!el) return;
+  if(!(currentProjectData&&currentProjectData.fuellgradAktiv)){
+    el.innerHTML='<div class="dispo-sec">Füllstand je Wochentag</div><div style="font-size:12px;color:var(--text3);padding:2px 0 4px;">Füllgrad-Erfassung ist für dieses Projekt nicht aktiv (Projekt-Einstellungen).</div>';
+    destroyChart('dispoFill'); return;
+  }
+  const s=_fillByWeekday();
+  if(!s.total){
+    el.innerHTML='<div class="dispo-sec">Füllstand je Wochentag</div><div style="font-size:12px;color:var(--text3);padding:2px 0 4px;">Noch keine Füllgrad-Meldungen vorhanden.</div>';
+    destroyChart('dispoFill'); return;
+  }
+  const wk=s.weeks<1?'&lt;1':Math.round(s.weeks);
+  el.innerHTML=`<div class="dispo-sec">Füllstand je Wochentag <span style="font-weight:400;text-transform:none;color:var(--text3);">(Ø aus ${s.total} Meldungen, ~${wk} Wo)</span></div>
+    <canvas id="dispo-fill-canvas" width="360" height="150" style="max-width:100%;"></canvas>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:6px;">
+      <tr style="color:var(--text3);"><td style="padding:2px 4px;">Ø&nbsp;%</td>${s.means.map(m=>`<td style="padding:2px 4px;text-align:center;font-weight:700;color:var(--text);">${m==null?'–':m}</td>`).join('')}</tr>
+      <tr style="color:var(--text3);"><td style="padding:2px 4px;">Tag</td>${_WD_LABELS.map(w=>`<td style="padding:2px 4px;text-align:center;">${w}</td>`).join('')}</tr>
+      <tr style="color:var(--text3);"><td style="padding:2px 4px;">n</td>${s.counts.map(c=>`<td style="padding:2px 4px;text-align:center;">${c||'–'}</td>`).join('')}</tr>
+    </table>
+    <div style="font-size:10px;color:var(--text3);margin-top:4px;line-height:1.4;">n = Anzahl Meldungen je Wochentag. Dünne Datenlage (kleine n) macht die Mittelwerte unsicher.</div>`;
+  if(!window.Chart){ setTimeout(renderDispoFillWeekday,500); return; }
+  destroyChart('dispoFill');
+  const canvas=document.getElementById('dispo-fill-canvas'); if(!canvas) return;
+  const colors=s.means.map(m=> m==null?'#d1d5db' : (m>=75?'#991b1b' : m>=50?'#b45309' : '#16a34a'));
+  ctrlCharts['dispoFill']=new Chart(canvas,{
+    type:'bar',
+    data:{ labels:_WD_LABELS, datasets:[{ data:s.means.map(m=>m==null?0:m), backgroundColor:colors, borderWidth:0 }] },
+    options:{ responsive:false, plugins:{ legend:{display:false},
+        tooltip:{callbacks:{label:ctx=>{const i=ctx.dataIndex; return s.means[i]==null?'keine Daten':`Ø ${s.means[i]} % (n=${s.counts[i]})`;}}} },
+      scales:{ y:{beginAtZero:true,max:120,ticks:{stepSize:25,font:{size:10},callback:v=>v+'%'}}, x:{ticks:{font:{size:11}}} } }
+  });
 }
 
 // ─── KI-AUSWERTUNG (Prompt-Bibliothek) ───────────────────────
