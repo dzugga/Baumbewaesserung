@@ -16840,7 +16840,9 @@ function dispoRenderMap(){
     } else {
       m=L.circleMarker([b.lat,b.lng],{radius:dim?4:7,color:'#fff',weight:1.5,fillColor:col,fillOpacity:dim?0.25:0.95}).addTo(dispoLayer);
     }
-    m.bindPopup(`<b>${dlEsc(b.name)}</b><br>Füllstand: <b>${b.fuellstand}%</b>${b.fillRate?`<br>~voll in ${Math.max(0,Math.ceil((100-b.fuellstand)/b.fillRate))} Tagen`:''}${plan?`<br>Status: ${plan.begr[b.id]?.status||'-'}`:''}${b._real?`<br><button onclick="dispoOpenObjectDetail('${b.id}')" style="margin-top:7px;padding:4px 9px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;font-family:inherit;">Objekt-Details ansehen →</button>`:''}`);
+    m.bindPopup(`<b>${dlEsc(b.name)}</b><br>Füllstand: <b>${b.fuellstand}%</b>${b.fillRate?`<br>~voll in ${Math.max(0,Math.ceil((100-b.fuellstand)/b.fillRate))} Tagen`:''}${plan?`<br>Status: ${plan.begr[b.id]?.status||'-'}`:''}`+
+      `<br><button onclick="dispoFillObjektOpen('${b.id}')" style="margin-top:7px;padding:4px 9px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;font-family:inherit;">📊 Füllstand-Auswertung</button>`+
+      (b._real?`<br><button onclick="dispoOpenObjectDetail('${b.id}')" style="margin-top:5px;padding:4px 9px;font-size:11px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;font-family:inherit;">Objekt-Details ansehen →</button>`:''));
     m.on('click',()=>dispoFocusBin(b.id));
     // Rechtsklick → Einzel-Auswertung des Korbs (Wochentags-Statistik, verschiebbares Panel)
     m.on('contextmenu',e=>{ L.DomEvent.stopPropagation(e); try{ e.originalEvent&&e.originalEvent.preventDefault(); }catch(_){}
@@ -17186,7 +17188,37 @@ function _fillStatsOne(t){
 // Kontextmenü der Hauptkarte). Kein Abdunkeln — die Karte bleibt sichtbar und bedienbar.
 let _fillObjCleanup=null;
 function dispoFillObjektOpen(id, x, y){
-  const t=trees.find(v=>v.id===id); if(!t){ notify('Objekt nicht gefunden'); return; }
+  const t=trees.find(v=>v.id===id);
+  if(!t){
+    // Simulations-Modus: Korb ist kein echtes Objekt (Kunst-ID) → simulierte Werte zeigen statt Fehler.
+    const b=dispoGetBins().find(v=>v.id===id);
+    if(!b){ notify('Objekt nicht gefunden'); return; }
+    document.getElementById('dispo-fill-obj')?.remove(); if(_fillObjCleanup){ _fillObjCleanup(); _fillObjCleanup=null; }
+    const box=document.createElement('div');
+    box.id='dispo-fill-obj';
+    const px=Math.min((x??(window.innerWidth/2-190)), window.innerWidth-400), py=Math.min((y??110), window.innerHeight-260);
+    box.style.cssText=`position:fixed;left:${Math.max(4,px)}px;top:${Math.max(4,py)}px;z-index:9998;width:340px;max-width:94vw;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.3);overflow:hidden;`;
+    box.innerHTML=`
+      <div id="dfo-head" style="padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;">
+        <span style="font-size:13px;font-weight:700;">${dlEsc(b.name)}</span>
+        <button class="panel-close" style="margin-left:auto;" data-close><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+      </div>
+      <div style="padding:10px 14px;font-size:12px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;">
+          <div><span style="color:var(--text3);">Füllstand:</span> <b>${b.fuellstand} %</b></div>
+          <div><span style="color:var(--text3);">Füllrate:</span> <b>${b.fillRate||'–'} %/Tag</b></div>
+        </div>
+        <div style="margin-top:10px;padding:8px 10px;border-radius:6px;background:var(--surface2);color:var(--text3);font-size:11px;line-height:1.5;">Simulierte Umgebung — dieser Korb hat keine echte Melde-Historie. Die vollständige Einzel-Auswertung (Ø je Wochentag, gelernte Füllrate, Prognose) gibt es im Modus „📊 Echte Füllstände".</div>
+      </div>`;
+    document.body.appendChild(box);
+    const undrag=_dragModal(box, box.querySelector('#dfo-head'));
+    const close=()=>{ undrag(); box.remove(); document.removeEventListener('keydown',esc); _fillObjCleanup=null; };
+    const esc=e=>{ if(e.key==='Escape') close(); };
+    document.addEventListener('keydown',esc);
+    _fillObjCleanup=close;
+    box.querySelector('[data-close]').onclick=close;
+    return;
+  }
   document.getElementById('dispo-fill-obj')?.remove(); if(_fillObjCleanup){ _fillObjCleanup(); _fillObjCleanup=null; }
   destroyChart('dispoFillObj');
   const s=_fillStatsOne(t);
