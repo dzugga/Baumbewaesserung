@@ -80,12 +80,43 @@ export const SI_SICHERHEIT = [
   { label: 'Datei-Uploads', note: 'Nur freigegebene Dateitypen (Bilder, PDF, Office), maximal 20 MB pro Datei.' },
   { label: 'KI-Endpunkt', note: 'Nur für angemeldete Nutzer; feste Modell-Liste und Längenbegrenzung der Anfragen.' },
   { label: 'Eingabe-Schutz (XSS)', note: 'Alle Nutzereingaben werden bei der Anzeige maskiert.' },
-  { label: 'App Check (Echtheitsprüfung)', note: 'Anfragen werden über reCAPTCHA v3 als „von der echten App stammend" bestätigt. Aktiv im Monitoring-Modus; Erzwingung je Dienst nach Beobachtungsphase.' },
+  { label: 'App Check (Echtheitsprüfung)', note: 'Anfragen werden über reCAPTCHA v3 als „von der echten App stammend" bestätigt. Für Datenbank (Firestore), Datei-Speicher (Storage) und die serverseitigen Funktionen erzwungen; nur die Anmeldung läuft (als Vorabversion) im Monitoring-Modus mit.' },
   { label: 'API-Schlüssel-Beschränkung', note: 'Der öffentliche Web-Schlüssel akzeptiert nur Anfragen von den freigegebenen Domains (infa-planungsmanager.web.app, baumbewaesserung.web.app u. a.).' },
   { label: 'Transportverschlüsselung', note: 'Sämtliche Verbindungen ausschließlich über HTTPS.' },
   { label: 'Datensicherung', note: 'Firestore: kontinuierliche Wiederherstellung der letzten 7 Tage (Point-in-Time) plus tägliche (7 Tage) und wöchentliche (14 Wochen) Backups. Datei-Speicher (Fotos/Dokumente) mit Objekt-Versionierung. Lösch-Schutz der Datenbank aktiv.' },
   { label: 'Fehler-Protokollierung', note: 'Unerwartete Laufzeitfehler werden zentral protokolliert (Collection „errors", nur für Administratoren einsehbar) — zur frühzeitigen Erkennung von Problemen im Betrieb.' },
 ];
+
+// ── Datensicherung & Wiederherstellung (Betreiber-Vorgehen) ──────────────
+// Erklärt, was automatisch läuft und wie einzelne Mandanten wiederhergestellt werden.
+export const SI_SICHERUNG = {
+  intro: 'Alle Kundendaten werden automatisch gesichert. Für die gezielte Wiederherstellung eines einzelnen Mandanten gibt es zusätzlich ein Betreiber-Werkzeug. Weder Betreiber noch Kunde müssen für die laufende Sicherung etwas tun.',
+  bloecke: [
+    { titel: 'Automatisch – läuft ohne Zutun (alle Mandanten)', typ: 'ok', punkte: [
+      'Datenbank: Wiederherstellung auf jede Minute der letzten 7 Tage (Point-in-Time).',
+      'Zusätzlich tägliche Sicherung (7 Tage aufbewahrt) und wöchentliche Sicherung (14 Wochen aufbewahrt).',
+      'Lösch-Schutz der Datenbank aktiv – sie kann nicht versehentlich gelöscht werden.',
+      'Fotos/Dokumente: Objektversionierung + vorläufiges Löschen (7 Tage) – überschriebene/gelöschte Dateien bleiben wiederherstellbar.',
+    ]},
+    { titel: 'Schnelle Sicherung vor riskanten Aktionen (optional)', typ: 'info', punkte: [
+      'Vor großen Importen oder Massen-Änderungen empfiehlt sich ein Sofort-Export des betroffenen Mandanten.',
+      'Betreiber-Werkzeug (Kommandozeile, mit Admin-Schlüssel): scripts/tenant-backup.mjs',
+      'Aufruf: export --org <Mandant>  → erzeugt eine JSON-Sicherung nur dieses Mandanten.',
+    ]},
+    { titel: 'Einen einzelnen Mandanten wiederherstellen', typ: 'info', punkte: [
+      'Firebase spielt Sicherungen immer in eine NEUE Datenbank zurück (nie direkt „an Ort und Stelle").',
+      '1. Sicherung bzw. Zeitpunkt in eine neue Datenbank klonen: Firestore → Notfallwiederherstellung.',
+      '2. Nur den einen Mandanten aus dem Klon holen: export --org <Mandant> --database <Klon-Name>.',
+      '3. In die Live-Datenbank zurückspielen: restore --file <JSON> --yes – schreibt AUSSCHLIESSLICH diesen Mandanten.',
+      'Alle anderen Kunden bleiben unberührt. Danach die Klon-Datenbank wieder löschen.',
+    ]},
+    { titel: 'Wichtig zu wissen', typ: 'warn', punkte: [
+      'Wiederhergestellt werden kann nur, was zum Sicherungszeitpunkt vorhanden war – vor riskanten Aktionen also zuerst sichern.',
+      'Sicherung und Wiederherstellung sind reine Betreiber-Aufgaben; der Kunde führt so etwas nie aus.',
+      'Ausführliche Befehle: Dateien KUNDEN-ONBOARDING.md und NOTFALL-RESTORE.md im Projekt.',
+    ]},
+  ],
+};
 
 // ── Lizenzen & Dienste (Komponenten-Compliance) ──────────────
 // status: 'ok' (rechtlich/kommerziell unbedenklich) | 'achtung' (Bedingung/Restrisiko beachten) | 'risiko' (vor breitem Produktiveinsatz klären)

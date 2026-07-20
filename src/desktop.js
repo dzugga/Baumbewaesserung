@@ -3,7 +3,7 @@ const APP_VERSION = '1.0';
 
 import { HANDBUCH } from './handbuch-daten.js';
 import { installErrorHandler } from './errlog.js'; installErrorHandler('desktop');
-import { SI_DSGVO, SI_STACK, SI_REGIONEN, SI_APPS, SI_SICHERHEIT, SI_DIENSTE } from './systeminfo-daten.js';
+import { SI_DSGVO, SI_STACK, SI_REGIONEN, SI_APPS, SI_SICHERHEIT, SI_DIENSTE, SI_SICHERUNG } from './systeminfo-daten.js';
 import { initAppCheck } from './appcheck.js';
 import { basemapLayer, BASEMAP_FARBE, BASEMAP_GRAU, BASEMAP_ATTR, TILE_PERF } from './basemaps.js';
 import { firebaseConfig } from './firebase-config.js';
@@ -18016,6 +18016,7 @@ const SI_TABS=[
   {id:'regionen',label:'Datenstandorte'},
   {id:'apps',label:'Apps & Versionen'},
   {id:'sicherheit',label:'Sicherheit'},
+  {id:'sicherung',label:'Datensicherung'},
   {id:'dienste',label:'Lizenzen & Dienste'},
 ];
 function setSiTab(t){ _siTab=t; renderSystemInfo(); }
@@ -18088,6 +18089,16 @@ function renderSystemInfo(){
       +`<div style="font-size:11px;color:var(--text3);margin-top:10px;">Versionen werden live aus den ausgelieferten Apps gelesen.</div>`;
   }else if(_siTab==='sicherheit'){
     cont.innerHTML=SI_SICHERHEIT.map(s=>siRow(s.label,s.note)).join('');
+  }else if(_siTab==='sicherung'){
+    const col={ok:'var(--green)',info:'var(--border)',warn:'var(--amber)'};
+    cont.innerHTML=`<div style="font-size:13px;color:var(--text2);margin-bottom:14px;line-height:1.55;">${dlEsc(SI_SICHERUNG.intro)}</div>`
+      +SI_SICHERUNG.bloecke.map(b=>`
+        <div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid ${col[b.typ]||'var(--border)'};border-radius:var(--radius-sm);padding:11px 14px;margin-bottom:8px;">
+          <div style="font-size:13px;font-weight:700;margin-bottom:6px;">${dlEsc(b.titel)}</div>
+          <ul style="margin:0;padding-left:18px;font-size:12px;color:var(--text2);line-height:1.6;">
+            ${b.punkte.map(p=>`<li>${dlEsc(p)}</li>`).join('')}
+          </ul>
+        </div>`).join('');
   }else if(_siTab==='dienste'){
     const all=SI_DIENSTE.flatMap(g=>g.items);
     const n=k=>all.filter(i=>i.status===k).length;
