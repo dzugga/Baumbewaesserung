@@ -221,6 +221,9 @@ function canUseErfassung(){
   const r=erfRoles[currentRole];
   return !!(r && r.modules && r.modules.erfassung);
 }
+// „Karte leeren" ist ein weitreichender Sammel-Eingriff (entfernt Erfassungs-Markierungen serverseitig)
+// → nur Org-Admin (bzw. Superadmin). Erfasser mit PIN-Login (cap 'editor') dürfen das nicht.
+function isErfAdmin(){ return currentRole==='superadmin' || currentCap==='admin'; }
 let allTrees = [];          // alle Bäume des Projekts
 let treesOhneKoords = [];   // Bäume ohne Koordinaten (Modus 2)
 let selectedTree = null;    // für Modus 2
@@ -463,6 +466,7 @@ function clearOverviewLocal() {
 }
 
 async function resetUebersicht() {
+  if (!isErfAdmin()) { toast('Nur der Org-Admin darf die Karte leeren'); return; }
   if (!confirm('Karte leeren?\nEntfernt deine Erfassungs-Markierungen aus der Übersicht. Objekte und Koordinaten bleiben erhalten.')) return;
   toast('Karte wird geleert…');
   try {
@@ -683,6 +687,7 @@ async function startErfassung(pid){
     if(o) _hp.innerHTML=esc(currentProjectData.name)+' <span style="font-size:12px;font-weight:500;color:var(--text3);">· '+esc(o)+'</span>';
   }).catch(()=>{});
   document.getElementById('header-erfasser').textContent = currentErfasser;
+  const _rb=document.getElementById('btn-reset-uebersicht'); if(_rb) _rb.style.display = isErfAdmin() ? 'flex' : 'none'; // „Karte leeren" nur Org-Admin
   document.getElementById('screen-login').classList.remove('active');
   document.getElementById('screen-app').classList.add('active');
 
