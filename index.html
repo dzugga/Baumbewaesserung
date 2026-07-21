@@ -1955,13 +1955,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
 <!-- Leaflet (must load before module) -->
 <script src="/vendor/leaflet/leaflet.js"></script>
 <script src="/vendor/markercluster/leaflet.markercluster.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html-to-image/1.11.13/html-to-image.js" integrity="sha384-Tha/42qsYmpYmQ07pX+nJzkKumO0BzKJxK/uzVc7xyBQxVCUgQBhQIG8L7vXK+9C" crossorigin="anonymous"></script>
+<script src="/vendor/lib/html-to-image.js"></script>
 <!-- Chart.js for Controlling -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g" crossorigin="anonymous"></script>
+<script src="/vendor/lib/chart.umd.min.js"></script>
 <!-- SheetJS for Excel import -->
-<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" integrity="sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT" crossorigin="anonymous"></script>
+<script src="/vendor/lib/xlsx.full.min.js"></script>
 <!-- proj4: Koordinaten-Umrechnung beim Import (Gauß-Krüger → WGS84) -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.11.0/proj4.js" integrity="sha384-BIsA8GBrihzaRmijjpqTCihj8D5Vox3hyBFg9sJiTGAEOv6KusZ8QOCKbTFEAfhm" crossorigin="anonymous"></script>
+<script src="/vendor/lib/proj4.js"></script>
 <!-- Firebase SDKs -->
 <!-- Firebase compat SDK -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js" integrity="sha384-sEVIly94UBRLKWdkYoPpSG7GD/e79YHMrxVyZaOk712Ga7+EAw6w1EFi+xBzBdd+" crossorigin="anonymous"></script>
@@ -1977,7 +1977,7 @@ Initialisierung abbrach), erscheint eine klare Leiste mit Neu-laden-Knopf statt 
 „… is not defined"-Folgefehler. Best-effort-Protokollierung nach errors/ (nur wenn Firebase lief). */
 window.addEventListener('load',function(){setTimeout(function(){
   try{
-    if(typeof window.doLogin==='function')return;
+    if(window.__bootOk||typeof window.doLogin==='function')return;
     var f=(window.__bootFail||[]).map(function(u){try{return u.split('/').pop().split('?')[0];}catch(_){return u;}}).join(', ');
     var d=document.createElement('div');
     d.style.cssText='position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#7f1d1d;color:#fff;padding:10px 16px;font:500 13px/1.5 system-ui,-apple-system,sans-serif;text-align:center;box-shadow:0 2px 12px rgba(0,0,0,.35);';

@@ -19216,3 +19216,5 @@ firebase.auth().onAuthStateChanged(async (user)=>{
 (()=>{ const el=document.getElementById('app-version'); if(el) el.textContent=`Version ${APP_VERSION}`; })();
 
 applyKiNavVisibility(); // KI-Reiter je nach Einstellung ein-/ausblenden
+// Boot-Wächter-Signal: Modul vollständig initialisiert (letzte Zeile — erreicht sie nicht, zeigt der Wächter die Neu-laden-Leiste)
+window.__bootOk=true;

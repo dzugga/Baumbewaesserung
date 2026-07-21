@@ -2,6 +2,7 @@
 <!-- v-35 -->
 <html lang="de">
 <head>
+<script>window.__bootFail=[];window.addEventListener("error",function(e){var t=e&&e.target;if(t&&t!==window&&(t.tagName==="SCRIPT"||t.tagName==="LINK")&&(t.src||t.href))window.__bootFail.push(String(t.src||t.href));},true);</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Auftragsbearbeitung — Fahrer</title>
@@ -424,4 +425,5 @@ html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFo
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js" integrity="sha384-6I0gWsz4FIAr30c0TxIxJnPQuJiZ1FfILdZrgJdjxTH3R8dgPGTvexbyqTvReV6Z" crossorigin="anonymous"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js" integrity="sha384-XtSlZdmg0Ad5zf0AX4W9TGdm+dGjaNK4KG3lNFjfgbnxkCEuT9ugWXkLExgQTJ+6" crossorigin="anonymous"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check-compat.js" integrity="sha384-E3vxFxXu8FhW5kvqdQJ5Yf8ugrV7iCJP8jgnItRH2Rk8Q08cJzJGTi/oMC3FEp3j" crossorigin="anonymous"></script>
-<script type="module" src="/src/mobile.js"></script></html>
+<script type="module" src="/src/mobile.js"></script>
+<script>window.addEventListener("load",function(){setTimeout(function(){try{if(window.__bootOk)return;var f=(window.__bootFail||[]).map(function(u){try{return u.split("/").pop().split("?")[0];}catch(_){return u;}}).join(", ");var d=document.createElement("div");d.style.cssText="position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#7f1d1d;color:#fff;padding:10px 16px;font:500 13px/1.5 system-ui,-apple-system,sans-serif;text-align:center;box-shadow:0 2px 12px rgba(0,0,0,.35);";d.innerHTML="⚠ Die Anwendung wurde nicht vollständig geladen"+(f?" (fehlgeschlagen: "+f.replace(/[<>&]/g,"")+")":"")+". Bitte neu laden — tritt es wiederholt auf, Internet-/Proxy-Verbindung prüfen. <button onclick="location.reload()" style="margin-left:10px;padding:4px 14px;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-family:inherit;">Neu laden</button>";(document.body||document.documentElement).appendChild(d);try{var fb=window.firebase;if(fb&&fb.firestore&&fb.auth)fb.firestore().collection("errors").add({app:"mobil",kind:"boot",message:("Boot unvollständig. Ladefehler: "+(f||"keine registriert")).slice(0,500),stack:"",url:location.pathname,ua:(navigator.userAgent||"").slice(0,200),uid:(fb.auth().currentUser&&fb.auth().currentUser.uid)||"",at:fb.firestore.FieldValue.serverTimestamp()}).catch(function(){});}catch(_){}}catch(_){}},3000);});</script></html>

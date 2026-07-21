@@ -645,3 +645,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
     }
   });
 });
+
+// Boot-Wächter-Signal: Modul vollständig initialisiert (letzte Zeile — erreicht sie nicht, zeigt der Wächter die Neu-laden-Leiste)
+window.__bootOk=true;
