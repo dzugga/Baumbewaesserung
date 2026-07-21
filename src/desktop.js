@@ -3541,10 +3541,11 @@ function tourVergleichOpen(){
     </div>
     <div id="tv-body" style="flex:1;overflow:auto;padding:4px 0;"></div>
     <div style="padding:6px 14px;border-top:1px solid var(--border);display:flex;gap:12px;font-size:10px;color:var(--text3);flex-shrink:0;flex-wrap:wrap;">
-      <span><span style="display:inline-block;width:9px;height:9px;background:#185FA5;border-radius:2px;vertical-align:-1px;"></span> Fahrt</span>
+      ${_tvView==='balken'?`<span><span style="display:inline-block;width:9px;height:9px;background:#185FA5;border-radius:2px;vertical-align:-1px;"></span> Fahrt</span>
       <span><span style="display:inline-block;width:9px;height:9px;background:#85B7EB;border-radius:2px;vertical-align:-1px;"></span> Tätigkeit + Zusatz</span>
       <span><span style="display:inline-block;width:9px;height:9px;background:#dc2626;border-radius:2px;vertical-align:-1px;"></span> über Arbeitszeit</span>
-      <span><span style="display:inline-block;width:2px;height:10px;background:var(--text);vertical-align:-1px;"></span> Arbeitszeit</span>
+      <span><span style="display:inline-block;width:2px;height:10px;background:var(--text);vertical-align:-1px;"></span> Arbeitszeit</span>`
+      :`<span title="Gesamtzeit (Fahrt + Tätigkeit + Zusatz) ÷ Arbeitszeit der Tour">Auslastung AZ = Gesamtzeit ÷ Arbeitszeit · über 100 % = überbucht (rot)</span>`}
       <span style="margin-left:auto;">Klick auf eine Tour = auf Karte zeigen · Größe unten rechts ziehbar</span>
     </div>`;
   document.body.appendChild(box);
@@ -3583,24 +3584,18 @@ function _tvRenderBody(){
   });
   body.querySelectorAll('[data-tvtour]').forEach(el=>el.onclick=()=>{ if(currentView==='karte') focusTour(el.dataset.tvtour); else { switchView('karte'); setTimeout(()=>focusTour(el.dataset.tvtour),150); } });
 }
-// Auslastungsbalken (Fahrt/Tätigkeit gestapelt relativ zur Arbeitszeit; Überbuchung rot)
-function _tvAuslBar(s){
+// Auslastung (Zahl): Gesamtzeit ÷ Arbeitszeit — nur %-Angabe, Überbuchung rot
+function _tvAuslCell(s){
   if(s.gesamtMin==null) return '<span style="color:var(--text3);">—</span>';
-  if(s.azMin==null||s.azMin<=0) return '<span style="color:var(--text3);" title="Keine Arbeitszeit hinterlegt">— keine AZ —</span>';
-  const base=Math.max(s.azMin,s.gesamtMin,1);
-  const fw=Math.round((s.fahrtMin||0)/base*100), tw=Math.round((s.taetMin||0)/base*100);
-  const over=s.gesamtMin>s.azMin?Math.round((s.gesamtMin-s.azMin)/base*100):0;
-  const col=s.ausl>100?'#dc2626':'var(--text3)';
-  return `<span style="display:flex;align-items:center;gap:6px;"><span style="flex:1;height:7px;background:var(--surface2);border-radius:4px;overflow:hidden;display:flex;min-width:40px;">
-    <span style="width:${Math.max(0,fw-0)}%;background:#185FA5;"></span><span style="width:${Math.max(0,tw-over)}%;background:#85B7EB;"></span>${over?`<span style="width:${over}%;background:#dc2626;"></span>`:''}
-  </span><span style="flex-shrink:0;font-weight:600;color:${col};min-width:34px;text-align:right;">${s.ausl} %</span></span>`;
+  if(s.azMin==null||s.azMin<=0) return '<span style="color:var(--text3);" title="Keine Arbeitszeit hinterlegt">—</span>';
+  return `<span style="font-weight:700;color:${s.ausl>100?'#dc2626':'var(--text2)'};" title="Gesamtzeit ${fmtMin(s.gesamtMin)} ÷ Arbeitszeit ${fmtMin(s.azMin)}">${s.ausl} %</span>`;
 }
 function _tvTableHtml(stats, w){
   const showKmRest=w>=560, showFT=w>=720;
   const th=(k,l,align)=>`<td data-tvsort="${k}" style="padding:5px 10px;cursor:pointer;white-space:nowrap;${align?'text-align:right;':''}" title="Sortieren">${l}${_tvSort.key===k?(_tvSort.dir>0?' ↑':' ↓'):''}</td>`;
   let html=`<table style="width:100%;border-collapse:collapse;font-size:11px;">
     <tr style="color:var(--text3);border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:2;">
-      ${th('name','Tour')}${th('cnt','Obj.',1)}${showKmRest?th('km','Strecke',1):''}${showFT?th('fahrtMin','Fahrt',1)+th('taetMin','Tätigkeit',1):''}${th('gesamtMin','Gesamt',1)}${showKmRest?th('restMin','Restzeit',1):''}<td data-tvsort="ausl" style="padding:5px 10px;cursor:pointer;width:${w>=720?'22%':'28%'};">Auslastung${_tvSort.key==='ausl'?(_tvSort.dir>0?' ↑':' ↓'):''}</td>
+      ${th('name','Tour')}${th('cnt','Obj.',1)}${showKmRest?th('km','Strecke',1):''}${showFT?th('fahrtMin','Fahrt',1)+th('taetMin','Tätigkeit',1):''}${th('gesamtMin','Gesamt',1)}${showKmRest?th('restMin','Restzeit',1):''}${th('ausl','Auslastung AZ',1)}
     </tr>`;
   const row=s=>`<tr data-tvtour="${s.t.id}" style="border-bottom:1px solid var(--border);cursor:pointer;" title="${dlEsc(s.t.name||'')} — auf Karte zeigen">
     <td style="padding:5px 10px;max-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${s.t.color||'#888'};margin-right:6px;flex-shrink:0;"></span>${dlEsc(s.t.name||'Tour')}</td>
@@ -3609,7 +3604,7 @@ function _tvTableHtml(stats, w){
     ${showFT?`<td style="text-align:right;padding:5px 10px;white-space:nowrap;">${s.fahrtMin!=null?fmtMin(s.fahrtMin):'—'}</td><td style="text-align:right;padding:5px 10px;white-space:nowrap;">${s.taetMin!=null?fmtMin(s.taetMin):'—'}</td>`:''}
     <td style="text-align:right;padding:5px 10px;white-space:nowrap;font-weight:700;">${s.gesamtMin!=null?fmtMin(s.gesamtMin):'<span style="font-weight:400;color:var(--text3);">keine Route</span>'}</td>
     ${showKmRest?`<td style="text-align:right;padding:5px 10px;white-space:nowrap;${s.restMin!=null&&s.restMin<0?'color:var(--red);font-weight:700;':''}">${s.restMin!=null?fmtMin(s.restMin):'—'}</td>`:''}
-    <td style="padding:5px 10px;">${_tvAuslBar(s)}</td>
+    <td style="padding:5px 10px;text-align:right;white-space:nowrap;">${_tvAuslCell(s)}</td>
   </tr>`;
   const cols=4+(showKmRest?2:0)+(showFT?2:0);
   if(_tvGroup==='none'){
