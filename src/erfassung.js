@@ -3,6 +3,7 @@ import { installErrorHandler } from './errlog.js'; installErrorHandler('erfassun
 import { BASEMAP_FARBE, BASEMAP_ATTR, TILE_PERF } from './basemaps.js';
 import { firebaseConfig } from './firebase-config.js';
 import { esc } from './esc.js';
+import { kontrolleColor, kontrolleNorm } from './kontrolle.js';
 import { titelOf as orTitel, buildContainerIndex, klasseFelderOf } from './objektrollen.js';
 import { startSession, endSession } from './session.js';
 import { startPresence } from './presence.js';
@@ -306,11 +307,22 @@ function addErfasstMarker(tree, map, markerList) {
 }
 
 // ─── BESTANDSOBJEKTE (DB) – rote Marker ───────────────────────
-function makeBestandIcon() {
+// Bestands-Marker. Bei aktiver Vor-Ort-Kontrolle nach Kontroll-Status einfärben (identisch zum
+// Desktop-Einfärbmodus): grau = ungeprüft, grün = in Ordnung, rot = Löschvorschlag — samt Glyph,
+// damit vor Ort sofort erkennbar ist, was bereits kontrolliert wurde und was noch offen ist.
+function makeBestandIcon(tree) {
+  const active = !!currentProjectData?.kontrolleAktiv;
+  const k = active ? kontrolleNorm(tree?.kontrolle) : '';
+  const bg = active ? kontrolleColor(tree?.kontrolle) : '#dc2626';
+  const glyph = k === 'ok'
+    ? '<polyline points="20 6 9 17 4 12"/>'
+    : k === 'loeschen'
+      ? '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/>'
+      : '<circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 6.9 8 11.7z"/>';
   return L.divIcon({
     className: '',
-    html: `<div style="width:24px;height:24px;border-radius:50%;background:#dc2626;border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;">
-      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 6.9 8 11.7z"/></svg>
+    html: `<div style="width:24px;height:24px;border-radius:50%;background:${bg};border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">${glyph}</svg>
     </div>`,
     iconSize: [24, 24], iconAnchor: [12, 12]
   });
@@ -318,7 +330,7 @@ function makeBestandIcon() {
 
 function addBestandMarker(tree) {
   if (!tree.lat || !tree.lng) return;
-  const marker = L.marker([tree.lat, tree.lng], { icon: makeBestandIcon() })
+  const marker = L.marker([tree.lat, tree.lng], { icon: makeBestandIcon(tree) })
     .addTo(mapUebersicht)
     .bindTooltip(treeTooltipHtml(tree, 'bestand'), { direction: 'top', offset: [0, -14] });
   marker.on('click', () => openOverviewEditSheet(tree, marker, 'bestand'));
@@ -354,7 +366,12 @@ async function toggleBestand() {
     bestand.forEach(addBestandMarker);
     bestandShown = true;
     updateBestandBtn();
-    toast(`${bestand.length} Bestandsobjekte angezeigt`);
+    if (currentProjectData?.kontrolleAktiv) {
+      const c = bestand.reduce((a, t) => { const k = kontrolleNorm(t.kontrolle); a[k || 'u'] = (a[k || 'u'] || 0) + 1; return a; }, {});
+      toast(`${bestand.length} Bestandsobjekte · ⚪ ${c.u || 0} ungeprüft · 🟢 ${c.ok || 0} · 🔴 ${c.loeschen || 0} Löschung`);
+    } else {
+      toast(`${bestand.length} Bestandsobjekte angezeigt`);
+    }
   } catch(e) {
     console.warn('toggleBestand:', e);
     toast('Fehler beim Anzeigen der Bestandsobjekte');
@@ -1150,6 +1167,7 @@ async function saveOverviewEdits() {
   Object.assign(tree, edits);
   allTrees = allTrees.map(x => x.id === tree.id ? { ...x, ...edits } : x);
   if (marker) marker.setTooltipContent(treeTooltipHtml(tree, type));
+  if (marker && type === 'bestand' && marker.setIcon) marker.setIcon(makeBestandIcon(tree)); // Kontroll-Einfärbung sofort nachziehen
   closeFormSheet();
   // Direkt persistieren (Offline → Queue)
   if (!isOnline) {
