@@ -382,6 +382,7 @@ let objFilterOnMap = false;
 let routesVisible = true;             // Routenlinien auf der Karte sichtbar?
 let activeTours = new Set();          // Mehrfachauswahl: gleichzeitig angezeigte Touren
 let showUnplanned = false;            // zusätzlich unverplante Objekte einblenden (additiv zur Tour-Auswahl)
+let showAllNeutral = false;           // zusätzlich ALLE übrigen Objekte einblenden — neutral grau, ohne Tourfarbe (Kontext-Ebene)
 let activeTourOnMap = null;           // abgeleitet: nur gesetzt, wenn GENAU eine Tour gewählt ist (für Detail-Ansicht/Nummern)
 function syncActiveTour(){ activeTourOnMap = activeTours.size===1 ? [...activeTours][0] : null; }
 function treeInAnyActiveTour(t){ for(const tid of activeTours){ if(treeInTour(t,tid)) return true; } return false; }
@@ -396,6 +397,7 @@ function treeIsUnplanned(t){ return isActive(t) && !_isContainer(t) && !_isRawSe
 // Sichtbarkeit nach aktueller Auswahl: nichts gewählt = alles; sonst Tour-Objekte ODER (optional) unverplante
 function treeVisibleSel(t){
   if(!activeTours.size && !showUnplanned) return true;
+  if(showAllNeutral) return true; // Kontext-Ebene: alles sichtbar — Objekte ohne aktive Tour erscheinen neutral grau
   return (activeTours.size && treeInAnyActiveTour(t)) || (showUnplanned && treeIsUnplanned(t));
 }
 let placingTree = false;
@@ -756,7 +758,7 @@ async function openProject(projectId){
   // Planen-Modus, Tour-Auswahl und Routen-Panel des ALTEN Projekts zurücksetzen (sonst bleiben Planungsleiste/Zeiten hängen)
   _lassoActive=false; assignMode=false; lassoMode=false; lassoDrawing=false; lassoPoints=[]; assignTourId=null; lassoTourId=null;
   if(lassoSelection&&lassoSelection.size) lassoSelection.clear();
-  activeTours.clear(); showUnplanned=false; activeTourOnMap=null;
+  activeTours.clear(); showUnplanned=false; showAllNeutral=false; activeTourOnMap=null;
   Object.values(tourRoutes).forEach(r=>{ try{ map.removeLayer(r.layer); }catch(_){} }); tourRoutes={};
   document.getElementById('assign-lasso-banner')?.classList.remove('visible');
   document.getElementById('lasso-action-bar')?.classList.remove('visible');
@@ -930,7 +932,7 @@ function showProjectScreen(){
   Object.values(mapMarkers).forEach(m=>_mDel(m));mapMarkers={};
   Object.values(tourRoutes).forEach(r=>map.removeLayer(r.layer));tourRoutes={};
   if(depotMarker){map.removeLayer(depotMarker);depotMarker=null;}
-  tours=[];trees=[];_allTrees=[];tourOrder={};activeTours.clear();showUnplanned=false;activeTourOnMap=null;filterTour='all';showOverviewInLegend=false;showOverviewInGrid=false;showOverviewInAssign=false;
+  tours=[];trees=[];_allTrees=[];tourOrder={};activeTours.clear();showUnplanned=false;showAllNeutral=false;activeTourOnMap=null;filterTour='all';showOverviewInLegend=false;showOverviewInGrid=false;showOverviewInAssign=false;
   reasons=[]; // Gründe des Projekts verwerfen (kein projektübergreifendes Hängenbleiben)
   _routesCache={};_routesLoadedFor=null; // Routen-Cache verwerfen
   _dataViewProject=null; _resetAutoplanState(); // Daten-Ansichten + Auto-Planung nicht projektübergreifend hängenlassen
@@ -3444,7 +3446,7 @@ function renderDepotMarker(){
 async function focusTour(tourId){
   // Genau eine Tour fokussieren (ersetzt die Auswahl); null = alle anzeigen
   activeTours.clear();
-  showUnplanned=false;
+  showUnplanned=false; showAllNeutral=false;
   if(tourId) activeTours.add(tourId);
   await applyTourSelection(true);
 }
@@ -3477,6 +3479,11 @@ async function toggleUnplanned(){
   showUnplanned=!showUnplanned;
   await applyTourSelection(false);           // Tour-Ansicht nicht neu einpassen
   if(showUnplanned && !activeTours.size) zoomToUnplanned();   // nur Unverplant allein → darauf zoomen
+}
+async function toggleAllNeutral(){
+  // Kontext-Ebene: alle übrigen Objekte grau einblenden (additiv, ohne Tourfarbe) — Ansicht nicht neu einpassen
+  showAllNeutral=!showAllNeutral;
+  await applyTourSelection(false);
 }
 function zoomToUnplanned(){
   const unplanned=trees.filter(t=>treeIsUnplanned(t)&&t.lat&&t.lng);
@@ -3745,6 +3752,12 @@ function renderLegend(){
     <span style="color:var(--text3);flex:1;font-size:12px;">Nicht verplant</span>
     <span class="legend-km" style="font-size:10px;">${unplannedCount}</span>
   </div>`;
+  // Kontext-Ebene: alle übrigen Objekte neutral (grau) einblenden — nur relevant, wenn eine Auswahl aktiv ist
+  if(activeTours.size||showUnplanned) html+=`<div class="legend-item${showAllNeutral?' active-tour':''}" data-tourid="__ctx__" style="padding:3px 6px;" title="Alle weiteren Objekte grau einblenden — ohne Tourfarbe, als Umgebungs-Kontext">
+    <input type="checkbox" class="ctx-check"${showAllNeutral?' checked':''} style="margin:0 4px 0 0;cursor:pointer;flex-shrink:0;">
+    <div style="width:16px;height:3px;border-radius:2px;background:#b9b6b0;flex-shrink:0;"></div>
+    <span style="color:var(--text3);flex:1;font-size:12px;">Übrige Objekte (grau)</span>
+  </div>`;
   html+=`</div>`;
 
   // Kein „Route berechnen"-Button mehr — Berechnung läuft über Rechtsklick auf die Karte (spart Platz)
@@ -3791,6 +3804,7 @@ function renderLegend(){
     if(item){const tid=item.dataset.tourid;
       if(tid==='__all__')focusTour(null);
       else if(tid==='__none__')toggleUnplanned();
+      else if(tid==='__ctx__')toggleAllNeutral();
       else toggleTourSelection(tid);
       return;}
   };
@@ -4034,7 +4048,7 @@ function setFilter(f,el){
     activeTours.clear(); showUnplanned=true;
     applyTourSelection(false); zoomToUnplanned();
   } else if(f==='all'){
-    activeTours.clear(); showUnplanned=false;
+    activeTours.clear(); showUnplanned=false; showAllNeutral=false;
     applyTourSelection(false);
   } else {
     focusTour(f);
