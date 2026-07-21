@@ -5,6 +5,7 @@ import { HANDBUCH } from './handbuch-daten.js';
 import { installErrorHandler } from './errlog.js'; installErrorHandler('desktop');
 import { SI_DSGVO, SI_STACK, SI_REGIONEN, SI_APPS, SI_SICHERHEIT, SI_DIENSTE, SI_SICHERUNG, SI_ONBOARDING } from './systeminfo-daten.js';
 import { ausgleichAnalyse, ausreisserJeTour } from './ausgleich.js';
+import { kontrolleColor, kontrolleLabel, kontrolleCounts, kontrolleNorm } from './kontrolle.js';
 import { initAppCheck } from './appcheck.js';
 import { basemapLayer, BASEMAP_FARBE, BASEMAP_GRAU, BASEMAP_ATTR, TILE_PERF } from './basemaps.js';
 import { firebaseConfig } from './firebase-config.js';
@@ -2124,6 +2125,7 @@ function makeMarker(tree){
   if(_isCheckMode(_colorMode)){ const b=_checkBucket(tree); if(b) color=_checkColor(_colorMode,b); }  // Plan-/Fälligkeits-Check überschreibt Tourfarbe
   else if(_colorMode==='betriebshof'){ const c=_bhColorOf(tree); if(c) color=c; else color='#cbd5e1'; }  // Einfärben nach Betriebshof
   else if(_colorMode==='sollfreq'){ color=_sollFreqColorFor(_sollFreqEff(tree)); }                       // Einfärben nach Soll-Häufigkeit (Saison)
+  else if(_colorMode==='kontrolle'){ color=kontrolleColor(tree.kontrolle); }                              // Einfärben nach Vor-Ort-Kontrolle
   const num=getRouteNum(tree.id);
   const isHighlighted=selectedTreeId===tree.id;
   const isPreselected=lassoSelection.size>0 && lassoSelection.has(tree.id); // Lasso-Vorauswahl
@@ -2806,7 +2808,8 @@ function renderDisplayPanel(){
       +(currentProjectData?.sollFeld?rad('sollfreq',dlEsc(_sollFeldLabel()||'Häufigkeit')+' (Sommer/Winter)'):'')
       +((customFields.some(c=>c.key==='segmentart')||(trees||[]).some(t=>t.segmentart))?rad('segart','Segmentart (Parallelen)'):'')
       // Planungs-/Fälligkeits-Check bewusst NICHT hier — sie leben im „Kontrolle"-Menü (btn-check), sonst doppelt.
-      +(hasBh?rad('betriebshof','Betriebshof'):'');
+      +(hasBh?rad('betriebshof','Betriebshof'):'')
+      +(currentProjectData?.kontrolleAktiv?rad('kontrolle','Vor-Ort-Kontrolle'):'');
   }
   if(!ro){
     const rls=currentProjectData?.routeLineStyle==='solid'?'solid':'dashed';
@@ -2902,6 +2905,15 @@ function _renderRkLegend(){
     el.innerHTML=`<div style="font-size:11px;font-weight:700;margin-bottom:6px;">Betriebshöfe</div>`+
       bhs.map(b=>`<div style="display:flex;align-items:center;gap:7px;font-size:12px;margin-bottom:3px;"><span style="width:12px;height:12px;border-radius:3px;background:${dlEsc(b.color||'#cbd5e1')};flex:none;"></span>${dlEsc(b.label||'—')} · <b>${counts[b.label]||0}</b></div>`).join('')+
       (none?`<div style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text3);margin-top:3px;"><span style="width:12px;height:12px;border-radius:3px;background:#cbd5e1;flex:none;"></span>ohne Betriebshof · <b>${none}</b></div>`:'');
+  } else if(_colorMode==='kontrolle'){
+    const c=kontrolleCounts((trees||[]).filter(t=>isActive(t)&&!_isContainer(t)));
+    el.style.display='block';
+    const row=(col,lbl,n)=>`<div style="display:flex;align-items:center;gap:7px;font-size:12px;margin-bottom:3px;"><span style="width:12px;height:12px;border-radius:50%;background:${col};flex:none;"></span>${lbl} · <b>${n}</b></div>`;
+    el.innerHTML=`<div style="font-size:11px;font-weight:700;margin-bottom:6px;">Vor-Ort-Kontrolle</div>`+
+      row(kontrolleColor('ok'),kontrolleLabel('ok'),c.ok)+
+      row(kontrolleColor('loeschen'),kontrolleLabel('loeschen'),c.loeschen)+
+      row(kontrolleColor(''),kontrolleLabel(''),c.ungeprueft)+
+      (c.loeschen?`<div style="font-size:10px;color:var(--text3);margin-top:4px;">${c.loeschen} zur Löschung vorgeschlagen (rote Marker) — antippen, prüfen, ggf. im Objekt-Detail löschen.</div>`:'');
   } else { el.style.display='none'; el.innerHTML=''; }
 }
 // Bounds aller Flächen der aktuell ausgewählten Touren (für „einpassen")
@@ -4614,6 +4626,7 @@ function openDetail(id){
     ${drow(FL.pflanzzeitpunkt||'Zeitpunkt',tree.pflanzzeitpunkt)}
     ${customFields.filter(c=>fieldAppliesTo(c,geomTypeOf(tree)) && !(geomTypeOf(tree)==='flaeche' && _FLAECHE_PLAN_KEYS.includes(c.key))).map(c=>drow(c.label,tree[c.key])).join('')}
     ${tree.posKorrigiertAm?`<div class="detail-field" style="padding:5px 0;"><span class="detail-key">📍 Position</span><span class="detail-val" style="color:var(--green);" title="Vor Ort in der Erfassungs-App korrigiert">vor Ort korrigiert ${dlEsc((''+tree.posKorrigiertAm).slice(0,10).split('-').reverse().join('.'))}${tree.posKorrigiertVon?' · '+dlEsc(tree.posKorrigiertVon):''}</span></div>`:''}
+    ${(currentProjectData?.kontrolleAktiv&&kontrolleNorm(tree.kontrolle))?`<div class="detail-field" style="padding:5px 0;"><span class="detail-key">Kontrolle</span><span class="detail-val" style="font-weight:600;color:${kontrolleColor(tree.kontrolle)};">${kontrolleLabel(tree.kontrolle)}${tree.kontrolliertAm?' · '+dlEsc((''+tree.kontrolliertAm).slice(0,10).split('-').reverse().join('.')):''}${tree.kontrolliertVon?' · '+dlEsc(tree.kontrolliertVon):''}</span></div>`:''}
 
     ${(tree.containerExtId)?(()=>{
       const c=_containerOf(tree);
@@ -6564,6 +6577,7 @@ function openSettings(){
   // Projektname wird unter Verwaltung → Projekte verwaltet
   // Zeitaufwand-Standard wird jetzt im Reiter Objekte → Typ/Art gepflegt
   const _fg=document.getElementById('s-fuellgrad'); if(_fg) _fg.checked=!!currentProjectData?.fuellgradAktiv;
+  const _ko=document.getElementById('s-kontrolle'); if(_ko) _ko.checked=!!currentProjectData?.kontrolleAktiv;
   const _cl=document.getElementById('s-cluster'); if(_cl) _cl.checked=!!currentProjectData?.clusterAktiv;
   const _la=document.getElementById('s-list-abschnitte'); if(_la) _la.checked=!!currentProjectData?.listAbschnitteDefault;
   const _lag=document.getElementById('s-list-abschnitte-group'); if(_lag) _lag.style.display=(trees||[]).some(_isContainer)?'':'none';
@@ -6765,6 +6779,7 @@ async function applySettings(){
     icon:document.getElementById('s-proj-icon')?.dataset.ic||PROJ_ICON_DEFAULT,
     routeOptMode:document.getElementById('s-route-opt')?.value||getRouteOptMode(),
     fuellgradAktiv:document.getElementById('s-fuellgrad')?.checked||false,
+    kontrolleAktiv:document.getElementById('s-kontrolle')?.checked||false,
     clusterAktiv:document.getElementById('s-cluster')?.checked||false,
     listAbschnitteDefault:document.getElementById('s-list-abschnitte')?.checked||false,
     routePlanning:getRoutePlanningEnabled(),

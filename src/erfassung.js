@@ -1032,9 +1032,40 @@ function openOverviewEditSheet(tree, marker, type) {
     pf.style.display = canPos ? '' : 'none';
     if (canPos) document.getElementById('btn-pos-korr').onclick = () => startPositionKorrektur();
   }
+  // Vor-Ort-Kontrolle (nur Bestand + im Projekt aktiviert)
+  const kf = document.getElementById('kontrolle-field');
+  if (kf) {
+    const canKontrolle = type === 'bestand' && !!currentProjectData?.kontrolleAktiv;
+    kf.style.display = canKontrolle ? '' : 'none';
+    if (canKontrolle) {
+      _kontrolleChoice = (tree.kontrolle === 'ok' || tree.kontrolle === 'loeschen') ? tree.kontrolle : '';
+      _renderKontrolleChips(tree);
+      kf.querySelectorAll('.kontrolle-chip').forEach(btn => {
+        btn.onclick = () => { const v = btn.dataset.kontrolle; _kontrolleChoice = (_kontrolleChoice === v) ? '' : v; _renderKontrolleChips(tree); };
+      });
+    }
+  }
   document.getElementById('form-backdrop').classList.add('open');
   document.getElementById('form-sheet').classList.add('open');
   setTimeout(() => document.getElementById('f-name').focus(), 400);
+}
+
+// ── Vor-Ort-Kontrolle: Chip-Zustand rendern; Auswahl in _kontrolleChoice ──
+let _kontrolleChoice = '';
+function _renderKontrolleChips(tree) {
+  const kf = document.getElementById('kontrolle-field'); if (!kf) return;
+  kf.querySelectorAll('.kontrolle-chip').forEach(btn => {
+    const on = btn.dataset.kontrolle === _kontrolleChoice;
+    const isOk = btn.dataset.kontrolle === 'ok';
+    btn.style.background = on ? (isOk ? '#dcfce7' : '#fee2e2') : 'var(--surface)';
+    btn.style.borderColor = on ? (isOk ? '#16a34a' : '#dc2626') : 'var(--border)';
+    btn.style.color = on ? (isOk ? '#15803d' : '#991b1b') : 'var(--text)';
+    btn.style.fontWeight = on ? '700' : '600';
+  });
+  const info = document.getElementById('kontrolle-info');
+  if (info) info.textContent = (tree && tree.kontrolliertAm)
+    ? `zuletzt: ${(''+tree.kontrolliertAm).slice(0,10).split('-').reverse().join('.')}${tree.kontrolliertVon ? ' · ' + tree.kontrolliertVon : ''}`
+    : 'noch nicht kontrolliert';
 }
 
 // ── Position vor Ort korrigieren: Marker der Übersichtskarte ziehbar machen + Bestätigungsleiste ──
@@ -1106,6 +1137,12 @@ async function saveOverviewEdits() {
   if (!edits.name) { toast('⚠ Bitte einen Namen eingeben'); return; }
   { const m=_erfMissingRequired(); if(m.length){ toast('⚠ Pflichtfelder fehlen: '+m.join(', ')); return; } }
   if (!tree.id) { toast('⚠ Objekt noch nicht synchronisiert — bitte später bearbeiten'); return; }
+  // Vor-Ort-Kontrolle mitschreiben, wenn das Feld sichtbar war und die Auswahl sich geändert hat
+  const _kf = document.getElementById('kontrolle-field');
+  if (_kf && _kf.style.display !== 'none') {
+    const cur = (tree.kontrolle === 'ok' || tree.kontrolle === 'loeschen') ? tree.kontrolle : '';
+    if (_kontrolleChoice !== cur) { edits.kontrolle = _kontrolleChoice; edits.kontrolliertVon = currentErfasser; edits.kontrolliertAm = new Date().toISOString(); }
+  }
   const orgId = tree.orgId || currentProjectData?.orgId || currentOrg;
   const photoBlobs = pendingPhotos.map(p => p.blob);
   clearPendingPhotos();

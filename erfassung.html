@@ -371,6 +371,14 @@ button,input,select{touch-action:manipulation;}
       <input class="field-input" id="f-notiz" placeholder="Freitext…">
     </div>
     <div id="f-custom-fields"></div>
+    <div class="field-group" id="kontrolle-field" style="display:none;">
+      <label class="field-label">Vor-Ort-Kontrolle</label>
+      <div style="display:flex;gap:8px;">
+        <button type="button" class="btn btn-secondary kontrolle-chip" data-kontrolle="ok" style="flex:1;">✓ In Ordnung</button>
+        <button type="button" class="btn btn-secondary kontrolle-chip" data-kontrolle="loeschen" style="flex:1;">🗑 Löschung</button>
+      </div>
+      <div id="kontrolle-info" style="font-size:11px;color:var(--text3);margin-top:6px;"></div>
+    </div>
     <div class="field-group" id="bestand-pos-field" style="display:none;">
       <label class="field-label">Standort</label>
       <button type="button" class="btn btn-secondary" id="btn-pos-korr" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;">
