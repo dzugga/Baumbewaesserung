@@ -3530,17 +3530,28 @@ function _tvStats(){
     const gesamtMin=tm?fahrtMin+taetMin:null;
     const rz=tm?tourRestzeit(t,members,tm.durationSec):null;
     const ausl=(rz&&rz.azMin>0&&gesamtMin!=null)?Math.round(gesamtMin/rz.azMin*100):null;
-    return {t, cnt:members.length, km:tm?tm.km:null, fahrtMin, taetMin, gesamtMin, azMin:rz?rz.azMin:null, restMin:rz?rz.restMin:null, ausl};
+    return {t, cnt:members.length, ids:members.map(x=>x.id), wk:_tourWeeklyOcc(t,getSaison()), km:tm?tm.km:null, fahrtMin, taetMin, gesamtMin, azMin:rz?rz.azMin:null, restMin:rz?rz.restMin:null, ausl};
   });
 }
 // Einfacher (arithmetischer) Mittelwert je Tour über die gefilterte Menge — nur Touren mit Wert zählen.
 function _tvAverages(stats){
   const avg=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:null;
   return {
+    cnt:  avg(stats.map(s=>s.cnt)),
+    km:   avg(stats.filter(s=>s.km!=null).map(s=>s.km)),
+    fahrt:avg(stats.filter(s=>s.fahrtMin!=null).map(s=>s.fahrtMin)),
+    taet: avg(stats.filter(s=>s.taetMin!=null).map(s=>s.taetMin)),
     ausl: avg(stats.filter(s=>s.ausl!=null).map(s=>s.ausl)),
     rest: avg(stats.filter(s=>s.restMin!=null).map(s=>s.restMin)),
     ges:  avg(stats.filter(s=>s.gesamtMin!=null).map(s=>s.gesamtMin)),
   };
+}
+// Verschiedene Objekte (über alle gefilterten Touren entdoppelt) + intervall-genaue Leerungen/Woche
+// (je Tour Objektzahl × Wochen-Rhythmus, z. B. 14-täglich = ×0,5) — gleiche Rhythmus-Logik wie Soll-Ist.
+function _tvTotals(stats){
+  const set=new Set(); stats.forEach(s=>(s.ids||[]).forEach(id=>set.add(id)));
+  const leerungen=stats.reduce((a,s)=>a+s.cnt*(s.wk||0),0);
+  return { distinct:set.size, leerungen:Math.round(leerungen) };
 }
 function _tvGroupKey(t){
   if(_tvGroup==='betriebshof') return (t.betriebshof||'').trim()||'— ohne Hof —';
@@ -3669,7 +3680,10 @@ function _tvTableHtml(stats, w){
   const tot=stats.reduce((a,s)=>a+(s.gesamtMin||0),0), totCnt=stats.reduce((a,s)=>a+s.cnt,0), totKm=stats.reduce((a,s)=>a+(s.km||0),0);
   html+=`<tr style="background:var(--surface2);border-top:2px solid var(--border);"><td style="padding:5px 10px;font-weight:700;">Gesamt · ${stats.length} Touren</td><td style="text-align:right;padding:5px 10px;font-weight:700;">${totCnt}</td>${showKmRest?`<td style="text-align:right;padding:5px 10px;font-weight:700;white-space:nowrap;">${totKm.toFixed(1)} km</td>`:''}${showFT?'<td></td><td></td>':''}<td style="text-align:right;padding:5px 10px;font-weight:700;white-space:nowrap;">${fmtMin(tot)}</td>${showKmRest?'<td></td>':''}<td></td></tr>`;
   const av=_tvAverages(stats);
-  html+=`<tr style="background:var(--surface2);" title="Einfacher Mittelwert je Tour (nur Touren mit Wert)"><td style="padding:5px 10px;font-weight:700;color:var(--text2);">⌀ Mittel je Tour</td><td></td>${showKmRest?'<td></td>':''}${showFT?'<td></td><td></td>':''}<td style="text-align:right;padding:5px 10px;font-weight:700;color:var(--text2);white-space:nowrap;">${av.ges!=null?fmtMin(av.ges):'—'}</td>${showKmRest?`<td style="text-align:right;padding:5px 10px;font-weight:700;white-space:nowrap;color:${av.rest!=null&&av.rest<0?'var(--red)':'var(--text2)'};">${av.rest!=null?fmtMin(av.rest):'—'}</td>`:''}<td style="text-align:right;padding:5px 10px;font-weight:700;white-space:nowrap;color:${av.ausl!=null&&av.ausl>100?'var(--red)':'var(--text2)'};">${av.ausl!=null?Math.round(av.ausl)+' %':'—'}</td></tr>`;
+  const cel=(v)=>`<td style="text-align:right;padding:5px 10px;font-weight:700;color:var(--text2);white-space:nowrap;">${v}</td>`;
+  html+=`<tr style="background:var(--surface2);" title="Einfacher Mittelwert je Tour (nur Touren mit Wert)"><td style="padding:5px 10px;font-weight:700;color:var(--text2);">⌀ Mittel je Tour</td>${cel(av.cnt!=null?Math.round(av.cnt):'—')}${showKmRest?cel(av.km!=null?av.km.toFixed(1)+' km':'—'):''}${showFT?cel(av.fahrt!=null?fmtMin(av.fahrt):'—')+cel(av.taet!=null?fmtMin(av.taet):'—'):''}${cel(av.ges!=null?fmtMin(av.ges):'—')}${showKmRest?`<td style="text-align:right;padding:5px 10px;font-weight:700;white-space:nowrap;color:${av.rest!=null&&av.rest<0?'var(--red)':'var(--text2)'};">${av.rest!=null?fmtMin(av.rest):'—'}</td>`:''}<td style="text-align:right;padding:5px 10px;font-weight:700;white-space:nowrap;color:${av.ausl!=null&&av.ausl>100?'var(--red)':'var(--text2)'};">${av.ausl!=null?Math.round(av.ausl)+' %':'—'}</td></tr>`;
+  const to=_tvTotals(stats);
+  html+=`<tr><td colspan="${cols}" style="padding:5px 10px;font-size:10px;color:var(--text3);border-top:1px solid var(--border);" title="Verschiedene Objekte = ohne Doppelzählung bei Objekten in mehreren Touren. Leerungen/Woche = je Tour Objektzahl × Wochen-Rhythmus (Rhythmus/Betriebstage berücksichtigt)."><b style="color:var(--text2);">${to.distinct.toLocaleString('de-DE')}</b> verschiedene Objekte · <b style="color:var(--text2);">${to.leerungen.toLocaleString('de-DE')}</b> Leerungen/Woche <span style="opacity:.8;">(Rhythmus berücksichtigt)</span></td></tr>`;
   return html+'</table>';
 }
 function _tvBarsHtml(stats){
@@ -3694,8 +3708,20 @@ function _tvBarsHtml(stats){
       </div>
     </div>`;
   });
-  const av=_tvAverages(stats);
-  const avgFooter=`<div title="Einfacher Mittelwert je Tour (nur Touren mit Wert)" style="margin:10px 14px 2px;padding-top:8px;border-top:2px solid var(--border);display:flex;flex-wrap:wrap;gap:3px 16px;font-size:11px;font-weight:700;color:var(--text2);"><span>⌀ Mittel je Tour (${stats.length})</span><span style="margin-left:auto;">Gesamt ${av.ges!=null?fmtMin(av.ges):'—'}</span><span>Restzeit <span style="color:${av.rest!=null&&av.rest<0?'var(--red)':'inherit'};">${av.rest!=null?fmtMin(av.rest):'—'}</span></span><span>Auslastung <span style="color:${av.ausl!=null&&av.ausl>100?'var(--red)':'inherit'};">${av.ausl!=null?Math.round(av.ausl)+' %':'—'}</span></span></div>`;
+  const av=_tvAverages(stats), to=_tvTotals(stats);
+  const avgFooter=`<div style="margin:10px 14px 2px;padding-top:8px;border-top:2px solid var(--border);">
+    <div title="Einfacher Mittelwert je Tour (nur Touren mit Wert)" style="display:flex;flex-wrap:wrap;gap:3px 14px;font-size:11px;font-weight:700;color:var(--text2);">
+      <span>⌀ Mittel je Tour (${stats.length})</span>
+      <span style="margin-left:auto;">Obj. ${av.cnt!=null?Math.round(av.cnt):'—'}</span>
+      <span>Strecke ${av.km!=null?av.km.toFixed(1)+' km':'—'}</span>
+      <span>Fahrt ${av.fahrt!=null?fmtMin(av.fahrt):'—'}</span>
+      <span>Tätigkeit ${av.taet!=null?fmtMin(av.taet):'—'}</span>
+      <span>Gesamt ${av.ges!=null?fmtMin(av.ges):'—'}</span>
+      <span>Restzeit <span style="color:${av.rest!=null&&av.rest<0?'var(--red)':'inherit'};">${av.rest!=null?fmtMin(av.rest):'—'}</span></span>
+      <span>Auslastung <span style="color:${av.ausl!=null&&av.ausl>100?'var(--red)':'inherit'};">${av.ausl!=null?Math.round(av.ausl)+' %':'—'}</span></span>
+    </div>
+    <div style="font-size:10px;color:var(--text3);margin-top:5px;"><b style="color:var(--text2);">${to.distinct.toLocaleString('de-DE')}</b> verschiedene Objekte · <b style="color:var(--text2);">${to.leerungen.toLocaleString('de-DE')}</b> Leerungen/Woche <span style="opacity:.8;">(Rhythmus berücksichtigt)</span></div>
+  </div>`;
   if(_tvGroup==='none') return `<div style="padding-top:8px;">${rows.join('')}${avgFooter}</div>`;
   // Gruppiert: Überschriften einschieben (Reihenfolge der sortierten Liste bleibt innerhalb der Gruppe)
   const groups=new Map();
