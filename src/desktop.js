@@ -8629,7 +8629,7 @@ function renderFieldOverview(el){
     <div style="font-size:16px;font-weight:700;margin-bottom:4px;">Felder & Listen</div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:16px;">Wähle ein Feld, um seine Auswahlliste zu pflegen; die Bezeichnungen änderst du unten. Freitext-Felder (${dlEsc(FL.name)}, ${dlEsc(FL.baumnr)}, ${dlEsc(FL.notiz)}) haben keine Liste.</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;">${tiles}</div>
-    ${!ro && customFields.length<5?`<button class="btn btn-secondary" style="padding:7px 14px;font-size:12px;margin-top:16px;" onclick="addCustomField()">+ Kundenfeld hinzufügen (${customFields.length}/5)</button>`:''}
+    ${!ro?`<button class="btn btn-secondary" style="padding:7px 14px;font-size:12px;margin-top:16px;" onclick="addCustomField()">+ Kundenfeld hinzufügen</button>`:''}
     ${!ro?`<button class="btn btn-secondary" style="padding:7px 14px;font-size:12px;margin-top:16px;margin-left:6px;" title="Legt die festen EWKFondsG-Felder Volumen (Liter) und Ortslage (innerorts/außerorts) für dieses Projekt an" onclick="ewkFelderAnlegen()">+ EWK-Felder (Volumen · Ortslage)</button>`:''}
     ${sollSection}
     ${ewkSection}
