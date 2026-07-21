@@ -1025,9 +1025,78 @@ function openOverviewEditSheet(tree, marker, type) {
   fillFormFromTree(tree);
   clearPendingPhotos();
   const ff = document.getElementById('foto-field'); if (ff) ff.style.display = '';
+  // Position-korrigieren-Knopf nur für Bestandsobjekte mit Koordinaten (Punkt) auf der Übersichtskarte
+  const pf = document.getElementById('bestand-pos-field');
+  if (pf) {
+    const canPos = type === 'bestand' && marker && typeof tree.lat === 'number' && typeof tree.lng === 'number';
+    pf.style.display = canPos ? '' : 'none';
+    if (canPos) document.getElementById('btn-pos-korr').onclick = () => startPositionKorrektur();
+  }
   document.getElementById('form-backdrop').classList.add('open');
   document.getElementById('form-sheet').classList.add('open');
   setTimeout(() => document.getElementById('f-name').focus(), 400);
+}
+
+// ── Position vor Ort korrigieren: Marker der Übersichtskarte ziehbar machen + Bestätigungsleiste ──
+let _posKorrMarker = null, _posKorrTree = null, _posKorrOrig = null;
+function startPositionKorrektur() {
+  const tree = overviewEditTree, marker = overviewEditMarker;
+  if (!tree || !marker || !mapUebersicht) return;
+  closeFormSheet();
+  _posKorrTree = tree; _posKorrMarker = marker; _posKorrOrig = marker.getLatLng();
+  try { marker.dragging.enable(); } catch (_) {}
+  marker.setZIndexOffset(2000);
+  mapUebersicht.setView(marker.getLatLng(), Math.max(mapUebersicht.getZoom(), 18), { animate: true });
+  let bar = document.getElementById('poskorr-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'poskorr-bar';
+    bar.style.cssText = 'position:fixed;left:50%;bottom:calc(20px + var(--safe-bottom,0px));transform:translateX(-50%);z-index:9000;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.28);padding:10px 12px;display:flex;gap:8px;align-items:center;font-size:13px;max-width:94vw;';
+    document.body.appendChild(bar);
+  }
+  bar.innerHTML = '<span style="flex:1;min-width:0;">📍 Marker auf die richtige Stelle ziehen</span>' +
+    '<button id="pk-cancel" class="btn btn-secondary" style="padding:8px 12px;font-size:13px;width:auto;">Abbrechen</button>' +
+    '<button id="pk-save" class="btn btn-primary" style="padding:8px 14px;font-size:13px;width:auto;background:var(--blue);">Speichern</button>';
+  bar.style.display = 'flex';
+  document.getElementById('pk-cancel').onclick = () => _endPosKorr(false);
+  document.getElementById('pk-save').onclick = () => _endPosKorr(true);
+}
+async function _endPosKorr(save) {
+  const bar = document.getElementById('poskorr-bar'); if (bar) bar.style.display = 'none';
+  const tree = _posKorrTree, marker = _posKorrMarker;
+  try { marker && marker.dragging.disable(); } catch (_) {}
+  if (!save || !tree || !marker) {
+    if (marker && _posKorrOrig) marker.setLatLng(_posKorrOrig); // zurücksetzen
+    _posKorrTree = _posKorrMarker = _posKorrOrig = null;
+    return;
+  }
+  const p = marker.getLatLng();
+  const lat = parseFloat(p.lat.toFixed(7)), lng = parseFloat(p.lng.toFixed(7));
+  const data = { lat, lng, posKorrigiertVon: currentErfasser, posKorrigiertAm: new Date().toISOString() };
+  // In-Memory nachziehen (Marker steht bereits an neuer Stelle)
+  Object.assign(tree, { lat, lng });
+  allTrees = allTrees.map(x => x.id === tree.id ? { ...x, lat, lng } : x);
+  marker.setTooltipContent(treeTooltipHtml(tree, 'bestand'));
+  _posKorrTree = _posKorrMarker = _posKorrOrig = null;
+  const ref = db.collection('projects').doc(currentProjectId).collection('trees').doc(tree.id);
+  if (!isOnline) {
+    addToQueue({ type: 'updateCoords', projectId: currentProjectId, treeId: tree.id, data });
+    toast('📦 Position offline gespeichert — wird synchronisiert');
+    return;
+  }
+  toast('Position speichern…');
+  try {
+    await ref.set(data, { merge: true });
+    const synced = await Promise.race([
+      db.waitForPendingWrites().then(() => true),
+      new Promise(r => setTimeout(() => r(false), 10000)),
+    ]);
+    toast(synced ? `✓ Position korrigiert — ${lat.toFixed(5)}, ${lng.toFixed(5)}` : '⚠ Nicht synchronisiert — erneut versuchen');
+  } catch (e) {
+    addToQueue({ type: 'updateCoords', projectId: currentProjectId, treeId: tree.id, data });
+    console.warn('Position-Korrektur:', e);
+    toast(`⚠ Fehler — in Warteschlange: ${e.code || e.message}`);
+  }
 }
 
 async function saveOverviewEdits() {

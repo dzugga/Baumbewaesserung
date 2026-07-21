@@ -4613,6 +4613,7 @@ function openDetail(id){
     ${drow(FL.pflanzjahr,tree.pflanzjahr)}
     ${drow(FL.pflanzzeitpunkt||'Zeitpunkt',tree.pflanzzeitpunkt)}
     ${customFields.filter(c=>fieldAppliesTo(c,geomTypeOf(tree)) && !(geomTypeOf(tree)==='flaeche' && _FLAECHE_PLAN_KEYS.includes(c.key))).map(c=>drow(c.label,tree[c.key])).join('')}
+    ${tree.posKorrigiertAm?`<div class="detail-field" style="padding:5px 0;"><span class="detail-key">📍 Position</span><span class="detail-val" style="color:var(--green);" title="Vor Ort in der Erfassungs-App korrigiert">vor Ort korrigiert ${dlEsc((''+tree.posKorrigiertAm).slice(0,10).split('-').reverse().join('.'))}${tree.posKorrigiertVon?' · '+dlEsc(tree.posKorrigiertVon):''}</span></div>`:''}
 
     ${(tree.containerExtId)?(()=>{
       const c=_containerOf(tree);
