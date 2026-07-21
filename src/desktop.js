@@ -6,6 +6,7 @@ import { installErrorHandler } from './errlog.js'; installErrorHandler('desktop'
 import { SI_DSGVO, SI_STACK, SI_REGIONEN, SI_APPS, SI_SICHERHEIT, SI_DIENSTE, SI_SICHERUNG, SI_ONBOARDING } from './systeminfo-daten.js';
 import { ausgleichAnalyse, ausreisserJeTour } from './ausgleich.js';
 import { kontrolleColor, kontrolleLabel, kontrolleCounts, kontrolleNorm } from './kontrolle.js';
+import { dedupeReports } from './meldungen.js';
 import { initAppCheck } from './appcheck.js';
 import { basemapLayer, BASEMAP_FARBE, BASEMAP_GRAU, BASEMAP_ATTR, TILE_PERF } from './basemaps.js';
 import { firebaseConfig } from './firebase-config.js';
@@ -1107,6 +1108,13 @@ function fmtMin(mins){
 }
 // Summe der Zusatztätigkeiten einer Tour (Pause, Rüstzeit …) in Minuten.
 function tourZusatzMin(tour){ return (tour&&Array.isArray(tour.zusatzzeiten)?tour.zusatzzeiten:[]).reduce((s,z)=>s+(Math.max(0,z&&z.min)||0),0); }
+// ── Melde-Historie fürs ZÄHLEN/ANZEIGEN (Konzept B, src/meldungen.js) ──────────────────────
+// Normale Touren: je Objekt+Tour+Kalendertag nur die letzte Meldung (Korrektur ersetzt, keine
+// Doppelzählung). Langzeittouren (tour.langzeit): alle Meldungen bleiben (Mehrfachmeldung gewollt).
+// Rohes tree.history bleibt unangetastet (Audit) — nur die Auswertungen laufen über _meldungen().
+let _lzMemo={ref:null,set:null};
+function _langzeitSet(){ if(_lzMemo.ref!==tours){ _lzMemo={ref:tours, set:new Set((tours||[]).filter(t=>t&&t.langzeit).map(t=>t.id))}; } return _lzMemo.set; }
+function _meldungen(tree){ const lz=_langzeitSet(); return dedupeReports(tree&&tree.history, tid=>lz.has(tid)); }
 // Restzeit einer Tour: Arbeitszeit − (Fahrt + Bearbeitung + Zusatztätigkeiten).
 // null, wenn keine Arbeitszeit gesetzt ist.
 function tourRestzeit(tour,treeList,driveSec){
@@ -4939,7 +4947,7 @@ function renderVerlaufDesktop(id, targetEl) {
   const tree = trees.find(t => t.id === id);
   const body = targetEl || document.getElementById('panel-body-verlauf');
   if(!tree || !body) return;
-  const history = [...(tree.history || [])].reverse();
+  const history = [..._meldungen(tree)].reverse();
   const bew = history.filter(e => e.status === 'bewaessert' || (!e.status && e.note)).length;
   const nicht = history.filter(e => e.status === 'nicht').length;
   const total = history.length;
@@ -6253,6 +6261,7 @@ function openTourModal(id){
   const sysSel=document.getElementById('t-system');
   if(sysSel){ sysSel.innerHTML='<option value="">— keines —</option>'+getReinigungssysteme().map(s=>`<option value="${dlEsc(s.id)}">${dlEsc(s.name)} (${_rsTypLabel(s.typ)})</option>`).join(''); sysSel.value=t?.reinigungssystem||''; }
   const zbSel=document.getElementById('t-zeitbasis'); if(zbSel) zbSel.value=t?.zeitBasis||'auto';
+  const lzChk=document.getElementById('t-langzeit'); if(lzChk) lzChk.checked=!!t?.langzeit;
   const bhSel=document.getElementById('t-betriebshof');
   if(bhSel){ bhSel.innerHTML='<option value="">— automatisch / Projekt-Depot —</option>'+(listValues.betriebshof||[]).map(b=>`<option value="${dlEsc(b.label)}">${dlEsc(b.label)}${b.lat==null?' (ohne Koordinaten)':''}</option>`).join(''); bhSel.value=t?.betriebshof||''; }
   const az=t&&typeof t.arbeitszeitMin==='number'&&t.arbeitszeitMin>0?t.arbeitszeitMin:0;
@@ -6291,7 +6300,7 @@ async function saveTour(){
   const interval=document.getElementById('t-interval').value||'';
   const gueltig=(window._tourGueltig||[]).filter(g=>g.from&&g.to).map(g=>({from:g.from,to:g.to}));
   const betriebstage=_WD.map(w=>w.n).filter(n=>(window._tourBt||[]).includes(n)); // stabile Reihenfolge Mo→So
-  const data={name,desc:document.getElementById('t-desc').value,color:selectedTourColor,zusatzzeiten,regeln:collectTourRegeln(),startDate,interval,betriebstage,gueltig,reinigungssystem:document.getElementById('t-system')?.value||'',zeitBasis:document.getElementById('t-zeitbasis')?.value||'auto',betriebshof:document.getElementById('t-betriebshof')?.value||''};
+  const data={name,desc:document.getElementById('t-desc').value,color:selectedTourColor,zusatzzeiten,regeln:collectTourRegeln(),startDate,interval,betriebstage,gueltig,reinigungssystem:document.getElementById('t-system')?.value||'',zeitBasis:document.getElementById('t-zeitbasis')?.value||'auto',betriebshof:document.getElementById('t-betriebshof')?.value||'',langzeit:document.getElementById('t-langzeit')?.checked||false};
   try{
     if(editingTourId){
       // Zeitgrundlage/System geändert → Karte (Routenlinie + Reihenfolgenummern) sofort nachziehen;
@@ -6381,7 +6390,7 @@ async function toggleTourUebersicht(id,checked){
 // sonst Doppelbesetzung im Einsatzplaner), Route + Kennzahlen (routes/{id}, routeKm/…,
 // ID-gebunden — neue Tour rechnet ihre eigene Route), Verlauf (tourHistory referenziert nur
 // die Quelle), createdAt. Damit verhält sich die Kopie exakt wie eine von Hand angelegte Tour.
-const TOUR_COPY_FIELDS=['desc','color','betriebstage','interval','startDate','gueltig','zusatzzeiten','regeln','arbeitszeitMin','betriebshof','reinigungssystem','zeitBasis','manualOrder'];
+const TOUR_COPY_FIELDS=['desc','color','betriebstage','interval','startDate','gueltig','zusatzzeiten','regeln','arbeitszeitMin','betriebshof','reinigungssystem','zeitBasis','manualOrder','langzeit'];
 function _tourCopyName(base){
   const names=new Set(tours.map(t=>(t.name||'').trim()));
   let n=(base||'Tour')+' (Kopie)'; let i=2;
@@ -12232,7 +12241,7 @@ function _mrRender(w, from, to){
   const de=d=>{ const p=(d||'').split('-'); return p.length===3?p[2]+'.'+p[1]+'.'+p[0]:d; };
   // Meldungen aus der Objekt-Historie (nur Einträge mit status, P1-Zählregel)
   const ms=[];
-  (trees||[]).forEach(t=>{ (t.history||[]).forEach(h=>{ if(!h||!h.status||!h.date) return; if(h.date<from||h.date>to) return; ms.push({t,h}); }); });
+  (trees||[]).forEach(t=>{ _meldungen(t).forEach(h=>{ if(!h||!h.status||!h.date) return; if(h.date<from||h.date>to) return; ms.push({t,h}); }); });
   const done=ms.filter(x=>x.h.status==='bewaessert').length, not=ms.length-done;
   const quote=ms.length?Math.round(done/ms.length*100):null;
   // Wochenverlauf (ISO-KW) — chronologisch sortiert, Schlüssel mit Jahr (jahresübergreifende Zeiträume)
@@ -12651,7 +12660,7 @@ function _siIstCount(from,to){
   trees.forEach(t=>{
     if(!isActive(t)) return;
     let n=0; const seenDays=new Set();
-    (t.history||[]).forEach(h=>{
+    _meldungen(t).forEach(h=>{
       if(!h.date) return;
       if(h.status!=='bewaessert') return;   // Ist zählt nur echte Erledigungen (jede Meldung trägt status)
       const d=(''+h.date).slice(0,10);
@@ -12944,7 +12953,7 @@ function _gCompute(){
   const per=[], reasonAgg={}, driverAgg={};
   trees.filter(t=>isActive(t)&&!_isContainer(t)).forEach(t=>{
     let bew=0,nicht=0; const reasons={}; const fills=[]; const seenDays=new Set();
-    (t.history||[]).forEach(h=>{
+    _meldungen(t).forEach(h=>{
       if(!h.date||!inR((''+h.date).slice(0,10))) return;
       const done=h.status==='bewaessert', no=h.status==='nicht';
       if(typeof h.fuellgrad==='number') fills.push(h.fuellgrad);
@@ -12993,7 +13002,7 @@ function mgSearch(q){
 }
 function _mgRows(){
   const out=[];
-  (trees||[]).forEach(t=>{ (t.history||[]).forEach(h=>{
+  (trees||[]).forEach(t=>{ _meldungen(t).forEach(h=>{
     if(!h||!h.status) return;                                   // nur echte Meldungen (P1-Zählregel)
     if(_mgFilter.nurProblem && h.status!=='nicht') return;
     const dte=h.date||String(h.at||'').slice(0,10); if(!dte) return;
@@ -13161,9 +13170,9 @@ function renderMeldungen(){
   const rows=_mgRows();
   // Filter-Optionen aus den vorhandenen Meldungen (plus gepflegte Gründe)
   const grDist=new Set(reasons.map(r=>r.text)); const drvDist=new Set();
-  (trees||[]).forEach(t=>(t.history||[]).forEach(h=>{ if(h&&h.status){ if(h.reason) grDist.add(h.reason); if(h.driver) drvDist.add(h.driver); } }));
+  (trees||[]).forEach(t=>_meldungen(t).forEach(h=>{ if(h&&h.status){ if(h.reason) grDist.add(h.reason); if(h.driver) drvDist.add(h.driver); } }));
   const opt=(list,cur)=>[...list].sort((a,b)=>a.localeCompare(b)).map(v=>`<option value="${dlEsc(v)}"${v===cur?' selected':''}>${dlEsc(v)}</option>`).join('');
-  const offenGesamt=(trees||[]).reduce((s,t)=>s+((t.history||[]).filter(h=>h&&h.status==='nicht'&&(h.bearb||'offen')==='offen').length),0);
+  const offenGesamt=(trees||[]).reduce((s,t)=>s+(_meldungen(t).filter(h=>h&&h.status==='nicht'&&(h.bearb||'offen')==='offen').length),0);
   const trRows=rows.map(({t,h,bearb,dte})=>{
     const name=_siObjName(t);
     const time=h.at?String(h.at).slice(11,16):'';
@@ -14050,7 +14059,7 @@ function renderControlling(){
   } else {
     // Fallback: use tree.history[] while tourHistory loads in background
     filtered.forEach(tree=>{
-      (tree.history||[]).forEach(h=>{
+      _meldungen(tree).forEach(h=>{
         if(!h.date||!inCtrlRange(h.date))return;
         if(!h.status||h.status==='offen')return;
         allReported.push({
@@ -15389,7 +15398,7 @@ function dashBuildReported(){
   } else {
     trees.forEach(tree=>{
       if(!isActive(tree))return;
-      (tree.history||[]).forEach(h=>{
+      _meldungen(tree).forEach(h=>{
         if(!h.date||!dashInRange(h.date))return;
         if(!h.status||h.status==='offen')return;
         out.push({...tree,lastStatus:h.status,lastReason:h.reason||null,lastDriver:h.driver||null,lastReportAt:h.date});
@@ -15506,7 +15515,7 @@ function dashRenderHeute(){
       if(_rs&&_rs.status){ repTour[tid]=(repTour[tid]||0)+1;
         if(_rs.status==='bewaessert') bewTour[tid]=(bewTour[tid]||0)+1; else nichtTour[tid]=(nichtTour[tid]||0)+1; } });
     let n=0,last='',lastStatus='';
-    (x.history||[]).forEach(h=>{ if(h&&h.status&&h.date===day){ n++; if(!h.at||h.at>=last){ last=h.at||last; lastStatus=h.status; } } });
+    _meldungen(x).forEach(h=>{ if(h&&h.status&&h.date===day){ n++; if(!h.at||h.at>=last){ last=h.at||last; lastStatus=h.status; } } });
     if(n) tids.forEach(tid=>{ cntTour[tid]=(cntTour[tid]||0)+n;
       if(!lastTour[tid]||last>lastTour[tid]) lastTour[tid]=last;
       if(rueck){ repTour[tid]=(repTour[tid]||0)+1;
@@ -17533,7 +17542,7 @@ function _fillStats(){
     if(!isActive(t)||!t.lat||!t.lng) return;
     scope++;
     const p={id:t.id,name:t.name||t.baumId||'Objekt',stadtteil:t.stadtteil||'',art:t.art||'',sums:[0,0,0,0,0,0,0],counts:[0,0,0,0,0,0,0],n:0,last:null};
-    (t.history||[]).forEach(h=>{
+    _meldungen(t).forEach(h=>{
       if(typeof h.fuellgrad!=='number') return;
       const raw=h.date||h.at; if(!raw) return;
       const dt=new Date(raw); if(isNaN(+dt)) return;
@@ -17720,7 +17729,7 @@ function _dragModal(box, handle){
 function _fillStatsOne(t){
   const sums=[0,0,0,0,0,0,0], counts=[0,0,0,0,0,0,0]; const msgs=[];
   let minD=null,maxD=null;
-  (t.history||[]).forEach(h=>{
+  _meldungen(t).forEach(h=>{
     if(typeof h.fuellgrad!=='number') return;
     const raw=h.date||h.at; if(!raw) return;
     const dt=new Date(raw); if(isNaN(+dt)) return;
