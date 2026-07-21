@@ -3538,7 +3538,16 @@ function _tvStats(){
     const gesamtMin=tm?fahrtMin+taetMin:null;
     const rz=tm?tourRestzeit(t,members,tm.durationSec):null;
     const ausl=(rz&&rz.azMin>0&&gesamtMin!=null)?Math.round(gesamtMin/rz.azMin*100):null;
-    return {t, cnt:members.length, ids:members.map(x=>x.id), wk:_tourWeeklyOcc(t,getSaison()), km:tm?tm.km:null, fahrtMin, taetMin, gesamtMin, azMin:rz?rz.azMin:null, restMin:rz?rz.restMin:null, ausl};
+    const wk=_tourWeeklyOcc(t,getSaison());
+    // Produktivitäts-Kennzahlen (Ansicht „Kennzahlen"): Zeit je Leerung inkl. Fahrt, Dichte je 100 m,
+    // Fahrtanteil, geleertes Volumen/Woche (nur wenn das Objekt-Feld volumen numerisch gepflegt ist).
+    const km=tm?tm.km:null;
+    const zpl=(members.length&&gesamtMin!=null)?gesamtMin*60/members.length:null;      // Sekunden je Leerung
+    const le100=(members.length&&km)?members.length/(km*10):null;                       // Leerungen je 100 m
+    const fahrtAnteil=(gesamtMin>0&&fahrtMin!=null)?fahrtMin/gesamtMin*100:null;        // %
+    const volSum=members.reduce((a,x)=>{const v=parseFloat(x.volumen);return a+(isFinite(v)&&v>0?v:0);},0); // Liter je Durchgang
+    const volW=volSum>0?volSum*(wk||0):null;                                            // Liter je Woche
+    return {t, cnt:members.length, ids:members.map(x=>x.id), wk, km, fahrtMin, taetMin, gesamtMin, azMin:rz?rz.azMin:null, restMin:rz?rz.restMin:null, ausl, zpl, le100, fahrtAnteil, volSum, volW};
   });
 }
 // Einfacher (arithmetischer) Mittelwert je Tour über die gefilterte Menge — nur Touren mit Wert zählen.
@@ -3591,7 +3600,7 @@ function tourVergleichOpen(){
     <div id="tv-head" style="padding:9px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex-shrink:0;">
       <span style="font-size:14px;font-weight:700;">Tour-Vergleich</span>
       <span style="display:inline-flex;border:1px solid var(--border);border-radius:7px;overflow:hidden;">
-        ${[['tabelle','Tabelle'],['balken','Balken']].map(([k,l])=>`<button type="button" data-tvview="${k}" style="border:none;padding:3px 11px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;background:${_tvView===k?'var(--green-light)':'var(--bg)'};color:${_tvView===k?'var(--green)':'var(--text2)'};">${l}</button>`).join('')}
+        ${[['tabelle','Tabelle'],['balken','Balken'],['kennzahlen','Kennzahlen']].map(([k,l])=>`<button type="button" data-tvview="${k}" style="border:none;padding:3px 11px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;background:${_tvView===k?'var(--green-light)':'var(--bg)'};color:${_tvView===k?'var(--green)':'var(--text2)'};">${l}</button>`).join('')}
       </span>
       <input id="tv-search" type="text" placeholder="Tour suchen…" autocomplete="off" value="${dlEsc(_tvQ)}" style="flex:1;min-width:100px;max-width:200px;padding:3px 9px;font-size:11px;border:1px solid var(--border);border-radius:7px;background:var(--bg);font-family:inherit;outline:none;color:var(--text);">
       <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text3);margin-left:auto;">Gruppieren
@@ -3610,6 +3619,7 @@ function tourVergleichOpen(){
       <span><span style="display:inline-block;width:9px;height:9px;background:#85B7EB;border-radius:2px;vertical-align:-1px;"></span> Tätigkeit + Zusatz</span>
       <span><span style="display:inline-block;width:9px;height:9px;background:#dc2626;border-radius:2px;vertical-align:-1px;"></span> über Arbeitszeit</span>
       <span><span style="display:inline-block;width:2px;height:10px;background:var(--text);vertical-align:-1px;"></span> Arbeitszeit</span>`
+      :_tvView==='kennzahlen'?`<span>Zeit/Leerung = Gesamtzeit ÷ Objekte · je 100 m = Objekte ÷ Strecke (niedrig = zerstreute Tour) · Fahrtanteil = Fahrt ÷ Gesamt · Vol./Woche = Objekt-Feld „Volumen" × Einsätze/Woche</span>`
       :`<span title="Gesamtzeit (Fahrt + Tätigkeit + Zusatz) ÷ Arbeitszeit der Tour">Auslastung AZ = Gesamtzeit ÷ Arbeitszeit · über 100 % = überbucht (rot)</span>`}
       <span style="margin-left:auto;">Klick auf eine Tour = auf Karte zeigen · Größe unten rechts ziehbar</span>
     </div>`;
@@ -3642,7 +3652,7 @@ function _tvRenderBody(){
   stats.sort((a,b)=>{ const x=val(a),y=val(b);
     if(x==null&&y==null) return 0; if(x==null) return 1; if(y==null) return -1;
     return (typeof x==='string'?x.localeCompare(y):(x-y))*dir; });
-  body.innerHTML=_tvView==='balken'?_tvBarsHtml(stats):_tvTableHtml(stats, body.clientWidth);
+  body.innerHTML=_tvView==='balken'?_tvBarsHtml(stats):_tvView==='kennzahlen'?_tvKennzahlenHtml(stats):_tvTableHtml(stats, body.clientWidth);
   body.querySelectorAll('[data-tvsort]').forEach(el=>el.onclick=()=>{
     const k=el.dataset.tvsort;
     if(_tvSort.key===k) _tvSort.dir=-_tvSort.dir; else _tvSort={key:k,dir:(k==='name'?1:-1)};
@@ -3694,6 +3704,56 @@ function _tvTableHtml(stats, w){
   html+=`<tr><td colspan="${cols}" style="padding:5px 10px;font-size:10px;color:var(--text3);border-top:1px solid var(--border);" title="Verschiedene Objekte = ohne Doppelzählung bei Objekten in mehreren Touren. Leerungen/Woche = je Tour Objektzahl × Wochen-Rhythmus (Rhythmus/Betriebstage berücksichtigt)."><b style="color:var(--text2);">${to.distinct.toLocaleString('de-DE')}</b> verschiedene Objekte · <b style="color:var(--text2);">${to.leerungen.toLocaleString('de-DE')}</b> Leerungen/Woche <span style="opacity:.8;">(Rhythmus berücksichtigt)</span></td></tr>`;
   return html+'</table>';
 }
+// Sekunden je Leerung lesbar: unter 90 s als Sekunden, sonst m:ss
+function _tvSecFmt(s){ s=Math.round(s); return s<90?s+' s':Math.floor(s/60)+'m '+String(s%60).padStart(2,'0')+'s'; }
+// Volumen: Liter, ab 1.000 L automatisch m³ (Nutzerwunsch — Liter-Zahlen werden sonst zu groß)
+function _tvVolFmt(l){ return l<1000?Math.round(l).toLocaleString('de-DE')+' L':(l/1000).toLocaleString('de-DE',{minimumFractionDigits:l<10000?2:1,maximumFractionDigits:l<10000?2:1})+' m³'; }
+// Ansicht „Kennzahlen": Produktivität je Tour — Zeit/Leerung inkl. Fahrt, Dichte (Leerungen je 100 m),
+// Fahrtanteil, Vol./Woche (Spalte nur, wenn irgendein Objekt das Feld volumen trägt).
+function _tvKennzahlenHtml(stats){
+  const showVol=stats.some(s=>s.volW!=null);
+  const th=(k,l,align)=>`<td data-tvsort="${k}" style="padding:5px 10px;cursor:pointer;white-space:nowrap;${align?'text-align:right;':''}" title="Sortieren">${l}${_tvSort.key===k?(_tvSort.dir>0?' ↑':' ↓'):''}</td>`;
+  let html=`<table style="width:100%;border-collapse:collapse;font-size:11px;">
+    <tr style="color:var(--text3);border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:2;">
+      ${th('name','Tour')}${th('cnt','Obj.',1)}${th('zpl','Zeit/Leerung',1)}${th('le100','je 100 m',1)}${th('fahrtAnteil','Fahrtanteil',1)}${showVol?th('volW','Vol./Woche',1):''}${th('ausl','Auslastung',1)}
+    </tr>`;
+  const cols=6+(showVol?1:0);
+  const row=s=>{
+    const dC=s.le100!=null?(s.le100<0.35?'var(--red)':(s.le100<0.6?'#b45309':'var(--text)')):'var(--text3)';
+    const fC=s.fahrtAnteil!=null?(s.fahrtAnteil>=60?'var(--red)':(s.fahrtAnteil>=50?'#b45309':'var(--text)')):'var(--text3)';
+    return `<tr data-tvtour="${s.t.id}" style="border-bottom:1px solid var(--border);cursor:pointer;" title="${dlEsc(s.t.name||'')} — auf Karte zeigen">
+    <td style="padding:5px 10px;max-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${s.t.color||'#888'};margin-right:6px;"></span>${dlEsc(s.t.name||'Tour')}</td>
+    <td style="text-align:right;padding:5px 10px;">${s.cnt}</td>
+    <td style="text-align:right;padding:5px 10px;white-space:nowrap;font-weight:700;">${s.zpl!=null?_tvSecFmt(s.zpl):'<span style="font-weight:400;color:var(--text3);">—</span>'}</td>
+    <td style="text-align:right;padding:5px 10px;white-space:nowrap;color:${dC};${s.le100!=null&&s.le100<0.6?'font-weight:700;':''}">${s.le100!=null?s.le100.toLocaleString('de-DE',{minimumFractionDigits:1,maximumFractionDigits:1}):'—'}</td>
+    <td style="text-align:right;padding:5px 10px;white-space:nowrap;color:${fC};${s.fahrtAnteil!=null&&s.fahrtAnteil>=50?'font-weight:700;':''}">${s.fahrtAnteil!=null?Math.round(s.fahrtAnteil)+' %':'—'}</td>
+    ${showVol?`<td style="text-align:right;padding:5px 10px;white-space:nowrap;">${s.volW!=null?_tvVolFmt(s.volW):'—'}</td>`:''}
+    <td style="text-align:right;padding:5px 10px;white-space:nowrap;color:${s.ausl!=null&&s.ausl>100?'var(--red)':'var(--text2)'};">${s.ausl!=null?s.ausl+' %':'—'}</td>
+  </tr>`; };
+  if(_tvGroup==='none'){ html+=stats.map(row).join(''); }
+  else {
+    const groups=new Map();
+    stats.forEach(s=>{ const k=_tvGroupKey(s.t); if(!groups.has(k)) groups.set(k,[]); groups.get(k).push(s); });
+    [...groups.keys()].sort((a,b)=>a.localeCompare(b)).forEach(g=>{
+      const list=groups.get(g);
+      html+=`<tr style="background:var(--surface2);"><td colspan="${cols}" style="padding:4px 10px;font-weight:700;color:var(--text2);">${dlEsc(g)} · ${list.length} Tour${list.length===1?'':'en'}</td></tr>`;
+      html+=list.map(row).join('');
+    });
+  }
+  // ⌀/Gesamt: Verhältnis-Kennzahlen aus den SUMMEN (gewichtet), nicht Mittel der Zeilenwerte
+  const sum=k=>stats.reduce((a,s)=>a+(s[k]||0),0);
+  const cnt=sum('cnt'), ges=stats.reduce((a,s)=>a+(s.gesamtMin!=null?s.gesamtMin:0),0),
+        fahrt=stats.reduce((a,s)=>a+(s.fahrtMin!=null?s.fahrtMin:0),0),
+        km=stats.reduce((a,s)=>a+(s.km||0),0), volW=sum('volW');
+  html+=`<tr style="background:var(--surface2);border-top:2px solid var(--border);font-weight:700;" title="Aus den Summen aller Touren gerechnet (gewichtet)"><td style="padding:5px 10px;">⌀ / Gesamt · ${stats.length} Touren</td>
+    <td style="text-align:right;padding:5px 10px;">${cnt}</td>
+    <td style="text-align:right;padding:5px 10px;white-space:nowrap;">${cnt&&ges?_tvSecFmt(ges*60/cnt):'—'}</td>
+    <td style="text-align:right;padding:5px 10px;white-space:nowrap;">${cnt&&km?(cnt/(km*10)).toLocaleString('de-DE',{minimumFractionDigits:1,maximumFractionDigits:1}):'—'}</td>
+    <td style="text-align:right;padding:5px 10px;white-space:nowrap;">${ges?Math.round(fahrt/ges*100)+' %':'—'}</td>
+    ${showVol?`<td style="text-align:right;padding:5px 10px;white-space:nowrap;">${volW?_tvVolFmt(volW):'—'}</td>`:''}
+    <td></td></tr>`;
+  return html+'</table>';
+}
 function _tvBarsHtml(stats){
   const base=Math.max(1,...stats.map(s=>Math.max(s.gesamtMin||0, s.azMin||0)));
   const rows=stats.map(s=>{
@@ -3741,10 +3801,11 @@ function _tvBarsHtml(stats){
 function _tvCsv(){
   const stats=_tvStats();
   const esc=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
-  const head=['Tour','Betriebshof','Rhythmus','Objekte','Strecke km','Fahrt min','Taetigkeit min','Gesamt min','Arbeitszeit min','Restzeit min','Auslastung %'];
+  const head=['Tour','Betriebshof','Rhythmus','Objekte','Strecke km','Fahrt min','Taetigkeit min','Gesamt min','Arbeitszeit min','Restzeit min','Auslastung %','Zeit je Leerung s','Leerungen je 100 m','Fahrtanteil %','Volumen je Woche L'];
   const lines=[head.join(';')].concat(stats.map(s=>[
     esc(s.t.name), esc(s.t.betriebshof||''), esc(_tvIntervalLabel(s.t)), s.cnt,
-    s.km!=null?s.km.toFixed(1).replace('.',','):'', s.fahrtMin??'', s.taetMin??'', s.gesamtMin??'', s.azMin??'', s.restMin??'', s.ausl??''
+    s.km!=null?s.km.toFixed(1).replace('.',','):'', s.fahrtMin??'', s.taetMin??'', s.gesamtMin??'', s.azMin??'', s.restMin??'', s.ausl??'',
+    s.zpl!=null?Math.round(s.zpl):'', s.le100!=null?s.le100.toFixed(2).replace('.',','):'', s.fahrtAnteil!=null?Math.round(s.fahrtAnteil):'', s.volW!=null?Math.round(s.volW):''
   ].join(';')));
   const blob=new Blob(['﻿'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='tour-vergleich.csv'; a.click();
