@@ -4,6 +4,7 @@ const APP_VERSION = '1.0';
 import { HANDBUCH } from './handbuch-daten.js';
 import { installErrorHandler } from './errlog.js'; installErrorHandler('desktop');
 import { SI_DSGVO, SI_STACK, SI_REGIONEN, SI_APPS, SI_SICHERHEIT, SI_DIENSTE, SI_SICHERUNG, SI_ONBOARDING } from './systeminfo-daten.js';
+import { ausgleichAnalyse, ausreisserJeTour } from './ausgleich.js';
 import { initAppCheck } from './appcheck.js';
 import { basemapLayer, BASEMAP_FARBE, BASEMAP_GRAU, BASEMAP_ATTR, TILE_PERF } from './basemaps.js';
 import { firebaseConfig } from './firebase-config.js';
@@ -287,6 +288,7 @@ const MODULES = [
   {key:'ki',          label:'KI-Analysen'},
   {key:'objekte',     label:'Objekte'},
   {key:'touren',      label:'Touren'},
+  {key:'ausgleich',   label:'Ausgleichs-Assistent (Tour-Vergleich)'},
   {key:'fahrerzuweisung', label:'Fahrer-Zuweisung'},
   {key:'verwaltung',  label:'Gründe'},
   {key:'reinigungssysteme', label:'Reinigungssysteme'},
@@ -763,6 +765,7 @@ async function openProject(projectId){
   // filtern die neue Stadt mit dem alten Suchbegriff (Tour-Vergleich, Füllstand-Auswertungen, Ziel-Tour-Picker)
   _tvQ='';
   try{ tourVergleichClose(); }catch(_){}
+  try{ ausgleichClose(); }catch(_){}
   try{ _assignPickerClose(); }catch(_){}
   try{ if(_fillObjCleanup){ _fillObjCleanup(); _fillObjCleanup=null; } }catch(_){}
   try{ if(_dfaClose) _dfaClose(); }catch(_){}
@@ -3546,6 +3549,7 @@ function tourVergleichOpen(){
         </select>
       </label>
       <button type="button" id="tv-active" title="Nur die in der Legende eingeblendeten Touren zeigen" style="font-size:11px;padding:3px 9px;border-radius:7px;border:1px solid ${_tvOnlyActive?'var(--green)':'var(--border)'};background:${_tvOnlyActive?'var(--green-light)':'var(--bg)'};color:${_tvOnlyActive?'var(--green)':'var(--text2)'};cursor:pointer;font-family:inherit;font-weight:600;">nur eingeblendete</button>
+      ${canUseModule('ausgleich')?`<button type="button" id="tv-ausgleich" title="Ausgleichs-Analyse: Passt die Last in die Arbeitszeiten? Wer müsste abgeben/aufnehmen?" style="font-size:11px;padding:3px 9px;border-radius:7px;border:1px solid var(--border);background:var(--bg);color:var(--text2);cursor:pointer;font-family:inherit;">⚖ Ausgleich</button>`:''}
       <button type="button" id="tv-csv" title="Als CSV exportieren" style="font-size:11px;padding:3px 9px;border-radius:7px;border:1px solid var(--border);background:var(--bg);color:var(--text2);cursor:pointer;font-family:inherit;">CSV</button>
       <button class="panel-close" data-tvclose><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
     </div>
@@ -3567,6 +3571,7 @@ function tourVergleichOpen(){
   box.querySelector('#tv-search').oninput=e=>{ _tvQ=e.target.value; _tvRenderBody(); };
   box.querySelector('#tv-active').onclick=()=>{ _tvOnlyActive=!_tvOnlyActive; tourVergleichOpen(); };
   box.querySelector('#tv-csv').onclick=_tvCsv;
+  const _agBtn=box.querySelector('#tv-ausgleich'); if(_agBtn) _agBtn.onclick=ausgleichOpen;
   // Größe merken + Spalten an die Breite anpassen (Namen bekommen beim Aufziehen zuerst Platz)
   let _t=null;
   _tvRO=new ResizeObserver(()=>{ clearTimeout(_t); _t=setTimeout(()=>{
@@ -3674,6 +3679,64 @@ function _tvCsv(){
   const blob=new Blob(['﻿'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='tour-vergleich.csv'; a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+}
+
+// ─── AUSGLEICHS-ASSISTENT (Stufe 1: Analyse, read-only) — Logik in src/ausgleich.js ──────
+let _agUndrag=null;
+function ausgleichClose(){ if(_agUndrag){ _agUndrag(); _agUndrag=null; } document.getElementById('ausgleich-box')?.remove(); document.removeEventListener('keydown',_agEsc); }
+function _agEsc(e){ if(e.key==='Escape') ausgleichClose(); }
+function ausgleichOpen(){
+  if(!canUseModule('ausgleich')) return notify('Keine Berechtigung (Modul „Ausgleichs-Assistent")');
+  ausgleichClose();
+  const stats=_tvStats(); // exakt die im Tour-Vergleich gefilterte Menge (Suche/„nur eingeblendete"/Betriebshof)
+  const a=ausgleichAnalyse(stats.map(s=>({id:s.t.id,name:s.t.name||'Tour',gesamtMin:s.gesamtMin,azMin:s.azMin})));
+  const ausr=ausreisserJeTour(stats.map(s=>({tourId:s.t.id,tourName:s.t.name||'Tour',
+    points:trees.filter(x=>treeInTour(x,s.t.id)&&isActive(x)&&x.lat&&x.lng).map(x=>({lat:x.lat,lng:x.lng}))})));
+  const colByAusl=v=>v>100?'#dc2626':(v>=95?'#b45309':'#15803d');
+  const vd={ strukturell:{c:'#b45309',bg:'#fef3c7',t:'Ausgleich allein genügt nicht',
+      s:`Gesamtlast ${fmtMin(a.sumLast)} übersteigt die verfügbare Arbeitszeit (${fmtMin(a.sumAz)}) um <b>${fmtMin(a.fehlMin)} (${a.zielAusl} %)</b>. Auch bei perfekter Verteilung wären alle Touren überbucht. Optionen: zusätzliche Tour einplanen, Arbeitszeiten erhöhen oder Umfang/Soll prüfen.`},
+    knapp:{c:'#b45309',bg:'#fef3c7',t:'Ausgleich möglich, aber knapp',
+      s:`Bei gleichmäßiger Verteilung lägen alle Touren bei ≈ <b>${a.zielAusl} %</b> — machbar, aber ohne Reserve für Störungen.`},
+    ok:{c:'#15803d',bg:'#dcfce7',t:'Ausgleich möglich',
+      s:`Bei gleichmäßiger Verteilung lägen alle Touren bei ≈ <b>${a.zielAusl} %</b> der Arbeitszeit.`},
+    unbestimmt:{c:'var(--text3)',bg:'var(--surface2)',t:'Keine Bewertung möglich',
+      s:'Keine der Touren hat Route UND Arbeitszeit — ohne Zeitgrundlage lässt sich nichts ausgleichen.'} }[a.verdict];
+  const bar=(pct,col)=>`<span style="display:inline-block;width:100%;height:8px;background:var(--surface2);border-radius:4px;overflow:hidden;vertical-align:middle;"><span style="display:block;height:100%;width:${Math.min(100,Math.round(pct/Math.max(a.zielAusl||100,120,1)*100))}%;background:${col};"></span></span>`;
+  const rows=a.proTour.map(r=>{
+    const st=stats.find(s=>s.t.id===r.id);
+    return `<div style="display:grid;grid-template-columns:minmax(90px,1.2fr) 2fr 44px auto;gap:4px 8px;align-items:center;font-size:11px;padding:3px 0;">
+      <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${st?.t.color||'#888'};margin-right:5px;"></span>${dlEsc(r.name)}</span>
+      ${bar(r.istAusl,colByAusl(r.istAusl))}
+      <span style="text-align:right;font-weight:700;color:${colByAusl(r.istAusl)};">${r.istAusl} %</span>
+      <span style="color:var(--text3);white-space:nowrap;">${r.deltaMin>5?`müsste ${fmtMin(r.deltaMin)} abgeben`:r.deltaMin<-5?`könnte ${fmtMin(-r.deltaMin)} aufnehmen`:'im Ziel'}</span>
+    </div>`; }).join('');
+  const hints=[];
+  ausr.forEach(x=>hints.push(`<span style="color:#b45309;">⚠</span> ${x.n} Objekt${x.n===1?'':'e'} in „${dlEsc(x.tourName)}" ${x.n===1?'liegt':'liegen'} weit außerhalb des Tourgebiets (> ${(x.limitM/1000).toFixed(1)} km — lange Anfahrt). Prüfen, ob sie in eine andere Tour gehören.`));
+  a.ohneRoute.forEach(r=>hints.push(`ℹ „${dlEsc(r.name)}" hat keine berechnete Route — zählt nicht in die Rechnung.`));
+  a.ohneAz.forEach(r=>hints.push(`ℹ „${dlEsc(r.name)}" hat keine Arbeitszeit hinterlegt — zählt nicht in die Rechnung.`));
+  hints.push('ℹ Diese Analyse verändert nichts — sie bewertet nur den aktuellen Stand. Verschieben wie gewohnt über Planen/Lasso.');
+  const box=document.createElement('div');
+  box.id='ausgleich-box';
+  box.style.cssText=`position:fixed;left:${Math.max(4,Math.round(window.innerWidth/2-330))}px;top:96px;z-index:9999;width:640px;max-width:96vw;max-height:88vh;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.35);display:flex;flex-direction:column;overflow:hidden;`;
+  box.innerHTML=`
+    <div id="ag-head" style="padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;">
+      <span style="font-size:14px;font-weight:700;">⚖ Ausgleichs-Assistent</span>
+      <span style="font-size:11px;color:var(--text3);">${stats.length} Tour${stats.length===1?'':'en'} aus dem Vergleich</span>
+      <button class="panel-close" style="margin-left:auto;" data-close><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:12px 14px;">
+      <div style="border-radius:8px;padding:10px 12px;background:${vd.bg};margin-bottom:12px;">
+        <div style="font-size:12px;font-weight:700;color:${vd.c};margin-bottom:2px;">Lage-Check: ${vd.t}</div>
+        <div style="font-size:11px;color:${vd.c};line-height:1.55;">${vd.s}</div>
+      </div>
+      ${a.proTour.length?`<div style="font-size:11px;color:var(--text3);margin-bottom:6px;">Auslastung heute · Abstand zur gleichmäßigen Verteilung (Ziel ≈ ${a.zielAusl} %)</div>${rows}`:''}
+      <div style="font-size:11px;color:var(--text3);margin:12px 0 4px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;">Hinweise</div>
+      ${hints.map(h=>`<div style="font-size:11px;color:var(--text2);line-height:1.55;padding:3px 0;border-bottom:1px solid var(--border);">${h}</div>`).join('')}
+    </div>`;
+  document.body.appendChild(box);
+  _agUndrag=_dragModal(box, box.querySelector('#ag-head'));
+  document.addEventListener('keydown',_agEsc);
+  box.querySelector('[data-close]').onclick=ausgleichClose;
 }
 
 // ─── TOUR FOCUS / MEHRFACHAUSWAHL ─────────────────────────────
