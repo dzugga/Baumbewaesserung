@@ -380,7 +380,7 @@ let selectedTreeId = null;
 let lassoSelection = new Set(); // Lasso-Vorauswahl (tree-IDs) im Planen-Modus
 let filterTour = 'all';
 // Eigenschaften-Filter (Planung). objFilterOnMap = optional auch Marker filtern.
-let objFilter = {stadtteil:'',art:'',pflanzjahr:'',zustand:'',wasser:'',status:''};
+let objFilter = {stadtteil:'',art:'',pflanzjahr:'',zustand:'',wasser:'',status:'',kontrolle:''};
 let objFilterOnMap = false;
 let routesVisible = true;             // Routenlinien auf der Karte sichtbar?
 let activeTours = new Set();          // Mehrfachauswahl: gleichzeitig angezeigte Touren
@@ -2212,11 +2212,20 @@ function objMatchesPropFilter(t){
   if(f.status==='offen' && t.lastStatus) return false;
   if(f.status==='bewaessert' && t.lastStatus!=='bewaessert') return false;
   if(f.status==='nicht' && t.lastStatus!=='nicht') return false;
+  if(f.kontrolle && kontrolleNorm(t.kontrolle)!==f.kontrolle) return false;
   return true;
 }
 function objFilterActive(){ return Object.values(objFilter).some(Boolean); }
 function applyObjFilter(){ renderList(); setMarkerVisibility(); _applyFlaechenFilterVisibility(); renderDrawnGeoms(); updateObjFilterCount(); }
-function resetObjFilter(){ objFilter={stadtteil:'',art:'',pflanzjahr:'',zustand:'',wasser:'',status:''}; renderObjFilterUI(); applyObjFilter(); }
+function resetObjFilter(){ objFilter={stadtteil:'',art:'',pflanzjahr:'',zustand:'',wasser:'',status:'',kontrolle:''}; renderObjFilterUI(); applyObjFilter(); }
+// Aus der Kontroll-Legende: springt in die Objekt-Tabelle, eingeschränkt auf Löschvorschläge —
+// dort kann Sammel-Löschen (Superadmin) genau diese Menge abarbeiten.
+function showLoeschvorschlaege(){
+  _baeumeKontrolleFilter='loeschen';
+  switchView('baeume'); switchBaeumeTab('objekte');
+  filterBaeumeTable(document.getElementById('baeume-search')?.value||'');
+  notify(currentRole==='superadmin'?'Löschvorschläge gefiltert — mit „Sammel-Löschen" abarbeiten':'Löschvorschläge gefiltert');
+}
 function updateObjFilterCount(){
   const active=objFilterActive();
   const fb=document.getElementById('btn-toggle-filter'); if(fb){ fb.style.borderColor=active?'var(--green)':'var(--border)'; fb.style.boxShadow=active?'0 0 0 2px var(--green), var(--shadow-md)':'var(--shadow-md)'; }
@@ -2274,13 +2283,14 @@ function renderObjFilterUI(){
       ${_objFilterShown('zustand')?`<select id="of-zustand" style="${ss}">${optRank('zustand',objFilter.zustand,'Alle: '+FL.zustand)}</select>`:''}
       ${_objFilterShown('wasser')?`<select id="of-wasser" style="${ss}">${optRank('wasser',objFilter.wasser,'Alle: '+FL.wasser)}</select>`:''}
       ${_objFilterShown('status')?`<select id="of-status" style="${ss}"><option value="">Alle Status</option><option value="bewaessert"${objFilter.status==='bewaessert'?' selected':''}>✓ Erledigt</option><option value="nicht"${objFilter.status==='nicht'?' selected':''}>✕ Nicht erledigt</option><option value="offen"${objFilter.status==='offen'?' selected':''}>○ Offen</option></select>`:''}
+      ${(currentProjectData?.kontrolleAktiv&&_objFilterShown('kontrolle'))?`<select id="of-kontrolle" style="${ss}"><option value="">Alle: Vor-Ort-Kontrolle</option><option value="ok"${objFilter.kontrolle==='ok'?' selected':''}>${dlEsc(kontrolleLabel('ok'))}</option><option value="loeschen"${objFilter.kontrolle==='loeschen'?' selected':''}>${dlEsc(kontrolleLabel('loeschen'))}</option></select>`:''}
       ${customFields.filter(c=>_objFilterShown('cf:'+c.key)).map(c=>`<select id="of-cf-${c.key}" style="${ss}">${opt(distinct(c.key),objFilter[c.key]||'','Alle: '+esc(c.label))}</select>`).join('')}
     </div>
     <label style="display:flex;align-items:center;gap:6px;margin-top:7px;font-size:11px;cursor:pointer;color:var(--text2);">
       <input type="checkbox" id="of-map"${objFilterOnMap?' checked':''}> Nur gefilterte auf der Karte zeigen
     </label>
   </div>`;
-  const wire={stadtteil:'of-stadtteil',art:'of-art',pflanzjahr:'of-pflanzjahr',zustand:'of-zustand',wasser:'of-wasser',status:'of-status'};
+  const wire={stadtteil:'of-stadtteil',art:'of-art',pflanzjahr:'of-pflanzjahr',zustand:'of-zustand',wasser:'of-wasser',status:'of-status',kontrolle:'of-kontrolle'};
   Object.entries(wire).forEach(([k,id])=>{ const s=document.getElementById(id); if(s) s.onchange=()=>{ objFilter[k]=s.value; applyObjFilter(); renderObjFilterUI(); }; });
   customFields.forEach(c=>{ const s=document.getElementById('of-cf-'+c.key); if(s) s.onchange=()=>{ objFilter[c.key]=s.value; applyObjFilter(); renderObjFilterUI(); }; });
   const mp=document.getElementById('of-map'); if(mp) mp.onchange=()=>{ objFilterOnMap=mp.checked; setMarkerVisibility(); _applyFlaechenFilterVisibility(); renderDrawnGeoms(); renderMapStatus(); };
@@ -2297,6 +2307,7 @@ function _objFilterFieldDefs(){
     {key:'zustand',label:FL.zustand},
     {key:'wasser',label:FL.wasser},
     {key:'status',label:'Meldestatus'},
+    ...(currentProjectData?.kontrolleAktiv?[{key:'kontrolle',label:'Vor-Ort-Kontrolle'}]:[]),
     ...customFields.map(c=>({key:'cf:'+c.key,label:c.label})),
   ];
 }
@@ -2913,7 +2924,7 @@ function _renderRkLegend(){
       row(kontrolleColor('ok'),kontrolleLabel('ok'),c.ok)+
       row(kontrolleColor('loeschen'),kontrolleLabel('loeschen'),c.loeschen)+
       row(kontrolleColor(''),kontrolleLabel(''),c.ungeprueft)+
-      (c.loeschen?`<div style="font-size:10px;color:var(--text3);margin-top:4px;">${c.loeschen} zur Löschung vorgeschlagen (rote Marker) — antippen, prüfen, ggf. im Objekt-Detail löschen.</div>`:'');
+      (c.loeschen?`<button onclick="showLoeschvorschlaege()" style="margin-top:6px;width:100%;border:1px solid ${kontrolleColor('loeschen')};background:none;color:${kontrolleColor('loeschen')};border-radius:6px;padding:5px 8px;font-size:11px;font-weight:600;cursor:pointer;">${c.loeschen} Löschvorschläge auflisten →</button>`:'');
   } else { el.style.display='none'; el.innerHTML=''; }
 }
 // Bounds aller Flächen der aktuell ausgewählten Touren (für „einpassen")
@@ -7317,6 +7328,7 @@ function toggleBenutzerTouren(){
 
 let _baeumeAllTrees = []; // cache for search
 let _baeumeNoGpsFilter = false;
+let _baeumeKontrolleFilter = ''; // ''|'loeschen'|'ok' — Tabelle auf Vor-Ort-Kontroll-Status einschränken (für Löschvorschlags-Liste)
 let _baeumeShowInactive = false;
 // ── Objekt-Tabelle: Spalten ein-/ausblenden (pro Browser gemerkt) ──────────
 let _baeumeHiddenCols = new Set();
@@ -7380,7 +7392,7 @@ function toggleShowAll(){
 // Alle Filter der Objekt-Tabelle zurücksetzen (✕-Button)
 function clearBaeumeFilters(){
   const s=document.getElementById('baeume-search'); if(s) s.value='';
-  _baeumeNoGpsFilter=false; _baeumeShowAll=false;
+  _baeumeNoGpsFilter=false; _baeumeShowAll=false; _baeumeKontrolleFilter='';
   updateBtnFilterNoGps();
   const b=document.getElementById('btn-show-all'); if(b){ b.style.background=''; b.style.color=''; b.style.borderColor=''; }
   filterBaeumeTable('');
@@ -7427,9 +7439,10 @@ function filterBaeumeTable(q){
     ? _baeumeAllTrees.filter(tree=>{ const h=_treeSearchStr(tree); return terms.every(t=>h.includes(t)); })
     : [..._baeumeAllTrees];
   if(_baeumeNoGpsFilter) filtered = filtered.filter(t => !t.lat || !t.lng);
+  if(_baeumeKontrolleFilter) filtered = filtered.filter(t => kontrolleNorm(t.kontrolle)===_baeumeKontrolleFilter);
   if(!_baeumeShowInactive) filtered = filtered.filter(isActive);
-  const hasFilter = q.trim() || _baeumeNoGpsFilter;
-  if(countEl) countEl.textContent = hasFilter ? `${filtered.length} Ergebnisse` : '';
+  const hasFilter = q.trim() || _baeumeNoGpsFilter || _baeumeKontrolleFilter;
+  if(countEl) countEl.textContent = _baeumeKontrolleFilter==='loeschen' ? `${filtered.length} Löschvorschläge` : (hasFilter ? `${filtered.length} Ergebnisse` : '');
   renderBaeumeTableWith(filtered);
 }
 
@@ -7446,6 +7459,7 @@ function renderBaeumeTable(){
   const base=_baeumeBase();
   _baeumeAllTrees = [...base]; // cache all (Objekt-)trees
   document.getElementById('baeume-search-count').textContent = '';
+  if(_baeumeKontrolleFilter || _baeumeNoGpsFilter){ filterBaeumeTable(document.getElementById('baeume-search')?.value||''); return; } // aktiven Kontroll-/GPS-Filter respektieren
   renderBaeumeTableWith(_baeumeShowInactive ? base : base.filter(isActive));
 }
 
@@ -19079,7 +19093,7 @@ Object.assign(window,{
   renderFieldCatalogView,openFieldDetail,closeFieldDetail,addListVal,renameListVal,mergeListVal,deleteListVal,buildListFromObjects,addCustomField,ewkFelderAnlegen,ewkSetArtMap,ewkSetYear,ewkAddManual,ewkManualHint,ewkStorno,renameCustomField,removeCustomField,_fillMerge,cfGeomToggle,
   rankAdd,rankRename,rankSetColor,rankSetZahl,rankSetZahlWinter,rankMove,rankMerge,rankDelete,
   saveHistoryEdits,deleteHistoryEntry,refreshControlling,loadTourHistoryForControlling,loadErfasser,addErfasser,removeErfasser,addReason,deleteReason,saveDriverAssignment,setCtrlPeriod,renderControlling,exportCtrlCSV,initControlling,
-  openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
+  openCtrlWidgetMenu,toggleCtrlWidget,resetCtrlWidgets,siSet,siSearch,siExportCsv,siQuickFilter,siResetFilters,initVerwaltung,addDriver,removeDriver,addReasonMgmt,deleteReasonMgmt,seedDefaultReasons,resetObjFilter,showLoeschvorschlaege,loadTourHistory,showHistoryDetail,exportHistoryCSV,openManagementReport,resetCtrlFilters,ctrlShowOnMap,
   importExcel,importShapefile,calculateAndSaveRoute,calculateAllRoutes,closeCtxMenu,ctxCalcActive,cancelAssign,setAssignTour,startAssignMode,rebuildAssignPills,lassoAction,lassoSetFieldDialog,clearLassoSelection,toggleBetriebshoefe,toggleBhNames,toggleRequiredFeld,toggleRawSeg,_siInfo,
   openPapierkorbAnalyse,closePapierkorbAnalyse,paSetScope,paSetDist,paSetDiff,paSetSameStreet,paZoom,paToggleMin,checkMenuAnalyse,
   createProject,openProject,showProjectScreen,confirmProjectSwitch,openGlobalSearch,toggleDarkMode,mgSet,mgSearch,setMeldungBearb,dashToggleHeute,dashSetDay,dashSetBh,tourSetBh,epChangeBh,epTogglePersnr,epToggleBhCol,psSetOrgFilter,setSiTab,
