@@ -1911,6 +1911,11 @@ async function calculateAndSaveRoute(tourId){
     if(depot && Array.isArray(segs) && segs.length){
       const a=segs[0], b=(getDepotMode()==='round'&&segs.length>1)?segs[segs.length-1]:null;
       anAb={anfKm:(a.distance||0)/1000, anfSec:Math.round(a.duration||0), abfKm:b?(b.distance||0)/1000:null, abfSec:b?Math.round(b.duration||0):null};
+    } else if(!depot){
+      // Diagnose statt stillem „—": ohne Depot-Koordinaten gibt es keine echte An-/Abfahrt in der Route
+      console.warn('An-/Abfahrt nicht ermittelbar:', tour.name, '— kein Startpunkt mit Koordinaten (Betriebshof der Tour ohne Koordinaten? Projekt-Depot fehlt?)');
+    } else {
+      console.warn('An-/Abfahrt nicht ermittelbar:', tour.name, '— ORS lieferte keine Etappen (Luftlinien-Fallback oder API-Antwort ohne segments)');
     }
   }
   // Save to Firestore — geojson serialized as string (Firestore doesn't support nested arrays)
