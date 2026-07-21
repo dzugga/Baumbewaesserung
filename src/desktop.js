@@ -759,6 +759,15 @@ async function openProject(projectId){
   _lassoActive=false; assignMode=false; lassoMode=false; lassoDrawing=false; lassoPoints=[]; assignTourId=null; lassoTourId=null;
   if(lassoSelection&&lassoSelection.size) lassoSelection.clear();
   activeTours.clear(); showUnplanned=false; showAllNeutral=false; activeTourOnMap=null;
+  // Schwebende Popups/Filter der VORIGEN Stadt schließen — sonst zeigen sie mandantenfremde Daten bzw.
+  // filtern die neue Stadt mit dem alten Suchbegriff (Tour-Vergleich, Füllstand-Auswertungen, Ziel-Tour-Picker)
+  _tvQ='';
+  try{ tourVergleichClose(); }catch(_){}
+  try{ _assignPickerClose(); }catch(_){}
+  try{ if(_fillObjCleanup){ _fillObjCleanup(); _fillObjCleanup=null; } }catch(_){}
+  try{ if(_dfaClose) _dfaClose(); }catch(_){}
+  _freshDrawId=null; // VOR closeTreeModal nullen — ein offenes Formular der alten Stadt darf im neuen Projekt nichts verwerfen
+  try{ closeTreeModal(); }catch(_){}
   Object.values(tourRoutes).forEach(r=>{ try{ map.removeLayer(r.layer); }catch(_){} }); tourRoutes={};
   document.getElementById('assign-lasso-banner')?.classList.remove('visible');
   document.getElementById('lasso-action-bar')?.classList.remove('visible');
@@ -769,6 +778,7 @@ async function openProject(projectId){
   const snap=await getDoc(doc(db,'projects',projectId));
   currentProjectData={id:projectId,...snap.data()};
   _pilotShowAll=false; // Pilot-„alle anzeigen" ist eine lokale Superadmin-Ansicht, pro Projekt zurücksetzen
+  if(currentView==='tourzuweisung'){ dtaProjectId=''; try{ renderTourZuweisung(); }catch(_){} } // offener Fahrer-Zuweisungs-Reiter zeigt sonst die vorige Stadt
   _resetAutoplanState(); // Auto-Planungs-Varianten/Rahmen/Auswahl gehören zum ALTEN Projekt — verwerfen (sonst Cross-Projekt-Schreiben)
   _listMode = currentProjectData.listAbschnitteDefault ? 'abschnitte' : 'objekte'; // Listen-Standard je Projekt
   document.getElementById('active-project-name').textContent=currentProjectData.name;
@@ -4387,6 +4397,16 @@ function renderList(){
   document.getElementById('list-count').textContent=`${filtered.length} ${_listMode==='abschnitte'?'Einträge':'Objekte'}`;
 }
 
+// Sprung-Animation nur bei KLEINEN Sprüngen (Ziel sichtbar, ≤2 Zoomstufen). Bei großen Sprüngen ohne
+// Animation springen: Mit updateWhenZooming:false (TILE_PERF) beginnt das Kachel-Laden sonst erst NACH
+// der Fluganimation — die Karte wirkt dann lange grau/verwaschen.
+function _jumpAnimate(target, targetZoom){
+  try{
+    if(target && target.getSouthWest) // LatLngBounds
+      return map.getBounds().intersects(target) && Math.abs(map.getBoundsZoom(target)-map.getZoom())<=2;
+    return map.getBounds().contains(target) && Math.abs((targetZoom!=null?targetZoom:map.getZoom())-map.getZoom())<=2;
+  }catch(_){ return false; }
+}
 function selectTree(id, pan=true){
   const prev=selectedTreeId;
   selectedTreeId=id;
@@ -4419,7 +4439,7 @@ function selectTree(id, pan=true){
         _clusterGroup.zoomToShowLayer(m, ()=>{ map.panTo([tree.lat,tree.lng],{animate:true,duration:0.3}); });
       } else {
         const tz=Math.max(map.getZoom(), 17); // beim Listen-Klick näher ans Objekt heranzoomen (nur rein, nie raus)
-        map.setView([tree.lat,tree.lng], tz, {animate:true});
+        map.setView([tree.lat,tree.lng], tz, {animate:_jumpAnimate([tree.lat,tree.lng], tz)});
       }
     }, wasOnMap ? 0 : 200);
   }
@@ -4432,7 +4452,7 @@ function selectTree(id, pan=true){
     setTimeout(()=>{ try{
       map.invalidateSize();
       const bb=_geomBbox(trees.find(x=>x.id===_lid)||tree);
-      if(pan && bb) map.fitBounds(L.latLngBounds([bb[0],bb[2]],[bb[1],bb[3]]),{padding:[60,60],maxZoom:18,animate:true});
+      if(pan && bb){ const _b=L.latLngBounds([bb[0],bb[2]],[bb[1],bb[3]]); map.fitBounds(_b,{padding:[60,60],maxZoom:18,animate:_jumpAnimate(_b)}); }
       renderDrawnGeoms(); // Hervorhebung sofort anwenden; das moveend nach dem Zoomen zeichnet den Ausschnitt ohnehin neu
     }catch(_){} }, wasOnMap?0:250);
   }
@@ -4443,7 +4463,7 @@ function selectTree(id, pan=true){
     setTimeout(()=>{ try{
       map.invalidateSize();
       const bb=_geomBbox(tree);
-      if(pan && bb) map.fitBounds(L.latLngBounds([bb[0],bb[2]],[bb[1],bb[3]]),{padding:[60,60],maxZoom:18,animate:true});
+      if(pan && bb){ const _b=L.latLngBounds([bb[0],bb[2]],[bb[1],bb[3]]); map.fitBounds(_b,{padding:[60,60],maxZoom:18,animate:_jumpAnimate(_b)}); }
       renderDrawnGeoms();
     }catch(_){} }, wasOnMap?0:250);
   }
@@ -17508,7 +17528,8 @@ function dispoFillAuswertungOpen(){
   </div>`;
   document.body.appendChild(modal);
   const _undrag=_dragModal(modal.querySelector('#df-box'), modal.querySelector('#df-head'));
-  const close=()=>{ destroyChart('dispoFillBig'); _undrag(); modal.remove(); document.removeEventListener('keydown',esc); };
+  const close=()=>{ destroyChart('dispoFillBig'); _undrag(); modal.remove(); document.removeEventListener('keydown',esc); _dfaClose=null; };
+  _dfaClose=close; // globaler Griff — Projektwechsel schließt das Popup (sonst zeigt es die alte Stadt)
   const esc=e=>{ if(e.key==='Escape') close(); };
   document.addEventListener('keydown',esc);
   modal.addEventListener('click',e=>{ if(e.target.closest('[data-close]')) close(); });
@@ -17582,7 +17603,7 @@ function _fillStatsOne(t){
 }
 // Einzel-Auswertung eines Papierkorbs: schwebendes, verschiebbares Panel (Rechtsklick auf Marker /
 // Kontextmenü der Hauptkarte). Kein Abdunkeln — die Karte bleibt sichtbar und bedienbar.
-let _fillObjCleanup=null;
+let _fillObjCleanup=null, _dfaClose=null;
 function dispoFillObjektOpen(id, x, y){
   const t=trees.find(v=>v.id===id);
   if(!t){
