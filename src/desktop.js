@@ -1236,7 +1236,7 @@ function _sollWarnDialog(over, tour, total){
     m.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:460px;max-width:94vw;overflow:hidden;">
       <div style="padding:16px 20px 10px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;color:#1d4ed8;">⚠ Soll bereits erfüllt — Objekte wären überplant</div>
       <div style="padding:14px 20px;font-size:13px;color:var(--text2);line-height:1.6;">
-        <b>${over.length}</b> von <b>${total}</b> ausgewählten Objekten haben ihr Wochen-Soll bereits erfüllt — die Zuweisung zu <b>${dlEsc(tour?.name||'Tour')}</b> würde sie überplanen:
+        <b>${over.length}</b> von <b>${total}</b> ausgewählten Objekten haben ihr Wochen-Soll bereits erfüllt — ${tour?`die Zuweisung zu <b>${dlEsc(tour.name||'Tour')}</b>`:'die neue Tour-Auswahl'} würde sie überplanen:
         <div style="max-height:190px;overflow-y:auto;margin-top:8px;">${rows}</div>
       </div>
       <div style="padding:10px 16px 16px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
@@ -4928,6 +4928,21 @@ async function saveInlineFields(id){
   const tree0=trees.find(t=>t.id===id);
   const hiddenUeb=(tree0?getTreeTourIds(tree0):[]).filter(tid=>isOverviewTour(tid) && !rendered.has(tid));
   const selectedTourIds=[...new Set([...checked,...hiddenUeb])];
+  // Soll-Check: die neue Tour-Auswahl würde das Wochen-Soll ÜBERSCHREITEN → Warnung.
+  // Nur wenn der Plan gegenüber vorher STEIGT — eine Reduzierung Richtung Soll wird nie blockiert.
+  if(tree0){
+    const _saison=_curCheckSaison(), _today=_todayStr();
+    const soll=sollFreqProWoche(tree0,_saison);
+    if(soll!=null){
+      const occOf=ids=>ids.reduce((s,tid)=>{ const t=tours.find(x=>x.id===tid); return (!t||t.uebersicht)?s:s+_tourWeeklyOcc(t,_saison,_today); },0);
+      const oldPlan=occOf(getTreeTourIds(tree0));
+      const newPlan=occOf(selectedTourIds);
+      if(newPlan>soll+1e-6 && newPlan>oldPlan+1e-6){
+        const r=await _sollWarnDialog([{t:tree0,ps:{soll,plan:oldPlan},newPlan}], null, 1);
+        if(r!=='all') return;
+      }
+    }
+  }
   const updates={};
   // ''-Leerwert („– keine –") bewusst MIT speichern — sonst ließe sich ein Rang nie zurücksetzen
   if(wasser!==undefined)updates.wasser=wasser;
