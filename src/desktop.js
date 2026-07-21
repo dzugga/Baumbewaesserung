@@ -3490,11 +3490,11 @@ function renderDepotMarker(){
 // ─── TOUR-VERGLEICH (verschiebbares + resizierbares Popup: Tabelle | Balken) ──────────────
 // Vergleicht die Leistungen der Touren (Objekte, Strecke, Fahrt/Tätigkeit, Restzeit, Auslastung)
 // auf einen Blick — gruppierbar (Betriebshof/Rhythmus/System), live bei Auswahl-Änderungen.
-let _tvView='tabelle', _tvGroup='betriebshof', _tvOnlyActive=true, _tvSort={key:'gesamtMin',dir:-1}, _tvUndrag=null, _tvRO=null, _tvQ='';
+let _tvView='tabelle', _tvGroup='betriebshof', _tvOnlyActive=false, _tvSort={key:'gesamtMin',dir:-1}, _tvUndrag=null, _tvRO=null, _tvQ='';
 function _tvIntervalLabel(t){ const iv=t.interval||''; if(iv==='bedarf') return 'Bedarf'; if(String(iv).startsWith('2')) return '2-wöchentlich'; if(String(iv).startsWith('4')) return '4-wöchentlich'; return 'wöchentlich'; }
 function _tvStats(){
   let list=tours.filter(t=>!t.uebersicht&&_tourBhVis(t.betriebshof));
-  if(_tvOnlyActive&&activeTours.size) list=list.filter(t=>activeTours.has(t.id));
+  if(_tvOnlyActive) list=list.filter(t=>activeTours.has(t.id)); // strikt: keine Tour angehakt → leere Liste
   if((_tvQ||'').trim()) list=list.filter(t=>matchTerms(t.name,_tvQ)); // Suchfeld — gleiche Logik wie die Legenden-Suche
   return list.map(t=>{
     const members=trees.filter(x=>treeInTour(x,t.id)&&isActive(x));
@@ -3580,7 +3580,7 @@ function _tvRenderBody(){
   const box=document.getElementById('tour-vergleich'); if(!box) return;
   const body=box.querySelector('#tv-body'); if(!body) return;
   const stats=_tvStats();
-  if(!stats.length){ body.innerHTML=`<div style="padding:20px;font-size:12px;color:var(--text3);">Keine Touren gefunden${(_tvQ||'').trim()?' — Suchbegriff prüfen':''}${_tvOnlyActive&&activeTours.size?' (Filter „nur eingeblendete" aktiv)':''}.</div>`; return; }
+  if(!stats.length){ body.innerHTML=`<div style="padding:20px;font-size:12px;color:var(--text3);">${_tvOnlyActive&&!activeTours.size?'Keine Tour eingeblendet — in der Legende Touren anhaken oder den Filter „nur eingeblendete" ausschalten.':`Keine Touren gefunden${(_tvQ||'').trim()?' — Suchbegriff prüfen':''}${_tvOnlyActive?' (Filter „nur eingeblendete" aktiv)':''}.`}</div>`; return; }
   const dir=_tvSort.dir, key=_tvSort.key;
   const val=s=>key==='name'?(s.t.name||''):(s[key]==null?null:s[key]);
   stats.sort((a,b)=>{ const x=val(a),y=val(b);
