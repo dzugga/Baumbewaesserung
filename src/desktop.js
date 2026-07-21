@@ -1219,6 +1219,41 @@ function ruleWarnDialog(bodyHtml, okLabel, matchLabel){
   });
 }
 
+// Soll-Warnung beim Verplanen: Objekte, deren Wochen-Soll bereits erfüllt ist und die durch die
+// Zuweisung ÜBERPLANT würden — mit Auflistung und Wahl „trotzdem alle" / „nur die unter Soll".
+// Liefert Promise<'cancel'|'matching'|'all'>.
+function _sollWarnDialog(over, tour, total){
+  const fmt=v=>+(+v).toFixed(2);
+  const rows=over.slice(0,12).map(o=>`<div style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid var(--border);font-size:12px;">
+      <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(o.t.name||o.t.baumId||'Objekt')}</span>
+      <span style="flex-shrink:0;color:var(--text3);">Soll ${fmt(o.ps.soll)} · Plan ${fmt(o.ps.plan)} → <b style="color:#3b82f6;">${fmt(o.newPlan)}</b></span>
+    </div>`).join('')
+    +(over.length>12?`<div style="padding:4px 0;font-size:11px;color:var(--text3);">… und ${over.length-12} weitere</div>`:'');
+  const under=total-over.length;
+  return new Promise(resolve=>{
+    const m=document.createElement('div');
+    m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;';
+    m.innerHTML=`<div style="background:var(--surface);border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.2);width:460px;max-width:94vw;overflow:hidden;">
+      <div style="padding:16px 20px 10px;border-bottom:1px solid var(--border);font-size:15px;font-weight:700;color:#1d4ed8;">⚠ Soll bereits erfüllt — Objekte wären überplant</div>
+      <div style="padding:14px 20px;font-size:13px;color:var(--text2);line-height:1.6;">
+        <b>${over.length}</b> von <b>${total}</b> ausgewählten Objekten haben ihr Wochen-Soll bereits erfüllt — die Zuweisung zu <b>${dlEsc(tour?.name||'Tour')}</b> würde sie überplanen:
+        <div style="max-height:190px;overflow-y:auto;margin-top:8px;">${rows}</div>
+      </div>
+      <div style="padding:10px 16px 16px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
+        <button class="btn btn-secondary" data-x="cancel">Abbrechen</button>
+        ${under>0?`<button class="btn btn-secondary" data-x="matching" style="border-color:var(--green);color:var(--green);">Nur Objekte unter Soll (${under})</button>`:''}
+        <button class="btn btn-primary" data-x="all">Trotzdem alle zuweisen</button>
+      </div>
+    </div>`;
+    m.addEventListener('click',e=>{
+      if(e.target===m){ document.body.removeChild(m); resolve('cancel'); return; }
+      const b=e.target.closest('[data-x]'); if(!b) return;
+      document.body.removeChild(m); resolve(b.dataset.x);
+    });
+    document.body.appendChild(m);
+  });
+}
+
 function getDepotMode(){ return currentProjectData?.depotMode||'round'; }
 // Routen-Optimierung: 'nn' = bisherige Variante (Luftlinie, Nearest-Neighbor)
 //                     'matrix' = echte ORS-Fahrzeiten-Matrix + 2-opt
@@ -5758,6 +5793,15 @@ async function assignTreeToTour(treeId,tourId,skipConflictCheck=false){
     if(viol.length){
       const r=await ruleWarnDialog(`<b>${dlEsc(tree.name||'Objekt')}</b> passt nicht zu den Regeln von <b>${dlEsc(tour?.name||'Tour')}</b>.<br><span style="color:var(--text3);">Abweichung bei: ${viol.map(dlEsc).join(', ')}</span>`);
       if(r!=='all') return; // Einzelobjekt: nur „Trotzdem zuweisen" fährt fort
+    }
+  }
+  // Soll-Check (Einzelobjekt): Wochen-Soll bereits erfüllt und die Zuweisung würde überplanen → Warnung
+  if(!skipConflictCheck){
+    const ps=planStatusOf(tree);
+    const occT=_tourWeeklyOcc(tour,_curCheckSaison(),_todayStr());
+    if(ps&&ps.soll!=null&&occT>0&&(ps.plan+occT)>ps.soll+1e-6){
+      const r=await _sollWarnDialog([{t:tree,ps,newPlan:ps.plan+occT}], tour, 1);
+      if(r!=='all') return; // Einzelobjekt: nur „Trotzdem" fährt fort
     }
   }
   // Bereits anderen ECHTEN Tour(en) zugeordnet → Hinweisdialog (Übersichten zählen nicht als Konflikt)
@@ -14641,6 +14685,30 @@ async function lassoAction(mode){
       if(pick==='cancel'){ renderLassoActions(); return; }
       moveSources = pick==='__all__' ? new Set(srcs.map(s=>s.id)) : new Set([pick]);
     } // 0 Quellen → wirkt wie Hinzufügen
+  }
+  // Soll-Check: Objekte, deren Wochen-Soll durch die Zuweisung ÜBERSCHRITTEN würde → Warnung mit
+  // Auflistung; wahlweise nur die Objekte unter Soll zuweisen. (Beim Verschieben zählt der Wegfall
+  // der gewählten Quell-Tour(en) mit — der Neu-Plan ist der tatsächliche Stand nach der Aktion.)
+  if(mode==='add'||mode==='move'){
+    const _saison=_curCheckSaison(), _today=_todayStr();
+    const occT=_tourWeeklyOcc(tour,_saison,_today);
+    const over=[];
+    if(occT>0) targets.forEach(t=>{
+      const ps=planStatusOf(t); if(!ps||ps.soll==null) return;
+      let removed=0;
+      if(mode==='move') realTourIds(t).forEach(id=>{ if(moveSources.has(id)) removed+=_tourWeeklyOcc(tours.find(x=>x.id===id),_saison,_today); });
+      const newPlan=ps.plan+occT-removed;
+      if(newPlan>ps.soll+1e-6) over.push({t,ps,newPlan});
+    });
+    if(over.length){
+      const r=await _sollWarnDialog(over, tour, targets.length);
+      if(r==='cancel'){ renderLassoActions(); return; }
+      if(r==='matching'){
+        const overIds=new Set(over.map(o=>o.t.id));
+        targets=targets.filter(t=>!overIds.has(t.id));
+        if(!targets.length){ notify('Nichts zugewiesen — alle ausgewählten Objekte hätten ihr Soll überschritten'); renderLassoActions(); return; }
+      }
+    }
   }
   // Betroffene echte Touren merken → deren gespeicherte Route ist danach veraltet (Zusammenstellung geändert)
   const _affectedTours=new Set();
