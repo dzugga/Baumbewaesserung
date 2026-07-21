@@ -3480,11 +3480,12 @@ function renderDepotMarker(){
 // ─── TOUR-VERGLEICH (verschiebbares + resizierbares Popup: Tabelle | Balken) ──────────────
 // Vergleicht die Leistungen der Touren (Objekte, Strecke, Fahrt/Tätigkeit, Restzeit, Auslastung)
 // auf einen Blick — gruppierbar (Betriebshof/Rhythmus/System), live bei Auswahl-Änderungen.
-let _tvView='tabelle', _tvGroup='betriebshof', _tvOnlyActive=true, _tvSort={key:'gesamtMin',dir:-1}, _tvUndrag=null, _tvRO=null;
+let _tvView='tabelle', _tvGroup='betriebshof', _tvOnlyActive=true, _tvSort={key:'gesamtMin',dir:-1}, _tvUndrag=null, _tvRO=null, _tvQ='';
 function _tvIntervalLabel(t){ const iv=t.interval||''; if(iv==='bedarf') return 'Bedarf'; if(String(iv).startsWith('2')) return '2-wöchentlich'; if(String(iv).startsWith('4')) return '4-wöchentlich'; return 'wöchentlich'; }
 function _tvStats(){
   let list=tours.filter(t=>!t.uebersicht&&_tourBhVis(t.betriebshof));
   if(_tvOnlyActive&&activeTours.size) list=list.filter(t=>activeTours.has(t.id));
+  if((_tvQ||'').trim()) list=list.filter(t=>matchTerms(t.name,_tvQ)); // Suchfeld — gleiche Logik wie die Legenden-Suche
   return list.map(t=>{
     const members=trees.filter(x=>treeInTour(x,t.id)&&isActive(x));
     const tm=tourMetrics(t.id);
@@ -3508,7 +3509,13 @@ function tourVergleichClose(){
   document.getElementById('tour-vergleich')?.remove();
   document.removeEventListener('keydown',_tvEsc);
 }
-function _tvEsc(e){ if(e.key==='Escape') tourVergleichClose(); }
+function _tvEsc(e){
+  if(e.key!=='Escape') return;
+  // Esc im Suchfeld mit Inhalt: erst die Suche leeren, erst der zweite Esc schließt das Fenster
+  const inp=document.getElementById('tv-search');
+  if(inp && document.activeElement===inp && inp.value){ inp.value=''; _tvQ=''; _tvRenderBody(); return; }
+  tourVergleichClose();
+}
 function tourVergleichOpen(){
   tourVergleichClose();
   let saved=null; try{ saved=JSON.parse(localStorage.getItem('bwt_tv_size')||'null'); }catch(_){}
@@ -3522,6 +3529,7 @@ function tourVergleichOpen(){
       <span style="display:inline-flex;border:1px solid var(--border);border-radius:7px;overflow:hidden;">
         ${[['tabelle','Tabelle'],['balken','Balken']].map(([k,l])=>`<button type="button" data-tvview="${k}" style="border:none;padding:3px 11px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;background:${_tvView===k?'var(--green-light)':'var(--bg)'};color:${_tvView===k?'var(--green)':'var(--text2)'};">${l}</button>`).join('')}
       </span>
+      <input id="tv-search" type="text" placeholder="Tour suchen…" autocomplete="off" value="${dlEsc(_tvQ)}" style="flex:1;min-width:100px;max-width:200px;padding:3px 9px;font-size:11px;border:1px solid var(--border);border-radius:7px;background:var(--bg);font-family:inherit;outline:none;color:var(--text);">
       <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text3);margin-left:auto;">Gruppieren
         <select id="tv-group" style="font-size:11px;padding:2px 5px;border:1px solid var(--border);border-radius:6px;background:var(--bg);font-family:inherit;">
           ${[['betriebshof','Betriebshof'],['interval','Rhythmus'],['system','Reinigungssystem'],['none','keine']].map(([k,l])=>`<option value="${k}"${_tvGroup===k?' selected':''}>${l}</option>`).join('')}
@@ -3545,6 +3553,7 @@ function tourVergleichOpen(){
   box.querySelector('[data-tvclose]').onclick=tourVergleichClose;
   box.querySelectorAll('[data-tvview]').forEach(b=>b.onclick=()=>{ _tvView=b.dataset.tvview; tourVergleichOpen(); });
   box.querySelector('#tv-group').onchange=e=>{ _tvGroup=e.target.value; _tvRenderBody(); };
+  box.querySelector('#tv-search').oninput=e=>{ _tvQ=e.target.value; _tvRenderBody(); };
   box.querySelector('#tv-active').onclick=()=>{ _tvOnlyActive=!_tvOnlyActive; tourVergleichOpen(); };
   box.querySelector('#tv-csv').onclick=_tvCsv;
   // Größe merken + Spalten an die Breite anpassen (Namen bekommen beim Aufziehen zuerst Platz)
@@ -3560,7 +3569,7 @@ function _tvRenderBody(){
   const box=document.getElementById('tour-vergleich'); if(!box) return;
   const body=box.querySelector('#tv-body'); if(!body) return;
   const stats=_tvStats();
-  if(!stats.length){ body.innerHTML='<div style="padding:20px;font-size:12px;color:var(--text3);">Keine Touren (Filter „nur eingeblendete" aktiv?).</div>'; return; }
+  if(!stats.length){ body.innerHTML=`<div style="padding:20px;font-size:12px;color:var(--text3);">Keine Touren gefunden${(_tvQ||'').trim()?' — Suchbegriff prüfen':''}${_tvOnlyActive&&activeTours.size?' (Filter „nur eingeblendete" aktiv)':''}.</div>`; return; }
   const dir=_tvSort.dir, key=_tvSort.key;
   const val=s=>key==='name'?(s.t.name||''):(s[key]==null?null:s[key]);
   stats.sort((a,b)=>{ const x=val(a),y=val(b);
