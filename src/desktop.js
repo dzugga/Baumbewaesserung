@@ -5501,7 +5501,7 @@ function startAssignMode(){
   if(!currentProjectId){notify('Bitte zuerst ein Projekt öffnen');return;}
   if(tours.length===0){notify('Bitte zuerst eine Tour anlegen');return;}
   showOverviewInAssign=false;
-  const startTour=(tours.find(t=>!t.uebersicht)||tours[0]).id; // bevorzugt erste ECHTE Tour
+  const startTour=(tours.find(t=>!t.uebersicht&&activeTours.has(t.id))||tours.find(t=>!t.uebersicht)||tours[0]).id; // bevorzugt eingeblendete, sonst erste ECHTE Tour
   assignMode=true;lassoMode=false;assignTourId=startTour;lassoTourId=startTour;
   lassoPoints=[];lassoDrawing=false;
   _lassoActive=false;
@@ -5585,22 +5585,75 @@ function startAssignMode(){
 }
 
 function rebuildAssignPills(){
-  const sel = document.getElementById('assign-tour-select');
-  if(!sel) return;
   const echte=tours.filter(t=>!t.uebersicht);
   const ueb=tours.filter(t=>t.uebersicht);
-  const opt=t=>`<option value="${t.id}" style="color:#111;background:#fff;">${dlEsc(t.name)}</option>`;
-  let html=echte.map(opt).join('');
-  // Übersichten nur nach Bedarf (eigene Gruppe), per Umschalt-Eintrag ein-/ausblendbar
-  if(showOverviewInAssign && ueb.length) html+=`<optgroup label="Übersichten" style="color:#111;">${ueb.map(opt).join('')}</optgroup>`;
-  if(ueb.length) html+=`<option value="__toggle_overview__" style="color:#2d6a4f;background:#fff;">${showOverviewInAssign?'− Übersichten ausblenden':'+ Übersichten einblenden…'}</option>`;
-  sel.innerHTML=html;
   // Gültige Auswahl sicherstellen (keine ausgeblendete Übersicht aktiv lassen)
   const valid=tours.some(t=>t.id===assignTourId) && (showOverviewInAssign || !isOverviewTour(assignTourId));
   if(!valid) assignTourId=(echte[0]||ueb[0])?.id||null;
   lassoTourId=assignTourId;
-  if(assignTourId) sel.value=assignTourId;
+  _assignBtnSync();
   updateAssignSwatch();
+  const p=document.getElementById('assign-tour-panel');
+  if(p && p.style.display!=='none') _assignPickerRenderList();
+}
+function _assignBtnSync(){
+  const el=document.getElementById('assign-tour-btn-label'); if(!el) return;
+  const t=tours.find(v=>v.id===assignTourId);
+  el.textContent=t?(t.name||'Tour'):'– Tour wählen –';
+}
+
+// ── Ziel-Tour-Picker (durchsuchbar; eingeblendete Touren oben) ──
+let _assignPickerQ='';
+function assignPickerToggle(){
+  const p=document.getElementById('assign-tour-panel'); if(!p) return;
+  if(p.style.display!=='none'){ _assignPickerClose(); return; }
+  _assignPickerQ='';
+  const inp=document.getElementById('atp-search'); if(inp) inp.value='';
+  p.style.display='block';
+  _assignPickerRenderList();
+  if(inp) setTimeout(()=>inp.focus(),0);
+  setTimeout(()=>document.addEventListener('mousedown',_assignPickerOutside,true),0);
+}
+function _assignPickerClose(){
+  const p=document.getElementById('assign-tour-panel'); if(p) p.style.display='none';
+  document.removeEventListener('mousedown',_assignPickerOutside,true);
+}
+function _assignPickerOutside(e){ if(!e.target.closest('#assign-tour-panel,#assign-tour-btn')) _assignPickerClose(); }
+function assignPickerFilter(q){ _assignPickerQ=(q||'').trim().toLowerCase(); _assignPickerRenderList(); }
+function _assignPickerRenderList(){
+  const list=document.getElementById('atp-list'); if(!list) return;
+  const q=_assignPickerQ;
+  const match=t=>!q||(t.name||'').toLowerCase().includes(q);
+  const byName=(a,b)=>(a.name||'').localeCompare(b.name||'');
+  const echte=tours.filter(t=>!t.uebersicht&&match(t));
+  const act=echte.filter(t=>activeTours.has(t.id)).sort(byName);      // in der Legende eingeblendet → oben
+  const rest=echte.filter(t=>!activeTours.has(t.id)).sort(byName);
+  const ueb=showOverviewInAssign?tours.filter(t=>t.uebersicht&&match(t)).sort(byName):[];
+  const row=t=>{ const cur=t.id===assignTourId;
+    return `<div onclick="assignPickerChoose('${_jsArg(t.id)}')" style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;font-size:12px;cursor:pointer;${cur?'background:var(--green-light);color:var(--green);font-weight:600;':''}" onmouseover="if(!${cur})this.style.background='var(--surface2)'" onmouseout="this.style.background='${cur?'var(--green-light)':''}'">
+      <span style="width:10px;height:10px;border-radius:50%;background:${t.color||'#888'};flex-shrink:0;"></span>
+      <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${dlEsc(t.name||'Tour')}</span>
+      ${cur?'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" style="margin-left:auto;flex-shrink:0;"><path d="M20 6 9 17l-5-5"/></svg>':''}
+    </div>`; };
+  const grp=l=>`<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);padding:6px 8px 3px;">${l}</div>`;
+  let html='';
+  if(act.length) html+=grp('Eingeblendet')+act.map(row).join('');
+  if(rest.length) html+=grp(act.length?'Weitere Touren':'Touren')+rest.map(row).join('');
+  if(ueb.length) html+=grp('Übersichten')+ueb.map(row).join('');
+  if(!html) html=`<div style="padding:10px 8px;font-size:12px;color:var(--text3);">Keine Tour gefunden.</div>`;
+  if(tours.some(t=>t.uebersicht)) html+=`<div onclick="assignPickerChoose('__toggle_overview__')" style="border-top:1px solid var(--border);margin-top:4px;padding:7px 8px 3px;font-size:11px;color:var(--green);cursor:pointer;">${showOverviewInAssign?'− Übersichten ausblenden':'+ Übersichten einblenden…'}</div>`;
+  list.innerHTML=html;
+  // Enter im Suchfeld = ersten Treffer übernehmen
+  const inp=document.getElementById('atp-search');
+  if(inp) inp.onkeydown=e=>{
+    if(e.key==='Escape'){ _assignPickerClose(); return; }
+    if(e.key==='Enter'){ const first=(act[0]||rest[0]||ueb[0]); if(first) assignPickerChoose(first.id); }
+  };
+}
+function assignPickerChoose(id){
+  if(id==='__toggle_overview__'){ showOverviewInAssign=!showOverviewInAssign; rebuildAssignPills(); _assignPickerRenderList(); renderLassoActions(); return; }
+  setAssignTour(id);
+  _assignPickerClose();
 }
 
 function setAssignTour(id){
@@ -5610,8 +5663,7 @@ function setAssignTour(id){
     return;
   }
   assignTourId=id;lassoTourId=id;
-  const sel=document.getElementById('assign-tour-select');
-  if(sel) sel.value=id;
+  _assignBtnSync();
   updateAssignSwatch();
   renderLassoActions(); // Ziel-Tour-Name in den Aktions-Buttons aktualisieren
   if(assignMode){ refreshMarkers(); try{ renderDrawnGeoms(); }catch(_){} } // neue Ziel-Tour farblich einblenden
@@ -5624,6 +5676,7 @@ function updateAssignSwatch(){
 }
 
 function cancelAssign(){
+  _assignPickerClose();
   _lassoActive=false;
   assignMode=false;lassoMode=false;lassoDrawing=false;lassoPoints=[];
   assignTourId=null;lassoTourId=null;
@@ -14428,7 +14481,10 @@ function renderLassoActions(){
   const tn=dlEsc(tour?.name||'Tour');
   const btn=(act,label,bg)=>`<button onclick="lassoAction('${act}')" style="padding:4px 11px;font-size:12px;font-weight:600;border:none;border-radius:var(--radius-sm);background:${bg};color:#fff;cursor:pointer;white-space:nowrap;">${label}</button>`;
   const _st=_lassoStandorte();
-  bar.innerHTML=`<span style="font-weight:700;">${n} ausgewählt${_st<n?` <span style="font-weight:600;color:#fde68a;" title="Mehrere Datensätze liegen auf demselben Punkt">· nur ${_st} Standorte!</span>`:''}</span>
+  // Herkunft der Auswahl: Anzahl echter Touren, in denen die gewählten Objekte stecken (Transparenz vor „verschieben")
+  const _selTours=(()=>{ const s=new Set(); const byId=new Map(trees.map(t=>[t.id,t]));
+    lassoSelection.forEach(id=>{ const t=byId.get(id); if(t) realTourIds(t).forEach(x=>s.add(x)); }); return s; })();
+  bar.innerHTML=`<span style="font-weight:700;">${n} ausgewählt${_st<n?` <span style="font-weight:600;color:#fde68a;" title="Mehrere Datensätze liegen auf demselben Punkt">· nur ${_st} Standorte!</span>`:''}${_selTours.size>1?` <span style="font-weight:600;color:#bae6fd;" title="Die Auswahl steckt in mehreren Touren — beim Verschieben wird gefragt, aus welcher entfernt wird">· aus ${_selTours.size} Touren</span>`:''}</span>
     ${_lassoZeitPreview(tour)}
     ${btn('add','➕ Zu „'+tn+'“ hinzufügen','rgba(255,255,255,.18)')}
     ${btn('move','➡ Nach „'+tn+'“ verschieben','rgba(255,255,255,.18)')}
@@ -14487,6 +14543,39 @@ function lassoSetFieldDialog(){
     clearLassoSelection();
   };
 }
+// Verschieben bei mehreren Quell-Touren: Nutzer wählt EXPLIZIT, aus welcher Tour entfernt wird.
+// Liefert Promise<'cancel' | '__all__' | tourId>.
+function _movePickSourceDialog(srcs, targetTour, count){
+  return new Promise(resolve=>{
+    const m=document.createElement('div');
+    m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
+    m.innerHTML=`<div style="background:var(--surface);border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.25);width:420px;max-width:94vw;padding:16px 18px;">
+      <div style="font-size:14px;font-weight:700;margin-bottom:4px;">${count} Objekt${count===1?'':'e'} verschieben nach „${dlEsc(targetTour?.name||'Tour')}"</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:12px;line-height:1.5;">Die Auswahl ist derzeit in mehreren Touren. Aus welcher Tour sollen die Objekte entfernt werden?</div>
+      ${srcs.map((s,i)=>`<label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;font-size:12px;cursor:pointer;">
+        <input type="radio" name="mps" value="${_jsArg(s.id)}"${i===0?' checked':''} style="accent-color:var(--green);">
+        <span style="width:10px;height:10px;border-radius:50%;background:${s.tour.color||'#888'};flex-shrink:0;"></span>
+        <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Nur aus „${dlEsc(s.tour.name||'Tour')}"</span>
+        <span style="margin-left:auto;flex-shrink:0;color:var(--text3);">${s.n} Objekt${s.n===1?'':'e'}</span>
+      </label>`).join('')}
+      <label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:10px;font-size:12px;cursor:pointer;">
+        <input type="radio" name="mps" value="__all__" style="accent-color:var(--green);">
+        <span style="color:#b45309;">⚠</span><span>Aus <b>allen</b> bisherigen Touren entfernen</span>
+      </label>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:12px;line-height:1.5;">Andere Touren bleiben unberührt. Objekte, die nicht in der gewählten Quelle sind, werden dem Ziel nur hinzugefügt.</div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button type="button" id="mps-cancel" class="btn btn-secondary" style="padding:6px 12px;font-size:12px;">Abbrechen</button>
+        <button type="button" id="mps-ok" class="btn btn-primary" style="padding:6px 14px;font-size:12px;">Verschieben</button>
+      </div>
+    </div>`;
+    document.body.appendChild(m);
+    const done=v=>{ m.remove(); resolve(v); };
+    m.querySelector('#mps-cancel').onclick=()=>done('cancel');
+    m.querySelector('#mps-ok').onclick=()=>{ const r=m.querySelector('input[name="mps"]:checked'); done(r?r.value:'cancel'); };
+    m.addEventListener('click',e=>{ if(e.target===m) done('cancel'); });
+  });
+}
+
 // Aktion auf die Vorauswahl anwenden: 'add' | 'move' | 'unplan'
 async function lassoAction(mode){
   let targets=[...lassoSelection].map(id=>trees.find(t=>t.id===id)).filter(Boolean).filter(t=>!_isRawSeg(t)); // Roh-Segmente ohne Typ/Art sind nicht planbar
@@ -14525,10 +14614,25 @@ async function lassoAction(mode){
     targets = tourId ? targets.filter(t=>treeInTour(t,tourId)) : targets.filter(t=>realTourIds(t).length>0);
     if(!targets.length){ notify(tourId?`⚠ Nichts entfernt — die Auswahl war nicht in „${tour?.name||'Tour'}"`:'⚠ Nichts entfernt — die Auswahl war in keiner Tour'); renderLassoActions(); return; }
   }
+  // Verschieben: Quelle EXPLIZIT bestimmen — es werden nur Ziel-Tour + gewählte Quelle angefasst,
+  // andere Touren bleiben unberührt (Objekte in mehreren Touren, z. B. Sommer/Winter-Kopien!).
+  let moveSources=new Set();
+  if(mode==='move'){
+    const srcCount=new Map();
+    targets.forEach(t=>realTourIds(t).filter(x=>x!==tourId).forEach(x=>srcCount.set(x,(srcCount.get(x)||0)+1)));
+    const srcs=[...srcCount.entries()].map(([id,n])=>({id,n,tour:tours.find(v=>v.id===id)})).filter(s=>s.tour).sort((a,b)=>b.n-a.n);
+    if(srcs.length===1) moveSources=new Set([srcs[0].id]);           // eindeutig → kein Dialog
+    else if(srcs.length>1){
+      const pick=await _movePickSourceDialog(srcs, tour, targets.length);
+      if(pick==='cancel'){ renderLassoActions(); return; }
+      moveSources = pick==='__all__' ? new Set(srcs.map(s=>s.id)) : new Set([pick]);
+    } // 0 Quellen → wirkt wie Hinzufügen
+  }
   // Betroffene echte Touren merken → deren gespeicherte Route ist danach veraltet (Zusammenstellung geändert)
   const _affectedTours=new Set();
   if(mode==='unplan' && tourId){ _affectedTours.add(tourId); } // nur die ausgewählte Tour ist betroffen
-  else { if(mode==='add'||mode==='move') _affectedTours.add(tourId); targets.forEach(t=>realTourIds(t).forEach(x=>_affectedTours.add(x))); }
+  else if(mode==='move'){ _affectedTours.add(tourId); moveSources.forEach(x=>_affectedTours.add(x)); } // nur Ziel + gewählte Quelle(n)
+  else { if(mode==='add') _affectedTours.add(tourId); targets.forEach(t=>realTourIds(t).forEach(x=>_affectedTours.add(x))); }
   // Undo-Snapshot: vorherige Zuordnungen VOR dem Schreiben festhalten (Rückgängig-Leiste nach Abschluss)
   const _undoSnap=targets.map(t=>({id:t.id, tourIds:[...getTreeTourIds(t)], tourId:t.tourId||''}));
   const _undoPid=currentProjectId;
@@ -14546,7 +14650,7 @@ async function lassoAction(mode){
         const uebersichten=getTreeTourIds(tree).filter(id=>isOverviewTour(id));
         let newIds;
         if(mode==='add') newIds=[...new Set([...getTreeTourIds(tree),tourId])];
-        else if(mode==='move') newIds=[...new Set([tourId,...uebersichten])];
+        else if(mode==='move') newIds=[...new Set([tourId,...getTreeTourIds(tree).filter(x=>x!==tourId&&!moveSources.has(x))])]; // nur gewählte Quelle(n) raus — Dritt-Touren + Übersichten bleiben
         else newIds = tourId
           ? getTreeTourIds(tree).filter(x=>x!==tourId)   // unplan mit Tour-Auswahl: NUR diese Tour entfernen
           : uebersichten;                                 // ohne Auswahl: aus allen echten Touren raus (Übersicht bleibt)
@@ -14575,7 +14679,10 @@ async function lassoAction(mode){
   renderLassoActions();
   _refreshTourPanelsDebounced(); // Zeit/Strecke im Kennzahlen-Panel + Legende sofort nachziehen (v. a. Zeitbasis „System")
   setSyncState('ok','Synchronisiert');
-  const verb=mode==='add'?`→ „${tour?.name||'Tour'}“ hinzugefügt`:mode==='move'?`→ „${tour?.name||'Tour'}“ verschoben`:(tourId?`aus „${tour?.name||'Tour'}“ entfernt`:'aus Tour(en) entfernt');
+  const _mvSrcNames=mode==='move'?[...moveSources].map(x=>tours.find(v=>v.id===x)?.name).filter(Boolean):[];
+  const verb=mode==='add'?`→ „${tour?.name||'Tour'}“ hinzugefügt`
+    :mode==='move'?(_mvSrcNames.length?`von „${_mvSrcNames.join('“ + „')}“ nach „${tour?.name||'Tour'}“ verschoben`:`→ „${tour?.name||'Tour'}“ verschoben`)
+    :(tourId?`aus „${tour?.name||'Tour'}“ entfernt`:'aus Tour(en) entfernt');
   notify(`✓ ${targets.length} Objekte ${verb}${schonDrin?` · ${schonDrin} übersprungen (bereits in der Tour)`:''}`);
   // Rückgängig-Angebot (30 s): stellt die VORHERIGEN Zuordnungen aller angefassten Objekte wieder her
   _showUndoBar(`${targets.length} Objekte ${mode==='add'?'zugewiesen':mode==='move'?'verschoben':'entfernt'}`, async()=>{
@@ -18600,7 +18707,7 @@ Object.assign(window,{
   openOrderEditor,repOrderMove,closeOrderEditor,saveManualOrder,
   focusTour,focusTourAndSwitch,
   startPlacement,cancelMode,setDepotOnMap,startDraw,finishDraw,cancelDraw,
-  startAssignMode,setAssignTour,cancelAssign,assignTreeToTour,
+  startAssignMode,setAssignTour,cancelAssign,assignTreeToTour,assignPickerToggle,assignPickerChoose,assignPickerFilter,
   openSettings,closeSettings,geocodeDepot,applySettings,confirmDeleteProject,openImport,openAllgemein,openProjekte,openBetriebshoefe,
   pickProjIcon,artSetIcon,artSetTime,artSetRate,setArtDefaultTime,artApplyTimeToAll,artSetKlasse,
   renderReinigungssysteme,rsAdd,rsUpdate,rsDelete,
