@@ -4138,6 +4138,7 @@ function renderLegend(){
       <div class="legend-line" style="background:${t.color};width:16px;height:3px;"></div>
       <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">${t.locked?'<span title="Gesperrt — vor Planungsänderungen geschützt">🔒</span> ':''}${dlEsc(t.name)}${(!ov&&_tourBhScope&&!(t.betriebshof||'').trim())?' <span style="font-size:9px;font-weight:700;color:var(--text3);background:var(--surface2);padding:1px 5px;border-radius:5px;">ohne Hof</span>':''}</span>
       ${t.routeStale&&!ov&&_tourEffSource(t.id)!=='system'?'<span title="Route veraltet — neu berechnen" style="color:#b45309;font-size:11px;flex-shrink:0;">⚠</span>':''}
+      ${ov?'':(()=>{const s=_tourGueltigStatus(t);if(!s)return '';const de=d=>{const p=(''+d).split('-');return p.length===3?p[2]+'.'+p[1]+'.':d;};const c=s.state==='abgelaufen'?'#dc2626':(s.state==='endet'?'#b45309':'var(--text3)');const tip=s.state==='abgelaufen'?'Gültigkeit abgelaufen':(s.state==='endet'?('Gültigkeit läuft aus am '+de(s.bis)):('pausiert — aktiv ab '+de(s.ab)));return `<span title="${tip}" style="color:${c};font-size:11px;flex-shrink:0;">⏳</span>`;})()}
       <span class="legend-km" style="font-size:10px;">${ov?cnt:(_tm?total:cnt+' Obj.')}</span>
       ${ov?'':`<svg data-expand="${t.id}" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2.5" style="flex-shrink:0;cursor:pointer;padding:1px;transition:transform .15s;transform:rotate(${isExp?180:0}deg);"><path d="M6 9l6 6 6-6"/></svg>`}
     </div>`;
@@ -6230,6 +6231,29 @@ function _lockedToursBlock(tourIds){
   const names=locked.map(t=>'„'+(t.name||'Tour')+'"').join(', ');
   notify('🔒 '+(locked.length>1?'Gesperrte Touren':'Gesperrte Tour')+' '+names+' — bitte zuerst entriegeln (Touren-Ansicht), um Änderungen vorzunehmen.');
   return true;
+}
+// Gültigkeits-Status einer Tour für die Anzeige: abgelaufen / läuft bald aus / pausiert.
+// Grundlage: tour.gueltig[] (Von–Bis-Spannen). Ohne Spannen = ganzjährig → kein Hinweis (null).
+function _tourGueltigStatus(t, today){
+  const g=t&&t.gueltig; today=today||_todayStr();
+  if(!Array.isArray(g)) return null;
+  const spans=g.filter(p=>p&&p.from&&p.to);
+  if(!spans.length) return null;
+  const cur=spans.find(p=>p.from<=today&&p.to>=today);
+  if(cur){
+    const rest=Math.round((new Date(cur.to)-new Date(today))/86400000);
+    return rest<=14 ? {state:'endet',bis:cur.to,rest} : null;   // gültig + weit weg → kein Hinweis
+  }
+  const future=spans.filter(p=>p.from>today).sort((a,b)=>a.from.localeCompare(b.from))[0];
+  if(future) return {state:'pausiert',ab:future.from};
+  return {state:'abgelaufen',bis:spans.map(p=>p.to).sort().pop()};
+}
+function _tourGueltigBadge(t){
+  const s=_tourGueltigStatus(t); if(!s) return '';
+  const de=d=>{const p=(''+d).split('-');return p.length===3?p[2]+'.'+p[1]+'.'+p[0]:d;};
+  if(s.state==='abgelaufen') return ` <span title="Gültigkeit abgelaufen (endete ${de(s.bis)}) — Tour ist nicht mehr aktiv" style="font-size:10px;font-weight:700;color:#991b1b;background:#fee2e2;border:1px solid #f87171;border-radius:4px;padding:1px 5px;vertical-align:middle;">⏳ abgelaufen</span>`;
+  if(s.state==='pausiert') return ` <span title="Zurzeit außerhalb der Gültigkeit — wieder aktiv ab ${de(s.ab)}" style="font-size:10px;font-weight:600;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">pausiert · ab ${de(s.ab)}</span>`;
+  return ` <span title="Gültigkeit läuft aus am ${de(s.bis)} (in ${s.rest} Tag${s.rest===1?'':'en'})" style="font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⏳ läuft aus · ${de(s.bis)}</span>`;
 }
 async function toggleTourLock(id){
   if(isReadonly()){ notify('Nur Lesezugriff'); return; }
@@ -9121,7 +9145,7 @@ function renderTourenGrid(){
       :'<span style="color:var(--text3);font-size:12px;">–</span>';
     return `<tr style="border-top:1px solid var(--border);" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''">
       <td style="padding:10px 16px;"><div style="width:14px;height:14px;border-radius:3px;background:${tour.color};flex-shrink:0;"></div></td>
-      <td style="padding:10px 16px;font-weight:600;white-space:nowrap;">${dlEsc(tour.name)}${tour.routeStale&&!tour.uebersicht&&_tourEffSource(tour.id)!=='system'?` <span title="Zusammenstellung geändert — Route neu berechnen" style="font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⚠ Route veraltet</span>`:''}${tour.uebersicht?' <span style="font-size:10px;font-weight:600;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Übersicht</span>':''}${_violCnt?` <span onclick="showTourViolations('${tour.id}')" title="Anzeigen: welche Objekte die Zuordnungsregeln verletzen" style="cursor:pointer;font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⚠ ${_violCnt} Regelverstoß</span>`:(_rulesActive?' <span title="Zuordnungsregeln aktiv" style="font-size:10px;font-weight:600;color:var(--text3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Regeln</span>':'')}${tour.locked?' <span title="Gesperrt — geschützt vor Planungsänderungen" style="font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">🔒 Gesperrt</span>':''}</td>
+      <td style="padding:10px 16px;font-weight:600;white-space:nowrap;">${dlEsc(tour.name)}${tour.routeStale&&!tour.uebersicht&&_tourEffSource(tour.id)!=='system'?` <span title="Zusammenstellung geändert — Route neu berechnen" style="font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⚠ Route veraltet</span>`:''}${tour.uebersicht?' <span style="font-size:10px;font-weight:600;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Übersicht</span>':''}${_violCnt?` <span onclick="showTourViolations('${tour.id}')" title="Anzeigen: welche Objekte die Zuordnungsregeln verletzen" style="cursor:pointer;font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⚠ ${_violCnt} Regelverstoß</span>`:(_rulesActive?' <span title="Zuordnungsregeln aktiv" style="font-size:10px;font-weight:600;color:var(--text3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Regeln</span>':'')}${tour.locked?' <span title="Gesperrt — geschützt vor Planungsänderungen" style="font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">🔒 Gesperrt</span>':''}${tour.uebersicht?'':_tourGueltigBadge(tour)}</td>
       <td style="padding:10px 16px;color:var(--text2);font-size:12px;">${dlEsc(tour.desc||'–')}</td>
       <td style="padding:10px 16px;text-align:center;"><input type="checkbox" ${tour.uebersicht?'checked':''} onchange="toggleTourUebersicht('${tour.id}',this.checked)" style="cursor:pointer;width:16px;height:16px;" title="Als Übersicht markieren (keine echte Tour)"></td>
       <td style="padding:10px 16px;text-align:right;font-weight:600;">${cnt}</td>
