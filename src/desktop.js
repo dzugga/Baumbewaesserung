@@ -6630,8 +6630,12 @@ async function copyToursExec(ids, btn){
           return batch.commit();
         });
         _bumpUsage('writes',chunk.length);
+        if(members.length>400) await new Promise(r=>setTimeout(r,120)); // sehr große Tour: Batches leicht entzerren
       }
       zuord+=members.length; done++;
+      // Proaktive Mini-Pause zwischen den Touren → gar nicht erst an die Firestore-Schreibdrossel stoßen
+      // (nur bei Massen-Kopie spürbar; bei 60 Touren ~7 s Aufschlag). Retry oben bleibt als Sicherheitsnetz.
+      if(ids.length>5) await new Promise(r=>setTimeout(r,120));
     }catch(e){ console.warn('Tour-Kopie fehlgeschlagen:', src.name, (e&&e.code)||'', e); failed.push(src.name||srcId); }
   }
   // increment statt tours.length+done: der Live-Snapshot kann die Kopien schon in `tours` haben → Off-by-one
