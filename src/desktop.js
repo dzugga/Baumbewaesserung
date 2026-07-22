@@ -4114,7 +4114,7 @@ function renderLegend(){
     let r=`<div class="legend-item${isSel?' active-tour':''}" data-tourid="${t.id}" data-tourname="${(t.name||'').toLowerCase().replace(/"/g,'&quot;')}" style="padding:3px 6px;margin-bottom:1px;">
       <input type="checkbox" class="tour-check"${isSel?' checked':''} style="margin:0 4px 0 0;cursor:pointer;flex-shrink:0;accent-color:${t.color};">
       <div class="legend-line" style="background:${t.color};width:16px;height:3px;"></div>
-      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">${dlEsc(t.name)}${(!ov&&_tourBhScope&&!(t.betriebshof||'').trim())?' <span style="font-size:9px;font-weight:700;color:var(--text3);background:var(--surface2);padding:1px 5px;border-radius:5px;">ohne Hof</span>':''}</span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">${t.locked?'<span title="Gesperrt — vor Planungsänderungen geschützt">🔒</span> ':''}${dlEsc(t.name)}${(!ov&&_tourBhScope&&!(t.betriebshof||'').trim())?' <span style="font-size:9px;font-weight:700;color:var(--text3);background:var(--surface2);padding:1px 5px;border-radius:5px;">ohne Hof</span>':''}</span>
       ${t.routeStale&&!ov&&_tourEffSource(t.id)!=='system'?'<span title="Route veraltet — neu berechnen" style="color:#b45309;font-size:11px;flex-shrink:0;">⚠</span>':''}
       <span class="legend-km" style="font-size:10px;">${ov?cnt:(_tm?total:cnt+' Obj.')}</span>
       ${ov?'':`<svg data-expand="${t.id}" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2.5" style="flex-shrink:0;cursor:pointer;padding:1px;transition:transform .15s;transform:rotate(${isExp?180:0}deg);"><path d="M6 9l6 6 6-6"/></svg>`}
@@ -5327,6 +5327,12 @@ async function saveInlineFields(id){
   const tree0=trees.find(t=>t.id===id);
   const hiddenUeb=(tree0?getTreeTourIds(tree0):[]).filter(tid=>isOverviewTour(tid) && !rendered.has(tid));
   const selectedTourIds=[...new Set([...checked,...hiddenUeb])];
+  // Tour-Sperre: eine der HINZUKOMMENDEN oder WEGFALLENDEN Touren gesperrt → blockieren
+  {
+    const _old=tree0?getTreeTourIds(tree0):[];
+    const _changed=[...new Set([..._old,...selectedTourIds])].filter(id=>_old.includes(id)!==selectedTourIds.includes(id));
+    if(_lockedToursBlock(_changed)) return;
+  }
   // Soll-Check: die neue Tour-Auswahl würde das Wochen-Soll ÜBERSCHREITEN → Warnung.
   // Nur wenn der Plan gegenüber vorher STEIGT — eine Reduzierung Richtung Soll wird nie blockiert.
   if(tree0){
@@ -6190,10 +6196,33 @@ function showTourConflictDialog(tree, currentTour, otherTourIds){
   });
 }
 
+// ── Tour-Sperre (Umplanungs-Schutz) ─────────────────────────────────────────────
+// Gesperrte Touren (locked) schützen Original-Touren in Umplanungssessions vor VERSEHENTLICHEN
+// Änderungen: jeder Zuweisungspfad (Lasso, Einzelklick, Objekt-Detail) meldet eine Warnung und
+// bricht ab. Bewusst client-seitig (Versehensschutz), keine Rules-Erzwingung.
+function _isTourLocked(id){ const t=tours.find(x=>x.id===id); return !!(t&&t.locked); }
+// true = Aktion blockieren (eine der betroffenen Touren ist gesperrt) + Hinweis anzeigen.
+function _lockedToursBlock(tourIds){
+  const locked=[...new Set(tourIds)].filter(Boolean).map(id=>tours.find(t=>t.id===id)).filter(t=>t&&t.locked);
+  if(!locked.length) return false;
+  const names=locked.map(t=>'„'+(t.name||'Tour')+'"').join(', ');
+  notify('🔒 '+(locked.length>1?'Gesperrte Touren':'Gesperrte Tour')+' '+names+' — bitte zuerst entriegeln (Touren-Ansicht), um Änderungen vorzunehmen.');
+  return true;
+}
+async function toggleTourLock(id){
+  if(isReadonly()){ notify('Nur Lesezugriff'); return; }
+  const t=tours.find(x=>x.id===id); if(!t) return;
+  const val=!t.locked; t.locked=val;                 // optimistisch
+  renderTourenGrid(); try{ renderLegend(); }catch(_){}
+  try{ await updateDoc(doc(db,'projects',currentProjectId,'tours',id),{locked:val}); notify(val?('🔒 „'+(t.name||'Tour')+'" gesperrt'):('🔓 „'+(t.name||'Tour')+'" entriegelt')); }
+  catch(e){ console.warn('toggleTourLock',e); t.locked=!val; renderTourenGrid(); try{ renderLegend(); }catch(_){} notify(dlErr(e)); }
+}
+
 async function assignTreeToTour(treeId,tourId,skipConflictCheck=false){
   const tree=trees.find(t=>t.id===treeId);
   const tour=tours.find(t=>t.id===tourId);
   if(!tree)return;
+  if(_lockedToursBlock([tourId])) return; // Ziel-Tour gesperrt
 
   const currentIds=getTreeTourIds(tree);
   // Bereits in dieser Tour?
@@ -6225,6 +6254,7 @@ async function assignTreeToTour(treeId,tourId,skipConflictCheck=false){
     const choice=await showTourConflictDialog(tree, tour, otherIds);
     if(choice==='cancel') return;
     if(choice==='move'){
+      if(_lockedToursBlock(otherIds)) return; // Quell-Tour(en) gesperrt → nicht herausnehmen
       await setTreeTourIds(treeId, [tourId, ...uebersichten]); // aus echten Touren raus, Übersichten bleiben
       notify(`${tree.name} → ${tour?.name||'Tour'} (aus bisheriger Tour entfernt)`);
       routeCache={}; rebuildAssignPills();
@@ -9058,7 +9088,7 @@ function renderTourenGrid(){
       :'<span style="color:var(--text3);font-size:12px;">–</span>';
     return `<tr style="border-top:1px solid var(--border);" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''">
       <td style="padding:10px 16px;"><div style="width:14px;height:14px;border-radius:3px;background:${tour.color};flex-shrink:0;"></div></td>
-      <td style="padding:10px 16px;font-weight:600;white-space:nowrap;">${dlEsc(tour.name)}${tour.routeStale&&!tour.uebersicht&&_tourEffSource(tour.id)!=='system'?` <span title="Zusammenstellung geändert — Route neu berechnen" style="font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⚠ Route veraltet</span>`:''}${tour.uebersicht?' <span style="font-size:10px;font-weight:600;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Übersicht</span>':''}${_violCnt?` <span onclick="showTourViolations('${tour.id}')" title="Anzeigen: welche Objekte die Zuordnungsregeln verletzen" style="cursor:pointer;font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⚠ ${_violCnt} Regelverstoß</span>`:(_rulesActive?' <span title="Zuordnungsregeln aktiv" style="font-size:10px;font-weight:600;color:var(--text3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Regeln</span>':'')}</td>
+      <td style="padding:10px 16px;font-weight:600;white-space:nowrap;">${dlEsc(tour.name)}${tour.routeStale&&!tour.uebersicht&&_tourEffSource(tour.id)!=='system'?` <span title="Zusammenstellung geändert — Route neu berechnen" style="font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⚠ Route veraltet</span>`:''}${tour.uebersicht?' <span style="font-size:10px;font-weight:600;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Übersicht</span>':''}${_violCnt?` <span onclick="showTourViolations('${tour.id}')" title="Anzeigen: welche Objekte die Zuordnungsregeln verletzen" style="cursor:pointer;font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⚠ ${_violCnt} Regelverstoß</span>`:(_rulesActive?' <span title="Zuordnungsregeln aktiv" style="font-size:10px;font-weight:600;color:var(--text3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Regeln</span>':'')}${tour.locked?' <span title="Gesperrt — geschützt vor Planungsänderungen" style="font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">🔒 Gesperrt</span>':''}</td>
       <td style="padding:10px 16px;color:var(--text2);font-size:12px;">${dlEsc(tour.desc||'–')}</td>
       <td style="padding:10px 16px;text-align:center;"><input type="checkbox" ${tour.uebersicht?'checked':''} onchange="toggleTourUebersicht('${tour.id}',this.checked)" style="cursor:pointer;width:16px;height:16px;" title="Als Übersicht markieren (keine echte Tour)"></td>
       <td style="padding:10px 16px;text-align:right;font-weight:600;">${cnt}</td>
@@ -9071,6 +9101,7 @@ function renderTourenGrid(){
       <td style="padding:10px 16px;">
         <div style="display:flex;gap:5px;justify-content:flex-end;align-items:center;">
           <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" data-action="karte" data-tid="${tour.id}">Karte</button>
+          ${tour.uebersicht?'':`<button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;${tour.locked?'background:#fef3c7;border-color:#f59e0b;color:#b45309;':''}" data-action="lock" data-tid="${tour.id}" title="${tour.locked?'Entriegeln — Planungsänderungen wieder erlauben':'Sperren — schützt die Tour vor versehentlichen Änderungen beim Umplanen'}">${tour.locked?'🔒':'🔓'}</button>`}
           ${tour.uebersicht?'':`<button class="btn btn-primary" style="padding:3px 9px;font-size:11px;${rpDisStyle()}" data-action="route" data-tid="${tour.id}"${rpDisAttr()}>Route</button>`}
           ${tour.uebersicht?'':`<button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" data-action="report" data-tid="${tour.id}">Bericht</button>`}
           <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" data-action="edit" data-tid="${tour.id}">✎</button>
@@ -9084,6 +9115,7 @@ function renderTourenGrid(){
     const btn=e.target.closest('[data-action]');if(!btn)return;
     const tid=btn.dataset.tid,action=btn.dataset.action;
     if(action==='karte')focusTourAndSwitch(tid);
+    else if(action==='lock')toggleTourLock(tid);
     else if(action==='route')calculateAndSaveRoute(tid);
     else if(action==='report')openTourReport(tid);
     else if(action==='edit')openTourModal(tid);
@@ -15061,6 +15093,7 @@ async function lassoAction(mode){
   const tourId=assignTourId||lassoTourId;
   const tour=tours.find(t=>t.id===tourId);
   if((mode==='add'||mode==='move')&&!tourId){ notify('Bitte zuerst eine Ziel-Tour wählen'); return; }
+  if((mode==='add'||mode==='move') && _lockedToursBlock([tourId])){ renderLassoActions(); return; } // Ziel-Tour gesperrt
   // Tour-Restriktion (Bulk): passende direkt zuweisen, unpassende per Override oder weglassen
   if((mode==='add'||mode==='move')&&tourHasRules(tour)){
     const bad=targets.filter(t=>!treeMatchesTour(t,tour));
@@ -15135,6 +15168,8 @@ async function lassoAction(mode){
   if(mode==='unplan' && tourId){ _affectedTours.add(tourId); } // nur die ausgewählte Tour ist betroffen
   else if(mode==='move'){ _affectedTours.add(tourId); moveSources.forEach(x=>_affectedTours.add(x)); } // nur Ziel + gewählte Quelle(n)
   else { if(mode==='add') _affectedTours.add(tourId); targets.forEach(t=>realTourIds(t).forEach(x=>_affectedTours.add(x))); }
+  // Tour-Sperre: ist eine der betroffenen Touren (Ziel/Quelle) gesperrt → Aktion abbrechen
+  if(_lockedToursBlock([..._affectedTours])){ renderLassoActions(); return; }
   // Undo-Snapshot: vorherige Zuordnungen VOR dem Schreiben festhalten (Rückgängig-Leiste nach Abschluss)
   const _undoSnap=targets.map(t=>({id:t.id, tourIds:[...getTreeTourIds(t)], tourId:t.tourId||''}));
   const _undoPid=currentProjectId;
