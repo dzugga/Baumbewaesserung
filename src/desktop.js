@@ -3735,12 +3735,13 @@ function _tvVolFmt(l){ return l<1000?Math.round(l).toLocaleString('de-DE')+' L':
 // Fahrtanteil, Vol./Woche (Spalte nur, wenn irgendein Objekt das Feld volumen trägt).
 function _tvKennzahlenHtml(stats){
   const showVol=stats.some(s=>s.volW!=null);
+  const showAnAb=stats.some(s=>s.anAbKm!=null); // An-/Abfahrt-Spalten nur, wenn mind. eine Tour Werte hat (wie Vol.)
   const th=(k,l,align,tip)=>`<td data-tvsort="${k}" style="padding:5px 10px;cursor:pointer;white-space:nowrap;${align?'text-align:right;':''}" title="${tip||'Sortieren'}">${l}${_tvSort.key===k?(_tvSort.dir>0?' ↑':' ↓'):''}</td>`;
   let html=`<table style="width:100%;border-collapse:collapse;font-size:11px;">
     <tr style="color:var(--text3);border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:2;">
-      ${th('name','Tour')}${th('cnt','Obj.',1)}${th('zpl','Zeit/Leerung',1)}${th('objKm','Obj. je km',1)}${th('fahrtAnteil','Fahrtanteil',1)}${th('anAbKm','An-/Abfahrt',1,'Betriebshof → erstes Objekt + letztes Objekt → Betriebshof (aus der berechneten Route)')}${th('anAbKmPct','Anteil km · Zeit',1,'An-/Abfahrt im Verhältnis zu Gesamt-km und Gesamtzeit')}${showVol?th('volW','Vol./Woche',1):''}${th('ausl','Auslastung',1)}
+      ${th('name','Tour')}${th('cnt','Obj.',1)}${th('zpl','Zeit/Leerung',1)}${th('objKm','Obj. je km',1)}${th('fahrtAnteil','Fahrtanteil',1)}${showAnAb?th('anAbKm','An-/Abfahrt',1,'Betriebshof → erstes Objekt + letztes Objekt → Betriebshof (aus der berechneten Route)')+th('anAbKmPct','Anteil km · Zeit',1,'An-/Abfahrt im Verhältnis zu Gesamt-km und Gesamtzeit'):''}${showVol?th('volW','Vol./Woche',1):''}${th('ausl','Auslastung',1)}
     </tr>`;
-  const cols=7+(showVol?1:0);
+  const cols=5+(showAnAb?2:0)+(showVol?1:0);
   const pct1=v=>Math.round(v)+' %';
   const row=s=>{
     const dC=s.objKm!=null?(s.objKm<3.5?'var(--red)':(s.objKm<6?'#b45309':'var(--text)')):'var(--text3)';
@@ -3752,8 +3753,8 @@ function _tvKennzahlenHtml(stats){
     <td style="text-align:right;padding:5px 10px;white-space:nowrap;font-weight:700;">${s.zpl!=null?_tvSecFmt(s.zpl):'<span style="font-weight:400;color:var(--text3);">—</span>'}</td>
     <td style="text-align:right;padding:5px 10px;white-space:nowrap;color:${dC};${s.objKm!=null&&s.objKm<6?'font-weight:700;':''}">${s.objKm!=null?s.objKm.toLocaleString('de-DE',{minimumFractionDigits:1,maximumFractionDigits:1}):'—'}</td>
     <td style="text-align:right;padding:5px 10px;white-space:nowrap;color:${fC};${s.fahrtAnteil!=null&&s.fahrtAnteil>=50?'font-weight:700;':''}">${s.fahrtAnteil!=null?Math.round(s.fahrtAnteil)+' %':'—'}</td>
-    <td style="text-align:right;padding:5px 10px;white-space:nowrap;" title="${s.anAbKm==null?'Erst nach Neuberechnung der Route verfügbar (mit Betriebshof)':''}">${s.anAbKm!=null?s.anAbKm.toLocaleString('de-DE',{minimumFractionDigits:1,maximumFractionDigits:1})+' km · '+fmtMin(s.anAbMin):'<span style="color:var(--text3);">—</span>'}</td>
-    <td style="text-align:right;padding:5px 10px;white-space:nowrap;color:${aC};${s.anAbKmPct!=null&&s.anAbKmPct>=25?'font-weight:700;':''}">${s.anAbKmPct!=null?pct1(s.anAbKmPct)+' · '+(s.anAbZeitPct!=null?pct1(s.anAbZeitPct):'—'):'—'}</td>
+    ${showAnAb?`<td style="text-align:right;padding:5px 10px;white-space:nowrap;">${s.anAbKm!=null?s.anAbKm.toLocaleString('de-DE',{minimumFractionDigits:1,maximumFractionDigits:1})+' km · '+fmtMin(s.anAbMin):'<span style="color:var(--text3);">—</span>'}</td>
+    <td style="text-align:right;padding:5px 10px;white-space:nowrap;color:${aC};${s.anAbKmPct!=null&&s.anAbKmPct>=25?'font-weight:700;':''}">${s.anAbKmPct!=null?pct1(s.anAbKmPct)+' · '+(s.anAbZeitPct!=null?pct1(s.anAbZeitPct):'—'):'—'}</td>`:''}
     ${showVol?`<td style="text-align:right;padding:5px 10px;white-space:nowrap;">${s.volW!=null?_tvVolFmt(s.volW):'—'}</td>`:''}
     <td style="text-align:right;padding:5px 10px;white-space:nowrap;color:${s.ausl!=null&&s.ausl>100?'var(--red)':'var(--text2)'};">${s.ausl!=null?s.ausl+' %':'—'}</td>
   </tr>`; };
@@ -3780,8 +3781,8 @@ function _tvKennzahlenHtml(stats){
     <td style="text-align:right;padding:5px 10px;white-space:nowrap;">${cnt&&ges?_tvSecFmt(ges*60/cnt):'—'}</td>
     <td style="text-align:right;padding:5px 10px;white-space:nowrap;">${cnt&&km?(cnt/km).toLocaleString('de-DE',{minimumFractionDigits:1,maximumFractionDigits:1}):'—'}</td>
     <td style="text-align:right;padding:5px 10px;white-space:nowrap;">${ges?Math.round(fahrt/ges*100)+' %':'—'}</td>
-    <td style="text-align:right;padding:5px 10px;white-space:nowrap;">${anAbKm?anAbKm.toLocaleString('de-DE',{minimumFractionDigits:1,maximumFractionDigits:1})+' km · '+fmtMin(anAbMin):'—'}</td>
-    <td style="text-align:right;padding:5px 10px;white-space:nowrap;">${anAbKm&&kmMitAnAb?pct1(anAbKm/kmMitAnAb*100)+' · '+(gesMitAnAb?pct1(anAbMin/gesMitAnAb*100):'—'):'—'}</td>
+    ${showAnAb?`<td style="text-align:right;padding:5px 10px;white-space:nowrap;">${anAbKm?anAbKm.toLocaleString('de-DE',{minimumFractionDigits:1,maximumFractionDigits:1})+' km · '+fmtMin(anAbMin):'—'}</td>
+    <td style="text-align:right;padding:5px 10px;white-space:nowrap;">${anAbKm&&kmMitAnAb?pct1(anAbKm/kmMitAnAb*100)+' · '+(gesMitAnAb?pct1(anAbMin/gesMitAnAb*100):'—'):'—'}</td>`:''}
     ${showVol?`<td style="text-align:right;padding:5px 10px;white-space:nowrap;">${volW?_tvVolFmt(volW):'—'}</td>`:''}
     <td></td></tr>`;
   return html+'</table>';
