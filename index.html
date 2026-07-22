@@ -908,6 +908,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
           <input type="checkbox" id="t-langzeit" style="width:16px;height:16px;cursor:pointer;margin-top:2px;">
           <span><b>Langzeittour</b> — Objekte werden wiederholt gemeldet (auch mehrfach am selben Tag). Jede Meldung zählt einzeln. Bei normalen Touren ersetzt eine erneute Meldung die vorherige (nur ein Eintrag je Objekt).</span>
         </label>
+        <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;cursor:pointer;color:var(--text2);margin-top:8px;">
+          <input type="checkbox" id="t-unproduktiv" style="width:16px;height:16px;cursor:pointer;margin-top:2px;">
+          <span><b>Unproduktiv</b> — Tour zählt nicht mehr in den Berechnungen (Soll-Ist, Plan, Fälligkeit, Dashboard, Kennzahlen) und ist in der Fahrer-App ausgeblendet. Nützlich für Test-/Planungs-Kopien, die den Plan nicht verfälschen sollen.</span>
+        </label>
       </div>
       <div class="form-group">
         <label class="form-label">Gesamt-Arbeitszeit</label>

@@ -200,7 +200,7 @@ const _WD=[{n:1,l:'Mo'},{n:2,l:'Di'},{n:3,l:'Mi'},{n:4,l:'Do'},{n:5,l:'Fr'},{n:6
 function _daysBetween(a,b){ const [ay,am,ad]=a.split('-').map(Number),[by,bm,bd]=b.split('-').map(Number); return Math.round((Date.UTC(by,bm-1,bd)-Date.UTC(ay,am-1,ad))/86400000); }
 // _tourInValidity/_tourBetriebstage/_isoWeekIndex kommen aus tour-kalender.js (geteilt mit Einsatzleiter-App)
 function _weekFactor(iv){ return iv==='14taeglich'?0.5:iv==='4woechentlich'?0.25:iv==='bedarf'?0:1; } // jede/jede2./jede4. Woche
-function tourDueOn(t,date){ return _tkTourDueOn(t,date,getSaison()); }
+function tourDueOn(t,date){ if(t&&t.unproduktiv) return false; return _tkTourDueOn(t,date,getSaison()); } // unproduktive Touren nie fällig
 function realTourIds(tree){ return getTreeTourIds(tree).filter(id=>!isOverviewTour(id)); } // ohne Übersichten
 function treeInTour(tree, tourId){
   return getTreeTourIds(tree).includes(tourId);
@@ -386,6 +386,7 @@ let filterTour = 'all';
 // so verwirft ein zwischenzeitlicher tours-Snapshot (z. B. durch den Write einer ANDEREN Tour beim
 // schnellen Klicken) den gerade gesetzten Zustand nicht. _lockBusy verhindert Doppel-Toggles.
 let _lockOverride = {}; const _lockBusy = new Set();
+let _unprodOverride = {}; const _unprodBusy = new Set(); // dito für das „unproduktiv"-Flag
 // Eigenschaften-Filter (Planung). objFilterOnMap = optional auch Marker filtern.
 let objFilter = {stadtteil:'',art:'',pflanzjahr:'',zustand:'',wasser:'',status:'',kontrolle:''};
 let objFilterOnMap = false;
@@ -771,7 +772,7 @@ async function openProject(projectId){
   activeTours.clear(); showUnplanned=false; showAllNeutral=false; activeTourOnMap=null;
   // Schwebende Popups/Filter der VORIGEN Stadt schließen — sonst zeigen sie mandantenfremde Daten bzw.
   // filtern die neue Stadt mit dem alten Suchbegriff (Tour-Vergleich, Füllstand-Auswertungen, Ziel-Tour-Picker)
-  _tvQ='';
+  _tvQ=''; _tvShowUnprod=false;
   try{ tourVergleichClose(); }catch(_){}
   try{ ausgleichClose(); }catch(_){}
   try{ _assignPickerClose(); }catch(_){}
@@ -969,8 +970,9 @@ function subscribeToProject(){
   unsubTours=onSnapshot(toursRef,snap=>{
     const _prevColor=tours.reduce((m,t)=>{m[t.id]=t.color;return m;},{});
     tours=snap.docs.map(d=>({id:d.id,...d.data()}));
-    // Noch nicht bestätigte Sperr-Umschaltungen erhalten (verhindert Flackern/falschen Zustand bei schnellem Klicken)
+    // Noch nicht bestätigte Sperr-/Unproduktiv-Umschaltungen erhalten (verhindert Flackern bei schnellem Klicken)
     for(const oid in _lockOverride){ const _t=tours.find(x=>x.id===oid); if(_t) _t.locked=_lockOverride[oid]; }
+    for(const oid in _unprodOverride){ const _t=tours.find(x=>x.id===oid); if(_t) _t.unproduktiv=_unprodOverride[oid]; }
     // Tourfarbe geändert → Marker + Geometrie-Objekte (Fläche/Strecke/Abschnitt) neu einfärben.
     // Nur bei echtem Farbwechsel, damit reine Status-Updates (Fahrer-App) keine teure Neuzeichnung auslösen.
     const _colorChanged=tours.some(t=>_prevColor[t.id]!==undefined && _prevColor[t.id]!==t.color);
@@ -3553,10 +3555,11 @@ function renderDepotMarker(){
 // ─── TOUR-VERGLEICH (verschiebbares + resizierbares Popup: Tabelle | Balken) ──────────────
 // Vergleicht die Leistungen der Touren (Objekte, Strecke, Fahrt/Tätigkeit, Restzeit, Auslastung)
 // auf einen Blick — gruppierbar (Betriebshof/Rhythmus/System), live bei Auswahl-Änderungen.
-let _tvView='tabelle', _tvGroup='betriebshof', _tvOnlyActive=false, _tvSort={key:'gesamtMin',dir:-1}, _tvUndrag=null, _tvRO=null, _tvQ='';
+let _tvView='tabelle', _tvGroup='betriebshof', _tvOnlyActive=false, _tvShowUnprod=false, _tvSort={key:'gesamtMin',dir:-1}, _tvUndrag=null, _tvRO=null, _tvQ='';
 function _tvIntervalLabel(t){ const iv=t.interval||''; if(iv==='bedarf') return 'Bedarf'; if(String(iv).startsWith('2')) return '2-wöchentlich'; if(String(iv).startsWith('4')) return '4-wöchentlich'; return 'wöchentlich'; }
 function _tvStats(){
   let list=tours.filter(t=>!t.uebersicht&&_tourBhVis(t.betriebshof));
+  if(!_tvShowUnprod) list=list.filter(t=>!t.unproduktiv);       // unproduktive nur mit Schalter einblenden
   if(_tvOnlyActive) list=list.filter(t=>activeTours.has(t.id)); // strikt: keine Tour angehakt → leere Liste
   if((_tvQ||'').trim()) list=list.filter(t=>matchTerms(t.name,_tvQ)); // Suchfeld — gleiche Logik wie die Legenden-Suche
   return list.map(t=>{
@@ -3644,6 +3647,7 @@ function tourVergleichOpen(){
         </select>
       </label>
       <button type="button" id="tv-active" title="Nur die in der Legende eingeblendeten Touren zeigen" style="font-size:11px;padding:3px 9px;border-radius:7px;border:1px solid ${_tvOnlyActive?'var(--green)':'var(--border)'};background:${_tvOnlyActive?'var(--green-light)':'var(--bg)'};color:${_tvOnlyActive?'var(--green)':'var(--text2)'};cursor:pointer;font-family:inherit;font-weight:600;">nur eingeblendete</button>
+      <button type="button" id="tv-unprod" title="Unproduktive Touren mit anzeigen (grau; als Planungsorientierung). Standard: aus." style="font-size:11px;padding:3px 9px;border-radius:7px;border:1px solid ${_tvShowUnprod?'var(--text3)':'var(--border)'};background:${_tvShowUnprod?'var(--surface2)':'var(--bg)'};color:var(--text2);cursor:pointer;font-family:inherit;font-weight:600;">⏸ unproduktive</button>
       ${canUseModule('ausgleich')?`<button type="button" id="tv-ausgleich" title="Ausgleichs-Analyse: Passt die Last in die Arbeitszeiten? Wer müsste abgeben/aufnehmen?" style="font-size:11px;padding:3px 9px;border-radius:7px;border:1px solid var(--border);background:var(--bg);color:var(--text2);cursor:pointer;font-family:inherit;">⚖ Ausgleich</button>`:''}
       <button type="button" id="tv-csv" title="Als CSV exportieren" style="font-size:11px;padding:3px 9px;border-radius:7px;border:1px solid var(--border);background:var(--bg);color:var(--text2);cursor:pointer;font-family:inherit;">CSV</button>
       <button class="panel-close" data-tvclose><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
@@ -3662,6 +3666,7 @@ function tourVergleichOpen(){
   box.querySelector('#tv-group').onchange=e=>{ _tvGroup=e.target.value; _tvRenderBody(); };
   box.querySelector('#tv-search').oninput=e=>{ _tvQ=e.target.value; _tvRenderBody(); };
   box.querySelector('#tv-active').onclick=()=>{ _tvOnlyActive=!_tvOnlyActive; tourVergleichOpen(); };
+  box.querySelector('#tv-unprod').onclick=()=>{ _tvShowUnprod=!_tvShowUnprod; tourVergleichOpen(); };
   box.querySelector('#tv-csv').onclick=_tvCsv;
   const _agBtn=box.querySelector('#tv-ausgleich'); if(_agBtn) _agBtn.onclick=ausgleichOpen;
   // Größe merken + Spalten an die Breite anpassen (Namen bekommen beim Aufziehen zuerst Platz)
@@ -3704,8 +3709,8 @@ function _tvTableHtml(stats, w){
     <tr style="color:var(--text3);border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:2;">
       ${th('name','Tour')}${th('cnt','Obj.',1)}${showKmRest?th('km','Strecke',1):''}${showFT?th('fahrtMin','Fahrt',1)+th('taetMin','Tätigkeit',1):''}${th('gesamtMin','Gesamt',1)}${showKmRest?th('restMin','Restzeit',1):''}${th('ausl','Auslastung AZ',1)}
     </tr>`;
-  const row=s=>`<tr data-tvtour="${s.t.id}" style="border-bottom:1px solid var(--border);cursor:pointer;" title="${dlEsc(s.t.name||'')} — auf Karte zeigen">
-    <td style="padding:5px 10px;max-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${s.t.color||'#888'};margin-right:6px;flex-shrink:0;"></span>${dlEsc(s.t.name||'Tour')}</td>
+  const row=s=>`<tr data-tvtour="${s.t.id}" style="border-bottom:1px solid var(--border);cursor:pointer;${s.t.unproduktiv?'opacity:.55;':''}" title="${dlEsc(s.t.name||'')}${s.t.unproduktiv?' — unproduktiv (zählt nicht)':''} — auf Karte zeigen">
+    <td style="padding:5px 10px;max-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${s.t.color||'#888'};margin-right:6px;flex-shrink:0;"></span>${s.t.unproduktiv?'⏸ ':''}${dlEsc(s.t.name||'Tour')}</td>
     <td style="text-align:right;padding:5px 10px;">${s.cnt}</td>
     ${showKmRest?`<td style="text-align:right;padding:5px 10px;white-space:nowrap;">${s.km!=null?s.km.toFixed(1)+' km':'—'}</td>`:''}
     ${showFT?`<td style="text-align:right;padding:5px 10px;white-space:nowrap;">${s.fahrtMin!=null?fmtMin(s.fahrtMin):'—'}</td><td style="text-align:right;padding:5px 10px;white-space:nowrap;">${s.taetMin!=null?fmtMin(s.taetMin):'—'}</td>`:''}
@@ -3755,8 +3760,8 @@ function _tvKennzahlenHtml(stats){
     const dC=s.objKm!=null?(s.objKm<3.5?'var(--red)':(s.objKm<6?'#b45309':'var(--text)')):'var(--text3)';
     const fC=s.fahrtAnteil!=null?(s.fahrtAnteil>=60?'var(--red)':(s.fahrtAnteil>=50?'#b45309':'var(--text)')):'var(--text3)';
     const aC=s.anAbKmPct!=null?(s.anAbKmPct>=40?'var(--red)':(s.anAbKmPct>=25?'#b45309':'var(--text2)')):'var(--text3)';
-    return `<tr data-tvtour="${s.t.id}" style="border-bottom:1px solid var(--border);cursor:pointer;" title="${dlEsc(s.t.name||'')} — auf Karte zeigen">
-    <td style="padding:5px 10px;max-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${s.t.color||'#888'};margin-right:6px;"></span>${dlEsc(s.t.name||'Tour')}</td>
+    return `<tr data-tvtour="${s.t.id}" style="border-bottom:1px solid var(--border);cursor:pointer;${s.t.unproduktiv?'opacity:.55;':''}" title="${dlEsc(s.t.name||'')}${s.t.unproduktiv?' — unproduktiv (zählt nicht)':''} — auf Karte zeigen">
+    <td style="padding:5px 10px;max-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${s.t.color||'#888'};margin-right:6px;"></span>${s.t.unproduktiv?'⏸ ':''}${dlEsc(s.t.name||'Tour')}</td>
     <td style="text-align:right;padding:5px 10px;">${s.cnt}</td>
     <td style="text-align:right;padding:5px 10px;white-space:nowrap;font-weight:700;">${s.zpl!=null?_tvSecFmt(s.zpl):'<span style="font-weight:400;color:var(--text3);">—</span>'}</td>
     <td style="text-align:right;padding:5px 10px;white-space:nowrap;color:${dC};${s.objKm!=null&&s.objKm<6?'font-weight:700;':''}">${s.objKm!=null?s.objKm.toLocaleString('de-DE',{minimumFractionDigits:1,maximumFractionDigits:1}):'—'}</td>
@@ -4145,7 +4150,7 @@ function renderLegend(){
     let r=`<div class="legend-item${isSel?' active-tour':''}" data-tourid="${t.id}" data-tourname="${(t.name||'').toLowerCase().replace(/"/g,'&quot;')}" style="padding:3px 6px;margin-bottom:1px;">
       <input type="checkbox" class="tour-check"${isSel?' checked':''} style="margin:0 4px 0 0;cursor:pointer;flex-shrink:0;accent-color:${t.color};">
       <div class="legend-line" style="background:${t.color};width:16px;height:3px;"></div>
-      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">${t.locked?'<span title="Gesperrt — vor Planungsänderungen geschützt">🔒</span> ':''}${dlEsc(t.name)}${(!ov&&_tourBhScope&&!(t.betriebshof||'').trim())?' <span style="font-size:9px;font-weight:700;color:var(--text3);background:var(--surface2);padding:1px 5px;border-radius:5px;">ohne Hof</span>':''}</span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;${t.unproduktiv?'color:var(--text3);':''}">${t.locked?'<span title="Gesperrt — vor Planungsänderungen geschützt">🔒</span> ':''}${t.unproduktiv?'<span title="Unproduktiv — zählt nicht in den Berechnungen">⏸</span> ':''}${dlEsc(t.name)}${(!ov&&_tourBhScope&&!(t.betriebshof||'').trim())?' <span style="font-size:9px;font-weight:700;color:var(--text3);background:var(--surface2);padding:1px 5px;border-radius:5px;">ohne Hof</span>':''}</span>
       ${t.routeStale&&!ov&&_tourEffSource(t.id)!=='system'?'<span title="Route veraltet — neu berechnen" style="color:#b45309;font-size:11px;flex-shrink:0;">⚠</span>':''}
       ${ov?'':(()=>{const s=_tourGueltigStatus(t);if(!s)return '';const de=d=>{const p=(''+d).split('-');return p.length===3?p[2]+'.'+p[1]+'.':d;};const c=s.state==='abgelaufen'?'#dc2626':(s.state==='endet'?'#b45309':'var(--text3)');const tip=s.state==='abgelaufen'?'Gültigkeit abgelaufen':(s.state==='endet'?('Gültigkeit läuft aus am '+de(s.bis)):('pausiert — aktiv ab '+de(s.ab)));return `<span title="${tip}" style="color:${c};font-size:11px;flex-shrink:0;">⏳</span>`;})()}
       <span class="legend-km" style="font-size:10px;">${ov?cnt:(_tm?total:cnt+' Obj.')}</span>
@@ -6284,6 +6289,28 @@ async function toggleTourLock(id){
   }
 }
 
+// Tour produktiv ↔ unproduktiv schalten. Unproduktive fallen aus allen Berechnungen (tourDueOn/
+// _tourWeeklyOcc) und aus der Fahrer-App; im Tour-Vergleich über den Schalter ein-/ausblendbar.
+async function toggleTourUnproduktiv(id){
+  if(isReadonly()){ notify('Nur Lesezugriff'); return; }
+  if(_unprodBusy.has(id)) return;
+  const t=tours.find(x=>x.id===id); if(!t) return;
+  const val=!t.unproduktiv;
+  _unprodBusy.add(id); _unprodOverride[id]=val; t.unproduktiv=val;   // optimistisch + Override gegen Snapshots
+  renderTourenGrid(); try{ renderLegend(); }catch(_){} try{ if(document.getElementById('tour-vergleich')) _tvRenderBody(); }catch(_){}
+  try{
+    await updateDoc(doc(db,'projects',currentProjectId,'tours',id),{unproduktiv:val});
+    notify(val?('„'+(t.name||'Tour')+'" auf unproduktiv gesetzt — zählt nicht mehr in den Berechnungen'):('„'+(t.name||'Tour')+'" wieder produktiv'));
+  }catch(e){
+    console.warn('toggleTourUnproduktiv',e);
+    const cur=tours.find(x=>x.id===id); if(cur) cur.unproduktiv=!val;
+    notify(dlErr(e));
+  }finally{
+    delete _unprodOverride[id]; _unprodBusy.delete(id);
+    renderTourenGrid(); try{ renderLegend(); }catch(_){} try{ if(document.getElementById('tour-vergleich')) _tvRenderBody(); }catch(_){}
+  }
+}
+
 async function assignTreeToTour(treeId,tourId,skipConflictCheck=false){
   const tree=trees.find(t=>t.id===treeId);
   const tour=tours.find(t=>t.id===tourId);
@@ -6410,6 +6437,7 @@ function openTourModal(id){
   if(sysSel){ sysSel.innerHTML='<option value="">— keines —</option>'+getReinigungssysteme().map(s=>`<option value="${dlEsc(s.id)}">${dlEsc(s.name)} (${_rsTypLabel(s.typ)})</option>`).join(''); sysSel.value=t?.reinigungssystem||''; }
   const zbSel=document.getElementById('t-zeitbasis'); if(zbSel) zbSel.value=t?.zeitBasis||'auto';
   const lzChk=document.getElementById('t-langzeit'); if(lzChk) lzChk.checked=!!t?.langzeit;
+  const upChk=document.getElementById('t-unproduktiv'); if(upChk) upChk.checked=!!t?.unproduktiv;
   const bhSel=document.getElementById('t-betriebshof');
   if(bhSel){ bhSel.innerHTML='<option value="">— automatisch / Projekt-Depot —</option>'+(listValues.betriebshof||[]).map(b=>`<option value="${dlEsc(b.label)}">${dlEsc(b.label)}${b.lat==null?' (ohne Koordinaten)':''}</option>`).join(''); bhSel.value=t?.betriebshof||''; }
   const az=t&&typeof t.arbeitszeitMin==='number'&&t.arbeitszeitMin>0?t.arbeitszeitMin:0;
@@ -6448,7 +6476,7 @@ async function saveTour(){
   const interval=document.getElementById('t-interval').value||'';
   const gueltig=(window._tourGueltig||[]).filter(g=>g.from&&g.to).map(g=>({from:g.from,to:g.to}));
   const betriebstage=_WD.map(w=>w.n).filter(n=>(window._tourBt||[]).includes(n)); // stabile Reihenfolge Mo→So
-  const data={name,desc:document.getElementById('t-desc').value,color:selectedTourColor,zusatzzeiten,regeln:collectTourRegeln(),startDate,interval,betriebstage,gueltig,reinigungssystem:document.getElementById('t-system')?.value||'',zeitBasis:document.getElementById('t-zeitbasis')?.value||'auto',betriebshof:document.getElementById('t-betriebshof')?.value||'',langzeit:document.getElementById('t-langzeit')?.checked||false};
+  const data={name,desc:document.getElementById('t-desc').value,color:selectedTourColor,zusatzzeiten,regeln:collectTourRegeln(),startDate,interval,betriebstage,gueltig,reinigungssystem:document.getElementById('t-system')?.value||'',zeitBasis:document.getElementById('t-zeitbasis')?.value||'auto',betriebshof:document.getElementById('t-betriebshof')?.value||'',langzeit:document.getElementById('t-langzeit')?.checked||false,unproduktiv:document.getElementById('t-unproduktiv')?.checked||false};
   try{
     if(editingTourId){
       // Zeitgrundlage/System geändert → Karte (Routenlinie + Reihenfolgenummern) sofort nachziehen;
@@ -6566,6 +6594,7 @@ function openTourCopyDialog(){
     </div>
     <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:center;">
       <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" id="tc-all" style="margin:0;cursor:pointer;"> alle</label>
+      <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:5px;cursor:pointer;" title="Kopien als unproduktiv anlegen — sie verfälschen dann NICHT den Plan (Soll-Ist/Fälligkeit). Zum Testen/Umplanen empfohlen."><input type="checkbox" id="tc-unprod" checked style="margin:0;cursor:pointer;"> als unproduktiv</label>
       <span style="flex:1;"></span>
       <button id="tc-cancel" class="btn btn-secondary" style="padding:7px 14px;font-size:13px;">Abbrechen</button>
       <button id="tc-go" class="btn btn-primary" style="padding:7px 14px;font-size:13px;" disabled>Kopieren</button>
@@ -6583,7 +6612,7 @@ function openTourCopyDialog(){
     const ids=[...m.querySelectorAll('.tc-cb:checked')].map(cb=>cb.value);
     if(!ids.length) return;
     go.disabled=true;
-    try{ await copyToursExec(ids, go); close(); }
+    try{ await copyToursExec(ids, go, m.querySelector('#tc-unprod')?.checked); close(); }
     catch(e){ console.warn('Touren kopieren',e); notify('⚠ Kopieren fehlgeschlagen: '+(e.message||e)); go.disabled=false; }
   };
 }
@@ -6602,7 +6631,7 @@ async function _fsRetry(fn, tries=5){
   }
   throw last;
 }
-async function copyToursExec(ids, btn){
+async function copyToursExec(ids, btn, asUnprod){
   const all=((_allTrees&&_allTrees.length)?_allTrees:trees).filter(isActive); // voller Bestand, nicht nur Pilot-Ausschnitt
   let done=0, zuord=0; const failed=[];
   for(const srcId of ids){
@@ -6612,6 +6641,7 @@ async function copyToursExec(ids, btn){
       // 1) Tour-Doc: nur die Planungs-Allowlist, tief kopiert (keine Referenzen auf die Quelle)
       const data={ name:_tourCopyName(src.name) };
       TOUR_COPY_FIELDS.forEach(f=>{ if(src[f]!==undefined && src[f]!==null) data[f]=JSON.parse(JSON.stringify(src[f])); });
+      data.unproduktiv=!!asUnprod; // Kopie wahlweise direkt unproduktiv (verfälscht dann nicht den Plan)
       const ref=await _fsRetry(()=>addDoc(collection(db,'projects',currentProjectId,'tours'),{...data,createdAt:serverTimestamp()}));
       // 2) Objekt-Zuordnung: dieselben Objekte zusätzlich der Kopie zuordnen (arrayUnion — idempotent)
       const members=all.filter(t=>treeInTour(t,srcId));
@@ -9266,7 +9296,7 @@ function renderTourenGrid(){
       :'<span style="color:var(--text3);font-size:12px;">–</span>';
     return `<tr style="border-top:1px solid var(--border);" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''">
       <td style="padding:10px 16px;"><div style="width:14px;height:14px;border-radius:3px;background:${tour.color};flex-shrink:0;"></div></td>
-      <td style="padding:10px 16px;font-weight:600;white-space:nowrap;">${dlEsc(tour.name)}${tour.routeStale&&!tour.uebersicht&&_tourEffSource(tour.id)!=='system'?` <span title="Zusammenstellung geändert — Route neu berechnen" style="font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⚠ Route veraltet</span>`:''}${tour.uebersicht?' <span style="font-size:10px;font-weight:600;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Übersicht</span>':''}${_violCnt?` <span onclick="showTourViolations('${tour.id}')" title="Anzeigen: welche Objekte die Zuordnungsregeln verletzen" style="cursor:pointer;font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⚠ ${_violCnt} Regelverstoß</span>`:(_rulesActive?' <span title="Zuordnungsregeln aktiv" style="font-size:10px;font-weight:600;color:var(--text3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Regeln</span>':'')}${tour.locked?' <span title="Gesperrt — geschützt vor Planungsänderungen" style="font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">🔒 Gesperrt</span>':''}${tour.uebersicht?'':_tourGueltigBadge(tour)}</td>
+      <td style="padding:10px 16px;font-weight:600;white-space:nowrap;">${dlEsc(tour.name)}${tour.routeStale&&!tour.uebersicht&&_tourEffSource(tour.id)!=='system'?` <span title="Zusammenstellung geändert — Route neu berechnen" style="font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⚠ Route veraltet</span>`:''}${tour.uebersicht?' <span style="font-size:10px;font-weight:600;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Übersicht</span>':''}${_violCnt?` <span onclick="showTourViolations('${tour.id}')" title="Anzeigen: welche Objekte die Zuordnungsregeln verletzen" style="cursor:pointer;font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">⚠ ${_violCnt} Regelverstoß</span>`:(_rulesActive?' <span title="Zuordnungsregeln aktiv" style="font-size:10px;font-weight:600;color:var(--text3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">Regeln</span>':'')}${tour.locked?' <span title="Gesperrt — geschützt vor Planungsänderungen" style="font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #f59e0b;border-radius:4px;padding:1px 5px;vertical-align:middle;">🔒 Gesperrt</span>':''}${tour.unproduktiv?' <span title="Unproduktiv — zählt nicht in den Berechnungen, in der Fahrer-App ausgeblendet" style="font-size:10px;font-weight:700;color:var(--text2);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;vertical-align:middle;">⏸ unproduktiv</span>':''}${tour.uebersicht?'':_tourGueltigBadge(tour)}</td>
       <td style="padding:10px 16px;color:var(--text2);font-size:12px;">${dlEsc(tour.desc||'–')}</td>
       <td style="padding:10px 16px;text-align:center;"><input type="checkbox" ${tour.uebersicht?'checked':''} onchange="toggleTourUebersicht('${tour.id}',this.checked)" style="cursor:pointer;width:16px;height:16px;" title="Als Übersicht markieren (keine echte Tour)"></td>
       <td style="padding:10px 16px;text-align:right;font-weight:600;">${cnt}</td>
@@ -9280,6 +9310,7 @@ function renderTourenGrid(){
         <div style="display:flex;gap:5px;justify-content:flex-end;align-items:center;">
           <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" data-action="karte" data-tid="${tour.id}">Karte</button>
           ${tour.uebersicht?'':`<button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;${tour.locked?'background:#fef3c7;border-color:#f59e0b;color:#b45309;':''}" data-action="lock" data-tid="${tour.id}" title="${tour.locked?'Entriegeln — Planungsänderungen wieder erlauben':'Sperren — schützt die Tour vor versehentlichen Änderungen beim Umplanen'}">${tour.locked?'🔒':'🔓'}</button>`}
+          ${tour.uebersicht?'':`<button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;${tour.unproduktiv?'background:var(--surface2);border-color:var(--text3);color:var(--text2);font-weight:700;':''}" data-action="unprod" data-tid="${tour.id}" title="${tour.unproduktiv?'Wieder produktiv schalten — zählt dann wieder in den Berechnungen':'Unproduktiv schalten — Tour aus allen Berechnungen nehmen und in der Fahrer-App ausblenden'}">${tour.unproduktiv?'⏸':'▶'}</button>`}
           ${tour.uebersicht?'':`<button class="btn btn-primary" style="padding:3px 9px;font-size:11px;${rpDisStyle()}" data-action="route" data-tid="${tour.id}"${rpDisAttr()}>Route</button>`}
           ${tour.uebersicht?'':`<button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" data-action="report" data-tid="${tour.id}">Bericht</button>`}
           <button class="btn btn-secondary" style="padding:3px 9px;font-size:11px;" data-action="edit" data-tid="${tour.id}">✎</button>
@@ -9294,6 +9325,7 @@ function renderTourenGrid(){
     const tid=btn.dataset.tid,action=btn.dataset.action;
     if(action==='karte')focusTourAndSwitch(tid);
     else if(action==='lock')toggleTourLock(tid);
+    else if(action==='unprod')toggleTourUnproduktiv(tid);
     else if(action==='route')calculateAndSaveRoute(tid);
     else if(action==='report')openTourReport(tid);
     else if(action==='edit')openTourModal(tid);
@@ -12899,7 +12931,7 @@ function renderSollDatenlage(mountId, list, saison){
 // ── Soll-Ist: eigener Reiter (Auswertung → Soll-Ist) ─────────────────────────
 // Plan = eingeplante Häufigkeit/Woche = Summe der Wochen-Einsätze aller aktiven Touren des Objekts.
 function _tourWeeklyOcc(tour,saison,refDate){
-  if(!tour || isOverviewTour(tour.id)) return 0;
+  if(!tour || tour.unproduktiv || isOverviewTour(tour.id)) return 0; // unproduktive Touren zählen nicht zum Plan
   if(tour.saison && tour.saison!==saison) return 0;   // Saison-Tour zählt nur in ihrer Saison
   if(tour.interval==='bedarf') return 0;
   if(refDate && !_tourInValidity(tour,refDate)) return 0; // außerhalb der Gültigkeitszeiträume → zählt nicht in den Plan
