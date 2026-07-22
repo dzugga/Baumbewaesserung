@@ -1914,7 +1914,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);hei
     <button id="btn-copy-tours" class="btn btn-secondary" onclick="openTourCopyDialog()" title="Eine oder mehrere Touren samt Objekt-Zuordnung kopieren">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Kopieren
     </button>
-    <button id="btn-clean-copies" class="btn btn-secondary" onclick="openTourCopyCleanupDialog()" title="Kopie-Touren („… (Kopie)“) gesammelt löschen">
+    <button id="btn-clean-copies" class="btn btn-secondary" style="display:none;" onclick="openTourCopyCleanupDialog()" title="Kopie-Touren („… (Kopie)“) gesammelt löschen — nur Superadmin">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>Kopien löschen
     </button>
     <button id="btn-calc-all-toolbar" class="btn btn-secondary" onclick="calculateAllRoutes()">

@@ -6643,6 +6643,7 @@ async function copyToursExec(ids, btn){
 const _TOUR_COPY_RE=/\s\(Kopie(\s\d+)?\)$/;
 function _isTourCopy(t){ return !!t && !t.uebersicht && _TOUR_COPY_RE.test((t.name||'').trim()); }
 function openTourCopyCleanupDialog(){
+  if(currentRole!=='superadmin'){ notify('Nur der Superadmin darf Kopien gesammelt löschen'); return; }
   if(isReadonly()){ notify('Nur Lesezugriff'); return; }
   const copies=tours.filter(_isTourCopy).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   const m=document.createElement('div');
@@ -9192,6 +9193,8 @@ function renderTourenGrid(){
   renderTourKontrolle();
   const genBtn=document.getElementById('btn-flaechen-tourgen');
   if(genBtn) genBtn.style.display=((currentRole==='superadmin'||currentCap==='admin') && _geomActive() && trees.some(t=>geomTypeOf(t)==='flaeche'&&(t.fahrzeug||'').trim()))?'':'none';
+  const cleanBtn=document.getElementById('btn-clean-copies'); // „Kopien löschen": nur Superadmin
+  if(cleanBtn) cleanBtn.style.display=currentRole==='superadmin'?'':'none';
 
   if(tours.length===0){
     grid.innerHTML=`<tr><td colspan="8" style="padding:60px;text-align:center;color:var(--text3);">
