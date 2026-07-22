@@ -6587,35 +6587,57 @@ function openTourCopyDialog(){
     catch(e){ console.warn('Touren kopieren',e); notify('⚠ Kopieren fehlgeschlagen: '+(e.message||e)); go.disabled=false; }
   };
 }
+// Firestore-Schreibvorgang mit Wiederholung bei TRANSIENTEN Fehlern (Rate-/Kontingent-Drossel,
+// Contention, kurze Netz-Aussetzer) — mit exponentiellem Backoff + Jitter. Dauerhafte Fehler
+// (permission-denied, invalid-argument …) werden sofort weitergereicht (kein sinnloses Wiederholen).
+async function _fsRetry(fn, tries=5){
+  let last;
+  for(let a=0;a<tries;a++){
+    try{ return await fn(); }
+    catch(e){
+      last=e; const s=((e&&e.code)||'')+' '+((e&&e.message)||'');
+      if(!/unavailable|aborted|deadline|resource-exhausted|internal|cancelled|network|429|503/i.test(s)) throw e;
+      await new Promise(r=>setTimeout(r, 500*Math.pow(2,a)+Math.floor(Math.random()*300))); // 0.5s,1s,2s,4s,8s (+Jitter)
+    }
+  }
+  throw last;
+}
 async function copyToursExec(ids, btn){
   const all=((_allTrees&&_allTrees.length)?_allTrees:trees).filter(isActive); // voller Bestand, nicht nur Pilot-Ausschnitt
-  let done=0, zuord=0;
+  let done=0, zuord=0; const failed=[];
   for(const srcId of ids){
     const src=tours.find(t=>t.id===srcId); if(!src) continue;
     if(btn) btn.textContent=`Kopiere ${done+1}/${ids.length}…`;
-    // 1) Tour-Doc: nur die Planungs-Allowlist, tief kopiert (keine Referenzen auf die Quelle)
-    const data={ name:_tourCopyName(src.name) };
-    TOUR_COPY_FIELDS.forEach(f=>{ if(src[f]!==undefined && src[f]!==null) data[f]=JSON.parse(JSON.stringify(src[f])); });
-    const ref=await addDoc(collection(db,'projects',currentProjectId,'tours'),{...data,createdAt:serverTimestamp()});
-    // 2) Objekt-Zuordnung: dieselben Objekte zusätzlich der Kopie zuordnen (arrayUnion — idempotent)
-    const members=all.filter(t=>treeInTour(t,srcId));
-    for(let i=0;i<members.length;i+=400){
-      const batch=db.batch();
-      members.slice(i,i+400).forEach(t=>{
-        const tref=doc(db,'projects',currentProjectId,'trees',t.id);
-        // Altdaten-Falle: hat das Objekt nur das Legacy-Feld tourId (kein tourIds-Array), würde
-        // arrayUnion ein Array NUR mit der Kopie anlegen und die bisherige Mitgliedschaft verdrängen
-        // (getTreeTourIds bevorzugt das Array) → dann volles Array aus Bestand + Kopie schreiben.
-        if(Array.isArray(t.tourIds)) batch.update(tref,{tourIds:arrayUnion(ref.id)});
-        else batch.update(tref,{tourIds:[...new Set([...getTreeTourIds(t), ref.id])]});
-      });
-      await batch.commit(); _bumpUsage('writes',Math.min(400,members.length-i));
-    }
-    zuord+=members.length; done++;
+    try{
+      // 1) Tour-Doc: nur die Planungs-Allowlist, tief kopiert (keine Referenzen auf die Quelle)
+      const data={ name:_tourCopyName(src.name) };
+      TOUR_COPY_FIELDS.forEach(f=>{ if(src[f]!==undefined && src[f]!==null) data[f]=JSON.parse(JSON.stringify(src[f])); });
+      const ref=await _fsRetry(()=>addDoc(collection(db,'projects',currentProjectId,'tours'),{...data,createdAt:serverTimestamp()}));
+      // 2) Objekt-Zuordnung: dieselben Objekte zusätzlich der Kopie zuordnen (arrayUnion — idempotent)
+      const members=all.filter(t=>treeInTour(t,srcId));
+      for(let i=0;i<members.length;i+=400){
+        const chunk=members.slice(i,i+400);
+        await _fsRetry(()=>{
+          const batch=db.batch();
+          chunk.forEach(t=>{
+            const tref=doc(db,'projects',currentProjectId,'trees',t.id);
+            // Altdaten-Falle: hat das Objekt nur das Legacy-Feld tourId (kein tourIds-Array), würde
+            // arrayUnion ein Array NUR mit der Kopie anlegen und die bisherige Mitgliedschaft verdrängen
+            // (getTreeTourIds bevorzugt das Array) → dann volles Array aus Bestand + Kopie schreiben.
+            if(Array.isArray(t.tourIds)) batch.update(tref,{tourIds:arrayUnion(ref.id)});
+            else batch.update(tref,{tourIds:[...new Set([...getTreeTourIds(t), ref.id])]});
+          });
+          return batch.commit();
+        });
+        _bumpUsage('writes',chunk.length);
+      }
+      zuord+=members.length; done++;
+    }catch(e){ console.warn('Tour-Kopie fehlgeschlagen:', src.name, (e&&e.code)||'', e); failed.push(src.name||srcId); }
   }
   // increment statt tours.length+done: der Live-Snapshot kann die Kopien schon in `tours` haben → Off-by-one
   try{ await updateDoc(doc(db,'projects',currentProjectId),{tourCount:firebase.firestore.FieldValue.increment(done)}); }catch(_){}
-  notify(`✓ ${done} Tour${done===1?'':'en'} kopiert · ${zuord.toLocaleString('de-DE')} Objekt-Zuordnungen — Fahrer/Route bewusst nicht übernommen`);
+  if(failed.length) notify(`⚠ ${done} von ${ids.length} Touren kopiert · ${failed.length} fehlgeschlagen (${failed.slice(0,3).join(', ')}${failed.length>3?' …':''}) — bitte diese erneut kopieren`);
+  else notify(`✓ ${done} Tour${done===1?'':'en'} kopiert · ${zuord.toLocaleString('de-DE')} Objekt-Zuordnungen — Fahrer/Route bewusst nicht übernommen`);
 }
 async function deleteTour(id){
   const tour=tours.find(t=>t.id===id);
