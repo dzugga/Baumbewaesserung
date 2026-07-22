@@ -2145,7 +2145,9 @@ function makeMarker(tree){
   if(geomTypeOf(tree)!=='punkt') return null;
   const treeTourIds=getTreeTourIds(tree);
   const realIds=realTourIds(tree);                            // Übersichten zählen nicht mit
-  const isMulti=realIds.length>1;                             // mehrere ECHTE Tourzuordnungen → Zähler
+  const _lkpById=_tourLkp().byId;
+  const prodIds=realIds.filter(id=>{ const t=_lkpById.get(id); return t && !t.unproduktiv; }); // unproduktive zählen nicht
+  const isMulti=prodIds.length>1;                             // mehrere AKTIVE (produktive) Tourzuordnungen → Zähler
   const activeForTree=treeTourIds.filter(id=>activeTours.has(id) && !isOverviewTour(id)); // Übersichten zählen nicht
   const multiActive=activeForTree.length>=2;                  // mehrere gleichzeitig eingeblendete ECHTE Touren → gelb
   // Farbe: mehrere gleichzeitig aktive Touren → gelb; sonst aktive/Primär-Tourfarbe
@@ -2185,7 +2187,7 @@ function makeMarker(tree){
 
   // Tour-Zähler = Anzahl der Tourzuordnungen (fix), per Button nur ausblendbar
   const multiBadge=isMulti
-    ?`<div class="tour-count-badge" style="position:absolute;top:-6px;right:-6px;min-width:16px;height:16px;border-radius:8px;background:#f59e0b;border:2px solid #fff;color:#fff;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 2px;z-index:10;">${realIds.length}</div>`:'';
+    ?`<div class="tour-count-badge" style="position:absolute;top:-6px;right:-6px;min-width:16px;height:16px;border-radius:8px;background:#f59e0b;border:2px solid #fff;color:#fff;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 2px;z-index:10;">${prodIds.length}</div>`:'';
 
   // Lasso-Vorauswahl: deutlicher durchgehender Ring (Akzent), zusätzlich zum evtl. Highlight
   const selRing=isPreselected
