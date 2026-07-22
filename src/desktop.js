@@ -952,7 +952,7 @@ function showProjectScreen(){
   Object.values(mapMarkers).forEach(m=>_mDel(m));mapMarkers={};
   Object.values(tourRoutes).forEach(r=>map.removeLayer(r.layer));tourRoutes={};
   if(depotMarker){map.removeLayer(depotMarker);depotMarker=null;}
-  tours=[];trees=[];_allTrees=[];tourOrder={};activeTours.clear();showUnplanned=false;showAllNeutral=false;activeTourOnMap=null;filterTour='all';showOverviewInLegend=false;showOverviewInGrid=false;showOverviewInAssign=false;
+  tours=[];trees=[];_allTrees=[];tourOrder={};activeTours.clear();showUnplanned=false;showAllNeutral=false;activeTourOnMap=null;filterTour='all';showOverviewInLegend=false;showOverviewInGrid=false;showOverviewInAssign=false;showFinishedInLegend=false;
   reasons=[]; // Gründe des Projekts verwerfen (kein projektübergreifendes Hängenbleiben)
   _routesCache={};_routesLoadedFor=null; // Routen-Cache verwerfen
   _dataViewProject=null; _resetAutoplanState(); // Daten-Ansichten + Auto-Planung nicht projektübergreifend hängenlassen
@@ -3883,7 +3883,9 @@ async function toggleTourSelection(tourId){
 }
 // Echte Touren, die aktuell zur Tour-Suche passen (bei leerer Suche: alle).
 function _legendVisibleTours(){
-  const echte=tours.filter(t=>!t.uebersicht&&_tourBhVis(t.betriebshof)); // Betriebshof-Filter wirkt auch auf die Sammel-Checkbox
+  // Betriebshof-Filter + Ausblendung abgeschlossener Touren wirken auch auf die Sammel-Checkbox:
+  // ausgeblendete abgeschlossene Touren werden von „alle anhaken" NICHT erfasst.
+  const echte=tours.filter(t=>!t.uebersicht&&_tourBhVis(t.betriebshof)&&(showFinishedInLegend||t.status!=='abgeschlossen'));
   return (tourLegendQuery||'').trim() ? echte.filter(t=>matchTerms(t.name, tourLegendQuery)) : echte;
 }
 // Sammel-Checkbox-Status (an/halb/aus) anhand der gefilterten Touren synchronisieren
@@ -3901,6 +3903,16 @@ async function toggleAllTours(){
   const allSel=vis.every(t=>activeTours.has(t.id));
   vis.forEach(t=>{ if(allSel) activeTours.delete(t.id); else activeTours.add(t.id); });
   await applyTourSelection(true);
+}
+async function toggleFinishedInLegend(){
+  showFinishedInLegend=!showFinishedInLegend;
+  if(!showFinishedInLegend){
+    // Ausblenden: zuvor eingeblendete abgeschlossene Touren auch von der Karte/Auswahl nehmen
+    let changed=false;
+    tours.forEach(t=>{ if(t.status==='abgeschlossen' && activeTours.has(t.id)){ activeTours.delete(t.id); changed=true; } });
+    if(changed){ await applyTourSelection(false); }
+  }
+  renderLegend();
 }
 async function toggleUnplanned(){
   // Unverplante Objekte zusätzlich ein-/ausblenden (additiv zu gewählten Touren)
@@ -4019,6 +4031,7 @@ function showTourLegendMenu(tid,x,y){
 let tourLegendQuery='';
 let legendExpanded=new Set(); // je Tour aufgeklappte Detail-Zeile (Session)
 let showOverviewInLegend=false; // Übersichten in der Legende eingeblendet? (Session, Standard: aus)
+let showFinishedInLegend=false; // Abgeschlossene Touren in der Legende eingeblendet? (Session, Standard: aus)
 let showOverviewInGrid=false;   // Übersichten im Touren-Reiter eingeblendet? (Session, Standard: aus)
 let showOverviewInAssign=false; // Übersichten in der Ziel-Tour-Auswahl (Planen) eingeblendet?
 // Mehrwort-UND-Suche: alle durch Leerzeichen getrennten Begriffe müssen vorkommen
@@ -4059,7 +4072,8 @@ function renderLegend(){
   if(tours.length===0){el.style.display='none';return;}
   el.style.display='block';
   _tourBhInit();
-  const echteTouren=tours.filter(t=>!t.uebersicht&&_tourBhVis(t.betriebshof));
+  const _finishedAll=tours.filter(t=>!t.uebersicht&&t.status==='abgeschlossen'&&_tourBhVis(t.betriebshof));
+  const echteTouren=tours.filter(t=>!t.uebersicht&&_tourBhVis(t.betriebshof)&&(showFinishedInLegend||t.status!=='abgeschlossen'));
   const overviewTouren=tours.filter(t=>t.uebersicht);
   if(echteTouren.length<8) tourLegendQuery='';
 
@@ -4070,7 +4084,8 @@ function renderLegend(){
   let html=`<div style="display:flex;align-items:center;gap:6px;padding:6px 14px;cursor:pointer;" data-action="toggle-legend">
     <input type="checkbox" id="tour-all-check" title="Alle Touren an/aus" style="margin:0;cursor:pointer;flex-shrink:0;width:13px;height:13px;accent-color:var(--green);">
     <span style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);flex:1;">Touren</span>
-    <button type="button" onclick="event.stopPropagation();tourVergleichOpen()" title="Tour-Vergleich — Leistungen aller Touren vergleichen" style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border:1px solid var(--border);border-radius:5px;background:var(--bg);cursor:pointer;color:var(--text2);flex-shrink:0;padding:0;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/></svg></button>`;
+    <button type="button" onclick="event.stopPropagation();tourVergleichOpen()" title="Tour-Vergleich — Leistungen aller Touren vergleichen" style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border:1px solid var(--border);border-radius:5px;background:var(--bg);cursor:pointer;color:var(--text2);flex-shrink:0;padding:0;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/></svg></button>`
+    +(_finishedAll.length?`<button type="button" onclick="event.stopPropagation();toggleFinishedInLegend()" title="Abgeschlossene Touren ${showFinishedInLegend?'ausblenden':'einblenden'} (${_finishedAll.length})" style="display:inline-flex;align-items:center;gap:3px;height:20px;padding:0 6px;border:1px solid ${showFinishedInLegend?'var(--green)':'var(--border)'};border-radius:5px;background:${showFinishedInLegend?'var(--green-light)':'var(--bg)'};cursor:pointer;color:${showFinishedInLegend?'var(--green)':'var(--text2)'};flex-shrink:0;font-size:10px;font-weight:700;font-family:inherit;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>${_finishedAll.length}</button>`:'');
 
   // Header: aktive Tour bzw. Mehrfachauswahl-Zähler
   const unpTag=showUnplanned?` <span style="color:var(--text3);font-weight:500;">+ offen</span>`:'';
@@ -19237,7 +19252,7 @@ async function renderHbUpdates(q){
 Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,openKiConfigMenu,toggleKiAnalyse,resetKiAnalysen,
   renderHandbuch,setHbTab,hbSearchDebounced,openHbImg,closeHbImg,
-  dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,dispoFillAuswertungOpen,dispoFillObjektOpen,tourVergleichOpen,tourVergleichClose,
+  dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,dispoFillAuswertungOpen,dispoFillObjektOpen,tourVergleichOpen,tourVergleichClose,toggleFinishedInLegend,
   epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epApplyStandardOne,epTagesplanScope,epSendTagesplan,epTgInput,epTgRegen,epCycleVehicleStatus,epVehTypesOpen,epAbsTypesOpen,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,epWeekShift,epWeekThis,epWeekToggleEmpty,epWeekFilter,epDayFilter,epTourCtx,epEditTour,_epCloseCtx,epPersonOpenCard,
   renderDashboard,refreshDashboard,
   saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterInlineTours,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
