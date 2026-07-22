@@ -6491,7 +6491,7 @@ async function saveTour(){
     } else {
       if(arbeitszeitMin>0) data.arbeitszeitMin=arbeitszeitMin;
       await addDoc(collection(db,'projects',currentProjectId,'tours'),{...data,createdAt:serverTimestamp()});
-      await updateDoc(doc(db,'projects',currentProjectId),{tourCount:tours.length+1});
+      // tourCount NICHT manuell setzen — maybeHealCount() im tours-Snapshot heilt ihn auf den echten Stand.
       notify('Tour erstellt');
     }
     routeCache={};closeTourModal();
@@ -6668,8 +6668,8 @@ async function copyToursExec(ids, btn, asUnprod){
       if(ids.length>5) await new Promise(r=>setTimeout(r,120));
     }catch(e){ console.warn('Tour-Kopie fehlgeschlagen:', src.name, (e&&e.code)||'', e); failed.push(src.name||srcId); }
   }
-  // increment statt tours.length+done: der Live-Snapshot kann die Kopien schon in `tours` haben → Off-by-one
-  try{ await updateDoc(doc(db,'projects',currentProjectId),{tourCount:firebase.firestore.FieldValue.increment(done)}); }catch(_){}
+  // tourCount NICHT manuell hochzählen — maybeHealCount() im tours-Snapshot hat ihn beim Kopieren
+  // bereits live auf den echten Stand gesetzt; ein zusätzliches increment würde doppelt zählen.
   if(failed.length) notify(`⚠ ${done} von ${ids.length} Touren kopiert · ${failed.length} fehlgeschlagen (${failed.slice(0,3).join(', ')}${failed.length>3?' …':''}) — bitte diese erneut kopieren`);
   else notify(`✓ ${done} Tour${done===1?'':'en'} kopiert · ${zuord.toLocaleString('de-DE')} Objekt-Zuordnungen — Fahrer/Route bewusst nicht übernommen`);
 }
@@ -6753,7 +6753,8 @@ async function deleteToursBulk(ids, btn){
       done++;
     }catch(e){ console.warn('Kopie löschen fehlgeschlagen:', nm, (e&&e.code)||'', e); failed.push(nm); }
   }
-  try{ await updateDoc(doc(db,'projects',currentProjectId),{tourCount:firebase.firestore.FieldValue.increment(-done)}); }catch(_){}
+  // tourCount NICHT manuell verringern — maybeHealCount() im tours-Snapshot hat ihn beim Löschen
+  // bereits live auf den echten Stand gesetzt; ein zusätzliches decrement würde zu niedrig zählen.
   try{ if(!activeTours.size) filterTour='all'; syncActiveTour(); }catch(_){}
   notify(failed.length?`⚠ ${done} gelöscht, ${failed.length} fehlgeschlagen (${failed.slice(0,3).join(', ')}${failed.length>3?' …':''})`:`✓ ${done} Kopie${done===1?'':'n'} gelöscht — Objekte bleiben erhalten`);
 }
