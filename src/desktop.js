@@ -4049,6 +4049,13 @@ function applyTourLegendFilter(){
   document.querySelectorAll('#tour-legend .legend-item[data-tourname]').forEach(row=>{
     row.style.display = matchTerms(row.dataset.tourname, tourLegendQuery) ? '' : 'none';
   });
+  // Kopf-Zähler bei aktiver Suche live mitführen (Sucheingabe rendert die Legende nicht neu)
+  const cntEl=document.getElementById('tour-legend-count');
+  if(cntEl){
+    const base=tours.filter(t=>!t.uebersicht&&_tourBhVis(t.betriebshof)&&(showLockedInLegend||!t.locked));
+    const q=(tourLegendQuery||'').trim();
+    cntEl.textContent = q ? `${base.filter(t=>matchTerms(t.name,q)).length} von ${base.length} Touren` : `${base.length} Touren`;
+  }
   _syncAllToursCheck(); // Sammel-Haken folgt dem Filter
 }
 // ── Betriebshof-Filter für Tour-Listen (Karten-Legende + Touren-Reiter, EINE Auswahl je Projekt) ──
@@ -4099,7 +4106,8 @@ function renderLegend(){
   } else if(showUnplanned){
     html+=`<span style="font-size:11px;font-weight:600;color:var(--green);">Nicht verplant</span>`;
   } else {
-    html+=`<span style="font-size:11px;color:var(--text3);">${echteTouren.length} Touren</span>`;
+    const _q=(tourLegendQuery||'').trim();
+    html+=`<span id="tour-legend-count" style="font-size:11px;color:var(--text3);">${_q?`${echteTouren.filter(t=>matchTerms(t.name,_q)).length} von ${echteTouren.length} Touren`:`${echteTouren.length} Touren`}</span>`;
   }
   const isOpen=el.dataset.open!=='false';
   html+=`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="color:var(--text3);transition:transform .2s;transform:rotate(${isOpen?'180':'0'}deg);flex-shrink:0;"><path d="M6 9l6 6 6-6"/></svg>
