@@ -380,6 +380,11 @@ let currentView = 'karte';
 let selectedTreeId = null;
 let lassoSelection = new Set(); // Lasso-Vorauswahl (tree-IDs) im Planen-Modus
 let filterTour = 'all';
+// Tour-Sperre: optimistische Umschaltungen gegen den Echtzeit-Listener absichern.
+// _lockOverride[id] hält den gewünschten locked-Zustand, bis der eigene Write bestätigt ist —
+// so verwirft ein zwischenzeitlicher tours-Snapshot (z. B. durch den Write einer ANDEREN Tour beim
+// schnellen Klicken) den gerade gesetzten Zustand nicht. _lockBusy verhindert Doppel-Toggles.
+let _lockOverride = {}; const _lockBusy = new Set();
 // Eigenschaften-Filter (Planung). objFilterOnMap = optional auch Marker filtern.
 let objFilter = {stadtteil:'',art:'',pflanzjahr:'',zustand:'',wasser:'',status:'',kontrolle:''};
 let objFilterOnMap = false;
@@ -963,6 +968,8 @@ function subscribeToProject(){
   unsubTours=onSnapshot(toursRef,snap=>{
     const _prevColor=tours.reduce((m,t)=>{m[t.id]=t.color;return m;},{});
     tours=snap.docs.map(d=>({id:d.id,...d.data()}));
+    // Noch nicht bestätigte Sperr-Umschaltungen erhalten (verhindert Flackern/falschen Zustand bei schnellem Klicken)
+    for(const oid in _lockOverride){ const _t=tours.find(x=>x.id===oid); if(_t) _t.locked=_lockOverride[oid]; }
     // Tourfarbe geändert → Marker + Geometrie-Objekte (Fläche/Strecke/Abschnitt) neu einfärben.
     // Nur bei echtem Farbwechsel, damit reine Status-Updates (Fahrer-App) keine teure Neuzeichnung auslösen.
     const _colorChanged=tours.some(t=>_prevColor[t.id]!==undefined && _prevColor[t.id]!==t.color);
@@ -6211,11 +6218,22 @@ function _lockedToursBlock(tourIds){
 }
 async function toggleTourLock(id){
   if(isReadonly()){ notify('Nur Lesezugriff'); return; }
+  if(_lockBusy.has(id)) return;                      // läuft bereits → Doppel-/Schnellklick ignorieren
   const t=tours.find(x=>x.id===id); if(!t) return;
-  const val=!t.locked; t.locked=val;                 // optimistisch
+  const val=!t.locked;
+  _lockBusy.add(id); _lockOverride[id]=val; t.locked=val;   // optimistisch + Override gegen zwischenzeitliche Snapshots
   renderTourenGrid(); try{ renderLegend(); }catch(_){}
-  try{ await updateDoc(doc(db,'projects',currentProjectId,'tours',id),{locked:val}); notify(val?('🔒 „'+(t.name||'Tour')+'" gesperrt'):('🔓 „'+(t.name||'Tour')+'" entriegelt')); }
-  catch(e){ console.warn('toggleTourLock',e); t.locked=!val; renderTourenGrid(); try{ renderLegend(); }catch(_){} notify(dlErr(e)); }
+  try{
+    await updateDoc(doc(db,'projects',currentProjectId,'tours',id),{locked:val});
+    notify(val?('🔒 „'+(t.name||'Tour')+'" gesperrt'):('🔓 „'+(t.name||'Tour')+'" entriegelt'));
+  }catch(e){
+    console.warn('toggleTourLock',e);
+    const cur=tours.find(x=>x.id===id); if(cur) cur.locked=!val;   // Fehler → optimistischen Wert zurücknehmen
+    notify(dlErr(e));
+  }finally{
+    delete _lockOverride[id]; _lockBusy.delete(id);              // Server ist jetzt Quelle der Wahrheit
+    renderTourenGrid(); try{ renderLegend(); }catch(_){}
+  }
 }
 
 async function assignTreeToTour(treeId,tourId,skipConflictCheck=false){
