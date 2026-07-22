@@ -952,7 +952,7 @@ function showProjectScreen(){
   Object.values(mapMarkers).forEach(m=>_mDel(m));mapMarkers={};
   Object.values(tourRoutes).forEach(r=>map.removeLayer(r.layer));tourRoutes={};
   if(depotMarker){map.removeLayer(depotMarker);depotMarker=null;}
-  tours=[];trees=[];_allTrees=[];tourOrder={};activeTours.clear();showUnplanned=false;showAllNeutral=false;activeTourOnMap=null;filterTour='all';showOverviewInLegend=false;showOverviewInGrid=false;showOverviewInAssign=false;showFinishedInLegend=false;
+  tours=[];trees=[];_allTrees=[];tourOrder={};activeTours.clear();showUnplanned=false;showAllNeutral=false;activeTourOnMap=null;filterTour='all';showOverviewInLegend=false;showOverviewInGrid=false;showOverviewInAssign=false;showLockedInLegend=true;
   reasons=[]; // Gründe des Projekts verwerfen (kein projektübergreifendes Hängenbleiben)
   _routesCache={};_routesLoadedFor=null; // Routen-Cache verwerfen
   _dataViewProject=null; _resetAutoplanState(); // Daten-Ansichten + Auto-Planung nicht projektübergreifend hängenlassen
@@ -3883,9 +3883,9 @@ async function toggleTourSelection(tourId){
 }
 // Echte Touren, die aktuell zur Tour-Suche passen (bei leerer Suche: alle).
 function _legendVisibleTours(){
-  // Betriebshof-Filter + Ausblendung abgeschlossener Touren wirken auch auf die Sammel-Checkbox:
-  // ausgeblendete abgeschlossene Touren werden von „alle anhaken" NICHT erfasst.
-  const echte=tours.filter(t=>!t.uebersicht&&_tourBhVis(t.betriebshof)&&(showFinishedInLegend||t.status!=='abgeschlossen'));
+  // Betriebshof-Filter + Ausblendung gesperrter Touren wirken auch auf die Sammel-Checkbox:
+  // ausgeblendete gesperrte Touren werden von „alle anhaken" NICHT erfasst.
+  const echte=tours.filter(t=>!t.uebersicht&&_tourBhVis(t.betriebshof)&&(showLockedInLegend||!t.locked));
   return (tourLegendQuery||'').trim() ? echte.filter(t=>matchTerms(t.name, tourLegendQuery)) : echte;
 }
 // Sammel-Checkbox-Status (an/halb/aus) anhand der gefilterten Touren synchronisieren
@@ -3904,12 +3904,12 @@ async function toggleAllTours(){
   vis.forEach(t=>{ if(allSel) activeTours.delete(t.id); else activeTours.add(t.id); });
   await applyTourSelection(true);
 }
-async function toggleFinishedInLegend(){
-  showFinishedInLegend=!showFinishedInLegend;
-  if(!showFinishedInLegend){
-    // Ausblenden: zuvor eingeblendete abgeschlossene Touren auch von der Karte/Auswahl nehmen
+async function toggleLockedInLegend(){
+  showLockedInLegend=!showLockedInLegend;
+  if(!showLockedInLegend){
+    // Ausblenden: zuvor eingeblendete gesperrte Touren auch von der Karte/Auswahl nehmen
     let changed=false;
-    tours.forEach(t=>{ if(t.status==='abgeschlossen' && activeTours.has(t.id)){ activeTours.delete(t.id); changed=true; } });
+    tours.forEach(t=>{ if(t.locked && activeTours.has(t.id)){ activeTours.delete(t.id); changed=true; } });
     if(changed){ await applyTourSelection(false); }
   }
   renderLegend();
@@ -4031,7 +4031,7 @@ function showTourLegendMenu(tid,x,y){
 let tourLegendQuery='';
 let legendExpanded=new Set(); // je Tour aufgeklappte Detail-Zeile (Session)
 let showOverviewInLegend=false; // Übersichten in der Legende eingeblendet? (Session, Standard: aus)
-let showFinishedInLegend=false; // Abgeschlossene Touren in der Legende eingeblendet? (Session, Standard: aus)
+let showLockedInLegend=true; // Gesperrte (🔒) Touren in der Legende eingeblendet? (Session, Standard: an — Toggle blendet sie zum Umplanen aus)
 let showOverviewInGrid=false;   // Übersichten im Touren-Reiter eingeblendet? (Session, Standard: aus)
 let showOverviewInAssign=false; // Übersichten in der Ziel-Tour-Auswahl (Planen) eingeblendet?
 // Mehrwort-UND-Suche: alle durch Leerzeichen getrennten Begriffe müssen vorkommen
@@ -4072,8 +4072,8 @@ function renderLegend(){
   if(tours.length===0){el.style.display='none';return;}
   el.style.display='block';
   _tourBhInit();
-  const _finishedAll=tours.filter(t=>!t.uebersicht&&t.status==='abgeschlossen'&&_tourBhVis(t.betriebshof));
-  const echteTouren=tours.filter(t=>!t.uebersicht&&_tourBhVis(t.betriebshof)&&(showFinishedInLegend||t.status!=='abgeschlossen'));
+  const _lockedAll=tours.filter(t=>!t.uebersicht&&t.locked&&_tourBhVis(t.betriebshof));
+  const echteTouren=tours.filter(t=>!t.uebersicht&&_tourBhVis(t.betriebshof)&&(showLockedInLegend||!t.locked));
   const overviewTouren=tours.filter(t=>t.uebersicht);
   if(echteTouren.length<8) tourLegendQuery='';
 
@@ -4085,7 +4085,7 @@ function renderLegend(){
     <input type="checkbox" id="tour-all-check" title="Alle Touren an/aus" style="margin:0;cursor:pointer;flex-shrink:0;width:13px;height:13px;accent-color:var(--green);">
     <span style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);flex:1;">Touren</span>
     <button type="button" onclick="event.stopPropagation();tourVergleichOpen()" title="Tour-Vergleich — Leistungen aller Touren vergleichen" style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border:1px solid var(--border);border-radius:5px;background:var(--bg);cursor:pointer;color:var(--text2);flex-shrink:0;padding:0;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/></svg></button>`
-    +(_finishedAll.length?`<button type="button" onclick="event.stopPropagation();toggleFinishedInLegend()" title="Abgeschlossene Touren ${showFinishedInLegend?'ausblenden':'einblenden'} (${_finishedAll.length})" style="display:inline-flex;align-items:center;gap:3px;height:20px;padding:0 6px;border:1px solid ${showFinishedInLegend?'var(--green)':'var(--border)'};border-radius:5px;background:${showFinishedInLegend?'var(--green-light)':'var(--bg)'};cursor:pointer;color:${showFinishedInLegend?'var(--green)':'var(--text2)'};flex-shrink:0;font-size:10px;font-weight:700;font-family:inherit;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>${_finishedAll.length}</button>`:'');
+    +(_lockedAll.length?`<button type="button" onclick="event.stopPropagation();toggleLockedInLegend()" title="Gesperrte Touren ${showLockedInLegend?'ausblenden':'einblenden'} (${_lockedAll.length})" style="display:inline-flex;align-items:center;gap:3px;height:20px;padding:0 6px;border:1px solid ${!showLockedInLegend?'#f59e0b':'var(--border)'};border-radius:5px;background:${!showLockedInLegend?'#fef3c7':'var(--bg)'};cursor:pointer;color:${!showLockedInLegend?'#b45309':'var(--text2)'};flex-shrink:0;font-size:10px;font-weight:700;font-family:inherit;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>${_lockedAll.length}</button>`:'');
 
   // Header: aktive Tour bzw. Mehrfachauswahl-Zähler
   const unpTag=showUnplanned?` <span style="color:var(--text3);font-weight:500;">+ offen</span>`:'';
@@ -19252,7 +19252,7 @@ async function renderHbUpdates(q){
 Object.assign(window,{
   openKiPrompt,renderKi,setKiMode,renderKiConfig,openKiConfigMenu,toggleKiAnalyse,resetKiAnalysen,
   renderHandbuch,setHbTab,hbSearchDebounced,openHbImg,closeHbImg,
-  dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,dispoFillAuswertungOpen,dispoFillObjektOpen,tourVergleichOpen,tourVergleichClose,toggleFinishedInLegend,
+  dispoSimulate,dispoLoadReal,dispoPlan,dispoOpenObjectDetail,dispoOpenSettings,dispoToggle,dispoAssign,dispoUnassign,dispoFocusBin,dispoFocusPoint,dispoResetDepot,dispoFocusVehicle,dispoToggleVehicle,dispoShowAllVehicles,dispoFillAuswertungOpen,dispoFillObjektOpen,tourVergleichOpen,tourVergleichClose,toggleLockedInLegend,
   epChangeOrg,epChangeProject,epChangeDate,epSetTab,epSetVehicleStatus,epAssignVehicle,epAddDriver,epRemoveDriver,epSetStandard,epApplyStandards,epApplyStandardOne,epTagesplanScope,epSendTagesplan,epTgInput,epTgRegen,epCycleVehicleStatus,epVehTypesOpen,epAbsTypesOpen,epToggleBedarf,epOpenPicker,epDragStart,epDragOver,epDrop,epAbsShiftMonth,epAbsOpenForm,epVehField,epVehAdd,epVehRemove,epVehSave,epWeekShift,epWeekThis,epWeekToggleEmpty,epWeekFilter,epDayFilter,epTourCtx,epEditTour,_epCloseCtx,epPersonOpenCard,
   renderDashboard,refreshDashboard,
   saveInlineFields,toggleOverviewInDetail,renderInlineTourChips,filterInlineTours,filterDetailTable,filterBaeumeTable,switchBaeumeTab,buildArten,addArt,renameArt,mergeArt,deleteArt,
