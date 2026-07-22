@@ -15491,10 +15491,10 @@ function showTreeTourContextMenu(tree, e){
   let rows;
   if(_isContainer(tree)){
     const map=new Map();
-    for(const s of _ausstattungOf(tree.extId)){ for(const id of getTreeTourIds(s)){ const tr=tours.find(t=>t.id===id); if(!tr) continue; if(!map.has(id)) map.set(id,{tour:tr,sides:[]}); map.get(id).sides.push(_elemLabel(s)); } }
+    for(const s of _ausstattungOf(tree.extId)){ for(const id of getTreeTourIds(s)){ const tr=tours.find(t=>t.id===id); if(!tr || tr.unproduktiv) continue; if(!map.has(id)) map.set(id,{tour:tr,sides:[]}); map.get(id).sides.push(_elemLabel(s)); } }
     rows=[...map.values()].map(v=>({color:v.tour.color,name:v.tour.name,sub:v.sides.join(' · '),ueb:!!v.tour.uebersicht,occ:_tourWeeklyOcc(v.tour,_curCheckSaison(),_todayStr())}));
   } else {
-    rows=getTreeTourIds(tree).map(id=>tours.find(t=>t.id===id)).filter(Boolean).map(t=>({color:t.color,name:t.name,sub:'',ueb:!!t.uebersicht,occ:_tourWeeklyOcc(t,_curCheckSaison(),_todayStr())}));
+    rows=getTreeTourIds(tree).map(id=>tours.find(t=>t.id===id)).filter(t=>t&&!t.unproduktiv).map(t=>({color:t.color,name:t.name,sub:'',ueb:!!t.uebersicht,occ:_tourWeeklyOcc(t,_curCheckSaison(),_todayStr())}));
   }
   rows.sort((a,b)=>(a.ueb?1:0)-(b.ueb?1:0)); // echte Touren zuerst, Übersicht unten
   const _ps=planStatusOf(tree);
