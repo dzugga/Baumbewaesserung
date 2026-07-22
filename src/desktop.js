@@ -29,6 +29,7 @@ import { tourDueOn as _tkTourDueOn, tourInValidity as _tourInValidity, tourBetri
 import { printA4, printDoc, printDocFrame } from './printview.js';
 import { startPresence, presenceIsOnline, presenceMaxParallel, presenceDurationMs, presenceSessionEnd, PRESENCE_STALE_MS } from './presence.js';
 import { startAccountGuard, checkAccountLive } from './session-guard.js';
+import { startSession as _startDeskSession, endSession as _endDeskSession } from './session.js';
 import { LEISTUNGSARTEN, ortslageRelevant as ewkOrtslageRelevant, tarifFuer as ewkTarifFuer, satzText as ewkSatzText } from './ewk-tarif.js';
 import { LEISTUNGSART_LABELS, LEISTUNGSART_INFO, LEISTUNGSART_BELEG, ewkLeistungsartOf, aggregateEreignisse, buildLeistungsereignis, ewkDatenqualitaet } from './ewk.js';
 import { buildBatchDocHtml, REPORT_PRINT_CSS } from './report-batch.js';
@@ -19389,6 +19390,7 @@ async function doLogin(){
     const pass=document.getElementById('login-pass')?.value||'';
     if(!email||!pass){ if(err) err.textContent='Bitte E-Mail und Passwort eingeben'; return; }
     if(btn){ btn.disabled=true; btn.textContent='Anmelden…'; }
+    try{ sessionStorage.removeItem('bwt_desk_sess'); }catch(_){} // E-Mail/Admin: keine Single-Session-Bindung (parallel erlaubt)
     try{ await firebase.auth().signInWithEmailAndPassword(email,pass); }
     catch(e){ const c=e&&e.code||''; if(err) err.textContent=/invalid-credential|wrong-password|user-not-found|invalid-email/.test(c)?'E-Mail oder Passwort falsch':('Fehler: '+((e&&e.message)||c)); if(btn){ btn.disabled=false; btn.textContent='Anmelden'; } }
     return;
@@ -19401,12 +19403,16 @@ async function doLogin(){
   if(!/^\d{6}$/.test(pin)){ if(err) err.textContent='PIN muss 6-stellig sein'; return; }
   if(btn){ btn.disabled=true; btn.textContent='Anmelden…'; }
   try{
-    const res=await firebase.app().functions('europe-west3').httpsCallable('driverLogin')({orgCode:orgcode.toUpperCase(),name,pin,allowParallel:true});
+    // KEIN allowParallel mehr → Backend erzwingt Single-Session je Kennung (nur EIN gleichzeitiger
+    // Desktop-Login pro Stadt-Code+Name+PIN). sessionId in sessionStorage → überlebt F5 im selben Tab
+    // (wie die Firebase-SESSION-Persistenz), sodass der Heartbeat nach einem Reload fortgesetzt wird.
+    const res=await firebase.app().functions('europe-west3').httpsCallable('driverLogin')({orgCode:orgcode.toUpperCase(),name,pin});
     try{ localStorage.setItem('bwt_desktop_orgcode',orgcode.toUpperCase()); localStorage.setItem('bwt_desktop_name',name); }catch(_){}
+    try{ if(res.data.sessionId) sessionStorage.setItem('bwt_desk_sess', res.data.sessionId); else sessionStorage.removeItem('bwt_desk_sess'); }catch(_){}
     await firebase.auth().signInWithCustomToken(res.data.token);
   }catch(e){ const c=e&&e.code||'',m=e&&e.message||''; if(err) err.textContent=/permission-denied|not-found|unauthenticated|resource-exhausted/.test(c)?(m||'Name oder PIN falsch'):('Fehler: '+(m||c)); if(btn){ btn.disabled=false; btn.textContent='Anmelden'; } }
 }
-async function doLogout(){ try{ _presence&&_presence.stop(); }catch(_){} try{ await flushUsage(); }catch(_){} try{ await firebase.auth().signOut(); }catch(e){} location.reload(); }
+async function doLogout(){ try{ _presence&&_presence.stop(); }catch(_){} try{ await _endDeskSession(); }catch(_){} try{ sessionStorage.removeItem('bwt_desk_sess'); }catch(_){} try{ await flushUsage(); }catch(_){} try{ await firebase.auth().signOut(); }catch(e){} location.reload(); }
 
 // Desktop-Planer: Sitzung endet beim Schließen des Fensters/Tabs (SESSION-Persistenz) → erneutes Öffnen
 // verlangt eine neue Anmeldung. Bewusst NUR hier — Fahrer-/Einsatzleiter-/Erfassungs-App behalten LOCAL.
@@ -19431,6 +19437,9 @@ firebase.auth().onAuthStateChanged(async (user)=>{
     await loadRoles();
     hideLogin(); updateUserChip(); applyModulePermissions(); initProjectScreen();
     try{ _presence=startPresence({db, orgId:currentOrg||('super:'+currentUser.uid), kind:'desktop', userKey:currentUser.uid, uid:currentUser.uid, name:currentName||currentUser.email||'', role:currentRole, app:'desktop', buildId:(typeof __BUILD_ID__!=='undefined'?__BUILD_ID__:'')}); }catch(_){}
+    // Single-Session für PIN-Zugänge (Kunden): Heartbeat aus der gemerkten sessionId starten — auch nach
+    // F5-Reload (dann läuft doLogin nicht erneut). Wird die Kennung woanders angemeldet, kickt der Server hier.
+    try{ const _ds=sessionStorage.getItem('bwt_desk_sess'); if(_ds) _startDeskSession(_ds, _onDeskSessionKicked); }catch(_){}
     try{ _acctGuard&&_acctGuard.stop(); }catch(_){}
     _acctGuard=startAccountGuard({auth:firebase.auth(), db, onInvalid:(st)=>{
       _acctGuard=null; _authMsg=st==='inactive'?'Ihr Konto wurde deaktiviert — Sie wurden abgemeldet.':'Ihr Konto wurde entfernt — Sie wurden abgemeldet.';
@@ -19440,9 +19449,18 @@ firebase.auth().onAuthStateChanged(async (user)=>{
   } else {
     currentUser=null; currentRole=''; currentCap=''; currentOrg='';
     try{ _acctGuard&&_acctGuard.stop(); }catch(_){}; _acctGuard=null;
+    try{ _endDeskSession(); }catch(_){}                          // Heartbeat bei jedem Logout stoppen (alle Wege enden hier)
+    try{ sessionStorage.removeItem('bwt_desk_sess'); }catch(_){}
     showLogin(_authMsg); _authMsg='';
   }
 });
+// Diese Kennung wurde an einem anderen Gerät/Tab angemeldet → dieser Client verliert die Sitzung.
+function _onDeskSessionKicked(){
+  _authMsg='Diese Kennung wurde an einem anderen Gerät angemeldet — Sie wurden hier abgemeldet.';
+  try{ sessionStorage.removeItem('bwt_desk_sess'); }catch(_){}
+  try{ _presence&&_presence.stop(); }catch(_){}
+  firebase.auth().signOut().catch(()=>{ showLogin(_authMsg); _authMsg=''; });
+}
 
 (()=>{ const el=document.getElementById('app-version'); if(el) el.textContent=`Version ${APP_VERSION}`; })();
 
