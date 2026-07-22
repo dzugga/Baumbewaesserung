@@ -1618,7 +1618,7 @@ async function fetchOrsRoute(coords){
   try{
     // If fits in one request, send directly
     if(coords.length<=CHUNK){
-      const res=await _orsFetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson',{coordinates:coords,instructions:false});
+      const res=await _orsFetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson',{coordinates:coords,instructions:true});
       if(!res.ok){console.warn('ORS error:',res.status,await res.text()); _orsNotice(res.status); return null;}
       return await res.json();
     }
@@ -1637,7 +1637,7 @@ async function fetchOrsRoute(coords){
     let _firstErr=null;
     for(const chunk of chunks){
       if(chunk.length<2)continue;
-      const res=await _orsFetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson',{coordinates:chunk,instructions:false});
+      const res=await _orsFetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson',{coordinates:chunk,instructions:true});
       if(!res.ok){console.warn('ORS chunk error:',res.status); if(_firstErr==null)_firstErr=res.status; continue;}
       const geo=await res.json();
       if(!geo?.features?.[0])continue;
@@ -1918,6 +1918,9 @@ async function calculateAndSaveRoute(tourId){
       console.warn('An-/Abfahrt nicht ermittelbar:', tour.name, '— ORS lieferte keine Etappen (Luftlinien-Fallback oder API-Antwort ohne segments)');
     }
   }
+  // Etappen (mit Anweisungs-Schritten) NICHT mitspeichern — nur zum Auslesen der An-/Abfahrt gebraucht,
+  // sonst blähen sie geojsonStr im Firestore-Dokument stark auf.
+  if(geojsonToSave?.features?.[0]?.properties?.segments) delete geojsonToSave.features[0].properties.segments;
   // Save to Firestore — geojson serialized as string (Firestore doesn't support nested arrays)
   const routeData={
     orderIds:tourOrder[tourId],
