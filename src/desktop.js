@@ -6639,6 +6639,89 @@ async function copyToursExec(ids, btn){
   if(failed.length) notify(`⚠ ${done} von ${ids.length} Touren kopiert · ${failed.length} fehlgeschlagen (${failed.slice(0,3).join(', ')}${failed.length>3?' …':''}) — bitte diese erneut kopieren`);
   else notify(`✓ ${done} Tour${done===1?'':'en'} kopiert · ${zuord.toLocaleString('de-DE')} Objekt-Zuordnungen — Fahrer/Route bewusst nicht übernommen`);
 }
+// Erkennt Kopie-Touren am Namensmuster von _tourCopyName: „… (Kopie)" / „… (Kopie 2)" …
+const _TOUR_COPY_RE=/\s\(Kopie(\s\d+)?\)$/;
+function _isTourCopy(t){ return !!t && !t.uebersicht && _TOUR_COPY_RE.test((t.name||'').trim()); }
+function openTourCopyCleanupDialog(){
+  if(isReadonly()){ notify('Nur Lesezugriff'); return; }
+  const copies=tours.filter(_isTourCopy).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  const m=document.createElement('div');
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  const cntOf=id=>trees.filter(t=>treeInTour(t,id)).length;
+  const _dt=v=>{ try{ const d=v&&v.toDate?v.toDate():(v&&v.seconds?new Date(v.seconds*1000):null); return d?d.toLocaleDateString('de-DE')+' '+d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}):''; }catch(_){ return ''; } };
+  m.innerHTML=`<div style="background:var(--surface);border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.25);width:520px;max-width:94vw;max-height:86vh;display:flex;flex-direction:column;overflow:hidden;">
+    <div style="padding:16px 20px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;">
+      <span style="font-size:15px;font-weight:700;">Kopie-Touren löschen</span>
+      <span style="font-size:12px;color:var(--text3);">${copies.length} gefunden</span>
+      <button id="cc-x" style="margin-left:auto;border:none;background:none;font-size:20px;cursor:pointer;color:var(--text3);line-height:1;">×</button>
+    </div>
+    ${copies.length?`<div style="padding:6px 20px 2px;font-size:12px;color:var(--text2);">Erkannt am Namenszusatz „(Kopie)". Objekte bleiben erhalten (werden nur aus der Kopie entfernt). Bitte prüfen und Auswahl bestätigen — <b>nicht umkehrbar</b>.</div>
+    <div style="flex:1;overflow-y:auto;padding:8px 20px;">
+      ${copies.map(t=>`<label style="display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);">
+        <input type="checkbox" class="cc-cb" value="${dlEsc(t.id)}" checked style="margin:0;cursor:pointer;">
+        <span style="width:10px;height:10px;border-radius:50%;background:${t.color||'#888'};flex:none;"></span>
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;">${dlEsc(t.name||t.id)}</span>
+        <span style="font-size:11px;color:var(--text3);flex:none;">${cntOf(t.id)} Obj.${_dt(t.createdAt)?' · '+_dt(t.createdAt):''}</span>
+      </label>`).join('')}
+    </div>
+    <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:center;">
+      <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" id="cc-all" checked style="margin:0;cursor:pointer;"> alle</label>
+      <span style="flex:1;"></span>
+      <button id="cc-cancel" class="btn btn-secondary" style="padding:7px 14px;font-size:13px;">Abbrechen</button>
+      <button id="cc-go" class="btn btn-danger" style="padding:7px 14px;font-size:13px;">Löschen</button>
+    </div>`:`<div style="padding:24px 20px;font-size:13px;color:var(--text3);text-align:center;">Keine Kopie-Touren gefunden.</div>
+    <div style="padding:12px 20px;border-top:1px solid var(--border);text-align:right;"><button id="cc-cancel" class="btn btn-secondary" style="padding:7px 14px;font-size:13px;">Schließen</button></div>`}
+  </div>`;
+  document.body.appendChild(m);
+  const close=()=>m.remove();
+  m.querySelector('#cc-x')?.addEventListener('click',close);
+  m.querySelector('#cc-cancel')?.addEventListener('click',close);
+  m.addEventListener('click',e=>{ if(e.target===m) close(); });
+  if(!copies.length) return;
+  const go=m.querySelector('#cc-go');
+  const upd=()=>{ const n=m.querySelectorAll('.cc-cb:checked').length; go.disabled=!n; go.textContent=n?`${n} löschen`:'Löschen'; };
+  m.querySelectorAll('.cc-cb').forEach(cb=>cb.onchange=upd);
+  m.querySelector('#cc-all').onchange=e=>{ m.querySelectorAll('.cc-cb').forEach(cb=>cb.checked=e.target.checked); upd(); };
+  upd();
+  go.onclick=async()=>{
+    const ids=[...m.querySelectorAll('.cc-cb:checked')].map(cb=>cb.value);
+    if(!ids.length) return;
+    if(!confirm(`${ids.length} Kopie-Tour(en) endgültig löschen? Objekte bleiben erhalten.`)) return;
+    go.disabled=true; const cancel=m.querySelector('#cc-cancel'); if(cancel) cancel.disabled=true;
+    try{ await deleteToursBulk(ids, go); close(); }
+    catch(e){ console.warn('Kopien löschen',e); notify('⚠ Löschen fehlgeschlagen: '+(e.message||e)); go.disabled=false; }
+  };
+}
+// Mehrere Touren gebündelt löschen (mit Retry): Objekte behalten, nur tourId entfernen; Tour+Route-Doc weg.
+async function deleteToursBulk(ids, btn){
+  const all=((_allTrees&&_allTrees.length)?_allTrees:trees);
+  let done=0; const failed=[];
+  for(const id of ids){
+    const t=tours.find(x=>x.id===id); const nm=(t&&t.name)||id;
+    if(btn) btn.textContent=`Lösche ${done+1}/${ids.length}…`;
+    try{
+      const members=all.filter(x=>treeInTour(x,id));
+      for(let i=0;i<members.length;i+=400){
+        const chunk=members.slice(i,i+400);
+        await _fsRetry(()=>{
+          const batch=db.batch();
+          chunk.forEach(x=>{ const nids=getTreeTourIds(x).filter(tid=>tid!==id); batch.update(doc(db,'projects',currentProjectId,'trees',x.id),{tourIds:nids, tourId:nids[0]||''}); });
+          return batch.commit();
+        });
+        _bumpUsage('writes',chunk.length);
+      }
+      await _fsRetry(()=>deleteDoc(doc(db,'projects',currentProjectId,'tours',id)));
+      try{ await _fsRetry(()=>deleteDoc(doc(db,'projects',currentProjectId,'routes',id))); }catch(_){}
+      if(activeTours.has(id)) activeTours.delete(id);
+      if(tourRoutes[id]){ try{ map.removeLayer(tourRoutes[id].layer); }catch(_){} delete tourRoutes[id]; }
+      delete tourOrder[id]; delete _routesCache[id];
+      done++;
+    }catch(e){ console.warn('Kopie löschen fehlgeschlagen:', nm, (e&&e.code)||'', e); failed.push(nm); }
+  }
+  try{ await updateDoc(doc(db,'projects',currentProjectId),{tourCount:firebase.firestore.FieldValue.increment(-done)}); }catch(_){}
+  try{ if(!activeTours.size) filterTour='all'; syncActiveTour(); }catch(_){}
+  notify(failed.length?`⚠ ${done} gelöscht, ${failed.length} fehlgeschlagen (${failed.slice(0,3).join(', ')}${failed.length>3?' …':''})`:`✓ ${done} Kopie${done===1?'':'n'} gelöscht — Objekte bleiben erhalten`);
+}
 async function deleteTour(id){
   const tour=tours.find(t=>t.id===id);
   const name=tour?.name||'';
@@ -19327,7 +19410,7 @@ Object.assign(window,{
   docUploadStart,docUploadFiles,docAddLink,docDelete,switchModalTab,
   openAddTree,openEditTree,closeTreeModal,saveTree,deleteTree,
   archiveTree,reactivateTree,archiveTreeFromModal,reactivateTreeFromModal,deleteTreeFromModal,toggleShowInactive,showTreeOnMapFromModal,bulkSetInactive,bulkDelete,
-  openTourModal,closeTourModal,saveTour,deleteTour,openTourCopyDialog,toggleTourUebersicht,toggleOverviewInGrid,filterTourenGrid,showTourViolations,toggleTourKontrolle,ctxCalcSelected,setTourZeitBasis,
+  openTourModal,closeTourModal,saveTour,deleteTour,openTourCopyDialog,openTourCopyCleanupDialog,toggleTourUebersicht,toggleOverviewInGrid,filterTourenGrid,showTourViolations,toggleTourKontrolle,ctxCalcSelected,setTourZeitBasis,
   tourZusatzAdd,tourZusatzDel,tourRegelToggle,tourUpdWeekday,tourRhythmusUI,tourToggleBetriebstag,tourGueltigAdd,tourGueltigDel,tourGueltigSet,_sx,_sxClear,
   openTourReport,closeReportModal,repAddCol,repRemoveCol,repMoveCol,repApplyFromControls,
   printReport,exportReportExcel,saveReportTemplate,loadReportTemplate,printTourMap,saveTourReportStd,openTourBatchPrint,
